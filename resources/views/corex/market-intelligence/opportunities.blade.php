@@ -1,28 +1,41 @@
 {{--
     MIC Phase D4 — Opportunities tab. Replaces the D1 stub.
     Spec: .ai/specs/mic-complete-spec.md §5.4.
+    DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20
 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div style="max-width: 1640px; margin: 0 auto; padding: 0 20px;">
+<div style="width: 100%;">
+
+    <x-mic-page-header
+        title="Opportunities"
+        subtitle="Tracked properties matched to your buyers and renters, ranked by strong-match count." />
 
     @include('corex.market-intelligence.partials.tabs')
 
     @if(session('status'))
-        <div style="margin-bottom: 12px; padding: 8px 12px; font-size: 0.8125rem;
-                    background: color-mix(in srgb, var(--ds-green, #10b981) 12%, transparent);
-                    color: var(--ds-green, #10b981);
-                    border: 1px solid var(--ds-green, #10b981); border-radius: 4px;">
-            {{ session('status') }}
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="margin-bottom: 12px;
+                    background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <div class="flex-1">{{ session('status') }}</div>
         </div>
     @endif
     @if(session('error'))
-        <div style="margin-bottom: 12px; padding: 8px 12px; font-size: 0.8125rem;
-                    background: color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent);
-                    color: var(--ds-crimson, #dc2626);
-                    border: 1px solid var(--ds-crimson, #dc2626); border-radius: 4px;">
-            {{ session('error') }}
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="margin-bottom: 12px;
+                    background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-crimson, #c41e3a);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
+            <div class="flex-1">{{ session('error') }}</div>
         </div>
     @endif
 

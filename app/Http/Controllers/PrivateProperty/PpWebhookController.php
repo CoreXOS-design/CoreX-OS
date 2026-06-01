@@ -8,6 +8,7 @@ use App\Models\Contact;
 use App\Models\ContactSource;
 use App\Models\ContactType;
 use App\Models\Property;
+use App\Services\PrivateProperty\PrivatePropertyConfig;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -17,29 +18,38 @@ class PpWebhookController extends Controller
 {
     public function receive(Request $request): Response
     {
-        $secret = config('services.private_property.webhook_secret');
-
-        if (empty($secret)) {
-            Log::channel('private_property')->error('PP webhook: PP_WEBHOOK_SECRET not configured — rejecting.');
-            return response('Misconfigured', 500);
-        }
-
         $body      = $request->getContent();
         $signature = (string) $request->header('X-Signature', '');
-        $expected  = base64_encode(hash_hmac('sha256', $body, $secret, true));
 
-        if (!hash_equals($expected, $signature)) {
-            Log::channel('private_property')->warning('PP webhook: invalid signature', [
-                'received' => $signature ? substr($signature, 0, 8) . '…' : '(empty)',
-                'ip'       => $request->ip(),
-            ]);
-            return response('Unauthorized', 401);
-        }
-
+        // Parse JSON first so we can resolve the right agency secret. Parsing
+        // alone confers no trust — the HMAC check below is what gates the
+        // request.
         $payload = json_decode($body, true);
         if (!is_array($payload)) {
             Log::channel('private_property')->warning('PP webhook: invalid JSON body');
-            return response('OK', 200); // PP must always see 200 for non-signature failures
+            return response('OK', 200);
+        }
+
+        // Resolve the agency for this lead via the listing's property → agency,
+        // falling back to env defaults if no match.
+        $externalRef = $payload['listingExternalReference'] ?? null;
+        $property    = $externalRef && is_numeric($externalRef) ? Property::find((int) $externalRef) : null;
+        $secret      = PrivatePropertyConfig::for($property?->agency)['webhook_secret'];
+
+        if (empty($secret)) {
+            Log::channel('private_property')->error('PP webhook: no webhook secret configured (agency or env) — rejecting.');
+            return response('Misconfigured', 500);
+        }
+
+        $expected = base64_encode(hash_hmac('sha256', $body, $secret, true));
+
+        if (!hash_equals($expected, $signature)) {
+            Log::channel('private_property')->warning('PP webhook: invalid signature', [
+                'received'  => $signature ? substr($signature, 0, 8) . '…' : '(empty)',
+                'ip'        => $request->ip(),
+                'agency_id' => $property?->agency_id,
+            ]);
+            return response('Unauthorized', 401);
         }
 
         Log::channel('private_property')->info('PP webhook: payload received', $payload);
@@ -47,9 +57,6 @@ class PpWebhookController extends Controller
         if (($payload['messageType'] ?? null) !== 'Lead') {
             return response('OK', 200);
         }
-
-        $externalRef = $payload['listingExternalReference'] ?? null;
-        $property    = $externalRef && is_numeric($externalRef) ? Property::find((int) $externalRef) : null;
 
         if (!$property) {
             Log::channel('private_property')->warning('PP webhook: lead for unknown property', [

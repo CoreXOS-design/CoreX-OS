@@ -112,7 +112,7 @@ class OversightService
             ->limit(200)
             ->get();
 
-        return $rows->map(function ($n) use ($agentMap) {
+        return $rows->map(function ($n) use ($agentMap, $hours) {
             $agent = $agentMap[$n->notifiable_id] ?? null;
             $age = Carbon::parse($n->created_at)->diffInHours(now());
             return [
@@ -233,7 +233,7 @@ class OversightService
         }
 
         $tasks = CommandTask::query()
-            ->whereIn('assigned_user_id', $agentIds)
+            ->whereIn('assigned_to', $agentIds)
             ->whereNotIn('status', ['done', 'dismissed'])
             ->whereNotNull('due_date')
             ->where('due_date', '<', Carbon::now())
@@ -241,11 +241,11 @@ class OversightService
             ->get();
 
         return $tasks->map(function ($t) use ($agentMap) {
-            $agent = $agentMap[$t->assigned_user_id] ?? null;
+            $agent = $agentMap[$t->assigned_to] ?? null;
             $age = Carbon::parse($t->due_date)->diffInHours(now());
             return [
                 'category'     => 'overdue_tasks',
-                'agent_id'     => (int) $t->assigned_user_id,
+                'agent_id'     => (int) $t->assigned_to,
                 'agent_name'   => $agent->name ?? 'Unknown',
                 'subject_type' => CommandTask::class,
                 'subject_id'   => $t->id,

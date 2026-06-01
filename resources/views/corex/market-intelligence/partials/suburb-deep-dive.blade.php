@@ -18,7 +18,7 @@
             {{ $suburb }}
         </h3>
         @if($fromFallback)
-            <span style="font-size: 0.625rem; padding: 1px 6px; border-radius: 3px;
+            <span style="font-size: 0.625rem; padding: 1px 6px; border-radius: 4px;
                          background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent);
                          color: var(--ds-amber, #d97706); font-weight: 600;">
                 Fallback
@@ -26,7 +26,7 @@
         @endif
     </div>
 
-    <div style="padding: 10px 12px; margin-bottom: 14px; border-radius: 5px;
+    <div style="padding: 10px 12px; margin-bottom: 14px; border-radius: 6px;
                 background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, var(--surface));
                 border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 22%, var(--border));">
         <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;

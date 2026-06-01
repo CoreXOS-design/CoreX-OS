@@ -115,6 +115,18 @@
                        class="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:px-3 file:py-1.5 file:text-sm"
                        style="color: var(--text-secondary);">
                 <p class="text-xs" style="color: var(--text-muted);">Images are matched to Listings by ListingNumber.</p>
+
+                <label class="flex items-start gap-2 cursor-pointer rounded-md px-3 py-2"
+                       style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <input type="checkbox" name="mark_compliant_on_confirm" value="1" checked class="mt-0.5">
+                    <span class="text-xs" style="color: var(--text-secondary);">
+                        <span class="font-semibold" style="color: var(--text-primary);">Mark all imported properties as compliant</span>
+                        <span class="block mt-0.5" style="color: var(--text-muted);">
+                            Use for agency go-live migrations only — pre-existing P24 stock is treated as already compliant so it can be marketed immediately on CoreX. Leave unticked for fresh imports that still need to pass FICA / mandate / photo gates.
+                        </span>
+                    </span>
+                </label>
+
                 <button type="submit"
                         class="corex-btn-primary"
                         :disabled="!{{ ($activeAgencyId && $hasAgentsRun) ? 'true' : 'false' }} || (phase !== 'idle' && phase !== 'error')">

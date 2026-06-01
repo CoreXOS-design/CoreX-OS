@@ -95,9 +95,9 @@
 <div id="corex-map-root" style="position: relative; height: calc(100vh - 64px); margin: -16px -20px -16px; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
 
     {{-- ── Header bar ────────────────────────────────────────────────────── --}}
-    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 500;">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--brand-default, #0b2a4a); border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 500;">
         <div style="display: flex; align-items: center; gap: 16px;">
-            <h1 style="font-size: 1.05rem; font-weight: 600; color: var(--text-primary); margin: 0;">CoreX Map</h1>
+            <h1 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin: 0; line-height: 1.2;">CoreX Map</h1>
             <div id="map-loading-pill" style="display: none; padding: 4px 10px; font-size: 0.6875rem; font-weight: 500; background: var(--surface-2); color: var(--text-secondary); border-radius: 999px;">Loading pins…</div>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
@@ -357,7 +357,7 @@
 
                 <div style="display: flex; gap: 6px; margin-top: 10px;">
                     <button type="button" id="filter-apply"
-                        style="flex: 1; padding: 7px 10px; font-size: 0.75rem; font-weight: 600; color: #0f172a; background: var(--brand-button); border: 0; border-radius: 4px; cursor: pointer;">
+                        style="flex: 1; padding: 7px 10px; font-size: 0.75rem; font-weight: 600; color: #fff; background: var(--brand-button, #0ea5e9); border: 0; border-radius: 4px; cursor: pointer;">
                         Apply
                     </button>
                     <button type="button" id="filter-clear"
@@ -392,7 +392,7 @@
         </aside>
 
         {{-- Main canvas --}}
-        <main style="flex: 1; position: relative; background: #e5e7eb;">
+        <main style="flex: 1; position: relative; background: var(--surface-2, #e5e7eb);">
             <div id="corex-map" style="position: absolute; inset: 0;"></div>
             <div id="empty-state" style="display: none; position: absolute; inset: 50% 0 0 0; transform: translateY(-50%); text-align: center; color: var(--text-muted); font-size: 0.875rem; pointer-events: none;">
                 No data in this area yet — try importing CMA reports for this suburb.

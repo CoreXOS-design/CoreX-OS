@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -17,49 +18,69 @@
         'price_match_with_other'     => 'Competitor matched price',
         'other'                      => 'Other',
     ];
+    // [display label, ds-badge variant]. Wins = green/info; losses are neutral
+    // analytics outcomes, not error states — they use amber/grey, never red.
     $outcomeLabel = function (string $o): array {
         $map = [
-            'won_mandate'           => ['Won mandate',         '#16a34a', '#dcfce7'],
-            'won_sale'              => ['Won + sale',          '#0ea5e9', '#dbeafe'],
-            'lost_to_competitor'    => ['Lost to competitor',  '#dc2626', '#fee2e2'],
-            'lost_to_no_decision'   => ['No decision',         '#92400e', '#fef3c7'],
-            'lost_to_price_dispute' => ['Price/strategy',      '#dc2626', '#fee2e2'],
-            'lost_to_no_response'   => ['No response',         '#64748b', '#f1f5f9'],
-            'still_pending'         => ['Pending',             '#0ea5e9', '#dbeafe'],
-            'other'                 => ['Other',               '#64748b', '#f1f5f9'],
+            'won_mandate'           => ['Won mandate',         'success'],
+            'won_sale'              => ['Won + sale',          'info'],
+            'lost_to_competitor'    => ['Lost to competitor',  'warning'],
+            'lost_to_no_decision'   => ['No decision',         'warning'],
+            'lost_to_price_dispute' => ['Price/strategy',      'warning'],
+            'lost_to_no_response'   => ['No response',         'default'],
+            'still_pending'         => ['Pending',             'info'],
+            'other'                 => ['Other',               'default'],
         ];
-        return $map[$o] ?? ['Outcome', '#64748b', '#f1f5f9'];
+        return $map[$o] ?? ['Outcome', 'default'];
     };
     $wonTotal = $wonMandate + $wonSale;
     $winRate  = $totalOutcomes > 0 ? round($wonTotal / $totalOutcomes * 100, 1) : 0.0;
     $lossMax  = !empty($lossReasons) ? max($lossReasons) : 1;
-@endphp
-<div style="max-width:1200px;margin:0 auto;padding:0 20px;">
 
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;">
-        <div>
-            <h1 style="font-size:1.25rem;font-weight:600;color:var(--text-primary);margin:0;">Outcomes Dashboard</h1>
-            <p style="font-size:0.8125rem;color:var(--text-muted);margin:4px 0 0 0;">
-                Win rate, loss reasons, and pipeline health across {{ $totalPresentations }} presentation{{ $totalPresentations === 1 ? '' : 's' }} in the selected window.
-            </p>
+    $hasFilters = $outcomeFilter || $reasonFilter || $agentFilter;
+@endphp
+
+<div class="w-full space-y-5">
+
+    {{-- Page header (Pattern A — branded) --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Outcomes Dashboard</h1>
+                <p class="text-sm text-white/60">
+                    Win rate, loss reasons, and pipeline health across {{ number_format($totalPresentations) }} presentation{{ $totalPresentations === 1 ? '' : 's' }} in the selected window.
+                </p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-sm"
+                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                    Presentations
+                </a>
+            </div>
         </div>
     </div>
 
     {{-- Filters --}}
-    <form method="GET" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
+    <form method="GET"
+          class="rounded-md p-4 grid gap-3"
+          style="background: var(--surface); border: 1px solid var(--border); grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
         <div>
-            <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;">From</label>
-            <input type="date" name="from" value="{{ $from->toDateString() }}"
-                   style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
+            <label for="from" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">From</label>
+            <input id="from" type="date" name="from" value="{{ $from->toDateString() }}"
+                   class="w-full rounded-md px-3 py-2 text-sm"
+                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         <div>
-            <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;">To</label>
-            <input type="date" name="to" value="{{ $to->toDateString() }}"
-                   style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
+            <label for="to" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">To</label>
+            <input id="to" type="date" name="to" value="{{ $to->toDateString() }}"
+                   class="w-full rounded-md px-3 py-2 text-sm"
+                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         <div>
-            <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;">Outcome</label>
-            <select name="outcome" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
+            <label for="outcome" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
+            <select id="outcome" name="outcome"
+                    class="w-full rounded-md px-3 py-2 text-sm"
+                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
                 @foreach(PresentationOutcome::ALL_OUTCOMES as $o)
                     <option value="{{ $o }}" @selected($outcomeFilter === $o)>{{ $outcomeLabel($o)[0] }}</option>
@@ -67,8 +88,10 @@
             </select>
         </div>
         <div>
-            <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;">Loss reason</label>
-            <select name="reason" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
+            <label for="reason" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Loss reason</label>
+            <select id="reason" name="reason"
+                    class="w-full rounded-md px-3 py-2 text-sm"
+                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
                 @foreach($reasonLabels as $k => $v)
                     <option value="{{ $k }}" @selected($reasonFilter === $k)>{{ $v }}</option>
@@ -77,8 +100,10 @@
         </div>
         @if($isManager)
         <div>
-            <label style="display:block;font-size:0.6875rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;">Agent</label>
-            <select name="agent_id" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
+            <label for="agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
+            <select id="agent_id" name="agent_id"
+                    class="w-full rounded-md px-3 py-2 text-sm"
+                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
                 @foreach($agents as $a)
                     <option value="{{ $a->id }}" @selected((int) $agentFilter === (int) $a->id)>{{ $a->name }}</option>
@@ -86,29 +111,32 @@
             </select>
         </div>
         @endif
-        <div style="display:flex;align-items:flex-end;">
-            <button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;padding:7px 14px;">Apply</button>
+        <div class="flex items-end gap-2">
+            <button type="submit" class="corex-btn-primary text-sm">Apply</button>
+            @if($hasFilters)
+                <a href="{{ route('corex.presentations.outcomes.index') }}" class="corex-btn-outline text-sm">Clear</a>
+            @endif
         </div>
     </form>
 
     {{-- Top metrics --}}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:16px;">
-        @php
-            $metrics = [
-                ['Total outcomes',     $totalOutcomes, null],
-                ['Won mandates',       $wonTotal,      $totalOutcomes > 0 ? round($wonTotal / $totalOutcomes * 100, 1) . '%' : '—'],
-                ['Lost to competitor', $lostComp,      $totalOutcomes > 0 ? round($lostComp / $totalOutcomes * 100, 1) . '%' : '—'],
-                ['No decision',        $lostNoDec,     $totalOutcomes > 0 ? round($lostNoDec / $totalOutcomes * 100, 1) . '%' : '—'],
-                ['Avg days to outcome', $avgDays !== null ? ($avgDays . 'd') : '—', null],
-                ['Still pending',      $stillPending,  null],
-            ];
-        @endphp
+    @php
+        $metrics = [
+            ['Total outcomes',      number_format($totalOutcomes), null],
+            ['Won mandates',        number_format($wonTotal),      $totalOutcomes > 0 ? number_format($wonTotal / $totalOutcomes * 100, 1) . '%' : '—'],
+            ['Lost to competitor',  number_format($lostComp),      $totalOutcomes > 0 ? number_format($lostComp / $totalOutcomes * 100, 1) . '%' : '—'],
+            ['No decision',         number_format($lostNoDec),     $totalOutcomes > 0 ? number_format($lostNoDec / $totalOutcomes * 100, 1) . '%' : '—'],
+            ['Avg days to outcome', $avgDays !== null ? number_format($avgDays) . 'd' : '—', null],
+            ['Still pending',       number_format($stillPending),  null],
+        ];
+    @endphp
+    <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
         @foreach($metrics as [$lbl, $val, $sub])
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px 14px;">
-                <div style="font-size:0.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600;">{{ $lbl }}</div>
-                <div style="font-size:1.25rem;color:var(--text-primary);font-weight:700;margin-top:3px;">{{ $val }}</div>
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{{ $lbl }}</div>
+                <div class="mt-1 font-semibold" style="font-size: 1.625rem; color: var(--text-primary);">{{ $val }}</div>
                 @if($sub)
-                    <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:1px;">{{ $sub }}</div>
+                    <div class="mt-0.5 text-xs" style="color: var(--text-muted);">{{ $sub }} of outcomes</div>
                 @endif
             </div>
         @endforeach
@@ -116,17 +144,17 @@
 
     {{-- Loss reasons chart --}}
     @if(!empty($lossReasons))
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:16px;">
-            <h2 class="ds-section-header" style="margin:0 0 10px 0;">Loss reasons breakdown</h2>
-            <div style="display:flex;flex-direction:column;gap:6px;">
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <h2 class="ds-section-header" style="margin: 0 0 12px 0;">Loss reasons breakdown</h2>
+            <div class="flex flex-col gap-2.5">
                 @foreach($lossReasons as $key => $count)
                     @php $pct = max(2, round(($count / $lossMax) * 100)); @endphp
-                    <div style="display:grid;grid-template-columns:200px 1fr 30px;align-items:center;gap:10px;">
-                        <div style="font-size:0.75rem;color:var(--text-secondary);">{{ $reasonLabels[$key] ?? $key }}</div>
-                        <div style="background:#fee2e2;height:18px;border-radius:3px;overflow:hidden;">
-                            <div style="background:#dc2626;height:100%;width:{{ $pct }}%;"></div>
+                    <div class="grid items-center gap-3" style="grid-template-columns: minmax(120px, 200px) 1fr 30px;">
+                        <div class="text-xs" style="color: var(--text-secondary);">{{ $reasonLabels[$key] ?? $key }}</div>
+                        <div class="ds-progress-track">
+                            <div class="ds-progress-bar ds-bar-amber" style="width: {{ $pct }}%;"></div>
                         </div>
-                        <div style="font-size:0.75rem;color:var(--text-secondary);text-align:right;">{{ $count }}</div>
+                        <div class="text-xs text-right" style="color: var(--text-secondary);">{{ number_format($count) }}</div>
                     </div>
                 @endforeach
             </div>
@@ -135,66 +163,86 @@
 
     {{-- Outcomes list --}}
     @if($outcomes->isEmpty())
-        <div style="padding:24px;text-align:center;background:var(--surface);border:1px dashed var(--border);border-radius:6px;color:var(--text-muted);font-size:0.875rem;">
-            No outcomes match the current filters.
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No outcomes to show</h3>
+            <p class="text-sm mb-4" style="color: var(--text-muted);">
+                @if($hasFilters)
+                    No outcomes match the current filters. Try widening the date range or clearing filters.
+                @else
+                    Outcomes appear here once they are recorded against your presentations.
+                @endif
+            </p>
+            @if($hasFilters)
+                <a href="{{ route('corex.presentations.outcomes.index') }}" class="corex-btn-primary text-sm">Clear filters</a>
+            @else
+                <a href="{{ route('presentations.index') }}" class="corex-btn-primary text-sm">Go to Presentations</a>
+            @endif
         </div>
     @else
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden;">
-            <table style="width:100%;border-collapse:collapse;font-size:0.8125rem;">
-                <thead>
-                    <tr style="background:var(--surface-2);color:var(--text-muted);font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.04em;">
-                        <th style="text-align:left;padding:10px 12px;">Property</th>
-                        <th style="text-align:left;padding:10px 12px;">Outcome</th>
-                        <th style="text-align:left;padding:10px 12px;">Reason / Competitor</th>
-                        <th style="text-align:left;padding:10px 12px;">Recorded by</th>
-                        <th style="text-align:left;padding:10px 12px;">Decision</th>
-                        <th style="text-align:left;padding:10px 12px;"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                @foreach($outcomes as $o)
-                    @php [$ol, $oc, $obg] = $outcomeLabel($o->outcome); @endphp
-                    <tr style="border-top:1px solid var(--border);">
-                        <td style="padding:10px 12px;color:var(--text-primary);">
-                            <a href="{{ route('presentations.show', $o->presentation_id) }}" style="color:var(--text-primary);font-weight:500;text-decoration:none;">
-                                {{ $o->presentation?->property_address ?: 'Presentation #' . $o->presentation_id }}
-                            </a>
-                            @if($o->presentation?->suburb)
-                                <div style="font-size:0.6875rem;color:var(--text-muted);">{{ $o->presentation->suburb }}</div>
-                            @endif
-                        </td>
-                        <td style="padding:10px 12px;">
-                            <span style="display:inline-block;padding:3px 8px;border-radius:99px;font-size:0.6875rem;font-weight:600;background:{{ $obg }};color:{{ $oc }};">
-                                {{ $ol }}
-                            </span>
-                            @if($o->locked)
-                                <span title="Locked for analytics" style="font-size:0.625rem;color:var(--text-muted);">🔒</span>
-                            @endif
-                        </td>
-                        <td style="padding:10px 12px;color:var(--text-secondary);font-size:0.75rem;">
-                            @if($o->cancellation_reason)
-                                {{ $reasonLabels[$o->cancellation_reason] ?? $o->cancellation_reason }}
-                            @endif
-                            @if($o->cancellation_competitor_agency)
-                                <div style="font-size:0.6875rem;color:var(--text-muted);">{{ $o->cancellation_competitor_agency }}@if($o->cancellation_competitor_price) @ R {{ number_format((int) $o->cancellation_competitor_price) }}@endif</div>
-                            @endif
-                        </td>
-                        <td style="padding:10px 12px;color:var(--text-secondary);font-size:0.75rem;">
-                            {{ $o->recorder?->name }}
-                            <div style="font-size:0.6875rem;color:var(--text-muted);">{{ $o->recorded_at?->diffForHumans() }}</div>
-                        </td>
-                        <td style="padding:10px 12px;color:var(--text-secondary);font-size:0.75rem;">
-                            {{ $o->decision_at?->format('j M Y') ?: '—' }}
-                        </td>
-                        <td style="padding:10px 12px;text-align:right;">
-                            <a href="{{ route('presentations.show', $o->presentation_id) }}" style="font-size:0.6875rem;color:var(--brand-button);text-decoration:none;">Open →</a>
-                        </td>
-                    </tr>
-                @endforeach
-                </tbody>
-            </table>
+        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm ds-table">
+                    <thead>
+                        <tr style="background: var(--surface-2);">
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Property</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Outcome</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Reason / Competitor</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Recorded by</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Decision</th>
+                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach($outcomes as $o)
+                        @php [$ol, $ovariant] = $outcomeLabel($o->outcome); @endphp
+                        <tr style="border-top: 1px solid var(--border);">
+                            <td class="px-4 py-3" style="color: var(--text-primary);">
+                                <a href="{{ route('presentations.show', $o->presentation_id) }}"
+                                   class="font-medium no-underline" style="color: var(--text-primary);">
+                                    {{ $o->presentation?->property_address ?: 'Presentation #' . $o->presentation_id }}
+                                </a>
+                                @if($o->presentation?->suburb)
+                                    <div class="text-xs" style="color: var(--text-muted);">{{ $o->presentation->suburb }}</div>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3">
+                                <span class="ds-badge ds-badge-{{ $ovariant }}">{{ $ol }}</span>
+                                @if($o->locked)
+                                    <span title="Locked for analytics" class="ml-1 text-xs" style="color: var(--text-muted);">🔒</span>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">
+                                @if($o->cancellation_reason)
+                                    {{ $reasonLabels[$o->cancellation_reason] ?? $o->cancellation_reason }}
+                                @endif
+                                @if($o->cancellation_competitor_agency)
+                                    <div class="text-xs" style="color: var(--text-muted);">{{ $o->cancellation_competitor_agency }}@if($o->cancellation_competitor_price) @ R {{ number_format((int) $o->cancellation_competitor_price) }}@endif</div>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">
+                                {{ $o->recorder?->name }}
+                                <div class="text-xs" style="color: var(--text-muted);">{{ $o->recorded_at?->diffForHumans() }}</div>
+                            </td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">
+                                {{ $o->decision_at?->format('j M Y') ?: '—' }}
+                            </td>
+                            <td class="px-4 py-3 text-right">
+                                <a href="{{ route('presentations.show', $o->presentation_id) }}"
+                                   class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">Open →</a>
+                            </td>
+                        </tr>
+                    @endforeach
+                    </tbody>
+                </table>
+            </div>
+            <div class="px-4 py-3" style="border-top: 1px solid var(--border);">{{ $outcomes->links() }}</div>
         </div>
-        <div style="padding:12px 4px;">{{ $outcomes->links() }}</div>
     @endif
 
 </div>

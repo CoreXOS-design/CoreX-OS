@@ -42,7 +42,11 @@ class RecordDomainEvent
             // the interface deliberately doesn't promise them — keeps the
             // contract narrow and lets specialised event classes (e.g. external
             // system events) opt out of the framework metadata if ever needed.
-            DB::table('domain_event_log')->insert([
+            // insertOrIgnore: the same event being dispatched twice (e.g. by an
+            // outer + inner observer, or a manual ->dispatch() after an
+            // auto-fired observer) is harmless for audit purposes. Silently
+            // drop the duplicate instead of throwing — the first row wins.
+            DB::table('domain_event_log')->insertOrIgnore([
                 'event_id'         => $event->eventId,
                 'trace_id'         => $event->traceId,
                 'event_name'       => $event->eventName(),

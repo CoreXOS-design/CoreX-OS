@@ -159,6 +159,7 @@ class ImporterController extends Controller
             'status'            => 'parsing',
             'listings_csv_path' => $listingsPath,
             'images_csv_path'   => $imagesPath,
+            'mark_compliant_on_confirm' => $request->boolean('mark_compliant_on_confirm'),
         ]);
 
         try {
@@ -601,6 +602,91 @@ class ImporterController extends Controller
     {
         $progress = \Illuminate\Support\Facades\Cache::get(
             \App\Console\Commands\SyncP24Locations::PROGRESS_KEY
+        ) ?: ['status' => 'idle'];
+
+        return response()->json($progress);
+    }
+
+    /**
+     * Private Property locations page — hidden background data (no tree).
+     * Shows only refresh + progress + counts + last-synced, matching the spec
+     * at .ai/specs/pp-locations-importer.md.
+     */
+    public function ppLocations()
+    {
+        $totals = [
+            'provinces' => \App\Models\PpProvince::count(),
+            'cities'    => \App\Models\PpCity::count(),
+            'suburbs'   => \App\Models\PpSuburb::count(),
+        ];
+
+        $lastSyncedAgency = \App\Models\Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->whereNotNull('pp_locations_synced_at')
+            ->orderByDesc('pp_locations_synced_at')
+            ->first();
+
+        return view('admin.importer.pp-locations', [
+            'totals'        => $totals,
+            'lastSyncedAt'  => $lastSyncedAgency?->pp_locations_synced_at,
+            'lastSyncError' => $lastSyncedAgency?->pp_locations_last_error
+                ?? \App\Models\Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                    ->whereNotNull('pp_locations_last_error')->value('pp_locations_last_error'),
+        ]);
+    }
+
+    public function refreshPpLocations(\Illuminate\Http\Request $request)
+    {
+        $current = \Illuminate\Support\Facades\Cache::get(
+            \App\Console\Commands\SyncPpLocations::PROGRESS_KEY
+        );
+        if (is_array($current) && ($current['status'] ?? null) === 'running') {
+            $msg = 'Sync already running — watch the progress bar.';
+            return $request->expectsJson()
+                ? response()->json(['success' => true, 'already_running' => true, 'message' => $msg])
+                : back()->with('success', $msg);
+        }
+
+        \Illuminate\Support\Facades\Cache::put(
+            \App\Console\Commands\SyncPpLocations::PROGRESS_KEY,
+            [
+                'status'          => 'running',
+                'provinces_total' => 0,
+                'provinces_done'  => 0,
+                'cities_done'     => 0,
+                'suburbs_done'    => 0,
+                'current'         => 'Queuing sync…',
+                'error'           => null,
+                'started_at'      => now()->toIso8601String(),
+                'finished_at'     => null,
+            ],
+            \App\Console\Commands\SyncPpLocations::PROGRESS_TTL
+        );
+
+        $php     = $this->resolvePhpCliBinary();
+        $base    = base_path();
+        $logFile = storage_path('logs/pp-sync.log');
+        $cmd     = sprintf('%s %s/artisan pp:sync-locations', escapeshellarg($php), escapeshellarg($base));
+
+        try {
+            if (DIRECTORY_SEPARATOR === '\\') {
+                pclose(popen('start /B "" ' . $cmd . ' > ' . escapeshellarg($logFile) . ' 2>&1', 'r'));
+            } else {
+                exec('nohup ' . $cmd . ' >> ' . escapeshellarg($logFile) . ' 2>&1 &');
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Artisan::queue('pp:sync-locations');
+        }
+
+        $msg = 'Private Property location sync started. Progress will update below.';
+        return $request->expectsJson()
+            ? response()->json(['success' => true, 'message' => $msg])
+            : back()->with('success', $msg);
+    }
+
+    public function ppLocationsStatus()
+    {
+        $progress = \Illuminate\Support\Facades\Cache::get(
+            \App\Console\Commands\SyncPpLocations::PROGRESS_KEY
         ) ?: ['status' => 'idle'];
 
         return response()->json($progress);

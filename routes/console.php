@@ -85,10 +85,10 @@ Schedule::job(new \App\Jobs\ProcessPrivatePropertyEventFeed())
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
 
-// Property24 ExDev buyer-enquiry leads pull — runs every 15 minutes.
+// Property24 ExDev buyer-enquiry leads pull — runs every 5 minutes.
 // Persists into portal_leads alongside PP leads. See .ai/specs/portal-leads.md.
 Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
-    ->everyFifteenMinutes()
+    ->everyFiveMinutes()
     ->withoutOverlapping()
     ->name('p24-leads-pull');
 
@@ -201,3 +201,8 @@ if (in_array(app()->environment(), ['local', 'demo'], true)) {
 // has passed as 'expired' and fires Mandate\MandateExpired domain events.
 // Spec: .ai/specs/corex-domain-events-spec.md (Wave 6 deferred wiring).
 Schedule::command('mandates:expire')->dailyAt('01:00')->onOneServer()->withoutOverlapping();
+
+// Fault reports auto-prune — soft-delete reports older than 3 days, daily at 02:30.
+Schedule::call(function () {
+    \App\Models\FaultReport::where('last_seen_at', '<', now()->subDays(3))->delete();
+})->dailyAt('02:30')->name('fault-reports.prune')->onOneServer()->withoutOverlapping();

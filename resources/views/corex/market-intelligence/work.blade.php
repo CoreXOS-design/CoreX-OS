@@ -15,6 +15,14 @@
 
 @section('corex-content')
 
+<x-mic-page-header
+    title="Work"
+    subtitle="Your prospecting worklist — listings to action, ranked by suggested next step.">
+    <x-slot:actions>
+        @include('corex.market-intelligence.partials._header-actions')
+    </x-slot:actions>
+</x-mic-page-header>
+
 @include('corex.market-intelligence.partials.tabs')
 
 @include('corex.market-intelligence.partials.this-week-hero', [
@@ -27,7 +35,6 @@
 
 <header class="mi-header"
         style="position: sticky; top: 0; z-index: 10; background: var(--surface);">
-    @include('corex.market-intelligence._top-bar')
     @include('corex.market-intelligence._stats-strip')
 </header>
 

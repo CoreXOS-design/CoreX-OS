@@ -610,10 +610,25 @@ class MobilePropertyController extends Controller
 
         $property->saveQuietly();
 
+        // Queue AI vision analysis (gated by agency flag + user permission)
+        $analysisId = null;
+        $u = $request->user();
+        if ($u?->agency?->ai_image_recognition_enabled && $u->hasPermission('use_property_image_ai')) {
+            $analysis = \App\Models\PropertyImageAnalysis::create([
+                'agency_id'   => $property->agency_id,
+                'property_id' => $property->id,
+                'image_path'  => $path,
+                'status'      => 'queued',
+            ]);
+            \App\Jobs\AnalysePropertyImageJob::dispatch($analysis->id)->onQueue('ai');
+            $analysisId = $analysis->id;
+        }
+
         return response()->json([
-            'message'   => 'Image uploaded.',
-            'url'       => $url,
-            'room_tag'  => $roomTag,
+            'message'     => 'Image uploaded.',
+            'url'         => $url,
+            'room_tag'    => $roomTag,
+            'analysis_id' => $analysisId,
         ], 201);
     }
 

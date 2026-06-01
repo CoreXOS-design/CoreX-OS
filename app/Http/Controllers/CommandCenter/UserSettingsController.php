@@ -34,9 +34,14 @@ class UserSettingsController extends Controller
         $user     = $request->user();
         $settings = UserDashboardSetting::getEffective($user);
 
-        // If agency-controlled, users cannot edit
+        // Under agency lock, users may still toggle their own mobile push master.
+        // Everything else is read-only.
         if ($settings->getAttribute('is_agency_controlled') ?? false) {
-            return back()->with('error', 'Dashboard settings are managed by your agency administrator.');
+            \App\Models\CommandCenter\UserDashboardSetting::updateOrCreate(
+                ['user_id' => $user->id],
+                ['notify_push' => $request->boolean('notify_push')]
+            );
+            return back()->with('success', 'Push setting saved. Other notification settings are managed by your agency.');
         }
 
         $validated = $request->validate([
@@ -60,6 +65,11 @@ class UserSettingsController extends Controller
             'working_hours_end'          => 'required|date_format:H:i,H:i:s',
             'notify_in_app'              => 'nullable|boolean',
             'notify_email'               => 'nullable|boolean',
+            'notify_push'                => 'nullable|boolean',
+            'open_hours_enabled'         => 'nullable|boolean',
+            'open_hours_start'           => 'required|date_format:H:i,H:i:s',
+            'open_hours_end'             => 'required|date_format:H:i,H:i:s',
+            'min_minutes_between_same'   => 'required|integer|min:0|max:10080',
         ]);
 
         // Boolean fields default to false if not sent
@@ -67,12 +77,13 @@ class UserSettingsController extends Controller
             'idle_alerts_enabled', 'doc_reminders_enabled', 'lease_expiry_reminders',
             'fica_reminders', 'ffc_reminders', 'task_due_reminders',
             'weekend_visible', 'notify_in_app', 'notify_email',
+            'notify_push', 'open_hours_enabled',
         ] as $boolField) {
             $validated[$boolField] = $request->boolean($boolField);
         }
 
         // Trim seconds from time fields so the DB stores a clean H:i
-        foreach (['idle_alert_time', 'working_hours_start', 'working_hours_end'] as $timeField) {
+        foreach (['idle_alert_time', 'working_hours_start', 'working_hours_end', 'open_hours_start', 'open_hours_end'] as $timeField) {
             if (!empty($validated[$timeField])) {
                 $validated[$timeField] = substr($validated[$timeField], 0, 5);
             }

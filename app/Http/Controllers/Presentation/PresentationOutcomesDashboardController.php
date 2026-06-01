@@ -40,8 +40,8 @@ final class PresentationOutcomesDashboardController extends Controller
         $agentFilter     = $request->integer('agent_id')          ?: null;
 
         $base = PresentationOutcome::query()
-            ->where('agency_id', $effective)
-            ->whereBetween('recorded_at', [$from, $to]);
+            ->where('presentation_outcomes.agency_id', $effective)
+            ->whereBetween('presentation_outcomes.recorded_at', [$from, $to]);
 
         // Permission-aware narrowing.
         $isManager = in_array((string) $user->role, ['branch_manager', 'principal', 'super_admin', 'admin'], true);

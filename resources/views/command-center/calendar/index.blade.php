@@ -49,7 +49,7 @@
 <div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (!open) sessionStorage.removeItem('corex.calendar.createEventState'); }); $watch('panelOpen', open => { if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
     {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
-    <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-1" style="background: var(--bg);">
+    <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-4 lg:pt-6" style="background: var(--bg);">
 
     {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -707,7 +707,10 @@
                                     @click.stop="openEventPanel({{ $evt->id }})"
                                     class="block w-full text-left px-3 py-2 rounded transition hover:opacity-80"
                                     style="{{ $chipStyle }}">
-                                <div class="font-medium text-sm">{{ $evt->title }}</div>
+                                <div class="font-medium text-sm flex items-center gap-1.5">
+                                    <span>{{ $evt->title }}</span>
+                                    @if($evt->created_by_ai)<x-ai-badge size="xs" />@endif
+                                </div>
                                 <div class="text-[11px] opacity-70 mt-0.5">{{ $evt->category }}</div>
                             </button>
                         @endforeach
@@ -902,6 +905,7 @@
                                         @else
                                             <span class="text-sm flex-1 truncate" style="color: var(--text-primary);">{{ $evt->title }}</span>
                                         @endif
+                                        @if($evt->created_by_ai)<x-ai-badge size="xs" />@endif
                                         @if($evt->property_id)
                                             <a href="{{ route('corex.properties.show', $evt->property_id) }}"
                                                class="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap hover:opacity-80 transition-opacity inline-flex items-center gap-1"

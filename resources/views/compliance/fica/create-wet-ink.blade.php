@@ -19,8 +19,11 @@
 
     <form method="POST" action="{{ route('compliance.fica.wet-ink.store') }}" enctype="multipart/form-data"
           x-data="{
-              search: '', open: false, selected: {{ old('contact_id', 'null') }}, selectedName: '{{ old('contact_id') ? '' : '' }}',
-              entityType: '{{ old('entity_type', 'natural') }}',
+              search: '',
+              open: false,
+              selected: {{ \Illuminate\Support\Js::from(old('contact_id') ?: null) }},
+              selectedName: {{ \Illuminate\Support\Js::from('') }},
+              entityType: {{ \Illuminate\Support\Js::from(old('entity_type', 'natural')) }},
               contactInfo: null
           }">
         @csrf

@@ -206,7 +206,7 @@
                               rows="3"
                               placeholder="Add context, next steps, conversation notes…"
                               style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); color: var(--text-primary); font-size: 0.8125rem; resize: vertical;"></textarea>
-                    <div x-show="error" x-text="error" style="color: var(--ds-crimson); font-size: 0.75rem; margin-top: 6px;"></div>
+                    <div x-show="error" x-text="error" style="color: var(--ds-crimson, #dc2626); font-size: 0.75rem; margin-top: 6px;"></div>
                     <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px;">
                         <button type="button" @click="noteOpen = false" style="{{ $actionSecondary }}">Cancel</button>
                         <button type="submit" :disabled="submitting" style="{{ $actionPrimary }}">

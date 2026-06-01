@@ -398,6 +398,11 @@ Route::prefix('admin/importer')->middleware(['auth', 'owner_only'])->name('admin
     Route::get('/p24-locations',           [\App\Http\Controllers\Admin\ImporterController::class, 'p24Locations'])->name('p24-locations');
     Route::post('/p24-locations/refresh',  [\App\Http\Controllers\Admin\ImporterController::class, 'refreshP24Locations'])->name('p24-locations.refresh');
     Route::get('/p24-locations/status',    [\App\Http\Controllers\Admin\ImporterController::class, 'p24LocationsStatus'])->name('p24-locations.status');
+
+    // PP Locations browser — hidden background data; UI shows refresh + counts only.
+    Route::get('/pp-locations',           [\App\Http\Controllers\Admin\ImporterController::class, 'ppLocations'])->name('pp-locations');
+    Route::post('/pp-locations/refresh',  [\App\Http\Controllers\Admin\ImporterController::class, 'refreshPpLocations'])->name('pp-locations.refresh');
+    Route::get('/pp-locations/status',    [\App\Http\Controllers\Admin\ImporterController::class, 'ppLocationsStatus'])->name('pp-locations.status');
     Route::post('/agents/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadAgents'])->name('agents.upload');
     Route::get('/runs/{run}/preview', [\App\Http\Controllers\Admin\ImporterController::class, 'preview'])->name('preview');
     Route::post('/runs/{run}/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmAgents'])->name('confirm');
@@ -546,6 +551,10 @@ Route::middleware(['auth'])->group(function () {
         ->name('admin.fault-reports.update-status');
     Route::post('/admin/fault-reports/bulk', [\App\Http\Controllers\FaultReportController::class, 'bulkAction'])
         ->name('admin.fault-reports.bulk');
+    Route::post('/admin/fault-reports/clear-all', [\App\Http\Controllers\FaultReportController::class, 'clearAll'])
+        ->name('admin.fault-reports.clear-all');
+    Route::post('/admin/fault-reports/scan', [\App\Http\Controllers\FaultReportController::class, 'scan'])
+        ->name('admin.fault-reports.scan');
     Route::get('/admin/fault-reports', [\App\Http\Controllers\FaultReportController::class, 'index'])
         ->name('admin.fault-reports');
 });
@@ -600,6 +609,7 @@ use App\Http\Controllers\Admin\TargetController;
 use App\Http\Controllers\ToolsController;
 use App\Http\Controllers\Tools\PdfSplitterController;
 use App\Http\Controllers\Tools\PdfSuiteController;
+use App\Http\Controllers\Tools\ImageConverterController;
 use App\Http\Controllers\Tools\FlowMapController;
 
 Route::middleware(['auth'])->group(function () {
@@ -651,6 +661,12 @@ Route::middleware(['auth'])->group(function () {
 
         Route::get('/redact',        [PdfSuiteController::class, 'redact'])->name('redact');
         Route::post('/redact',       [PdfSuiteController::class, 'redactRun'])->name('redact.run');
+    });
+
+    // Image Converter — HEIC / JPG / PNG / WEBP / BMP / TIFF / GIF → PNG / JPG / WEBP
+    Route::middleware('permission:access_image_converter')->prefix('tools/image-converter')->name('tools.image_converter.')->group(function () {
+        Route::get('/',  [ImageConverterController::class, 'index'])->name('index');
+        Route::post('/', [ImageConverterController::class, 'run'])->name('run');
     });
 
     // Splitter Doc Type Admin (legacy routes — kept so PDF Splitter links still work)
@@ -1618,7 +1634,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
-    Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->middleware('permission:access_settings')->name('corex.settings.generate-token');
+    Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
     Route::post('/settings/marketing-enabled', [CoreXSettingsController::class, 'updateMarketingEnabled'])->middleware('permission:access_settings')->name('corex.settings.marketing-enabled');
@@ -1630,6 +1646,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/matches-wa-message', [CoreXSettingsController::class, 'updateMatchesWaMessage'])->middleware('permission:access_settings')->name('corex.settings.matches-wa-message');
     Route::post('/settings/matches-show-on-properties', [CoreXSettingsController::class, 'updateMatchesShowOnProperties'])->middleware('permission:access_settings')->name('corex.settings.matches-show-on-properties');
     Route::post('/settings/matches-visibility-scope', [CoreXSettingsController::class, 'updateMatchesVisibilityScope'])->middleware('permission:access_settings')->name('corex.settings.matches-visibility-scope');
+    Route::post('/settings/contacts-per-page', [CoreXSettingsController::class, 'updateContactsPerPage'])->middleware('permission:access_settings')->name('corex.settings.contacts-per-page');
+    Route::post('/settings/properties-per-page', [CoreXSettingsController::class, 'updatePropertiesPerPage'])->middleware('permission:access_settings')->name('corex.settings.properties-per-page');
     Route::post('/settings/remote-access', [CoreXSettingsController::class, 'updateRemoteAccess'])->middleware('permission:agency.manage_access_authorization')->name('corex.settings.remote-access');
     // Old compliance-officers endpoint — kept for backwards compat, redirects
     Route::post('/settings/compliance-officers', function () {
@@ -1820,6 +1838,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/{agency}',      [\App\Http\Controllers\Admin\AgencyController::class, 'update'])->name('update');
         Route::post('/{agency}/p24/test',    [\App\Http\Controllers\Admin\AgencyController::class, 'testP24Connection'])->name('p24.test');
         Route::post('/{agency}/p24/refresh', [\App\Http\Controllers\Admin\AgencyController::class, 'refreshP24Locations'])->name('p24.refresh');
+        Route::post('/{agency}/pp/test',     [\App\Http\Controllers\Admin\AgencyController::class, 'testPpConnection'])->name('pp.test');
     });
 
     // Company Settings (standalone admin page — separate from tabbed settings)
@@ -1972,6 +1991,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/restore',     [\App\Http\Controllers\CoreX\PropertyController::class, 'restore'])->name('restore')->withTrashed();
         Route::post('/{property}/duplicate',   [\App\Http\Controllers\CoreX\PropertyController::class, 'duplicate'])->name('duplicate');
         Route::post('/{property}/publish-toggle', [\App\Http\Controllers\CoreX\PropertyController::class, 'publishToggle'])->name('publish-toggle');
+        Route::post('/{property}/upload-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'uploadImages'])->name('upload-images');
         Route::post('/{property}/delete-image',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteImage'])->name('deleteImage');
         Route::post('/{property}/reorder-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'reorderImages'])->name('reorderImages');
         // Notes

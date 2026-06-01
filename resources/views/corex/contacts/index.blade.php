@@ -193,6 +193,16 @@
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 </div>
+                <label class="flex items-start gap-2 cursor-pointer rounded-md px-3 py-2 w-full"
+                       style="background:var(--surface-2); border:1px solid var(--border);">
+                    <input type="checkbox" name="mark_fica_approved" value="1" checked class="mt-0.5">
+                    <span class="text-xs" style="color:var(--text-secondary);">
+                        <span class="font-semibold" style="color:var(--text-primary);">Mark all imported contacts as FICA approved</span>
+                        <span class="block mt-0.5" style="color:var(--text-muted);">
+                            Use for agency go-live migrations only — contacts brought over from a prior CRM are treated as already FICA-verified. Leave unticked for fresh contact lists that still need FICA collection.
+                        </span>
+                    </span>
+                </label>
                 <div class="flex items-center gap-3">
                     <button type="submit" class="corex-btn-primary text-sm" :disabled="importLoading">
                         <template x-if="!importLoading">

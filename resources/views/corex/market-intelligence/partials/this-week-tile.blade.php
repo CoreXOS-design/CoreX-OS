@@ -6,11 +6,13 @@
     backgrounds — the hero is meant to feel like a clean list, not a dashboard.
 --}}
 @php
+    // Urgency tiers map to documented semantic tokens (UI_DESIGN_SYSTEM.md §1.5),
+    // each with a fallback hex per §5.10. No raw hex in markup (strict rule 10).
     $urgencyColor = match ($tile->urgency) {
-        'red'     => '#dc2626',
-        'orange'  => '#d97706',
-        'blue'    => '#0ea5e9',
-        'green'   => '#10b981',
+        'red'     => 'var(--ds-crimson, #dc2626)',
+        'orange'  => 'var(--ds-amber, #f59e0b)',
+        'blue'    => 'var(--brand-icon, #0ea5e9)',
+        'green'   => 'var(--ds-green, #10b981)',
         default   => 'var(--text-muted)',
     };
 @endphp

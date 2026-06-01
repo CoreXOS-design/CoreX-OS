@@ -82,6 +82,26 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                     $property = Property::create($attrs);
                 }
 
+                // Go-live migration: agency on-boarding imports their existing
+                // already-compliant P24 stock. The run was flagged at upload
+                // time; flip the compliance snapshot so MarketingReadinessService
+                // short-circuits to "ready" (see service line 31).
+                if ($run->mark_compliant_on_confirm && $property->compliance_snapshot_at === null) {
+                    $property->forceFill([
+                        'compliance_snapshot_at'   => now(),
+                        'compliance_snapshot_data' => [
+                            'snapshot_version'       => 1,
+                            'source'                 => 'p24_go_live_migration',
+                            'p24_import_run_id'      => $run->id,
+                            'p24_listing_number'     => $listingNumber,
+                            'snapshotted_by_user_id' => $this->userId,
+                            'snapshotted_at'         => now()->toIso8601String(),
+                            'note'                   => 'Auto-marked compliant via P24 agency on-boarding import. Pre-existing P24 stock treated as already compliant for go-live.',
+                        ],
+                        'first_marketed_at' => $property->first_marketed_at ?? now(),
+                    ])->save();
+                }
+
                 $row->target_id = $property->id;
                 $row->status = 'confirmed';
                 $row->confirmed_at = now();

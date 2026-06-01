@@ -90,6 +90,12 @@ return [
         ],
     ],
 
+    'hf_ai' => [
+        'base_url'            => env('HF_AI_BASE_URL', 'http://127.0.0.1:3100'),
+        'transcribe_timeout'  => env('HF_AI_TRANSCRIBE_TIMEOUT', 15),
+        'voice_max_seconds'   => env('AI_VOICE_MAX_SECONDS', 30),
+    ],
+
     'property24_syndication' => [
         'api_url'        => env('P24_EXDEV_API_URL', 'https://api.exdev.property24-test.com'),
         'username'       => env('P24_EXDEV_USERNAME'),

@@ -18,6 +18,7 @@ class P24ImportRun extends Model
         'user_id',
         'agency_id',
         'kind',
+        'mark_compliant_on_confirm',
         'status',
         'agents_csv_path',
         'listings_csv_path',
@@ -29,9 +30,10 @@ class P24ImportRun extends Model
     ];
 
     protected $casts = [
-        'counts_json'   => 'array',
-        'confirmed_at'  => 'datetime',
-        'completed_at'  => 'datetime',
+        'counts_json'               => 'array',
+        'confirmed_at'              => 'datetime',
+        'completed_at'              => 'datetime',
+        'mark_compliant_on_confirm' => 'boolean',
     ];
 
     public function user(): BelongsTo

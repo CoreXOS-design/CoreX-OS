@@ -27,6 +27,7 @@ class CalendarEvent extends Model
         'reminder_offsets', 'reminders_sent',
         'is_recurring', 'recurrence_rule', 'parent_event_id',
         'metadata',
+        'created_by_ai', 'ai_source', 'ai_transcript',
     ];
 
     protected $casts = [
@@ -38,6 +39,7 @@ class CalendarEvent extends Model
         'reminder_offsets' => 'array',
         'reminders_sent'   => 'array',
         'metadata'         => 'array',
+        'created_by_ai'    => 'boolean',
     ];
 
     // ── Colour map by event type ──

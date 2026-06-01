@@ -20,11 +20,8 @@
             <input type="file" name="file" accept="application/pdf" required
                    style="font-size: 0.75rem; padding: 4px;
                           background: var(--surface); color: var(--text-primary);
-                          border: 1px solid var(--border); border-radius: 4px;">
-            <button type="submit"
-                    style="padding: 6px 12px; font-size: 0.75rem; font-weight: 500;
-                           background: var(--brand-button); color: #fff;
-                           border: none; border-radius: 4px; cursor: pointer;">
+                          border: 1px solid var(--border); border-radius: 6px;">
+            <button type="submit" class="corex-btn-primary">
                 Upload
             </button>
             <a href="{{ route('market-intelligence.reports.index') }}"

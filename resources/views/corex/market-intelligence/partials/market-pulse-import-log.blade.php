@@ -1,4 +1,5 @@
-{{-- Phase D6 — P24 import log (last 50 imports). --}}
+{{-- Phase D6 — P24 import log (last 50 imports).
+     DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 <section style="margin-bottom: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
     <div style="padding: 10px 14px; border-bottom: 1px solid var(--border);">
         <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin: 0;">
@@ -23,8 +24,8 @@
                     @foreach($importLog as $log)
                         @php
                             $statusColor = match ((string) $log->status) {
-                                'success' => '#10b981',
-                                'failure' => '#dc2626',
+                                'success' => 'var(--ds-green, #059669)',
+                                'failure' => 'var(--ds-crimson, #c41e3a)',
                                 default   => 'var(--text-muted)',
                             };
                         @endphp

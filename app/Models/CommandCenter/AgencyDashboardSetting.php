@@ -22,7 +22,9 @@ class AgencyDashboardSetting extends Model
         'overdue_daily_digest', 'digest_time',
         'default_calendar_view', 'weekend_visible',
         'working_hours_start', 'working_hours_end',
-        'notify_in_app', 'notify_email',
+        'notify_in_app', 'notify_email', 'notify_push',
+        'open_hours_enabled', 'open_hours_start', 'open_hours_end',
+        'min_minutes_between_same',
     ];
 
     protected $casts = [
@@ -36,6 +38,8 @@ class AgencyDashboardSetting extends Model
         'weekend_visible'        => 'boolean',
         'notify_in_app'          => 'boolean',
         'notify_email'           => 'boolean',
+        'notify_push'            => 'boolean',
+        'open_hours_enabled'     => 'boolean',
     ];
 
     public function agency(): BelongsTo

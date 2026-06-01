@@ -195,7 +195,7 @@ class PpManage extends Command
         $imageUrl = $this->option('image-url');
         if (!$imageUrl) {
             // Try to build from user's profile photo
-            $override  = config('services.private_property.image_base_url');
+            $override  = \App\Services\PrivateProperty\PrivatePropertyConfig::for($user->agency ?? null)['image_base_url'];
             $baseUrl   = rtrim(!empty($override) ? $override : config('app.url'), '/');
 
             if ($user->agent_photo_path) {
@@ -364,9 +364,9 @@ class PpManage extends Command
 
     private function testWebhook(): int
     {
-        $secret = config('services.private_property.webhook_secret');
+        $secret = \App\Services\PrivateProperty\PrivatePropertyConfig::for(null)['webhook_secret'];
         if (empty($secret)) {
-            $this->error('PP_WEBHOOK_SECRET is not set in .env — cannot generate a valid signature.');
+            $this->error('PP webhook secret is not set (neither in .env nor on any agency) — cannot generate a valid signature.');
             return 1;
         }
 

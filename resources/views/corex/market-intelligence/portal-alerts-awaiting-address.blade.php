@@ -11,20 +11,13 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div style="max-width: 1640px; margin: 0 auto; padding: 0 20px;">
+<div style="width: 100%;">
+
+    <x-mic-page-header
+        title="Portal alerts — awaiting address"
+        subtitle="These prospecting alerts can't appear on the map yet because they don't carry a street address or GPS. Open the portal URL, then use the Chrome extension to capture the listing — that promotes it to a pin-able prospecting record." />
 
     @include('corex.market-intelligence.partials.tabs')
-
-    <div style="margin-bottom: 16px;">
-        <h1 style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;">
-            Portal alerts — awaiting address
-        </h1>
-        <p style="font-size: 0.8125rem; color: var(--text-muted); margin: 0;">
-            These prospecting alerts can't appear on the map yet because they don't carry a street address or GPS.
-            Open the portal URL, then use the Chrome extension to capture the listing — that promotes it to a
-            pin-able prospecting record.
-        </p>
-    </div>
 
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-bottom: 16px;">
         <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
@@ -38,13 +31,19 @@
     </div>
 
     @if($alerts->isEmpty())
-        <div style="padding: 24px; text-align: center; background: var(--surface); border: 1px dashed var(--border); border-radius: 6px;">
-            <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0;">
-                No portal alerts awaiting an address right now. Anything new will show up here.
-            </p>
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+                <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">All caught up</h3>
+            <p class="text-sm" style="color: var(--text-muted);">No portal alerts awaiting an address right now. Anything new will show up here.</p>
         </div>
     @else
         <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+            <div style="overflow-x: auto;">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.8125rem;">
                 <thead>
                     <tr style="background: var(--surface-2); color: var(--text-muted); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em;">
@@ -97,7 +96,7 @@
                             <td style="padding: 8px 12px;">
                                 @if($a['portal_url'])
                                     <a href="{{ $a['portal_url'] }}" target="_blank" rel="noopener"
-                                       style="color: var(--brand-button, #00d4aa); text-decoration: none; font-weight: 500;">
+                                       style="color: var(--brand-button, #0ea5e9); text-decoration: none; font-weight: 500;">
                                         Open ↗
                                     </a>
                                 @else
@@ -108,6 +107,7 @@
                     @endforeach
                 </tbody>
             </table>
+            </div>
         </div>
         <div style="padding: 12px 4px;">{{ $alerts->links() }}</div>
     @endif

@@ -807,8 +807,6 @@
         </div>
     </div>
 
-</div>
-
 {{-- Toast notification --}}
 <div x-show="copyToast" x-cloak
      x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
@@ -816,6 +814,8 @@
      class="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-md shadow-lg text-sm font-medium text-white"
      style="background:var(--brand-default,#0b2a4a);">
     <span x-text="copyToastMsg"></span>
+</div>
+
 </div>
 
 <script>

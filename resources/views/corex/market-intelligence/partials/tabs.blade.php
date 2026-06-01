@@ -14,13 +14,26 @@
         ['key' => 'opportunities', 'route' => 'market-intelligence.opportunities', 'label' => 'Opportunities'],
         ['key' => 'analyse',       'route' => 'market-intelligence.analyse',       'label' => 'Analyse'],
         ['key' => 'market-pulse',  'route' => 'market-intelligence.market-pulse',  'label' => 'Market Pulse'],
+        ['key' => 'portal-alerts', 'route' => 'market-intelligence.portal-alerts', 'label' => 'Portal Alerts'],
     ];
     // Phase G2 — managers + admins see the Team tab.
     if (auth()->user()?->hasPermission('mic.view_team')) {
         $tabs[] = ['key' => 'team', 'route' => 'market-intelligence.team', 'label' => 'Team'];
     }
+    // Importer — bulk PDF report import, gated by mic.upload_reports. Lives
+    // inside MIC as a tab (no separate sidebar entry). Stays lit across the
+    // whole reports.* group (bulk-import, list, detail).
+    if (auth()->user()?->hasPermission('mic.upload_reports')
+        && \Illuminate\Support\Facades\Route::has('market-intelligence.reports.bulk-import')) {
+        $tabs[] = [
+            'key'   => 'importer',
+            'route' => 'market-intelligence.reports.bulk-import',
+            'label' => 'Importer',
+            'match' => 'market-intelligence.reports.*',
+        ];
+    }
     $activeKey = collect($tabs)
-        ->first(fn ($t) => request()->routeIs($t['route']))['key'] ?? 'work';
+        ->first(fn ($t) => request()->routeIs($t['match'] ?? $t['route']))['key'] ?? 'work';
 @endphp
 <nav class="mic-tabs"
      style="display: flex; align-items: center; justify-content: space-between;

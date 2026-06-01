@@ -11,11 +11,23 @@
 
 @section('corex-content')
 
+{{-- Full-width container — matches Contacts and the rest of the app so the
+     branded header, tab menu, and stats strip render at the same width as
+     every other page. --}}
+<div style="width: 100%;">
+
+<x-mic-page-header
+    title="Analyse"
+    subtitle="Market heat, velocity, buyer funnel, and agency share across your patch.">
+    <x-slot:actions>
+        @include('corex.market-intelligence.partials._header-actions')
+    </x-slot:actions>
+</x-mic-page-header>
+
 @include('corex.market-intelligence.partials.tabs')
 
 <header class="mi-header"
         style="position: sticky; top: 0; z-index: 10; background: var(--surface);">
-    @include('corex.market-intelligence._top-bar')
     @include('corex.market-intelligence._stats-strip', [
         'snapshotKpis'       => $snapshotKpis,
         'actionPresetCounts' => $actionPresetCounts,
@@ -23,7 +35,7 @@
     ])
 </header>
 
-<div class="mi-analyse-body" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; max-width: 1640px; margin: 0 auto;">
+<div class="mi-analyse-body" style="padding: 16px 0; display: flex; flex-direction: column; gap: 16px;">
 
     @include('corex.market-intelligence._ellie-brief', ['brief' => $data['brief']])
 
@@ -49,6 +61,7 @@
         </div>
     </div>
 </div>
+</div>{{-- /constrained container --}}
 
 {{-- Phase D5 — suburb + demand-pocket slide-over (lazy AJAX). --}}
 @include('corex.market-intelligence.partials.mic-slideover')
@@ -87,7 +100,7 @@
         .mi-analyse-grid { grid-template-columns: 1fr !important; }
     }
     @media (max-width: 768px) {
-        .mi-analyse-body { padding: 10px !important; gap: 10px !important; }
+        .mi-analyse-body { padding: 10px 0 !important; gap: 10px !important; }
     }
 
     /* Shared card style for every Analyse panel. */

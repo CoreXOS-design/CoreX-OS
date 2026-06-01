@@ -115,7 +115,7 @@
                         url.searchParams.delete('page');
                         window.location.href = url.toString();
                     })(this)"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">
                 @foreach($sortOptions as $key => $label)
                     @php
                         $dirOptions = $key === 'price' ? [['desc','↓'], ['asc','↑']] : [[$sortDir === 'asc' ? 'asc' : 'desc', '']];
@@ -139,8 +139,7 @@
             </svg>
             <h3 style="font-size: 1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">No listings match your filters</h3>
             <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 12px;">Try widening your search or clearing some filters.</p>
-            <a href="{{ route('market-intelligence.work') }}"
-               style="display: inline-block; padding: 6px 14px; background: var(--brand-default); color: #fff; text-decoration: none; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+            <a href="{{ route('market-intelligence.work') }}" class="corex-btn-primary">
                 Clear filters
             </a>
         </div>

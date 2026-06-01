@@ -2,19 +2,25 @@
 
 namespace App\Console\Commands;
 
+use App\Services\PrivateProperty\PrivatePropertyConfig;
 use App\Services\PrivateProperty\PrivatePropertySoapClient;
 use Illuminate\Console\Command;
 
 class PpSmokeTest extends Command
 {
-    protected $signature = 'pp:smoke-test';
+    protected $signature = 'pp:smoke-test {--agency= : Agency ID (uses env defaults when omitted)}';
     protected $description = 'Test Private Property sandbox SOAP connection by fetching branch details';
 
     public function handle(PrivatePropertySoapClient $client): int
     {
+        $agency = $this->option('agency')
+            ? \App\Models\Agency::find($this->option('agency'))
+            : null;
+        $client->forAgency($agency);
+        $cfg = PrivatePropertyConfig::for($agency);
         $this->info('Connecting to Private Property sandbox...');
-        $this->info('WSDL: ' . config('services.private_property.wsdl'));
-        $this->info('Branch GUID: ' . config('services.private_property.branch_guid'));
+        $this->info('WSDL: ' . $cfg['wsdl']);
+        $this->info('Branch GUID: ' . $cfg['branch_guid']);
         $this->newLine();
 
         $result = $client->getBranchDetails();

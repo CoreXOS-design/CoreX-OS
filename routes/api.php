@@ -35,10 +35,18 @@ $loginHandler = function (Request $request) {
 
     $user = User::where('email', $request->email)->first();
 
-    if (! $user || ! Hash::check($request->password, $user->password)) {
-        throw ValidationException::withMessages([
-            'email' => ['The provided credentials are incorrect.'],
-        ]);
+    if (! $user) {
+        return response()->json([
+            'message' => 'No user account found for this email.',
+            'code'    => 'user_not_found',
+        ], 404);
+    }
+
+    if (! Hash::check($request->password, $user->password)) {
+        return response()->json([
+            'message' => 'Incorrect password.',
+            'code'    => 'invalid_password',
+        ], 401);
     }
 
     $token = $user->createToken('corex-mobile')->plainTextToken;
@@ -176,6 +184,24 @@ Route::middleware('auth:sanctum')->group(function () {
             ]);
         })->name('v1.logged-user');
 
+        // Mobile app theme preference (light/dark)
+        Route::get('/me/theme', function (Request $request) {
+            return response()->json([
+                'theme' => $request->user()->theme ?? 'dark',
+            ]);
+        })->name('v1.me.theme.show');
+
+        Route::put('/me/theme', function (Request $request) {
+            $data = $request->validate([
+                'theme' => ['required', 'string', 'in:light,dark'],
+            ]);
+            $request->user()->update(['theme' => $data['theme']]);
+            return response()->json([
+                'theme' => $data['theme'],
+                'updated' => true,
+            ]);
+        })->name('v1.me.theme.update');
+
         Route::get('/profile', function (Request $request) {
             $user = $request->user();
             $agency = $user->effectiveAgencyId()
@@ -232,6 +258,10 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::put('/{property}',  [MobilePropertyController::class, 'update'])->name('v1.mobile.properties.update');
             Route::post('/{property}/images', [MobilePropertyController::class, 'uploadImage'])->name('v1.mobile.properties.images.upload');
 
+            // AI vision suggestions on uploaded property images
+            Route::get('/{property}/ai-suggestions',         [\App\Http\Controllers\Api\PropertyImageAiController::class, 'suggestions'])->name('v1.mobile.properties.ai.suggestions');
+            Route::post('/{property}/features/merge-ai',     [\App\Http\Controllers\Api\PropertyImageAiController::class, 'mergeFeatures'])->name('v1.mobile.properties.ai.features.merge');
+
             Route::get('/{property}/overview', [MobilePropertyController::class, 'overview'])->name('v1.mobile.properties.overview');
 
             Route::get('/{property}/compliance',                 [MobilePropertyController::class, 'compliance'])->name('v1.mobile.properties.compliance');
@@ -248,6 +278,20 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{property}/spaces', [MobilePropertyController::class, 'spacesShow'])->name('v1.mobile.properties.spaces.show');
             Route::put('/{property}/spaces', [MobilePropertyController::class, 'spacesUpdate'])->name('v1.mobile.properties.spaces.update');
         });
+
+        // ── Mobile Ellie Voice ──────────────────────────────────────
+        Route::prefix('mobile/ellie')->group(function () {
+            Route::post('/voice',                     [\App\Http\Controllers\Api\MobileEllieVoiceController::class, 'process'])->name('v1.mobile.ellie.voice');
+            Route::delete('/voice/events/{event}',    [\App\Http\Controllers\Api\MobileEllieVoiceController::class, 'undoEvent'])->name('v1.mobile.ellie.voice.undo');
+        });
+
+        // ── Mobile feature flags (advanced AI features) ─────────────
+        Route::get('/mobile/features', [\App\Http\Controllers\Api\MobileFeatureFlagController::class, 'index'])
+            ->name('v1.mobile.features');
+
+        // ── Mobile calendar (auth-user-only, web-parity filters) ─────
+        Route::get('/mobile/calendar', [\App\Http\Controllers\Api\MobileCalendarController::class, 'index'])
+            ->name('v1.mobile.calendar.index');
 
         // ── Mobile Contacts ─────────────────────────────────────────
         Route::prefix('mobile/contacts')->group(function () {
@@ -283,6 +327,15 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{match}/share-whatsapp',  [MobileCoreMatchController::class, 'shareWhatsApp'])->name('v1.mobile.core-matches.share-whatsapp.get');
             Route::post('/{match}/share-whatsapp', [MobileCoreMatchController::class, 'shareWhatsApp'])->name('v1.mobile.core-matches.share-whatsapp.post');
             Route::delete('/{match}',             [MobileCoreMatchController::class, 'destroy'])->name('v1.mobile.core-matches.destroy');
+        });
+
+        // ── Mobile Portal Leads (P24 + PP unified) ──────────────────
+        // Spec: .ai/specs/portal-leads.md
+        Route::prefix('mobile/portal-leads')->group(function () {
+            Route::get('/',                          [\App\Http\Controllers\Api\V1\MobilePortalLeadController::class, 'index'])->name('v1.mobile.portal-leads.index');
+            Route::get('/dates',                     [\App\Http\Controllers\Api\V1\MobilePortalLeadController::class, 'dates'])->name('v1.mobile.portal-leads.dates');
+            Route::get('/{portalLead}',              [\App\Http\Controllers\Api\V1\MobilePortalLeadController::class, 'show'])->name('v1.mobile.portal-leads.show');
+            Route::post('/{portalLead}/mark-read',   [\App\Http\Controllers\Api\V1\MobilePortalLeadController::class, 'markRead'])->name('v1.mobile.portal-leads.mark-read');
         });
 
         // ── Command Center ────────────────────────────────────────────

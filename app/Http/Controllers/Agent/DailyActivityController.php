@@ -233,6 +233,15 @@ class DailyActivityController extends Controller
         $period = substr($date, 0, 7);
         $branchId = $user->branch_id ?? null;
 
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if (!$agencyId && $branchId) {
+            $agencyId = (int) \DB::table('branches')->where('id', $branchId)->value('agency_id');
+        }
+        if (!$agencyId) {
+            $agencyId = (int) \DB::table('agencies')->orderBy('id')->value('id');
+        }
+        abort_if(!$agencyId, 422, 'Your account is not linked to an agency. Contact your administrator.');
+
         // Allowed enabled definitions for this user (global + branch)
         $definitions = \DB::table('activity_definitions')
             ->where('is_enabled', 1)
@@ -270,6 +279,7 @@ class DailyActivityController extends Controller
                     'period' => $period,
                 ],
                 [
+                    'agency_id' => $agencyId,
                     'branch_id' => $branchId,
                     'period' => $period,
                     'value' => $val,

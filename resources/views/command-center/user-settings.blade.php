@@ -312,7 +312,12 @@
                         Notification Channels
                     </h3>
                 </div>
-                <div class="corex-panel-body">
+                <div class="corex-panel-body space-y-4">
+                    @if($isAgencyControlled)
+                        <div class="text-xs px-3 py-2 rounded-md" style="background:var(--surface-2);color:var(--text-secondary);">
+                            Your agency has locked notification settings. You can still control mobile push for your own device.
+                        </div>
+                    @endif
                     <div class="flex flex-wrap gap-6">
                         <label class="flex items-center gap-2 text-sm" style="color:var(--text-secondary);">
                             <input type="hidden" name="notify_in_app" value="0">
@@ -324,12 +329,42 @@
                             <input type="checkbox" name="notify_email" value="1" {{ $settings->notify_email ? 'checked' : '' }} class="rounded" {{ $isAgencyControlled ? 'disabled' : '' }}>
                             Email notifications
                         </label>
+                        <label class="flex items-center gap-2 text-sm" style="color:var(--text-secondary);">
+                            <input type="hidden" name="notify_push" value="0">
+                            <input type="checkbox" name="notify_push" value="1" {{ ($settings->notify_push ?? true) ? 'checked' : '' }} class="rounded">
+                            Mobile push notifications (this device)
+                        </label>
+                    </div>
+
+                    <div class="border-t pt-4" style="border-color:var(--border);">
+                        <div class="flex items-center gap-2 mb-3">
+                            <label class="flex items-center gap-2 text-sm font-medium" style="color:var(--text-primary);">
+                                <input type="hidden" name="open_hours_enabled" value="0">
+                                <input type="checkbox" name="open_hours_enabled" value="1" {{ ($settings->open_hours_enabled ?? false) ? 'checked' : '' }} class="rounded" {{ $isAgencyControlled ? 'disabled' : '' }}>
+                                Open Hours (suppress email notifications outside this window)
+                            </label>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Start</label>
+                                <input type="time" name="open_hours_start" value="{{ substr($settings->open_hours_start ?? '07:00', 0, 5) }}" class="corex-input w-full" {{ $isAgencyControlled ? 'disabled' : '' }}>
+                            </div>
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">End</label>
+                                <input type="time" name="open_hours_end" value="{{ substr($settings->open_hours_end ?? '21:00', 0, 5) }}" class="corex-input w-full" {{ $isAgencyControlled ? 'disabled' : '' }}>
+                            </div>
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Minimum minutes between same alert</label>
+                                <input type="number" name="min_minutes_between_same" min="0" max="10080" value="{{ $settings->min_minutes_between_same ?? 360 }}" class="corex-input w-full" {{ $isAgencyControlled ? 'disabled' : '' }}>
+                                <p class="text-xs mt-1" style="color:var(--text-tertiary);">Stops repeat pushes for the same item within this window. 360 = 6 hours.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {{-- Save button --}}
-            @unless($isAgencyControlled)
+            {{-- Save button (always shown — push master is editable even under agency lock) --}}
+            @unless(false)
                 <div class="flex justify-end">
                     <button type="submit" class="corex-btn-primary" style="padding: 0.5rem 1.25rem; font-size: 0.875rem;">
                         Save Settings

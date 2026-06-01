@@ -1,4 +1,5 @@
-{{-- Phase D6 — price changes (last 200). --}}
+{{-- Phase D6 — price changes (last 200).
+     DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 <section style="margin-bottom: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
     <div style="padding: 10px 14px; border-bottom: 1px solid var(--border);">
         <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin: 0;">
@@ -24,7 +25,8 @@
                     @foreach($priceChanges as $c)
                         @php
                             $pct = $c->old_price > 0 ? round(($c->new_price - $c->old_price) / $c->old_price * 100, 1) : 0;
-                            $pctColor = $pct < 0 ? '#dc2626' : ($pct > 0 ? '#10b981' : 'var(--text-muted)');
+                            // Neutral market metric — never red. Amber for a drop, green for a rise (UI_DESIGN_SYSTEM.md §5.3).
+                            $pctColor = $pct < 0 ? 'var(--ds-amber, #f59e0b)' : ($pct > 0 ? 'var(--ds-green, #059669)' : 'var(--text-muted)');
                         @endphp
                         <tr style="border-top: 1px solid var(--border);">
                             <td style="padding: 5px 10px; color: var(--text-muted);">{{ optional($c->change_date)->format('Y-m-d') ?? '—' }}</td>

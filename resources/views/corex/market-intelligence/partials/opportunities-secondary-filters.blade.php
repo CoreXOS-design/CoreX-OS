@@ -23,7 +23,7 @@
     <select name="suburb"
             style="padding: 5px 8px; font-size: 0.8125rem;
                    background: var(--surface-2); color: var(--text-primary);
-                   border: 1px solid var(--border); border-radius: 4px;">
+                   border: 1px solid var(--border); border-radius: 6px;">
         <option value="">Any suburb</option>
         @foreach(($suburbCounts ?? []) as $row)
             <option value="{{ $row->suburb }}" {{ ($activeSuburb ?? '') === $row->suburb ? 'selected' : '' }}>
@@ -35,7 +35,7 @@
     <select name="source"
             style="padding: 5px 8px; font-size: 0.8125rem;
                    background: var(--surface-2); color: var(--text-primary);
-                   border: 1px solid var(--border); border-radius: 4px;">
+                   border: 1px solid var(--border); border-radius: 6px;">
         <option value="">Any source</option>
         @foreach(($sourceCounts ?? []) as $type => $row)
             <option value="{{ $type }}" {{ ($activeSource ?? '') === $type ? 'selected' : '' }}>
@@ -47,7 +47,7 @@
     <select name="status"
             style="padding: 5px 8px; font-size: 0.8125rem;
                    background: var(--surface-2); color: var(--text-primary);
-                   border: 1px solid var(--border); border-radius: 4px;">
+                   border: 1px solid var(--border); border-radius: 6px;">
         @foreach($statuses as $key => $label)
             <option value="{{ $key }}" {{ ($activeStatus ?? '') === $key ? 'selected' : '' }}>{{ $label }}</option>
         @endforeach
@@ -57,12 +57,9 @@
            value="{{ $activeSearch ?? '' }}"
            style="flex: 1; min-width: 180px; padding: 5px 10px; font-size: 0.8125rem;
                   background: var(--surface-2); color: var(--text-primary);
-                  border: 1px solid var(--border); border-radius: 4px;">
+                  border: 1px solid var(--border); border-radius: 6px;">
 
-    <button type="submit"
-            style="padding: 6px 14px; font-size: 0.75rem; font-weight: 500;
-                   background: var(--brand-button); color: #fff;
-                   border: none; border-radius: 4px; cursor: pointer;">
+    <button type="submit" class="corex-btn-primary">
         Apply
     </button>
     @if(($activeSuburb ?? '') !== '' || ($activeSource ?? '') !== '' || ($activeStatus ?? '') !== '' || ($activeSearch ?? '') !== '')

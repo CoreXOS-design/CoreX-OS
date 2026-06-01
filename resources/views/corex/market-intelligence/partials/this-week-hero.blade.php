@@ -21,7 +21,7 @@
                     color-mix(in srgb, var(--brand-button) 4%, var(--surface)) 0%,
                     var(--surface) 60%);
                 border: 1px solid var(--border);
-                border-radius: 8px;">
+                border-radius: 6px;">
     <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px;">
         <h2 style="font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin: 0;">
             Hi {{ $firstName }}. Here's your week.

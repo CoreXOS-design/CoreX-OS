@@ -2,6 +2,7 @@
 
 namespace App\Services\PrivateProperty;
 
+use App\Models\PpSuburb;
 use App\Models\Property;
 
 class PrivatePropertyListingMapper
@@ -22,7 +23,8 @@ class PrivatePropertyListingMapper
      */
     public function map(Property $property): array
     {
-        $branchGuid  = config('services.private_property.branch_guid');
+        $cfg         = PrivatePropertyConfig::forProperty($property);
+        $branchGuid  = $cfg['branch_guid'];
         $category    = $this->mapCategory($property->category);
         $mandateType = $this->mapMandateType($property->mandate_type);
         $listingType = $this->mapListingType($property->listing_type ?? $property->mandate_type);
@@ -73,12 +75,22 @@ class PrivatePropertyListingMapper
             'SoleMandateExclusiveDays' => 0,
         ];
 
-        // PP106: SuburbId and name fields are mutually exclusive
+        // Resolve the property's suburb against the cached PP suburb list
+        // (populated by `php artisan pp:sync-locations`). If we find a single
+        // unambiguous match, persist it and switch to Mode A.
+        if (!$property->pp_suburb_id && !empty($property->suburb)) {
+            $resolvedId = $this->resolvePpSuburbId($property);
+            if ($resolvedId !== null) {
+                $property->forceFill(['pp_suburb_id' => $resolvedId])->save();
+            }
+        }
+
+        // PP106: SuburbId is mutually exclusive with Suburb, Town AND Province.
+        // PP rejects the call if a SuburbId is sent alongside any of the three
+        // name fields — even an empty Suburb/Town or a populated Province.
         if ($property->pp_suburb_id) {
             $listing['SuburbId'] = (int) $property->pp_suburb_id;
-            $listing['Suburb']   = '';
-            $listing['Town']     = '';
-            $listing['Province'] = 'KwaZuluNatal'; // Province enum still required
+            unset($listing['Suburb'], $listing['Town'], $listing['Province']);
         }
 
         // SoleMandateExclusiveDays — auto-calculated from listed_date and expiry_date for sole mandates
@@ -96,6 +108,44 @@ class PrivatePropertyListingMapper
         }
 
         return $listing;
+    }
+
+    /**
+     * Look up a PP SuburbId for a property based on its suburb name
+     * (+ province where helpful). Returns null if the PP cache is empty
+     * or no unambiguous match is found.
+     */
+    private function resolvePpSuburbId(Property $property): ?int
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('pp_suburbs')) {
+            return null;
+        }
+        if (PpSuburb::query()->limit(1)->count() === 0) {
+            return null; // PP list never synced yet — stay in Mode B.
+        }
+
+        $normalised = PpSuburb::normalise((string) $property->suburb);
+        if ($normalised === '') return null;
+
+        $matches = PpSuburb::where('normalised_name', $normalised)->get();
+
+        if ($matches->count() === 1) {
+            return (int) $matches->first()->pp_suburb_id;
+        }
+
+        // Disambiguate by province if multiple suburbs share a name.
+        if ($matches->count() > 1 && !empty($property->province)) {
+            $enumExpected = $this->mapProvince($property->province);
+            $byProvince = $matches->load('city.province')->filter(function ($s) use ($enumExpected) {
+                $enum = $s->city?->province?->pp_province_enum;
+                return $enum && $enum === $enumExpected;
+            });
+            if ($byProvince->count() === 1) {
+                return (int) $byProvince->first()->pp_suburb_id;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -132,18 +182,37 @@ class PrivatePropertyListingMapper
             }
         }
 
-        // Location: SuburbId OR (Suburb + Town) required
-        if (empty($payload['Suburb']) && empty($payload['SuburbId'])) {
+        // Location: SuburbId OR (Suburb + Town + Province) required, never both.
+        // PP106 rule (verbatim from PP): "You cannot provide a suburbId together
+        // with town name, suburb name and province." Mutually exclusive modes.
+        $hasSuburbId = !empty($payload['SuburbId']);
+        if (!$hasSuburbId && empty($payload['Suburb'])) {
             $errors[] = 'Suburb or SuburbId is required for PP syndication';
         }
-        if (empty($payload['Town']) && empty($payload['SuburbId'])) {
+        if (!$hasSuburbId && empty($payload['Town'])) {
             $errors[] = 'Town is required when SuburbId is not provided';
         }
+        if ($hasSuburbId && (
+            !empty($payload['Suburb']) || !empty($payload['Town']) || !empty($payload['Province'])
+        )) {
+            $errors[] = 'PP106: SuburbId cannot be sent together with Suburb, Town or Province — pick one mode';
+        }
 
-        // Suburb and Town must not be identical (PP cannot shape the listing)
-        if (!empty($payload['Suburb']) && !empty($payload['Town'])
-            && strtolower(trim($payload['Suburb'])) === strtolower(trim($payload['Town']))) {
-            $errors[] = 'Suburb and Town must not be identical — PP requires a correct geographic hierarchy (e.g. Suburb=Uvongo, Town=Margate)';
+        // If the PP suburb cache is populated and we did NOT resolve to a
+        // SuburbId, block submission with closest-match suggestions. This
+        // catches misspelled / unknown suburbs before they hit PP.
+        if (!$hasSuburbId
+            && !empty($payload['Suburb'])
+            && \Illuminate\Support\Facades\Schema::hasTable('pp_suburbs')
+            && PpSuburb::query()->limit(1)->count() > 0
+        ) {
+            $normalised = PpSuburb::normalise((string) $payload['Suburb']);
+            if (!PpSuburb::where('normalised_name', $normalised)->exists()) {
+                $closest = PpSuburb::where('normalised_name', 'like', substr($normalised, 0, 4) . '%')
+                    ->limit(5)->pluck('name')->all();
+                $hint = !empty($closest) ? ' Closest matches: ' . implode(', ', $closest) . '.' : '';
+                $errors[] = "Suburb '{$payload['Suburb']}' is not on Private Property's list — submission blocked." . $hint;
+            }
         }
 
         // StreetName validation
@@ -246,13 +315,6 @@ class PrivatePropertyListingMapper
         // Town is required for PP geographic hierarchy (suburb → town → province)
         if (empty($property->town) && empty($property->city) && empty($property->pp_suburb_id)) {
             $missing[] = ['field' => 'town', 'label' => 'Town (e.g. "Margate") — required for PP location hierarchy', 'tab' => 'info'];
-        }
-
-        // Suburb and Town must not be identical — PP cannot shape the listing without a correct hierarchy
-        $suburb = trim($property->suburb ?? '');
-        $town   = trim($property->town ?? $property->city ?? '');
-        if ($suburb !== '' && $town !== '' && strtolower($suburb) === strtolower($town)) {
-            $missing[] = ['field' => 'suburb', 'label' => "Suburb and Town are identical (\"{$suburb}\") — PP requires different values (e.g. Suburb=Uvongo, Town=Margate)", 'tab' => 'info'];
         }
 
         // StreetName must not contain listing title keywords
@@ -515,7 +577,7 @@ class PrivatePropertyListingMapper
             'TelWork'               => $user->phone ?? $cellPhone,
             'TelHome'               => '', // PP only recognises TelCell + TelWork
             'Active'                => $active,
-            'BranchId'              => config('services.private_property.branch_guid'),
+            'BranchId'              => PrivatePropertyConfig::for($user->agency ?? null)['branch_guid'],
             'PrivatePropertyAgentId' => '',
             'PrivysealAlias'        => '',
         ];
@@ -548,7 +610,7 @@ class PrivatePropertyListingMapper
         // PP practical limit — too many images causes their transaction to timeout
         $allImages = array_slice($property->allImages(), 0, 20);
         // Use PP_IMAGE_BASE_URL if set (for local dev against sandbox), otherwise APP_URL
-        $override  = config('services.private_property.image_base_url');
+        $override  = PrivatePropertyConfig::forProperty($property)['image_base_url'];
         $baseUrl   = rtrim(!empty($override) ? $override : config('app.url'), '/');
         $urls      = [];
 

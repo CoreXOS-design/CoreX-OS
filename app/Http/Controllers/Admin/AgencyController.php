@@ -54,6 +54,8 @@ class AgencyController extends Controller
             'icon_color'       => 'nullable|string|max:20',
             'default_color'    => 'nullable|string|max:20',
             'button_color'     => 'nullable|string|max:20',
+            'ai_voice_enabled'              => 'nullable|boolean',
+            'ai_image_recognition_enabled'  => 'nullable|boolean',
             'is_active'        => 'nullable|boolean',
             'is_demo'          => 'nullable|boolean',
             'trading_name'     => 'nullable|string|max:255',
@@ -86,6 +88,8 @@ class AgencyController extends Controller
         $data['button_color']  = $data['button_color']  ?? '#0ea5e9';
         $data['is_active']     = (bool) ($data['is_active'] ?? true);
         $data['is_demo']       = (bool) ($data['is_demo'] ?? false);
+        $data['ai_voice_enabled']              = (bool) ($data['ai_voice_enabled'] ?? false);
+        $data['ai_image_recognition_enabled']  = (bool) ($data['ai_image_recognition_enabled'] ?? false);
 
         $isDemo = $data['is_demo'];
         $adminPayload = $isDemo ? null : [
@@ -157,6 +161,8 @@ class AgencyController extends Controller
             'icon_color'      => 'nullable|string|max:20',
             'default_color'   => 'nullable|string|max:20',
             'button_color'    => 'nullable|string|max:20',
+            'ai_voice_enabled'              => 'nullable|boolean',
+            'ai_image_recognition_enabled'  => 'nullable|boolean',
             'is_active'       => 'nullable|boolean',
             'trading_name'    => 'nullable|string|max:255',
             'tagline'         => 'nullable|string|max:255',
@@ -175,6 +181,14 @@ class AgencyController extends Controller
             'p24_password'    => 'nullable|string|max:191',
             'p24_user_group_id' => 'nullable|string|max:64',
             'p24_enabled'     => 'nullable|boolean',
+            'pp_enabled'       => 'nullable|boolean',
+            'pp_username'      => 'nullable|string|max:191',
+            'pp_password'      => 'nullable|string|max:191',
+            'pp_branch_guid'   => 'nullable|string|max:64',
+            'pp_wsdl'          => 'nullable|string|max:255',
+            'pp_sandbox'       => 'nullable|boolean',
+            'pp_image_base_url' => 'nullable|string|max:255',
+            'pp_webhook_secret' => 'nullable|string|max:255',
             'logo'            => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             'remove_logo'     => 'nullable|boolean',
         ]);
@@ -185,11 +199,36 @@ class AgencyController extends Controller
         $data['button_color']  = $data['button_color']  ?? '#0ea5e9';
         $data['is_active']       = (bool) ($data['is_active'] ?? false);
         $data['p24_enabled']     = (bool) ($data['p24_enabled'] ?? false);
+        $data['ai_voice_enabled']              = (bool) ($data['ai_voice_enabled'] ?? false);
+        $data['ai_image_recognition_enabled']  = (bool) ($data['ai_image_recognition_enabled'] ?? false);
+        $data['pp_enabled']      = (bool) ($data['pp_enabled'] ?? false);
+        $data['pp_sandbox']      = (bool) ($data['pp_sandbox'] ?? false);
 
         // Don't overwrite stored password with empty string when user leaves the
         // (masked) password field blank — only update p24_password when supplied.
         if (array_key_exists('p24_password', $data) && ($data['p24_password'] === null || $data['p24_password'] === '')) {
             unset($data['p24_password']);
+        }
+        if (array_key_exists('pp_password', $data) && ($data['pp_password'] === null || $data['pp_password'] === '')) {
+            unset($data['pp_password']);
+        }
+        if (array_key_exists('pp_webhook_secret', $data) && ($data['pp_webhook_secret'] === null || $data['pp_webhook_secret'] === '')) {
+            unset($data['pp_webhook_secret']);
+        }
+
+        // Auto-enable PP when both username and an effective password are present
+        // (parity with P24 auto-enable logic above).
+        $effectivePpPassword = $data['pp_password'] ?? $agency->pp_password;
+        if (!empty($data['pp_username']) && !empty($effectivePpPassword)) {
+            $data['pp_enabled'] = true;
+        }
+
+        // Auto-enable P24 when both username and an effective password are present
+        // (either newly supplied, or already stored). Stops the common footgun
+        // of saving creds with the enable checkbox left unticked.
+        $effectivePassword = $data['p24_password'] ?? $agency->p24_password;
+        if (!empty($data['p24_username']) && !empty($effectivePassword)) {
+            $data['p24_enabled'] = true;
         }
 
         // Detect P24 cred changes — trigger auto-sync after save.
@@ -221,13 +260,12 @@ class AgencyController extends Controller
 
         $extraFlash = null;
         if ($credsChanged && $agency->p24_enabled && !empty($agency->p24_username) && !empty($agency->p24_password)) {
-            try {
-                \Artisan::call('p24:sync-locations', ['--agency' => $agency->id]);
-                $extraFlash = ['key' => 'success', 'msg' => 'Property24 locations sync triggered. This may take a few minutes — refresh the page to see updated status.'];
-            } catch (\Throwable $e) {
-                $agency->forceFill(['p24_last_sync_error' => $e->getMessage()])->save();
-                $extraFlash = ['key' => 'error', 'msg' => 'P24 sync failed: ' . $e->getMessage()];
-            }
+            $agencyId = $agency->id;
+            dispatch(function () use ($agencyId) {
+                @set_time_limit(0);
+                \Artisan::call('p24:sync-locations', ['--agency' => $agencyId]);
+            })->afterResponse();
+            $extraFlash = ['key' => 'success', 'msg' => 'Property24 locations sync queued. Refresh the page in a few minutes to see updated status.'];
         }
 
         $user = auth()->user();
@@ -265,6 +303,48 @@ class AgencyController extends Controller
     }
 
     /**
+     * Test Private Property SOAP credentials by fetching branch details. JSON.
+     */
+    public function testPpConnection(Agency $agency)
+    {
+        $this->authorizeAgencyScope($agency);
+
+        $cfg = \App\Services\PrivateProperty\PrivatePropertyConfig::for($agency);
+        if (empty($cfg['username']) || empty($cfg['password']) || empty($cfg['branch_guid'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'PP credentials incomplete — need username, password, and branch GUID.',
+            ], 422);
+        }
+
+        try {
+            $client = app(\App\Services\PrivateProperty\PrivatePropertySoapClient::class);
+            $client->forAgency($agency);
+            $result = $client->getBranchDetails();
+
+            if (isset($result['error']) && $result['error'] === true) {
+                $agency->forceFill(['pp_last_sync_error' => $result['message'] ?? 'Unknown SOAP fault'])->save();
+                return response()->json([
+                    'success' => false,
+                    'message' => $result['message'] ?? 'Unknown SOAP fault',
+                ]);
+            }
+
+            $agency->forceFill(['pp_last_sync_error' => null])->save();
+            return response()->json([
+                'success' => true,
+                'message' => 'Connection OK — PP credentials work.',
+            ]);
+        } catch (\Throwable $e) {
+            $agency->forceFill(['pp_last_sync_error' => $e->getMessage()])->save();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Manually trigger a P24 location refresh for this agency.
      */
     public function refreshP24Locations(Agency $agency)
@@ -276,10 +356,14 @@ class AgencyController extends Controller
         }
 
         try {
-            \Artisan::call('p24:sync-locations', ['--agency' => $agency->id]);
+            $agencyId = $agency->id;
+            dispatch(function () use ($agencyId) {
+                @set_time_limit(0);
+                \Artisan::call('p24:sync-locations', ['--agency' => $agencyId]);
+            })->afterResponse();
             return response()->json([
                 'success' => true,
-                'message' => 'Sync triggered. Refresh the page in a few minutes to see the new last-synced timestamp.',
+                'message' => 'Sync queued. Refresh the page in a few minutes to see the new last-synced timestamp.',
             ]);
         } catch (\Throwable $e) {
             $agency->forceFill(['p24_last_sync_error' => $e->getMessage()])->save();

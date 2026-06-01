@@ -55,7 +55,7 @@
                     Weekly market brief
                 </span>
                 @if($b['from_fallback'])
-                    <span style="font-size: 0.625rem; padding: 1px 6px; border-radius: 3px;
+                    <span style="font-size: 0.625rem; padding: 1px 6px; border-radius: 4px;
                                  background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent);
                                  color: var(--ds-amber, #d97706); font-weight: 600;">
                         Fallback
@@ -95,7 +95,7 @@
                     <form method="POST" action="{{ route('market-intelligence.brief.regenerate') }}" style="margin: 0;">
                         @csrf
                         <button type="submit"
-                                style="background: none; border: 1px solid var(--border); border-radius: 3px;
+                                style="background: none; border: 1px solid var(--border); border-radius: 6px;
                                        padding: 3px 8px; font-size: 0.625rem; color: var(--text-secondary);
                                        cursor: pointer;">
                             Regenerate

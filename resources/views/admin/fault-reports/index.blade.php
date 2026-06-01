@@ -7,8 +7,25 @@
                     <h1 class="text-xl font-bold text-white leading-tight">Fault Reports</h1>
                     <p class="text-sm text-white/60">System errors, warnings, and manual reports.</p>
                 </div>
-                <div class="text-xs text-white/70">
-                    Showing {{ number_format($reports->count()) }} of {{ number_format($reports->total()) }}
+                <div class="flex items-center gap-2">
+                    <form method="POST" action="{{ route('admin.fault-reports.scan') }}">
+                        @csrf
+                        <button type="submit" class="corex-btn-outline"
+                                style="padding: 0.375rem 0.875rem; font-size: 0.75rem; background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.25);">
+                            Scan for Faults
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ route('admin.fault-reports.clear-all') }}"
+                          onsubmit="return confirm('Clear ALL fault reports? They will be soft-deleted and can be restored from the database.');">
+                        @csrf
+                        <button type="submit" class="corex-btn-outline"
+                                style="padding: 0.375rem 0.875rem; font-size: 0.75rem; background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.25);">
+                            Clear All
+                        </button>
+                    </form>
+                    <span class="text-xs text-white/70 ml-2">
+                        Showing {{ number_format($reports->count()) }} of {{ number_format($reports->total()) }}
+                    </span>
                 </div>
             </div>
         </div>

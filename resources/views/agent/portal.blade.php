@@ -497,18 +497,27 @@
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;"
              x-data="{
                 hasToken: {{ auth()->user()->api_token ? 'true' : 'false' }},
-                plaintext: null, loading: false, copied: false,
+                plaintext: null, loading: false, copied: false, error: null,
                 async generate() {
-                    this.loading = true; this.copied = false;
+                    this.loading = true; this.copied = false; this.error = null;
                     try {
                         const res = await fetch('{{ route('corex.settings.generate-token') }}', { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content,'Accept':'application/json'} });
-                        const data = await res.json(); this.plaintext = data.token; this.hasToken = true;
-                    } finally { this.loading = false; }
+                        if (!res.ok) { this.error = 'Failed to generate token (' + res.status + '). Please refresh and try again.'; return; }
+                        const data = await res.json();
+                        if (!data.token) { this.error = 'Server did not return a token.'; return; }
+                        this.plaintext = data.token; this.hasToken = true;
+                    } catch (e) { this.error = 'Network error: ' + e.message; }
+                    finally { this.loading = false; }
                 },
                 copyToken() { navigator.clipboard.writeText(this.plaintext); this.copied = true; setTimeout(() => this.copied = false, 2000); }
              }">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 12px;">API Token</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 12px;">Used by the CoreX Chrome extension to authenticate with CoreX.</p>
+            <template x-if="error">
+                <div class="rounded-md" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); padding:10px 14px; margin-bottom:10px;">
+                    <div class="text-xs font-semibold" style="color:var(--ds-crimson);" x-text="error"></div>
+                </div>
+            </template>
             <template x-if="plaintext">
                 <div>
                     <div class="rounded-md" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); padding:10px 14px; margin-bottom:10px;">

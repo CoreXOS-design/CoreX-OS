@@ -24,6 +24,7 @@ class PrivatePropertySyndicationService
      */
     public function submitListing(Property $property): array
     {
+        $this->client->forAgency($property->agency);
         // Map the property to a PP payload
         $payload = $this->mapper->map($property);
 
@@ -187,6 +188,7 @@ class PrivatePropertySyndicationService
      */
     public function deactivateListing(Property $property): array
     {
+        $this->client->forAgency($property->agency);
         $listingType = in_array(strtolower($property->mandate_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
         $result = $this->client->deactivateListing((string) $property->id, $listingType);
 
@@ -313,6 +315,7 @@ class PrivatePropertySyndicationService
      */
     public function reactivateListing(Property $property): array
     {
+        $this->client->forAgency($property->agency);
         $listingType = in_array(strtolower($property->mandate_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
         $result = $this->client->reactivateListing((string) $property->id, $listingType);
 
@@ -346,6 +349,7 @@ class PrivatePropertySyndicationService
      */
     public function submitShowday(Property $property, array $showdayData): array
     {
+        $this->client->forAgency($property->agency);
         $event = $this->mapper->buildShowdayEvent($property, $showdayData);
         $result = $this->client->updateShowday($event);
 
@@ -376,6 +380,7 @@ class PrivatePropertySyndicationService
      */
     public function registerAgent(User $user, bool $active = true): array
     {
+        $this->client->forAgency($user->agency ?? null);
         $agentData = $this->mapper->buildAgentData($user, $active);
 
         if (empty($agentData['TelCell'])) {
@@ -519,6 +524,7 @@ class PrivatePropertySyndicationService
      */
     public function submitAgentImages(Property $property): array
     {
+        $this->client->forAgency($property->agency);
         $submitted = [];
         $skipped   = [];
         $errors    = [];
@@ -528,7 +534,7 @@ class PrivatePropertySyndicationService
             $property->pp_second_agent_id,
         ]);
 
-        $override = config('services.private_property.image_base_url');
+        $override = PrivatePropertyConfig::forProperty($property)['image_base_url'];
         $baseUrl  = rtrim(!empty($override) ? $override : config('app.url'), '/');
 
         foreach ($agentIds as $agentId) {
@@ -715,7 +721,7 @@ class PrivatePropertySyndicationService
             'TelWork'               => $user->phone ?? $cellPhone,
             'TelHome'               => '', // PP only recognises TelCell + TelWork
             'Active'                => true,
-            'BranchId'              => config('services.private_property.branch_guid'),
+            'BranchId'              => PrivatePropertyConfig::for($user->agency ?? null)['branch_guid'],
             'PrivatePropertyAgentId' => '',
             'PrivysealAlias'        => '',
         ];

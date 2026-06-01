@@ -11,16 +11,23 @@
         <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=4">
         <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=4">
 
-        <!-- Fonts -->
-        <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet" />
+        <!-- Fonts: load Inter to match the body font-family in corex.css ('Inter', …).
+             Mirrors layouts/corex.blade.php so corex-app pages render the same
+             typeface/size as the rest of the app. Loading the wrong webfont here
+             previously left the CSS asking for Inter while only Figtree was loaded,
+             so corex-app pages fell back to the larger system font (Segoe UI). -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 
         <!-- Theme init: apply dark class before paint to prevent flash -->
         <script>
             (function(){
+                var authed = {{ auth()->check() ? 'true' : 'false' }};
                 var dbTheme = '{{ auth()->check() ? (auth()->user()->theme ?? 'dark') : 'dark' }}';
-                var stored = localStorage.getItem('corex-theme');
-                var theme = stored || dbTheme;
+                // When authenticated, the user's DB record is authoritative — never let a
+                // previous user's localStorage value bleed into this session.
+                var theme = authed ? dbTheme : (localStorage.getItem('corex-theme') || dbTheme);
                 if(theme === 'dark'){
                     document.documentElement.classList.add('dark');
                 }

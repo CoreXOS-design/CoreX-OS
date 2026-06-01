@@ -14,6 +14,7 @@ class P24Listing extends Model
     protected $table = 'p24_listings';
 
     protected $fillable = [
+        'agency_id',
         'p24_listing_number',
         'asking_price',
         'property_type',

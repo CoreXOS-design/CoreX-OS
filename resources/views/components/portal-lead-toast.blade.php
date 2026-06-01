@@ -78,7 +78,7 @@ window.portalLeadToast = function () {
         seen: new Set(),
         pollUrl: '{{ route('corex.portal-leads.poll') }}',
         markUrlTemplate: '{{ route('corex.portal-leads.mark-notified', ['portalLead' => '__ID__']) }}',
-        intervalMs: 30000,
+        intervalMs: 10000,
         timer: null,
 
         start() {
@@ -94,13 +94,16 @@ window.portalLeadToast = function () {
                 });
                 if (!res.ok) return;
                 const data = await res.json();
+                let hadNew = false;
                 for (const lead of (data.leads || [])) {
                     if (this.seen.has(lead.id)) continue;
                     this.seen.add(lead.id);
                     this.toasts.push(lead);
                     this.markNotified(lead.id);
                     setTimeout(() => this.autoDismiss(lead.id), 20000);
+                    hadNew = true;
                 }
+                if (hadNew) this.chime();
             } catch (e) {
                 console.warn('Portal lead poll failed', e);
             }
@@ -125,6 +128,24 @@ window.portalLeadToast = function () {
 
         autoDismiss(id) {
             this.toasts = this.toasts.filter(t => t.id !== id);
+        },
+
+        chime() {
+            try {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (!AC) return;
+                const ctx = new AC();
+                const o = ctx.createOscillator();
+                const g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination);
+                o.type = 'sine';
+                o.frequency.setValueAtTime(880, ctx.currentTime);
+                o.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.15);
+                g.gain.setValueAtTime(0.0001, ctx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+                o.start(); o.stop(ctx.currentTime + 0.45);
+            } catch (e) { /* browsers that block autoplay — silent fail */ }
         },
     };
 };

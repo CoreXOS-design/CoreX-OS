@@ -114,7 +114,7 @@ class AgentPpController extends Controller
             'TelWork'                => $validated['tel_cell'] ?? '',
             'TelHome'                => '',
             'Active'                 => false,
-            'BranchId'               => config('services.private_property.branch_guid'),
+            'BranchId'               => \App\Services\PrivateProperty\PrivatePropertyConfig::forCurrentAgency()['branch_guid'],
             'PrivatePropertyAgentId' => $validated['pp_encrypted_id'],
             'PrivysealAlias'         => '',
         ];

@@ -1,9 +1,10 @@
-{{-- Phase D6 — Market Pulse KPI tile row. Same data as Admin\P24Controller. --}}
+{{-- Phase D6 — Market Pulse KPI tile row. Same data as Admin\P24Controller.
+     DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @php
     $lastImportRel = $kpis['last_import_at'] ? \Carbon\Carbon::parse($kpis['last_import_at'])->diffForHumans() : 'never';
     $lastImportColor = match (true) {
-        $kpis['last_import_status'] === 'success' => '#10b981',
-        $kpis['last_import_status'] === 'failure' => '#dc2626',
+        $kpis['last_import_status'] === 'success' => 'var(--ds-green, #059669)',
+        $kpis['last_import_status'] === 'failure' => 'var(--ds-crimson, #c41e3a)',
         default => 'var(--text-muted)',
     };
 @endphp
@@ -30,7 +31,7 @@
 
     <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
         <div style="font-size: 0.625rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted); margin-bottom: 2px;">New this month</div>
-        <div style="font-size: 1.0625rem; font-weight: 600; color: var(--ds-green, #10b981);">{{ number_format($kpis['new_this_month']) }}</div>
+        <div style="font-size: 1.0625rem; font-weight: 600; color: var(--ds-green, #059669);">{{ number_format($kpis['new_this_month']) }}</div>
     </div>
 
     <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
@@ -41,7 +42,7 @@
     <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
         <div style="font-size: 0.625rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted); margin-bottom: 2px;">IMAP</div>
         <div style="font-size: 0.875rem; font-weight: 600;
-                    color: {{ $kpis['imap_status'] === 'configured' ? 'var(--ds-green, #10b981)' : 'var(--ds-crimson, #dc2626)' }};">
+                    color: {{ $kpis['imap_status'] === 'configured' ? 'var(--ds-green, #059669)' : 'var(--ds-crimson, #c41e3a)' }};">
             {{ ucfirst((string) $kpis['imap_status']) }}
         </div>
     </div>

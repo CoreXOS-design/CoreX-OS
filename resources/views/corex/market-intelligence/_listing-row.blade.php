@@ -148,8 +148,10 @@
                 @php
                     $hoursLeft = $claim['hours_left'] ?? null;
                     $isExpiring = (bool) ($claim['is_expiring'] ?? false);
+                    // Near-deadline (claim auto-releases soon) is a warning, not a
+                    // danger/fatal state — amber per UI_DESIGN_SYSTEM.md §1.5 / §3.4.
                     $claimTagStyle = $isExpiring
-                        ? $tagRed
+                        ? $tagAmber
                         : ($claimedByMe ? $tagTeal : $tagNeutral);
                     $claimLabel = $claimedByMe
                         ? ('you · ' . ($hoursLeft !== null ? round($hoursLeft) . 'h' : '—'))

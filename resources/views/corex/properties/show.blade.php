@@ -3125,35 +3125,97 @@
         @else
 
             {{-- Upload new images --}}
-            <div>
+            <div x-data="galleryUploader('{{ route('corex.properties.upload-images', $property) }}', '{{ csrf_token() }}')">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload Images</h3>
-                <form method="POST" action="{{ route('corex.properties.update', $property) }}"
-                      enctype="multipart/form-data">
-                    @csrf @method('PUT')
-                    {{-- Pass required fields silently — fall back to safe defaults when null --}}
-                    <input type="hidden" name="title"   value="{{ $property->title ?: 'Untitled property' }}">
-                    <input type="hidden" name="suburb"  value="{{ $property->suburb ?: 'Unknown' }}">
-                    <input type="hidden" name="price"   value="{{ (int) ($property->price ?? 0) }}">
-                    <input type="hidden" name="beds"    value="{{ (int) ($property->beds ?? 0) }}">
-                    <input type="hidden" name="baths"   value="{{ (int) ($property->baths ?? 0) }}">
-                    <input type="hidden" name="garages" value="{{ (int) ($property->garages ?? 0) }}">
-                    <input type="hidden" name="status"  value="{{ $property->status }}">
 
-                    <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
-                           style="border-color:var(--border-hover); color:var(--text-secondary);"
-                           onmouseover="this.style.borderColor='var(--brand-icon)'" onmouseout="this.style.borderColor='var(--border-hover)'">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-                        <span id="gal-label">Select images to upload (multiple allowed)</span>
-                        <input type="file" name="gallery_images[]" multiple accept="image/*" class="hidden"
-                               onchange="document.getElementById('gal-label').textContent = this.files.length + ' file' + (this.files.length > 1 ? 's' : '') + ' selected'; document.getElementById('gal-submit').classList.remove('hidden');">
-                    </label>
-                    <button id="gal-submit" type="submit"
-                            class="hidden mt-2 px-4 py-2 rounded-md text-sm font-semibold text-white"
-                            style="background:var(--brand-button,#0ea5e9);">
-                        Upload Images
-                    </button>
-                </form>
+                <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
+                       :style="uploading ? 'opacity:0.6; pointer-events:none;' : ''"
+                       style="border-color:var(--border-hover); color:var(--text-secondary);"
+                       onmouseover="this.style.borderColor='var(--brand-icon)'" onmouseout="this.style.borderColor='var(--border-hover)'">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+                    <span x-text="labelText">Select images to upload (multiple allowed)</span>
+                    <input type="file" name="gallery_images[]" multiple accept="image/*" class="hidden"
+                           x-ref="fileInput"
+                           @change="onPick($event)">
+                </label>
+
+                <button x-show="files.length > 0 && !uploading" type="button"
+                        @click="upload()"
+                        class="mt-2 px-4 py-2 rounded-md text-sm font-semibold text-white"
+                        style="background:var(--brand-button,#0ea5e9);">
+                    Upload Images
+                </button>
+
+                {{-- Progress bar --}}
+                <div x-show="uploading || percent === 100" x-cloak class="mt-3">
+                    <div class="flex items-center justify-between mb-1 text-xs" style="color:var(--text-secondary);">
+                        <span x-text="statusText"></span>
+                        <span x-text="percent + '%'"></span>
+                    </div>
+                    <div class="w-full h-2 rounded-full overflow-hidden" style="background:var(--surface-3);">
+                        <div class="h-full transition-all duration-200"
+                             :style="'width: ' + percent + '%; background: var(--brand-button, #0ea5e9);'"></div>
+                    </div>
+                </div>
+
+                <div x-show="errorMsg" x-cloak class="mt-2 text-xs" style="color:#ef4444;" x-text="errorMsg"></div>
             </div>
+
+            <script>
+            function galleryUploader(endpoint, csrf) {
+                return {
+                    files: [],
+                    uploading: false,
+                    percent: 0,
+                    errorMsg: '',
+                    statusText: 'Uploading...',
+                    get labelText() {
+                        if (this.uploading) return 'Uploading ' + this.files.length + ' image(s)...';
+                        if (this.files.length === 0) return 'Select images to upload (multiple allowed)';
+                        return this.files.length + ' file' + (this.files.length !== 1 ? 's' : '') + ' selected';
+                    },
+                    onPick(e) {
+                        this.files = Array.from(e.target.files || []);
+                        this.errorMsg = '';
+                        this.percent = 0;
+                    },
+                    upload() {
+                        if (!this.files.length) return;
+                        const fd = new FormData();
+                        this.files.forEach(f => fd.append('gallery_images[]', f));
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', endpoint);
+                        xhr.setRequestHeader('X-CSRF-TOKEN', csrf);
+                        xhr.setRequestHeader('Accept', 'text/html');
+                        xhr.upload.onprogress = (ev) => {
+                            if (ev.lengthComputable) {
+                                this.percent = Math.round((ev.loaded / ev.total) * 100);
+                                if (this.percent >= 100) this.statusText = 'Saving...';
+                            }
+                        };
+                        xhr.onload = () => {
+                            this.uploading = false;
+                            if (xhr.status >= 200 && xhr.status < 400) {
+                                this.percent = 100;
+                                this.statusText = 'Done';
+                                window.location.reload();
+                            } else {
+                                this.errorMsg = 'Upload failed (HTTP ' + xhr.status + '). Please try again.';
+                            }
+                        };
+                        xhr.onerror = () => {
+                            this.uploading = false;
+                            this.errorMsg = 'Network error during upload.';
+                        };
+                        this.uploading = true;
+                        this.percent = 0;
+                        this.statusText = 'Uploading...';
+                        this.errorMsg = '';
+                        xhr.send(fd);
+                    }
+                }
+            }
+            </script>
 
             {{-- Tag-based Gallery --}}
             @php

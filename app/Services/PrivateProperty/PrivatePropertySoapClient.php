@@ -2,22 +2,50 @@
 
 namespace App\Services\PrivateProperty;
 
+use App\Models\Agency;
 use Illuminate\Support\Facades\Log;
 
 class PrivatePropertySoapClient
 {
     private PrivatePropertyTokenService $tokenService;
     private ?\SoapClient $client = null;
+    private ?Agency $agency = null;
+    private ?array $cfgCache = null;
 
     public function __construct(PrivatePropertyTokenService $tokenService)
     {
         $this->tokenService = $tokenService;
     }
 
+    public function forAgency(?Agency $agency): self
+    {
+        $this->agency = $agency;
+        $this->client = null;
+        $this->cfgCache = null;
+        return $this;
+    }
+
+    private function cfg(): array
+    {
+        if ($this->cfgCache !== null) {
+            return $this->cfgCache;
+        }
+        // If no agency was explicitly bound, fall back to the authenticated
+        // user's agency (controllers / web requests). Env fallback handles
+        // CLI / queue contexts where there is no auth.
+        $agency = $this->agency ?? \Illuminate\Support\Facades\Auth::user()?->agency;
+        return $this->cfgCache = PrivatePropertyConfig::for($agency);
+    }
+
+    private function branchGuid(): ?string
+    {
+        return $this->cfg()['branch_guid'];
+    }
+
     private function soapClient(): \SoapClient
     {
         if ($this->client === null) {
-            $wsdl = config('services.private_property.wsdl');
+            $wsdl = $this->cfg()['wsdl'];
 
             $this->client = new \SoapClient($wsdl, [
                 'trace'              => true,
@@ -42,7 +70,7 @@ class PrivatePropertySoapClient
 
     private function buildToken(): array
     {
-        return $this->tokenService->generate();
+        return $this->tokenService->generate($this->agency);
     }
 
     /**
@@ -107,7 +135,7 @@ class PrivatePropertySoapClient
     public function getBranchDetails(): array
     {
         return $this->call('GetBranchDetails', [
-            'BranchId' => config('services.private_property.branch_guid'),
+            'BranchId' => $this->branchGuid(),
             'Token'    => $this->buildToken(),
         ]);
     }
@@ -143,7 +171,7 @@ class PrivatePropertySoapClient
     public function getListingStatus(string $propertyId): array
     {
         return $this->call('GetListingStatus', [
-            'BranchId'   => config('services.private_property.branch_guid'),
+            'BranchId'   => $this->branchGuid(),
             'PropertyId' => $propertyId,
             'Token'      => $this->buildToken(),
         ]);
@@ -156,7 +184,7 @@ class PrivatePropertySoapClient
     public function deactivateListing(string $propertyId, string $listingType = 'Sale'): array
     {
         return $this->call('ListingStatusUpdate', [
-            'BranchId'       => config('services.private_property.branch_guid'),
+            'BranchId'       => $this->branchGuid(),
             'PropertyId'     => $propertyId,
             'ListingType'    => $listingType,
             'PropertyStatus' => 'Inactive',
@@ -171,7 +199,7 @@ class PrivatePropertySoapClient
     public function getListingEventFeed(?string $continuationKey = null, ?string $startDateTime = null): array
     {
         $params = [
-            'UniqueBranchId'  => config('services.private_property.branch_guid'),
+            'UniqueBranchId'  => $this->branchGuid(),
             'Token'           => $this->buildToken(),
             'continuationKey' => $continuationKey ?? '',
             'startDateTime'   => $startDateTime ?? now()->subDay()->toIso8601String(),
@@ -187,7 +215,7 @@ class PrivatePropertySoapClient
     public function getReferenceNumber(string $propertyId, string $listingType = 'Sale'): array
     {
         return $this->call('GetReferenceNumberByListing', [
-            'BranchId'        => config('services.private_property.branch_guid'),
+            'BranchId'        => $this->branchGuid(),
             'UniqueListingID' => $propertyId,
             'listingType'     => $listingType,
             'Token'           => $this->buildToken(),
@@ -201,7 +229,7 @@ class PrivatePropertySoapClient
     public function reactivateListing(string $propertyId, string $listingType = 'Sale'): array
     {
         return $this->call('ListingStatusUpdate', [
-            'BranchId'       => config('services.private_property.branch_guid'),
+            'BranchId'       => $this->branchGuid(),
             'PropertyId'     => $propertyId,
             'ListingType'    => $listingType,
             'PropertyStatus' => 'ForSale',
@@ -216,7 +244,7 @@ class PrivatePropertySoapClient
     public function updateShowday(array $showdayData): array
     {
         return $this->call('ListingShowdayUpdate', [
-            'BranchId' => config('services.private_property.branch_guid'),
+            'BranchId' => $this->branchGuid(),
             'Showday'  => $showdayData,
             'Token'    => $this->buildToken(),
         ]);
@@ -242,7 +270,7 @@ class PrivatePropertySoapClient
     public function getAllAgentsForBranch(): array
     {
         return $this->call('GetAllAgentsForBranch', [
-            'BranchId' => config('services.private_property.branch_guid'),
+            'BranchId' => $this->branchGuid(),
             'Token'    => $this->buildToken(),
         ]);
     }
@@ -254,7 +282,7 @@ class PrivatePropertySoapClient
     public function getAgent(string $agentId): array
     {
         return $this->call('GetAgent', [
-            'BranchId' => config('services.private_property.branch_guid'),
+            'BranchId' => $this->branchGuid(),
             'Token'    => $this->buildToken(),
             'agentID'  => $agentId,
         ]);
@@ -267,7 +295,7 @@ class PrivatePropertySoapClient
     public function getListingSummary(string $propertyId): array
     {
         return $this->call('ListingSummary', [
-            'BranchId'        => config('services.private_property.branch_guid'),
+            'BranchId'        => $this->branchGuid(),
             'UniqueListingId' => $propertyId,
             'Token'           => $this->buildToken(),
         ]);
@@ -280,7 +308,7 @@ class PrivatePropertySoapClient
     public function getActiveListings(): array
     {
         return $this->call('GetActiveListings', [
-            'BranchId' => config('services.private_property.branch_guid'),
+            'BranchId' => $this->branchGuid(),
             'Token'    => $this->buildToken(),
         ]);
     }
@@ -337,12 +365,59 @@ class PrivatePropertySoapClient
         }
 
         return $this->call('UpdateListingVideoOrMatterport', [
-            'BranchId'        => config('services.private_property.branch_guid'),
+            'BranchId'        => $this->branchGuid(),
             'UniqueListingId' => $uniqueListingId,
             'MatterportId'    => $matterportId ?? '',
             'YoutubeVideoId'  => $youtubeVideoId ?? '',
             'ListingType'     => $listingType,
             'Token'           => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get the list of countries PP supports.
+     * WSDL: GetCountries { SecurityToken Token }
+     */
+    public function getCountries(): array
+    {
+        return $this->call('GetCountries', [
+            'Token' => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get the list of provinces for a country.
+     * WSDL: GetProvinces { int CountryId, SecurityToken Token }
+     */
+    public function getProvinces(int $countryId): array
+    {
+        return $this->call('GetProvinces', [
+            'CountryId' => $countryId,
+            'Token'     => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get the list of cities for a province.
+     * WSDL: GetCities { int ProvinceID, SecurityToken Token }
+     */
+    public function getCities(int $provinceId): array
+    {
+        return $this->call('GetCities', [
+            'ProvinceID' => $provinceId,
+            'Token'      => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get the list of suburbs for a city.
+     * WSDL: GetSuburbs { int CityID, SecurityToken Token }
+     */
+    public function getSuburbs(int $cityId): array
+    {
+        return $this->call('GetSuburbs', [
+            'CityID' => $cityId,
+            'Token'  => $this->buildToken(),
         ]);
     }
 

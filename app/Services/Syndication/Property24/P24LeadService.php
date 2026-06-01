@@ -90,12 +90,18 @@ class P24LeadService
         $newestSeen = $after ? Carbon::parse($after) : null;
 
         foreach ($leads as $raw) {
+            // Advance the cursor from the raw payload timestamp regardless of
+            // whether the lead is inserted or deduped — otherwise a batch where
+            // every lead is a dedup-skip leaves the cursor pinned to the same
+            // window and we re-fetch the same 5/7/N leads every cycle.
+            $rawTs = $this->parseTimestamp($this->firstNonEmpty($raw, ['leadDateTime', 'receivedAt', 'createdAt', 'timestamp', 'date']));
+            if ($rawTs && (!$newestSeen || $rawTs->gt($newestSeen))) {
+                $newestSeen = $rawTs;
+            }
+
             $portalLead = $this->processLead($raw, $agency);
             if ($portalLead) {
                 $inserted++;
-                if ($portalLead->received_at && (!$newestSeen || $portalLead->received_at->gt($newestSeen))) {
-                    $newestSeen = $portalLead->received_at;
-                }
             } else {
                 $skipped++;
             }

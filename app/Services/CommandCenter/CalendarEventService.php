@@ -17,6 +17,11 @@ class CalendarEventService
             'user_id'       => $data['user_id'] ?? $user->id,
             'created_by_id' => $user->id,
             'event_type'    => $data['event_type'] ?? 'manual',
+            // category MUST be set — both web and mobile GETs apply
+            // whereIn('category', $visibleClassKeys) and NULL is never
+            // in a whereIn list. Default to 'manual' so manual events
+            // are visible on both surfaces.
+            'category'      => $data['category'] ?? 'manual',
             'status'        => 'pending',
             'colour'        => $data['colour'] ?? null,
         ]));

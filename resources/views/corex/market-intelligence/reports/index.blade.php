@@ -2,7 +2,33 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div style="max-width: 1640px; margin: 0 auto; padding: 0 20px;">
+<div style="width: 100%;">
+
+    <x-mic-page-header
+        title="Market reports"
+        subtitle="Upload CMAs, Lightstone reports, and other market intelligence. Parsed data feeds Property Intelligence + the Strategic Brief.">
+        <x-slot:actions>
+            {{-- Report-lifecycle Phase 2 — Show archived toggle. Widens the
+                 query to ->withTrashed() so admins can find and restore
+                 soft-deleted reports. Default view hides archived rows. --}}
+            @if($showArchived)
+                <a href="{{ route('market-intelligence.reports.index') }}"
+                   class="corex-btn-outline text-sm"
+                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                    Hide archived
+                </a>
+            @else
+                <a href="{{ route('market-intelligence.reports.index', ['archived' => 1]) }}"
+                   class="corex-btn-outline text-sm"
+                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                    Show archived ({{ number_format($stats['archived'] ?? 0) }})
+                </a>
+            @endif
+            <a href="{{ route('market-intelligence.reports.create') }}" class="corex-btn-primary text-sm">
+                Upload a report
+            </a>
+        </x-slot:actions>
+    </x-mic-page-header>
 
     @include('corex.market-intelligence.partials.tabs')
 
@@ -14,53 +40,6 @@
             {{ session('status') }}
         </div>
     @endif
-
-    <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px;">
-        <div>
-            <h1 style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;">Market reports</h1>
-            <p style="font-size: 0.8125rem; color: var(--text-muted); margin: 0;">
-                Upload CMAs, Lightstone reports, and other market intelligence. Parsed data lands in market_data_points and feeds Property Intelligence + Strategic Brief.
-            </p>
-        </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-            {{-- Report-lifecycle Phase 2 — Show archived toggle. Widens the
-                 query to ->withTrashed() so admins can find and restore
-                 soft-deleted reports. Default view hides archived rows. --}}
-            @if($showArchived)
-                <a href="{{ route('market-intelligence.reports.index') }}"
-                   style="padding: 6px 10px; font-size: 0.75rem; font-weight: 500;
-                          color: var(--ds-amber, #d97706); background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent);
-                          border: 1px solid var(--ds-amber, #d97706); border-radius: 4px; text-decoration: none;">
-                    Hide archived
-                </a>
-            @else
-                <a href="{{ route('market-intelligence.reports.index', ['archived' => 1]) }}"
-                   style="padding: 6px 10px; font-size: 0.75rem; font-weight: 500;
-                          color: var(--text-secondary); background: var(--surface);
-                          border: 1px solid var(--border); border-radius: 4px; text-decoration: none;">
-                    Show archived ({{ number_format($stats['archived'] ?? 0) }})
-                </a>
-            @endif
-            <a href="{{ route('market-intelligence.reports.bulk-import') }}"
-               style="padding: 8px 14px; font-size: 0.8125rem; font-weight: 500;
-                      color: var(--text-secondary); background: var(--surface);
-                      border: 1px solid var(--border); border-radius: 4px;
-                      text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-2"/>
-                    <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
-                    <rect x="2" y="2" width="12" height="14" rx="1"/>
-                </svg>
-                Bulk Import
-            </a>
-            <a href="{{ route('market-intelligence.reports.create') }}"
-               style="padding: 8px 14px; font-size: 0.8125rem; font-weight: 500;
-                      background: var(--brand-button); color: #fff;
-                      border-radius: 4px; text-decoration: none;">
-                Upload a report →
-            </a>
-        </div>
-    </div>
 
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 16px;">
         <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">

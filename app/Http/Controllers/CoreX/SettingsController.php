@@ -83,6 +83,10 @@ class SettingsController extends Controller
         $data['contactSources'] = ContactSource::orderBy('sort_order')->orderBy('name')->get();
         $data['contactTags']    = ContactTag::orderBy('sort_order')->orderBy('name')->get();
 
+        // Feature Settings: list page sizes (how many rows show per page)
+        $data['contactsPerPage']   = (int) PerformanceSetting::get('contacts_per_page', 25);
+        $data['propertiesPerPage'] = (int) PerformanceSetting::get('properties_per_page', 20);
+
         // Feature Settings tab: Properties
         $data['propCategories']     = PropertySettingItem::group('category')->get();
         $data['propTypes']          = PropertySettingItem::group('property_type')->get();
@@ -429,6 +433,24 @@ class SettingsController extends Controller
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Setting updated.');
     }
 
+    public function updateContactsPerPage(Request $request)
+    {
+        $perPage = $request->validate([
+            'contacts_per_page' => 'required|integer|min:1|max:200',
+        ])['contacts_per_page'];
+        PerformanceSetting::updateOrCreate(['key' => 'contacts_per_page'], ['value' => (int) $perPage]);
+        return redirect()->route('corex.settings', ['s' => 'feature-contacts'])->with('success', 'Contacts per page updated.');
+    }
+
+    public function updatePropertiesPerPage(Request $request)
+    {
+        $perPage = $request->validate([
+            'properties_per_page' => 'required|integer|min:1|max:200',
+        ])['properties_per_page'];
+        PerformanceSetting::updateOrCreate(['key' => 'properties_per_page'], ['value' => (int) $perPage]);
+        return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
+    }
+
     public function updateMatchesVisibilityScope(Request $request)
     {
         $scope = $request->validate([
@@ -663,7 +685,8 @@ class SettingsController extends Controller
         $boolFields = [
             'idle_alerts_enabled', 'doc_reminders_enabled', 'lease_expiry_reminders',
             'fica_reminders', 'ffc_reminders', 'task_due_reminders', 'overdue_daily_digest',
-            'weekend_visible', 'notify_in_app', 'notify_email',
+            'weekend_visible', 'notify_in_app', 'notify_email', 'notify_push',
+            'open_hours_enabled',
         ];
 
         $data = $request->only([
@@ -671,7 +694,16 @@ class SettingsController extends Controller
             'doc_reminders_enabled', 'lease_expiry_reminders', 'fica_reminders', 'ffc_reminders',
             'task_due_reminders', 'overdue_daily_digest', 'digest_time',
             'default_calendar_view', 'weekend_visible', 'notify_in_app', 'notify_email',
+            'notify_push', 'open_hours_enabled', 'open_hours_start', 'open_hours_end',
+            'min_minutes_between_same',
         ]);
+
+        foreach (['open_hours_start', 'open_hours_end'] as $t) {
+            if (!empty($data[$t])) $data[$t] = substr($data[$t], 0, 5);
+        }
+        if (isset($data['min_minutes_between_same'])) {
+            $data['min_minutes_between_same'] = max(0, (int) $data['min_minutes_between_same']);
+        }
 
         foreach ($boolFields as $bf) {
             $data[$bf] = $request->boolean($bf);

@@ -51,7 +51,7 @@
                 fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' } })
                     .then(r => r.ok ? r.text() : Promise.reject('HTTP ' + r.status))
                     .then(html => { this.body = html; })
-                    .catch(err => { this.body = '<div style="padding:20px;color:#dc2626;">Could not load: ' + err + '</div>'; })
+                    .catch(err => { this.body = '<div style="padding:20px;color:var(--ds-crimson, #dc2626);">Could not load: ' + err + '</div>'; })
                     .finally(() => { this.loading = false; });
             },
             openPocket(suburb, bedrooms) {
@@ -67,13 +67,13 @@
                         const facts = data.facts || {};
                         const cacheBadge = data.from_cache ? 'cached' : 'fresh';
                         const fallbackBadge = data.from_fallback
-                            ? '<span style="font-size:0.625rem;padding:1px 6px;border-radius:3px;background:rgba(245,158,11,0.18);color:#d97706;font-weight:600;margin-left:6px;">Fallback</span>'
+                            ? '<span style="font-size:0.625rem;padding:1px 6px;border-radius:6px;background:color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent);color:var(--ds-amber, #f59e0b);font-weight:600;margin-left:6px;">Fallback</span>'
                             : '';
                         this.body = `
                             <div style="padding:16px;max-width:480px;">
                                 <h3 style="font-size:1.0625rem;font-weight:600;margin:0 0 8px 0;">${this._esc(facts.suburb || suburb)} · ${facts.bedrooms || bedrooms}-bed</h3>
                                 ${fallbackBadge}
-                                <div style="padding:10px 12px;margin:12px 0;border-radius:5px;background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, var(--surface));border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 22%, var(--border));">
+                                <div style="padding:10px 12px;margin:12px 0;border-radius:6px;background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, var(--surface));border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 22%, var(--border));">
                                     <div style="font-size:0.625rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--brand-icon, #0ea5e9);margin-bottom:4px;">Ellie's read</div>
                                     <div style="font-size:0.8125rem;line-height:1.5;white-space:pre-line;">${this._esc(data.narrative || '')}</div>
                                     <div style="margin-top:6px;font-size:0.625rem;color:var(--text-muted);">${cacheBadge} · just now</div>
@@ -94,7 +94,7 @@
                                 </div>
                             </div>`;
                     })
-                    .catch(err => { this.body = '<div style="padding:20px;color:#dc2626;">Could not load: ' + err + '</div>'; })
+                    .catch(err => { this.body = '<div style="padding:20px;color:var(--ds-crimson, #dc2626);">Could not load: ' + err + '</div>'; })
                     .finally(() => { this.loading = false; });
             },
             _esc(s) {

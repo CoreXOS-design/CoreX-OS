@@ -1,64 +1,93 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
 
-<div class="space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Presentations</h1>
-                <p class="text-sm text-white/60">Seller presentations, evaluations and pricing analysis.</p>
+                <h1 class="text-xl font-bold tracking-tight text-white leading-tight">Presentations</h1>
+                <p class="text-sm" style="color: rgba(255,255,255,0.6);">Seller presentations, evaluations and pricing analysis.</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
-                    <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline">P24 Suburbs</a>
+                    <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline text-sm">P24 Suburbs</a>
                 @endif
-                <a href="{{ route('presentations.create') }}" class="corex-btn-primary">New Presentation</a>
+                <a href="{{ route('presentations.create') }}" class="corex-btn-primary text-sm">New Presentation</a>
             </div>
         </div>
     </div>
 
     {{-- Filter bar --}}
-    <x-list-header
-        title="Presentations"
-        :form-action="route('presentations.index')"
-        :paginator="$presentations"
-        search-placeholder="Search address, seller, suburb..."
-    >
-        <x-slot:filters>
-            <select name="status" onchange="this.form.submit()" class="list-header-filter">
-                <option value="active" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
-                <option value="archived" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
-            </select>
+    <form method="GET" action="{{ route('presentations.index') }}"
+          class="rounded-md p-4 transition-all duration-300"
+          style="background: var(--surface); border: 1px solid var(--border);">
 
-            <select name="record_status" onchange="this.form.submit()" class="list-header-filter">
-                <option value="">All statuses</option>
-                @foreach($statuses as $s)
-                <option value="{{ $s }}" {{ request('record_status') === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
-                @endforeach
-            </select>
+        {{-- Preserve active sort when filtering --}}
+        @if(request('sort'))
+            <input type="hidden" name="sort" value="{{ request('sort') }}">
+            <input type="hidden" name="direction" value="{{ request('direction', 'asc') }}">
+        @endif
 
-            @if($propertyTypes->isNotEmpty())
-            <select name="property_type" onchange="this.form.submit()" class="list-header-filter">
-                <option value="">All types</option>
-                @foreach($propertyTypes as $pt)
-                <option value="{{ $pt }}" {{ request('property_type') === $pt ? 'selected' : '' }}>{{ ucfirst($pt) }}</option>
-                @endforeach
-            </select>
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="relative flex-1 min-w-[12rem] max-w-sm">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value="{{ request('search', '') }}"
+                       placeholder="Search address, seller, suburb..."
+                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md focus:outline-none transition-all duration-300"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
+
+            <div class="flex items-center gap-2 flex-wrap">
+                <select name="status" onchange="this.form.submit()" class="list-header-filter">
+                    <option value="active" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
+                    <option value="archived" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
+                </select>
+
+                <select name="record_status" onchange="this.form.submit()" class="list-header-filter">
+                    <option value="">All statuses</option>
+                    @foreach($statuses as $s)
+                    <option value="{{ $s }}" {{ request('record_status') === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
+                    @endforeach
+                </select>
+
+                @if($propertyTypes->isNotEmpty())
+                <select name="property_type" onchange="this.form.submit()" class="list-header-filter">
+                    <option value="">All types</option>
+                    @foreach($propertyTypes as $pt)
+                    <option value="{{ $pt }}" {{ request('property_type') === $pt ? 'selected' : '' }}>{{ ucfirst($pt) }}</option>
+                    @endforeach
+                </select>
+                @endif
+
+                @if($agents->isNotEmpty())
+                <select name="agent" onchange="this.form.submit()" class="list-header-filter">
+                    <option value="">All agents</option>
+                    @foreach($agents as $ag)
+                    <option value="{{ $ag->id }}" {{ request('agent') == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
+                    @endforeach
+                </select>
+                @endif
+            </div>
+
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+
+            @if(collect(request()->except(['sort', 'direction', 'page']))->filter(fn($v) => $v !== null && $v !== '' && $v !== 'active')->isNotEmpty())
+            <a href="{{ route('presentations.index') }}" class="text-xs underline transition-all duration-300" style="color: var(--text-muted);">Clear</a>
             @endif
 
-            @if($agents->isNotEmpty())
-            <select name="agent" onchange="this.form.submit()" class="list-header-filter">
-                <option value="">All agents</option>
-                @foreach($agents as $ag)
-                <option value="{{ $ag->id }}" {{ request('agent') == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
-                @endforeach
-            </select>
+            @if($presentations->total() > 0)
+            <span class="text-sm ml-auto" style="color: var(--text-muted);">
+                Showing {{ number_format($presentations->firstItem()) }} to {{ number_format($presentations->lastItem()) }} of {{ number_format($presentations->total()) }} results
+            </span>
             @endif
-        </x-slot:filters>
-    </x-list-header>
+        </div>
+    </form>
 
     {{-- Presentations table --}}
     @if($presentations->isEmpty())

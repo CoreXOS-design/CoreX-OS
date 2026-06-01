@@ -2,6 +2,7 @@
 
 namespace App\Services\PrivateProperty;
 
+use App\Models\Agency;
 use Illuminate\Support\Str;
 
 class PrivatePropertyTokenService
@@ -16,13 +17,15 @@ class PrivatePropertyTokenService
      *  - Digest: Base64(SHA1(UID + StampTime + Password + Expires))
      *  - The password is NEVER sent — only used in digest calculation
      */
-    public function generate(): array
+    public function generate(?Agency $agency = null): array
     {
+        $cfg = PrivatePropertyConfig::for($agency);
+
         $uid       = (string) Str::uuid();
         $stampTime = gmdate('Y-m-d\TH:i:s\Z');
         $expires   = gmdate('Y-m-d\TH:i:s\Z', time() + 86400);
-        $password  = config('services.private_property.password');
-        $username  = config('services.private_property.username');
+        $password  = $cfg['password'];
+        $username  = $cfg['username'];
 
         $digest = base64_encode(sha1($uid . $stampTime . $password . $expires, true));
 

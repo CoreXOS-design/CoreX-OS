@@ -95,7 +95,7 @@
         $activeGroup = 'agency-tracker';
     } elseif (request()->routeIs('evaluation.*')) {
         $activeGroup = 'evaluation';
-    } elseif (request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) {
+    } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*')) {
         $activeGroup = 'documents';
     } elseif (request()->routeIs('rental.*')) {
         $activeGroup = 'rentals';
@@ -127,11 +127,15 @@
         }
     } elseif (request()->routeIs(
         'prospecting.*',
+        'market-intelligence.*',
         'corex.properties.*',
+        'corex.map.*',
         'admin.p24.*',
         'corex.contacts.*',
         'corex.core-matches.*',
+        'corex.portal-leads.*',
         'presentations.*',
+        'corex.presentations.*',
         'commercial-evaluations.*'
     )) {
         $activeGroup = 'real-estate';
@@ -378,25 +382,12 @@
                           style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($miCount) }}</span>
                     @endif
                 </a>
-                @permission('mic.upload_reports')
-                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.reports.bulk-import'))
-                <a href="{{ route('market-intelligence.reports.bulk-import') }}"
-                   class="corex-nav-subitem {{ request()->routeIs('market-intelligence.reports.bulk-import*') ? 'active' : '' }}"
-                   style="padding-left: 36px; font-size: 0.78rem;">
-                    <span>Bulk Import Reports</span>
-                </a>
-                @endif
-                @endpermission
-                {{-- Q4/D1 — Portal alerts awaiting address. P24 email alerts
-                     can't appear on the map (no street address in the source),
-                     so they surface here for Chrome-capture promotion. --}}
-                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.portal-alerts'))
-                <a href="{{ route('market-intelligence.portal-alerts') }}"
-                   class="corex-nav-subitem {{ request()->routeIs('market-intelligence.portal-alerts') ? 'active' : '' }}"
-                   style="padding-left: 36px; font-size: 0.78rem;">
-                    <span>Portal alerts (awaiting address)</span>
-                </a>
-                @endif
+                {{-- Bulk Import Reports moved into the Market Intelligence tab bar
+                     as the "Importer" tab (see partials/tabs.blade.php). No
+                     separate sidebar entry. --}}
+                {{-- Q4/D1 — Portal alerts awaiting address moved into the Market
+                     Intelligence tab bar as the "Portal Alerts" tab (see
+                     partials/tabs.blade.php). No separate sidebar entry. --}}
                 @endif
                 {{-- Phase D1 — Tracked Properties folded into the MIC
                      Opportunities tab. Sidebar entry removed; the legacy
@@ -410,13 +401,7 @@
                 @endif
                 {{-- Phase 3g — Map module. Same permission as Properties; agency-scoped. --}}
                 @if(\Illuminate\Support\Facades\Route::has('corex.map.index'))
-                <a href="{{ route('corex.map.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.map.*') ? 'active' : '' }}" style="display:flex;align-items:center;gap:6px;">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M21 10c0 6-9 13-9 13s-9-7-9-13a9 9 0 0 1 18 0z"/>
-                        <circle cx="12" cy="10" r="3"/>
-                    </svg>
-                    Map
-                </a>
+                <a href="{{ route('corex.map.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.map.*') ? 'active' : '' }}">Map</a>
                 @endif
                 @endpermission
 
@@ -467,13 +452,11 @@
                         } catch (\Throwable $e) { /* sidebar must never blow up */ }
                     @endphp
                     <a href="{{ route('corex.presentations.outcomes.index') }}"
-                       class="corex-nav-subitem {{ request()->routeIs('corex.presentations.outcomes.*') ? 'active' : '' }}"
-                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                       class="corex-nav-subitem {{ request()->routeIs('corex.presentations.outcomes.*') ? 'active' : '' }}">
                         <span>Outcomes</span>
                         @if($outcomePendingCount > 0)
-                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#0ea5e9;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">
-                                {{ $outcomePendingCount > 99 ? '99+' : $outcomePendingCount }}
-                            </span>
+                            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
+                                  style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ $outcomePendingCount > 99 ? '99+' : $outcomePendingCount }}</span>
                         @endif
                     </a>
                 @endif
@@ -491,13 +474,11 @@
                         } catch (\Throwable $e) { /* sidebar must never blow up */ }
                     @endphp
                     <a href="{{ route('corex.presentations.refresh-requests.index') }}"
-                       class="corex-nav-subitem {{ request()->routeIs('corex.presentations.refresh-requests.*') ? 'active' : '' }}"
-                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                       class="corex-nav-subitem {{ request()->routeIs('corex.presentations.refresh-requests.*') ? 'active' : '' }}">
                         <span>Refresh Requests</span>
                         @if($refreshOpenCount > 0)
-                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#f59e0b;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">
-                                {{ $refreshOpenCount > 99 ? '99+' : $refreshOpenCount }}
-                            </span>
+                            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
+                                  style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ $refreshOpenCount > 99 ? '99+' : $refreshOpenCount }}</span>
                         @endif
                     </a>
                 @endif
@@ -509,26 +490,11 @@
                 @endif
                 @endpermission
 
-                @permission('manage_p24')
-                @if(\Illuminate\Support\Facades\Route::has('admin.p24.index'))
-                <a href="{{ route('admin.p24.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.p24.*') ? 'active' : '' }}">P24 Alerts</a>
-                @endif
-                @endpermission
+                {{-- Legacy "P24 Alerts" link removed: admin.p24.index is a 301 redirect into
+                     Market Intelligence → Market Pulse (MIC redesign Phase D1/D6). Market Pulse
+                     is reachable from the Market Intelligence tab bar — single entry per spec. --}}
             </div>
         </div>
-
-        {{-- ═══════════════════════════════════════════
-             AGENCY DOCUMENTS (staff read-only)
-             ═══════════════════════════════════════════ --}}
-        @permission('view_agency_documents')
-        <a href="{{ route('my-portal.agency-documents') }}"
-           class="corex-nav-item {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-            </svg>
-            <span>Agency Documents</span>
-        </a>
-        @endpermission
 
         {{-- ═══════════════════════════════════════════
              MY EARNINGS
@@ -769,7 +735,7 @@
         {{-- ═══════════════════════════════════════════
              DOCUMENTS (DocuPerfect — expandable group)
              ═══════════════════════════════════════════ --}}
-        @permission('access_docuperfect')
+        @if(auth()->check() && (auth()->user()->hasPermission('access_docuperfect') || auth()->user()->hasPermission('view_agency_documents')))
         @if(\Illuminate\Support\Facades\Route::has('docuperfect.dashboard'))
         <div>
             <button type="button" @click="push('documents')"
@@ -810,10 +776,13 @@
                 <a href="{{ route('docuperfect.field-groups.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.field-groups.*') ? 'active' : '' }}">Field Groups</a>
                 <a href="{{ route('docuperfect.import.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.import.*') ? 'active' : '' }}">Import Document</a>
                 @endpermission
+                @permission('view_agency_documents')
+                <a href="{{ route('my-portal.agency-documents') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">Agency Documents</a>
+                @endpermission
             </div>
         </div>
         @endif
-        @endpermission
+        @endif
 
         {{-- ═══════════════════════════════════════════
              RENTALS (expandable group)
@@ -1152,6 +1121,20 @@
         @endif
         @endif
 
+        {{-- Image Converter --}}
+        @permission('access_image_converter')
+        @if(\Illuminate\Support\Facades\Route::has('tools.image_converter.index'))
+        <a href="{{ route('tools.image_converter.index') }}" class="corex-nav-item {{ request()->routeIs('tools.image_converter.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <circle cx="9" cy="9" r="2"/>
+                <path d="m21 15-3.1-3.1a2 2 0 0 0-2.81.01L6 21"/>
+            </svg>
+            <span>Image Converter</span>
+        </a>
+        @endif
+        @endpermission
+
         {{-- Document Library --}}
         @permission('access_document_library')
         @if(config('features.document_library_v1'))
@@ -1424,6 +1407,7 @@
                 <a href="{{ route('admin.importer.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.index') ? 'active' : '' }}">P24 Importer</a>
                 <a href="{{ route('admin.importer.review') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.review') ? 'active' : '' }}">Property Review</a>
                 <a href="{{ route('admin.importer.p24-locations') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.p24-locations') ? 'active' : '' }}">P24 Locations</a>
+                <a href="{{ route('admin.importer.pp-locations') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.pp-locations') ? 'active' : '' }}">PP Locations</a>
             </div>
         </div>
 

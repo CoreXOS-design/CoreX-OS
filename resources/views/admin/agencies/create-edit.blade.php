@@ -44,6 +44,7 @@
     <div class="flex gap-1 rounded-md p-1 flex-wrap" style="background: var(--surface); border:1px solid var(--border);">
         @foreach($tabs as $key => $label)
             <button type="button" @click="activeTab = '{{ $key }}'"
+                    data-tab-btn="{{ $key }}"
                     class="flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-md transition-colors"
                     :style="activeTab === '{{ $key }}'
                         ? 'background: var(--brand-button, #0ea5e9); color: #fff;'
@@ -57,14 +58,16 @@
          MAIN AGENCY FORM (Company / Branding / Syndication / Admin tabs)
          ============================================================ --}}
     <form method="POST"
+          id="agency-form"
           action="{{ $agency ? route('agencies.update', $agency) : route('agencies.store') }}"
           enctype="multipart/form-data"
+          novalidate
           class="space-y-5">
         @csrf
         @if($agency) @method('PUT') @endif
 
         {{-- ── COMPANY TAB ── --}}
-        <div x-show="activeTab === 'company'" x-cloak class="ds-status-card p-4 space-y-5">
+        <div x-show="activeTab === 'company'" x-cloak data-tab-panel="company" class="ds-status-card p-4 space-y-5">
             <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Agency Identity</div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -203,7 +206,7 @@
         </div>
 
         {{-- ── BRANDING TAB ── --}}
-        <div x-show="activeTab === 'branding'" x-cloak class="ds-status-card p-4 space-y-5">
+        <div x-show="activeTab === 'branding'" x-cloak data-tab-panel="branding" class="ds-status-card p-4 space-y-5">
             <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Brand Colours</div>
             <p class="text-xs" style="color:var(--text-muted);">Four semantic colour roles control the entire platform look for this agency.</p>
 
@@ -290,7 +293,7 @@
         </div>
 
         {{-- ── SYNDICATION TAB ── --}}
-        <div x-show="activeTab === 'syndication'" x-cloak class="ds-status-card p-4 space-y-5">
+        <div x-show="activeTab === 'syndication'" x-cloak data-tab-panel="syndication" class="ds-status-card p-4 space-y-5">
             <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Property24 — Default Agency ID</div>
             <p class="text-xs" style="color:var(--text-muted);">Where this agency's listings are published on Property24. Each branch can override this default in the Branches tab.</p>
 
@@ -312,6 +315,33 @@
                     <p class="text-xs mt-1" style="color:var(--text-muted);">Human-readable label shown in the admin UI only. Not sent to Property24.</p>
                 </div>
             </div>
+
+            <div class="text-xs font-bold uppercase tracking-wider pb-1 pt-3" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Advanced AI Features</div>
+            <p class="text-xs" style="color:var(--text-muted);">Opt-in to advanced AI capabilities. These are billable mobile-app features — only enable for agencies on the relevant plan.</p>
+
+            <label class="flex items-start gap-3 p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                <input type="hidden" name="ai_voice_enabled" value="0">
+                <input type="checkbox" name="ai_voice_enabled" value="1"
+                       {{ old('ai_voice_enabled', $agency->ai_voice_enabled ?? false) ? 'checked' : '' }}
+                       class="w-4 h-4 mt-0.5 rounded cursor-pointer"
+                       style="accent-color:var(--brand-icon, #0ea5e9);">
+                <span class="text-sm" style="color:var(--text-primary);">
+                    <span class="font-medium">Ellie Voice Commands</span>
+                    <span class="block text-xs mt-0.5" style="color:var(--text-muted);">Push-to-talk voice input on mobile. "Hey Ellie, schedule a viewing at 11" creates a calendar entry, tagged as AI-created.</span>
+                </span>
+            </label>
+
+            <label class="flex items-start gap-3 p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                <input type="hidden" name="ai_image_recognition_enabled" value="0">
+                <input type="checkbox" name="ai_image_recognition_enabled" value="1"
+                       {{ old('ai_image_recognition_enabled', $agency->ai_image_recognition_enabled ?? false) ? 'checked' : '' }}
+                       class="w-4 h-4 mt-0.5 rounded cursor-pointer"
+                       style="accent-color:var(--brand-icon, #0ea5e9);">
+                <span class="text-sm" style="color:var(--text-primary);">
+                    <span class="font-medium">AI Property Image Recognition</span>
+                    <span class="block text-xs mt-0.5" style="color:var(--text-muted);">Mobile-only. When agents upload property photos, the system detects features (pool, sea view, garden, etc.) and pre-ticks the feature checklist for confirmation.</span>
+                </span>
+            </label>
 
             @if($agency)
             <div class="text-xs font-bold uppercase tracking-wider pb-1 pt-3" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Property24 API Credentials</div>
@@ -384,6 +414,100 @@
             </div>
             @endif
 
+            @if($agency)
+            {{-- ── Private Property credentials ── --}}
+            <div class="text-xs font-bold uppercase tracking-wider pb-1 pt-5" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Private Property — Credentials</div>
+            <p class="text-xs" style="color:var(--text-muted);">Per-agency PP SOAP credentials. Leave blank to fall back to the global <code>.env</code> defaults. Stored encrypted.</p>
+
+            <label class="flex items-center gap-3">
+                <input type="hidden" name="pp_enabled" value="0">
+                <input type="checkbox" name="pp_enabled" value="1"
+                       {{ old('pp_enabled', $agency->pp_enabled ?? false) ? 'checked' : '' }}
+                       class="w-4 h-4 rounded cursor-pointer"
+                       style="accent-color:var(--brand-icon, #0ea5e9);">
+                <span class="text-sm font-medium" style="color:var(--text-primary);">Enable Private Property integration for this agency</span>
+            </label>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Username</label>
+                    <input type="text" name="pp_username" value="{{ old('pp_username', $agency->pp_username) }}"
+                           class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="e.g. agency@hfcoastal.co.za" autocomplete="off">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Password</label>
+                    <input type="password" name="pp_password"
+                           class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="{{ $agency->pp_password ? '•••••••• (leave blank to keep)' : 'Enter PP password' }}"
+                           autocomplete="new-password">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Branch GUID</label>
+                    <input type="text" name="pp_branch_guid" value="{{ old('pp_branch_guid', $agency->pp_branch_guid) }}"
+                           class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="e.g. 6f0a1b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">WSDL URL</label>
+                    <input type="text" name="pp_wsdl" value="{{ old('pp_wsdl', $agency->pp_wsdl) }}"
+                           class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="{{ config('services.private_property.wsdl') }}">
+                </div>
+                <div class="flex items-center pt-5">
+                    <label class="flex items-center gap-3">
+                        <input type="hidden" name="pp_sandbox" value="0">
+                        <input type="checkbox" name="pp_sandbox" value="1"
+                               {{ old('pp_sandbox', $agency->pp_sandbox ?? true) ? 'checked' : '' }}
+                               class="w-4 h-4 rounded cursor-pointer"
+                               style="accent-color:var(--brand-icon, #0ea5e9);">
+                        <span class="text-sm font-medium" style="color:var(--text-primary);">Sandbox mode</span>
+                    </label>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Image Base URL</label>
+                    <input type="text" name="pp_image_base_url" value="{{ old('pp_image_base_url', $agency->pp_image_base_url) }}"
+                           class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="optional — overrides APP_URL for image hosts">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Webhook Secret</label>
+                    <input type="password" name="pp_webhook_secret"
+                           class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="{{ $agency->pp_webhook_secret ? '•••••••• (leave blank to keep)' : 'HMAC secret registered in PP Admin Portal' }}"
+                           autocomplete="new-password">
+                </div>
+            </div>
+
+            <div class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);"
+                 x-data="ppActions({ testUrl: '{{ route('agencies.pp.test', $agency) }}', csrf: '{{ csrf_token() }}' })">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="text-xs space-y-1">
+                        @if($agency->pp_last_sync_error)
+                            <div class="break-all" style="color:var(--ds-crimson);"><span class="font-semibold">Last error:</span> {{ Str::limit($agency->pp_last_sync_error, 300) }}</div>
+                        @endif
+                        <template x-if="message">
+                            <div :style="ok ? 'color:var(--ds-green);' : 'color:var(--ds-crimson);'"
+                                 class="font-medium" x-text="message"></div>
+                        </template>
+                    </div>
+                    <div class="flex gap-2">
+                        <button type="button" @click="test()" :disabled="busy"
+                                class="px-3 py-1.5 rounded-md text-xs font-semibold disabled:opacity-60"
+                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <span x-text="busy ? 'Testing…' : 'Test Connection'"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            @endif
+
             <div class="flex justify-end pt-1">
                 <button type="submit" class="corex-btn-primary">{{ $agency ? 'Update Agency' : 'Create Agency' }}</button>
             </div>
@@ -391,7 +515,7 @@
 
         {{-- ── FIRST ADMIN TAB (create only) ── --}}
         @if(!$agency)
-        <div x-show="activeTab === 'admin'" x-cloak class="ds-status-card p-4 space-y-5">
+        <div x-show="activeTab === 'admin'" x-cloak data-tab-panel="admin" class="ds-status-card p-4 space-y-5">
             <label class="flex items-start gap-3 cursor-pointer">
                 <input type="checkbox" name="is_demo" value="1" x-model="isDemo" class="mt-1 h-4 w-4 rounded">
                 <span>
@@ -683,6 +807,24 @@ function p24Actions(cfg) {
     };
 }
 
+function ppActions(cfg) {
+    return {
+        busy: false, message: '', ok: false,
+        async test() {
+            this.busy = true; this.message = '';
+            const r = await fetch(cfg.testUrl, {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json' },
+            });
+            let body = {};
+            try { body = await r.json(); } catch (e) {}
+            this.ok = r.ok && body.success;
+            this.message = body.message || ('HTTP ' + r.status);
+            this.busy = false;
+        },
+    };
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     function hexToRgba(hex, pct) {
         if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return 'transparent';
@@ -729,6 +871,46 @@ document.addEventListener('DOMContentLoaded', function () {
     syncPair('default_color_picker', 'default_color_text');
     syncPair('button_color_picker',  'button_color_text');
     updatePreviews();
+});
+
+// ── Cross-tab validation guard ──────────────────────────────────────────────
+// The agency form is split across tabbed panels (Company / Branding /
+// Syndication / First Admin). A native `required` field on a hidden
+// (display:none) tab can't be focused, so the browser silently aborts the
+// submit with no feedback — e.g. ticking "Demo agency" on the Admin tab and
+// hitting Create while the required Name field on the Company tab is empty made
+// the button appear to do nothing. The form carries `novalidate`, so the submit
+// event always fires; here we find the first invalid control, switch to its
+// tab, and surface the native message on the now-visible field.
+document.addEventListener('DOMContentLoaded', function () {
+    var agencyForm = document.getElementById('agency-form');
+    if (!agencyForm) return;
+
+    function switchToTab(tabKey) {
+        var btns = document.querySelectorAll('[data-tab-btn]');
+        for (var i = 0; i < btns.length; i++) {
+            if (btns[i].getAttribute('data-tab-btn') === tabKey) { btns[i].click(); return; }
+        }
+    }
+
+    agencyForm.addEventListener('submit', function (e) {
+        var controls = agencyForm.querySelectorAll('input, select, textarea');
+        var firstInvalid = null;
+        for (var i = 0; i < controls.length; i++) {
+            var c = controls[i];
+            if (c.disabled || c.type === 'hidden') continue;
+            if (typeof c.checkValidity === 'function' && !c.checkValidity()) { firstInvalid = c; break; }
+        }
+        if (firstInvalid) {
+            e.preventDefault();
+            var panel = firstInvalid.closest('[data-tab-panel]');
+            if (panel) switchToTab(panel.getAttribute('data-tab-panel'));
+            // Let Alpine reveal the tab before asking the browser to report.
+            setTimeout(function () {
+                try { firstInvalid.reportValidity(); firstInvalid.focus(); } catch (err) {}
+            }, 60);
+        }
+    });
 });
 </script>
 @endsection

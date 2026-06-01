@@ -4,10 +4,16 @@
     Sort defaults to strong_match_count DESC so high-signal TPs land at top.
 --}}
 @if($tps->isEmpty())
-    <div style="padding: 24px; text-align: center;
-                background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
-        <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0;">
-            No tracked properties match these filters. Try clearing some, or "All" to see everything.
+    <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+             style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75" />
+            </svg>
+        </div>
+        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No matching properties</h3>
+        <p class="text-sm" style="color: var(--text-muted);">
+            No tracked properties match these filters. Try clearing some, or choose &ldquo;All&rdquo; to see everything.
         </p>
     </div>
 @else
@@ -23,11 +29,8 @@
                 $strong = (int) ($tp->strong_match_count ?? 0);
             @endphp
             <a href="{{ $detailUrl }}"
-               style="display: block; text-decoration: none; color: inherit;
-                      border-bottom: 1px solid var(--border);
-                      transition: background 100ms ease;"
-               onmouseover="this.style.background='var(--surface-2)'"
-               onmouseout="this.style.background='var(--surface)'">
+               class="block transition-colors hover:bg-[color:var(--surface-2)]"
+               style="text-decoration: none; color: inherit; border-bottom: 1px solid var(--border);">
                 <div style="padding: 12px 16px; display: flex; align-items: flex-start; gap: 16px;">
                     <div style="flex: 1; min-width: 0;">
                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
@@ -40,24 +43,23 @@
                                 @endif
                             </span>
                             @if($isPromoted)
-                                <span style="font-size: 0.625rem; font-weight: 600; padding: 2px 6px;
+                                <span style="font-size: 0.625rem; font-weight: 600; padding: 2px 6px; white-space: nowrap;
                                              background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent);
-                                             color: var(--ds-amber, #d97706); border-radius: 3px;">
+                                             color: var(--ds-amber, #f59e0b); border-radius: 6px;">
                                     IN STOCK
                                 </span>
                             @endif
                             @if($primary)
                                 @php
                                     $confColor = match ($primary->confidence) {
-                                        'verified' => '#0d9488',
-                                        'high'     => '#16a34a',
-                                        'medium'   => '#d97706',
-                                        default    => 'var(--text-muted)',
+                                        'verified', 'high' => 'var(--ds-green, #059669)',
+                                        'medium'           => 'var(--ds-amber, #f59e0b)',
+                                        default            => 'var(--text-muted)',
                                     };
                                 @endphp
-                                <span style="font-size: 0.625rem; font-weight: 600; padding: 2px 6px;
+                                <span style="font-size: 0.625rem; font-weight: 600; padding: 2px 6px; white-space: nowrap;
                                              background: color-mix(in srgb, {{ $confColor }} 14%, transparent);
-                                             color: {{ $confColor }}; border-radius: 3px;">
+                                             color: {{ $confColor }}; border-radius: 6px;">
                                     {{ strtoupper($primary->confidence) }}
                                 </span>
                             @endif

@@ -12,6 +12,7 @@ class P24ImportLog extends Model
     protected $table = 'p24_import_log';
 
     protected $fillable = [
+        'agency_id',
         'email_uid',
         'email_subject',
         'email_date',
