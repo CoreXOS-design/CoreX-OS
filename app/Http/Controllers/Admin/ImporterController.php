@@ -64,18 +64,39 @@ class ImporterController extends Controller
             $parser = new P24AgentsCsvParser();
             $rows = $parser->parse(\Storage::path($path));
 
-            $counts = ['total' => count($rows), 'errors' => 0];
+            $counts = ['total' => count($rows), 'new' => 0, 'link' => 0, 'skip' => 0, 'errors' => 0];
             foreach ($rows as $r) {
-                if (!empty($r['errors'])) $counts['errors']++;
+                if (!empty($r['errors'])) {
+                    $counts['errors']++;
+                    P24ImportRow::create([
+                        'run_id'       => $run->id,
+                        'row_type'     => 'agent',
+                        'external_id'  => $r['external_id'],
+                        'payload_json' => $r['payload'],
+                        'mapped_json'  => $r['mapped'],
+                        'errors_json'  => $r['errors'],
+                        'action'       => $r['action'],
+                        'status'       => 'error',
+                    ]);
+                    continue;
+                }
+
+                // Resolve the email against existing users now (not just at import time)
+                // so the preview tells the admin the truth: create / link / skip.
+                // Mirrors ProcessImporterRunJob::processAgents() exactly.
+                [$action, $match] = $this->resolveAgentMatch($r['mapped']['email'] ?? '', (int) $run->agency_id);
+                $counts[$action === 'create' ? 'new' : ($action === 'update' ? 'link' : 'skip')]++;
+
                 P24ImportRow::create([
-                    'run_id'       => $run->id,
-                    'row_type'     => 'agent',
-                    'external_id'  => $r['external_id'],
-                    'payload_json' => $r['payload'],
-                    'mapped_json'  => $r['mapped'],
-                    'errors_json'  => $r['errors'] ?: null,
-                    'action'       => $r['action'],
-                    'status'       => empty($r['errors']) ? 'pending' : 'error',
+                    'run_id'            => $run->id,
+                    'row_type'          => 'agent',
+                    'external_id'       => $r['external_id'],
+                    'payload_json'      => $r['payload'],
+                    'mapped_json'       => $r['mapped'],
+                    'errors_json'       => null,
+                    'resolved_agent_id' => $match?->id,
+                    'action'            => $action,
+                    'status'            => 'pending',
                 ]);
             }
             $run->update(['status' => 'pending_confirm', 'counts_json' => $counts]);
@@ -91,6 +112,32 @@ class ImporterController extends Controller
             return response()->json(['redirect' => route('admin.importer.preview', $run)]);
         }
         return redirect()->route('admin.importer.preview', $run);
+    }
+
+    /**
+     * Decide what will happen to an agent row by matching on email — the single
+     * source of truth shared with the preview. Mirrors
+     * ProcessImporterRunJob::processAgents() so the preview never lies:
+     *  - no match                               → 'create' (new inactive agent)
+     *  - existing user in THIS agency / unassigned → 'update' (link P24 ids only, no duplicate)
+     *  - existing user in ANOTHER agency        → 'skip'   (multi-tenancy: never touch it)
+     *
+     * @return array{0:string,1:?User} [action, matchedUser]
+     */
+    private function resolveAgentMatch(string $email, int $agencyId): array
+    {
+        $email = strtolower(trim($email));
+        if ($email === '') {
+            return ['create', null];
+        }
+        $user = User::withoutGlobalScopes()->withTrashed()->where('email', $email)->first();
+        if (!$user) {
+            return ['create', null];
+        }
+        if ($user->agency_id && (int) $user->agency_id !== $agencyId) {
+            return ['skip', $user];
+        }
+        return ['update', $user];
     }
 
     public function preview(P24ImportRun $run)
