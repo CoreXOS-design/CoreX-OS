@@ -91,7 +91,12 @@ class OnboardingPortalController extends Controller
             default       => $q->orderByDesc('id'),
         };
 
-        $rows = $q->paginate(30)->withQueryString();
+        $perPage = (int) $request->get('per_page', 30);
+        if (!in_array($perPage, [15, 30, 50, 100, 200], true)) {
+            $perPage = 30;
+        }
+
+        $rows = $q->paginate($perPage)->withQueryString();
         $agency = $portal->agency;
         $counts = $this->counts($portal);
         $agents = User::withoutGlobalScopes()
@@ -100,7 +105,7 @@ class OnboardingPortalController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        return view('onboarding.portal.review', compact('portal', 'agency', 'rows', 'counts', 'agents', 'status', 'type', 'search', 'sort'));
+        return view('onboarding.portal.review', compact('portal', 'agency', 'rows', 'counts', 'agents', 'status', 'type', 'search', 'sort', 'perPage'));
     }
 
     public function status(Request $request)
