@@ -278,7 +278,10 @@ class PresentationController extends Controller
         $latestSnapshot = $presentation->snapshots()->latest()->first();
         $snapshotCount  = $presentation->snapshots()->count();
         $links          = $presentation->links()->orderBy('created_at')->get();
-        $readiness      = (new PresentationReadinessService())->evaluate($presentation);
+        // Pack Readiness section removed from the show view — auto-presentation
+        // guarantees data capture, so the checklist contradicted itself. The
+        // PresentationReadinessService is still used by analysis.blade.php +
+        // by the (currently flagged-off) compile gate, so the class lives on.
         $latestVersion  = $presentation->versions()->latest('compiled_at')->first();
 
         // ── Power Panel (UI1) — feature-flagged ──────────────────────────
@@ -334,7 +337,7 @@ class PresentationController extends Controller
         }
 
         return view('presentations.show', compact(
-            'presentation', 'latestSnapshot', 'snapshotCount', 'links', 'readiness', 'powerPanel',
+            'presentation', 'latestSnapshot', 'snapshotCount', 'links', 'powerPanel',
             'linkViews', 'isAdmin', 'latestVersion',
             'maxCaptureId', 'maxCaptureUpdatedAt', 'maxLinkUpdatedAt',
             'addedArticles', 'suggestedArticles', 'buyerDemand'
