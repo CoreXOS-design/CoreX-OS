@@ -81,10 +81,16 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
         $addresses = [];
         $compRows  = [];
         $today     = now()->toDateString();
-        $suburb    = $this->normaliseSuburb($report->source_suburb);
 
         // ── Subject property block (page 1 "PROPERTY INFORMATION") ──────────
         $subject = $this->extractSubject($text, $report);
+
+        // Resolve report-level suburb — explicit upload first, else
+        // the Suburb column captured by extractSubject(). Promote to
+        // subject_meta so ParseMarketReportJob backfills the report row.
+        $resolved  = $this->resolveReportSuburb($report->source_suburb, [$subject['suburb'] ?? null]);
+        $suburb    = $resolved['normalised'];
+        $suburbRaw = $resolved['raw'];
 
         // Emit a subject comp row (row_index 0).
         if (!empty($subject['address']) || !empty($subject['scheme_name'])) {
@@ -178,12 +184,16 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
             'subject_latitude'       => $subject['latitude']       ?? null,
             'subject_longitude'      => $subject['longitude']      ?? null,
             'subject_extent_m2'      => $subject['extent_m2']      ?? null,
+            // Backfill source_suburb when blank — ParseMarketReportJob's
+            // allow-list honours this key and refuses to clobber a
+            // user-supplied value.
+            'source_suburb'          => $suburbRaw,
         ], fn ($v) => $v !== null && $v !== '');
 
         if (!empty($subject['address'])) {
             $addresses[] = $this->makeAddress([
                 'street_name' => $subject['address'],
-                'suburb'      => $report->source_suburb,
+                'suburb'      => $suburbRaw ?? $report->source_suburb,
                 'latitude'    => $subject['latitude'] ?? null,
                 'longitude'   => $subject['longitude'] ?? null,
             ]);
@@ -221,9 +231,18 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
         if (preg_match('/Address\s+([A-Z0-9][^\n]{2,80})/u', $text, $m)) {
             $out['address'] = trim($m[1]);
         }
-        // Scheme name
-        if (preg_match('/Scheme\s+name\s+([A-Z][^\n]{1,80}?)\s+Suburb/iu', $text, $m)) {
+        // Scheme name + Suburb (column-paired on one line) —
+        //   "Scheme name    MADEIRA GARDENS    Suburb    UVONGO"
+        if (preg_match('/Scheme\s+name\s+([A-Z][^\n]{1,80}?)\s+Suburb\s+([A-Z][A-Z \']{2,40})/iu', $text, $m)) {
             $out['scheme_name'] = trim($m[1]);
+            $out['suburb']      = trim($m[2]);
+        } elseif (preg_match('/Scheme\s+name\s+([A-Z][^\n]{1,80}?)\s+Suburb/iu', $text, $m)) {
+            $out['scheme_name'] = trim($m[1]);
+        }
+        // Standalone Suburb capture for non-sectional Property Valuation reports
+        // (no "Scheme name" preamble). "Suburb    UVONGO".
+        if (empty($out['suburb']) && preg_match('/(?:^|\n)\s*Suburb\s+([A-Z][A-Z \']{2,40})/iu', $text, $m)) {
+            $out['suburb'] = trim($m[1]);
         }
         // Scheme number → ss_number / ss_year (e.g. "379/1985")
         if (preg_match('/Scheme\s+number\s+(\d{1,5})\/(\d{4})/iu', $text, $m)) {

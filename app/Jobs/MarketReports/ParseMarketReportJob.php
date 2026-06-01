@@ -163,6 +163,23 @@ class ParseMarketReportJob implements ShouldQueue
                     }
                 }
 
+                // Belt-and-braces: now that source_suburb is settled
+                // (either user-supplied or just-backfilled by this job),
+                // backfill any comp_rows for this report whose
+                // suburb_normalised is still NULL/blank. Catches the case
+                // where the parser detected suburb in PDF text but bound
+                // the comp-row variable BEFORE the detection ran.
+                if (!empty($report->source_suburb)) {
+                    $normalised = \App\Models\Prospecting\TrackedProperty::normaliseSuburb($report->source_suburb);
+                    if ($normalised !== null && $normalised !== '') {
+                        \App\Models\MarketReports\MarketReportCompRow::where('market_report_id', $report->id)
+                            ->where(function ($q) {
+                                $q->whereNull('suburb_normalised')->orWhere('suburb_normalised', '');
+                            })
+                            ->update(['suburb_normalised' => $normalised]);
+                    }
+                }
+
                 // Phase 3a — scheme owner roll.
                 foreach ($result->schemeOwners as $owner) {
                     try {

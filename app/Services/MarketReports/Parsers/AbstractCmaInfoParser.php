@@ -84,6 +84,54 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
         return TrackedProperty::normaliseSuburb($s);
     }
 
+    /**
+     * Resolve the suburb to use for THIS parse pass.
+     *
+     * Pre-fix bug: every parser computed `$suburb = normaliseSuburb($report->source_suburb)`
+     * once at parse-entry and bound that into every comp row. When the upload
+     * path failed to capture source_suburb (most common case — agent uploads
+     * without filling the field, filename auto-detect fails), every row went
+     * to DB with `suburb_normalised = NULL`, killing every downstream comp
+     * filter.
+     *
+     * Fix: parsers pass any in-PDF suburb candidates they detected (e.g.
+     * vicinity's "Limited to. MARGATE BEACH", sectional's subject_address
+     * trailing token, scheme-owners' header suburb) and we pick the best
+     * available source. Priority:
+     *
+     *   1. report.source_suburb           — user-explicit, never clobber
+     *   2. parser-detected candidates     — first non-empty in caller's order
+     *   3. null                           — caller decides
+     *
+     * Returns a [raw, normalised] pair:
+     *   - $raw is the source-detected ORIGINAL case ("Uvongo Beach"),
+     *     promoted to subject_meta['source_suburb'] so the job's existing
+     *     backfill writes it to the report row.
+     *   - $normalised is the lowercase form ($this->normaliseSuburb on raw),
+     *     used as the comp-row suburb_normalised value.
+     *
+     * SuburbMatcher (used at match time) bridges "Uvongo Beach" ↔ "uvongo"
+     * downstream — so the PERSISTED form stays high-fidelity to what the
+     * PDF said.
+     *
+     * @param  list<?string>  $candidates  parser-detected suburb candidates in priority order
+     * @return array{raw: ?string, normalised: ?string}
+     */
+    protected function resolveReportSuburb(?string $reportSourceSuburb, array $candidates): array
+    {
+        $explicit = is_string($reportSourceSuburb) ? trim($reportSourceSuburb) : '';
+        if ($explicit !== '') {
+            return ['raw' => $explicit, 'normalised' => $this->normaliseSuburb($explicit)];
+        }
+        foreach ($candidates as $candidate) {
+            $trimmed = is_string($candidate) ? trim($candidate) : '';
+            if ($trimmed !== '') {
+                return ['raw' => $trimmed, 'normalised' => $this->normaliseSuburb($trimmed)];
+            }
+        }
+        return ['raw' => null, 'normalised' => null];
+    }
+
     /** Strip "R", commas, whitespace from a price string. Returns float|null. */
     protected function parsePrice(?string $raw): ?float
     {

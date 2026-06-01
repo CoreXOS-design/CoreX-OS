@@ -71,15 +71,25 @@ final class CmaInfoSectionalTitleSalesParser extends AbstractCmaInfoParser
         $addresses = [];
         $compRows  = [];
         $today     = now()->toDateString();
-        $suburb    = $this->normaliseSuburb($report->source_suburb);
 
         // ── Subject + radius detection ─────────────────────────────────────
         $subjectMeta = [];
 
         // Page-1 first line — "MADEIRA GARDENS, 4 TUCKER AVENUE, UVONGO"
+        $subjectAddrSuburb = null;
         if (preg_match('/^([A-Z][A-Z \']{2,40}),\s+(\d{1,4}\s+[A-Z][A-Z \']{2,40}),\s+([A-Z][A-Z \']{2,40})$/m', $text, $m)) {
             $subjectMeta['subject_scheme_name'] = trim($m[1]);
             $subjectMeta['subject_address']     = trim($m[2]) . ', ' . trim($m[3]);
+            $subjectAddrSuburb                  = trim($m[3]);
+        }
+        // Resolve report-level suburb from explicit upload value, else
+        // subject_address trailing token. Promote to subject_meta so
+        // ParseMarketReportJob's backfill writes it onto the report row.
+        $resolved  = $this->resolveReportSuburb($report->source_suburb, [$subjectAddrSuburb]);
+        $suburb    = $resolved['normalised'];
+        $suburbRaw = $resolved['raw'];
+        if ($suburbRaw !== null) {
+            $subjectMeta['source_suburb'] = $suburbRaw;
         }
 
         // Radius: "Sectional Title sales within. 500m" or "300m radius" or "Within 500 m of"
@@ -139,7 +149,7 @@ final class CmaInfoSectionalTitleSalesParser extends AbstractCmaInfoParser
             if (!empty($row['address']) || !empty($row['scheme_name'])) {
                 $addresses[] = $this->makeAddress([
                     'street_name' => $row['scheme_name'] ?? $row['address'] ?? null,
-                    'suburb'      => $report->source_suburb,
+                    'suburb'      => $suburbRaw ?? $report->source_suburb,
                     'sale_price'  => $row['sale_price'] ?? null,
                     'sale_date'   => $row['sale_date'] ?? null,
                 ]);

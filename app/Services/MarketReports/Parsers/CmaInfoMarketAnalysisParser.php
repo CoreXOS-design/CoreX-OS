@@ -80,17 +80,27 @@ final class CmaInfoMarketAnalysisParser extends AbstractCmaInfoParser
         $addresses = [];
         $compRows  = [];
         $today     = now()->toDateString();
-        $suburb    = $this->normaliseSuburb($report->source_suburb);
 
         // ── Subject extraction ─────────────────────────────────────────────
         $subjectMeta = [];
+        $subjectAddrSuburb = null;
 
         if (preg_match('/Subject Property[^\n]*\n(?<line>[^\n]{6,180})/i', $text, $m)) {
             $sub = $this->parseAddressLine($m['line']);
             if ($sub) {
                 $addresses[] = $sub;
                 $subjectMeta['subject_address'] = trim($m['line']);
+                $subjectAddrSuburb = $sub['suburb'] ?? null;
             }
+        }
+        // Resolve report-level suburb — explicit upload first, else
+        // subject_address trailing token captured above. Promote to
+        // subject_meta so ParseMarketReportJob backfills the report row.
+        $resolved  = $this->resolveReportSuburb($report->source_suburb, [$subjectAddrSuburb]);
+        $suburb    = $resolved['normalised'];
+        $suburbRaw = $resolved['raw'];
+        if ($suburbRaw !== null) {
+            $subjectMeta['source_suburb'] = $suburbRaw;
         }
 
         // GPS pair anywhere on page 1.

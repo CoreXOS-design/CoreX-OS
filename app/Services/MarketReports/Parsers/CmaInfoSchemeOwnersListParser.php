@@ -71,7 +71,6 @@ final class CmaInfoSchemeOwnersListParser extends AbstractCmaInfoParser
         }
 
         $today = now()->toDateString();
-        $suburbNorm = $this->normaliseSuburb($report->source_suburb);
 
         // Header: "Sectional Title Scheme Owners List - MADEIRA GARDENS, UVONGO"
         $schemeName = null;
@@ -80,11 +79,17 @@ final class CmaInfoSchemeOwnersListParser extends AbstractCmaInfoParser
             $schemeName   = trim($hm[1]);
             $schemeSuburb = isset($hm[2]) ? trim($hm[2]) : null;
         }
+        // Resolve report-level suburb from explicit upload value, else
+        // header trailing token. Promote to subject_meta for backfill.
+        $resolved   = $this->resolveReportSuburb($report->source_suburb, [$schemeSuburb]);
+        $suburbNorm = $resolved['normalised'];
+        $suburbRaw  = $resolved['raw'];
 
         $subjectMeta = array_filter([
             'subject_scheme_name' => $schemeName,
             'subject_address'     => $schemeSuburb ? $schemeName . ', ' . $schemeSuburb : null,
-        ]);
+            'source_suburb'       => $suburbRaw,
+        ], fn ($v) => $v !== null && $v !== '');
 
         $owners   = [];
         $compRows = [];

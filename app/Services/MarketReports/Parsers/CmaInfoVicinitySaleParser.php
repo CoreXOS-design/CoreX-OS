@@ -105,7 +105,6 @@ final class CmaInfoVicinitySaleParser extends AbstractCmaInfoParser
         $addresses = [];
         $compRows  = [];
         $today     = now()->toDateString();
-        $suburb    = $this->normaliseSuburb($report->source_suburb);
 
         // ── Subject + radius + property-type detection ────────────────────
         $subjectMeta = [];
@@ -115,6 +114,29 @@ final class CmaInfoVicinitySaleParser extends AbstractCmaInfoParser
         $subjectMeta['subject_property_type'] = $isVacantLand
             ? 'vacant_land'
             : ($isResidential ? 'residential' : 'unknown');
+
+        // Detect in-PDF suburb candidates BEFORE we write any comp rows
+        // (the bug we're fixing: $suburb used to be bound from
+        // $report->source_suburb at this point, which is often NULL).
+        $suburbScope = null;
+        if (preg_match('/Limited\s+to\.?\s+([A-Z][A-Z \']{2,40})/i', $text, $m)) {
+            $suburbScope = trim($m[1]);
+            $subjectMeta['suburb_scope'] = $suburbScope;  // legacy key, kept
+        }
+        $subjectAddrSuburb = null;
+        if (preg_match('/^(\d{1,4}[A-Z]?\s+[A-Z][A-Z \']{2,40}),\s+([A-Z][A-Z \']{2,40})$/m', $text, $m)) {
+            $subjectMeta['subject_address'] = trim($m[1]) . ', ' . trim($m[2]);
+            $subjectAddrSuburb = trim($m[2]);
+        }
+        // Priority: explicit report.source_suburb → Limited-to scope →
+        // subject_address trailing token. raw stays original case for
+        // backfill onto market_reports.source_suburb.
+        $resolved = $this->resolveReportSuburb($report->source_suburb, [$suburbScope, $subjectAddrSuburb]);
+        $suburb       = $resolved['normalised'];
+        $suburbRaw    = $resolved['raw'];
+        if ($suburbRaw !== null) {
+            $subjectMeta['source_suburb'] = $suburbRaw;
+        }
 
         // Radius capture — variants: "within. 300m" / "within 2000 m" / "within 1.2km"
         $radius = null;
@@ -130,17 +152,6 @@ final class CmaInfoVicinitySaleParser extends AbstractCmaInfoParser
                 'confidence'           => 'high',
                 'suburb_normalised'    => $suburb,
             ];
-        }
-
-        // Subject address — "27 HIBISCUS AVENUE, MARGATE BEACH" pattern.
-        // Allow optional 'A'/'B' unit suffix on the street number.
-        if (preg_match('/^(\d{1,4}[A-Z]?\s+[A-Z][A-Z \']{2,40}),\s+([A-Z][A-Z \']{2,40})$/m', $text, $m)) {
-            $subjectMeta['subject_address'] = trim($m[1]) . ', ' . trim($m[2]);
-        }
-
-        // Suburb scope — "Limited to. MARGATE BEACH"
-        if (preg_match('/Limited\s+to\.?\s+([A-Z][A-Z \']{2,40})/i', $text, $m)) {
-            $subjectMeta['suburb_scope'] = trim($m[1]);
         }
 
         // ── Comp rows from the sales table ────────────────────────────────
@@ -177,7 +188,7 @@ final class CmaInfoVicinitySaleParser extends AbstractCmaInfoParser
                 $addresses[] = $this->makeAddress([
                     'street_name' => $row['address'],
                     'erf_number'  => $row['erf_number'] ?? null,
-                    'suburb'      => $report->source_suburb,
+                    'suburb'      => $suburbRaw ?? $report->source_suburb,
                     'sale_price'  => $row['sale_price'] ?? null,
                     'sale_date'   => $row['sale_date'] ?? null,
                 ]);
