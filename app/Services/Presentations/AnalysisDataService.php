@@ -63,23 +63,37 @@ class AnalysisDataService
         $isSectional = ($presentation->property?->title_type === 'sectional_title')
             || ($fields->get('vicinity.property_type')?->final_value === 'sectional');
 
-        // Build 8a — CoreX's independent CMA compute engine. Operates on
-        // the same in-pool soldComps collection (whereNull('deleted_at')
-        // is enforced by the model's SoftDeletes scope; version-level
-        // included_comp_ids_json whitelist is honoured in the review
-        // controller's compRows path — here we run against all loaded
-        // comps to match the snapshot the version would render with).
-        // INTERNAL ONLY this build: payload-only, no render layer reads
-        // it. Frozen into snapshot_payload via Build 5.
+        // Build 8a + tick-wire fix — CoreX's independent CMA compute engine
+        // now honours the version's included_comp_ids_json whitelist so
+        // the agent's tick UI flows into the computed bands. Mirrors the
+        // controller's compRows-path filter (PresentationReviewController
+        // L78-79) so display state (checkbox visual) and compute state
+        // (the engine's pool) cannot diverge.
+        //
+        // Whitelist semantics:
+        //   null  → no opinion yet — use ALL loaded comps (default).
+        //   []    → agent has explicitly unticked everything — empty pool,
+        //           tiles fall to null and render '—'.
+        //   [ids] → only the listed comp IDs.
+        // The distinction between null and [] matters — `?:` would conflate
+        // them; we test for null explicitly.
+        $whitelist = $version?->included_comp_ids_json;
+        if ($whitelist === null) {
+            $inPoolComps = $soldComps;
+        } else {
+            $whitelistSet = array_flip(array_map('intval', $whitelist));
+            $inPoolComps  = $soldComps->filter(fn ($c) => isset($whitelistSet[(int) $c->id]))->values();
+        }
+
         $cmaComputed = (new CmaComputeService())->compute(
-            $presentation, $soldComps, $isSectional, $conditionContext,
+            $presentation, $inPoolComps, $isSectional, $conditionContext,
         );
 
         return [
             'subject_property'   => $this->compileSubjectProperty($presentation, $fields, $askingPrice),
             'suburb_overview'    => $suburbOverview,
             'comparable_sales'   => $this->compileComparableSales($soldComps, $presentation->property_address),
-            'cma_valuation'      => $this->compileCmaValuation($fields, $askingPrice, $cmaSelectedRange, $conditionContext),
+            'cma_valuation'      => $this->compileCmaValuation($fields, $askingPrice, $cmaSelectedRange, $conditionContext, $cmaComputed),
             'cma_computed'       => $cmaComputed,
             'active_competition' => $activeCompetition,
             'stock_absorption'   => $stockAbsorption,
@@ -352,50 +366,66 @@ class AnalysisDataService
         ];
     }
 
-    private function compileCmaValuation(Collection $fields, ?int $askingPrice, string $cmaSelectedRange = 'middle', array $conditionContext = []): array
+    private function compileCmaValuation(Collection $fields, ?int $askingPrice, string $cmaSelectedRange = 'middle', array $conditionContext = [], array $cmaComputed = []): array
     {
-        $lower  = $this->intOrNull($fields->get('cma.lower_range')?->final_value);
-        $middle = $this->intOrNull($fields->get('cma.middle_range')?->final_value);
-        $upper  = $this->intOrNull($fields->get('cma.upper_range')?->final_value);
+        // CMA Info benchmark — what the source PDF stated. Used as an
+        // INTERNAL reference line on the review screen so the agent can
+        // sanity-check CoreX vs the PDF. NOT used as the headline tile
+        // value any more (Phase B lock-in: tiles show CoreX-computed).
+        // NOT rendered on the seller PDF.
+        $cmaInfoLower  = $this->intOrNull($fields->get('cma.lower_range')?->final_value);
+        $cmaInfoMiddle = $this->intOrNull($fields->get('cma.middle_range')?->final_value);
+        $cmaInfoUpper  = $this->intOrNull($fields->get('cma.upper_range')?->final_value);
 
-        // Build 1 — BUG-1 fallback. When the CMA source PDF used a label
-        // the regex at DocumentExtractor::parseCma:121 didn't match
-        // ("Mid Range" / "Median Range" / line break inside the label),
-        // middle ends up null while lower + upper extract fine. Synthesise
-        // a midpoint at RENDER time rather than fixing the regex (we can't
-        // re-extract historic PDFs) AND rather than persisting the value
-        // (the extracted band is the source of truth; the midpoint is a
-        // display-time courtesy). Logged so we can see how often this
-        // path fires across the agency's presentations.
-        $middleFromFallback = false;
-        if ($middle === null && $lower !== null && $upper !== null && $upper >= $lower) {
-            $middle = (int) round(($lower + $upper) / 2);
-            $middleFromFallback = true;
-            \Illuminate\Support\Facades\Log::info('[PRES-INFO] cma_middle_fallback used (lower+upper)/2', [
-                'lower'  => $lower,
-                'upper'  => $upper,
-                'middle' => $middle,
-            ]);
+        // Build 1 — middle-band fallback for the benchmark line when
+        // the CMA Info parser missed the "Middle Range" label
+        // ("Mid Range" / "Median Range" / line-break in label).
+        // Synthesise a midpoint at RENDER time so the benchmark line
+        // remains useful — applies to the benchmark only, NOT to the
+        // tile values (which now come from cma_computed).
+        $cmaInfoMiddleFromFallback = false;
+        if ($cmaInfoMiddle === null && $cmaInfoLower !== null && $cmaInfoUpper !== null && $cmaInfoUpper >= $cmaInfoLower) {
+            $cmaInfoMiddle = (int) round(($cmaInfoLower + $cmaInfoUpper) / 2);
+            $cmaInfoMiddleFromFallback = true;
         }
 
-        // Build 3 — condition multiplier applies AFTER the Build 1
-        // midpoint fallback. Only the Middle band moves (per CMA Info
-        // convention — Lower and Upper stay as bookend extremes). The
-        // context is empty when no version was passed (analysis tab
-        // pre-render) — baseline only.
-        $middleBaseline = $middle;
+        // CoreX-computed tile values — locked to MEDIAN per Phase B.
+        //   lower  = pool_stats.p25  (25th percentile of selected comps)
+        //   middle = method_median.condition_adjusted (or .raw with no condition)
+        //   upper  = pool_stats.p75
+        // When the agent unticks all comps, pool_stats values are null →
+        // tiles render '—'. CmaComputeService Build 8b cleaning preserves
+        // any min-n fallback behaviour automatically.
+        $poolStats     = $cmaComputed['pool_stats']     ?? [];
+        $methodMedian  = $cmaComputed['method_median']  ?? [];
+
+        $lower          = $this->intOrNull($poolStats['p25']    ?? null);
+        $upper          = $this->intOrNull($poolStats['p75']    ?? null);
+        $middleBaseline = $this->intOrNull($methodMedian['raw'] ?? null);
+        $middle         = $this->intOrNull($methodMedian['condition_adjusted'] ?? null) ?? $middleBaseline;
+
+        // middle_from_fallback no longer applies to the tile values —
+        // CmaComputeService handles thin-pool fallback via Build 8b's
+        // min-n ladder. Preserved as a benchmark-only flag for the
+        // CMA Info reference line.
+        $middleFromFallback = false;
+
+        // Build 3 — condition context surfacing. The CMA-computed middle
+        // already has the condition adjustment baked in (CmaComputeService
+        // applies it inside method_median via bcmath). Surface the
+        // metadata for the review-screen condition strip's display.
         $conditionApplied = false;
         $conditionPct     = null;
         $conditionLabel   = null;
         $conditionSource  = $conditionContext['source'] ?? 'none';
-        if (!empty($conditionContext['pct']) && $middle !== null) {
-            $conditionPct = (float) $conditionContext['pct'];
-            $middle = (int) round($middle * (1 + ($conditionPct / 100)));
-            $conditionApplied = abs($conditionPct) >= 0.005;
-            $conditionLabel = $conditionContext['label'] ?? null;
-        } elseif ($conditionContext['source'] === 'none') {
-            // Not an error — the property and version both have no
-            // recorded condition. Log once per compile for diagnostics.
+        if (!empty($conditionContext['pct'])) {
+            $conditionPct     = (float) $conditionContext['pct'];
+            $conditionApplied = $middle !== null
+                && $middleBaseline !== null
+                && abs($conditionPct) >= 0.005
+                && $middle !== $middleBaseline;
+            $conditionLabel   = $conditionContext['label'] ?? null;
+        } elseif ($conditionSource === 'none') {
             \Illuminate\Support\Facades\Log::info('[PRES-INFO] cma_valuation_baseline_only (no condition resolved)');
         }
 
@@ -435,6 +465,23 @@ class AnalysisDataService
             'condition_pct'             => $conditionPct,
             'condition_label'           => $conditionLabel,
             'condition_source'          => $conditionSource,
+            // Tick-wire build — review-screen-only INTERNAL benchmark.
+            // Holds the values the source CMA Info PDF stated. Surfaced
+            // for agent QA only; NEVER rendered on the seller PDF.
+            // null when no CMA Info data has been parsed for this
+            // presentation.
+            'cma_info_benchmark'        => [
+                'lower'         => $cmaInfoLower,
+                'middle'        => $cmaInfoMiddle,
+                'upper'         => $cmaInfoUpper,
+                'from_fallback' => $cmaInfoMiddleFromFallback,
+            ],
+            // Pool size that drove the tile values. Surfaced so the JS
+            // patch helper can show "12 of 17 comps included" subtitle
+            // and the review-screen can warn when zero comps are
+            // ticked (tiles fall to null).
+            'compute_pool_n'            => (int) ($cmaComputed['pool_stats']['n_total'] ?? 0),
+            'compute_method'            => 'median',
         ];
     }
 

@@ -243,6 +243,34 @@
                  {{ ($currentConditionId || ($cmaValuation['condition_applied'] ?? false)) ? 'hidden' : '' }}>
                 No condition set — using baseline valuation. Set a condition above to refine.
             </div>
+
+            {{-- Tick-wire build — CoreX-computed pool size + CMA Info
+                 benchmark. INTERNAL review-screen only. NOT rendered on
+                 the seller PDF (PresentationPdfService reads cma_lower/
+                 cma_middle/cma_upper from cma_valuation, which now hold
+                 the CoreX-computed values; this benchmark block is
+                 review-blade only). --}}
+            <div id="cma-pool-meta" style="margin-top:10px; font-size:11px; color:var(--text-muted);">
+                CoreX evaluation —
+                <span id="cma-pool-n">{{ (int) ($cmaValuation['compute_pool_n'] ?? 0) }}</span>
+                comps included (method: median).
+            </div>
+            @php
+                $bm = $cmaValuation['cma_info_benchmark'] ?? [];
+                $bmAny = !empty($bm['lower']) || !empty($bm['middle']) || !empty($bm['upper']);
+            @endphp
+            @if($bmAny)
+            <div id="cma-info-benchmark" style="margin-top:6px; padding:6px 10px; font-size:11px; color:var(--text-muted); background:var(--surface-2); border:1px dashed var(--border); border-radius:4px;">
+                <strong style="color:var(--text-secondary);">CMA Info benchmark</strong>
+                (internal, not on seller PDF):
+                Lower R {{ $bm['lower'] ? number_format($bm['lower'], 0, '.', ' ') : '—' }}
+                · Middle R {{ $bm['middle'] ? number_format($bm['middle'], 0, '.', ' ') : '—' }}
+                · Upper R {{ $bm['upper'] ? number_format($bm['upper'], 0, '.', ' ') : '—' }}
+                @if(!empty($bm['from_fallback']))
+                    <span style="color:#a16207;">(middle synthesised from L+U/2)</span>
+                @endif
+            </div>
+            @endif
         </div>
     </div>
 
@@ -492,6 +520,15 @@
         markers.set(id, m);
     });
 
+    // ── Live tile patch helper (shared by comp toggle + condition picker) ─
+    // applyCmaUpdate is defined further down (after the valuation-strip
+    // DOM nodes are resolved); both flushToggle here and the condition
+    // change handler below call it on response. Patches the three
+    // valuation tiles + condition strip + pool size in place — no
+    // full-page reload on comp ticks.
+    let _applyCmaUpdate = function () { /* late-bound below */ };
+    function applyCmaUpdate(data) { _applyCmaUpdate(data); }
+
     // ── Comp toggle with debounce + optimistic UI ─────────────────────
     let pendingToggles = new Map();
     let toggleTimer = null;
@@ -513,7 +550,12 @@
                 // Optimistic rollback.
                 pending.rollback();
                 toast('Could not save toggle — please retry');
+                return;
             }
+            // Tick-wire build — server returns recomputed bands; patch
+            // the valuation tiles in place. Same response shape as
+            // setCondition; same helper handles both.
+            applyCmaUpdate(d);
         }).catch(() => {
             pending.rollback();
             toast('Network error saving toggle');
@@ -615,11 +657,18 @@
         if (n === null || n === undefined) return '—';
         return 'R ' + Number(n).toLocaleString('en-ZA', { useGrouping: true, maximumFractionDigits: 0 }).replace(/,/g, ' ');
     }
-    function applyCmaUpdate(data) {
+    const poolNEl = document.getElementById('cma-pool-n');
+    _applyCmaUpdate = function (data) {
         if (!data || !data.cma) return;
         lowerEl.textContent  = fmtZAR(data.cma.lower);
         middleEl.textContent = fmtZAR(data.cma.middle);
         upperEl.textContent  = fmtZAR(data.cma.upper);
+
+        // Tick-wire build — pool size in the "CoreX evaluation — X comps
+        // included" subtitle. Updates whenever ticks change.
+        if (poolNEl && typeof data.cma.pool_n !== 'undefined') {
+            poolNEl.textContent = String(data.cma.pool_n);
+        }
 
         const applied = !!(data.condition && data.condition.applied);
         adjFlagEl.hidden = !applied;
@@ -642,7 +691,7 @@
                 none:             'No condition set',
             })[data.condition.source] || '';
         }
-    }
+    };
 
     // ── Build 4 — section toggles ────────────────────────────────────
     const pageEstimateEl = document.getElementById('page-estimate-value');

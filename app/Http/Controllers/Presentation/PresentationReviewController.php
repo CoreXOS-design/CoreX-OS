@@ -332,6 +332,7 @@ final class PresentationReviewController extends Controller
                 'middle'          => $cma['cma_middle'] ?? null,
                 'middle_baseline' => $cma['cma_middle_baseline'] ?? null,
                 'upper'           => $cma['cma_upper'] ?? null,
+                'pool_n'          => $cma['compute_pool_n'] ?? 0,
             ],
         ]);
     }
@@ -396,6 +397,16 @@ final class PresentationReviewController extends Controller
             ]);
         });
 
+        // Tick-wire build — recompute the CMA bands against the new
+        // included-comp set so the JS can patch the valuation tiles
+        // in place. Mirrors the response shape setCondition returns
+        // (L321-336) so review.blade.php's applyCmaUpdate helper
+        // works for both triggers.
+        $version->refresh();
+        $presentation = $version->presentation()->with('property')->first();
+        $analysis     = (new AnalysisDataService())->compile($presentation, $version);
+        $cma          = $analysis['cma_valuation'] ?? [];
+
         return response()->json([
             'ok'           => true,
             'comp_id'      => $comp->id,
@@ -403,6 +414,20 @@ final class PresentationReviewController extends Controller
             'override_id'  => AgentOverride::where('presentation_version_id', $version->id)
                                   ->where('target_id', (string) $comp->id)
                                   ->latest('id')->value('id'),
+            'condition'    => [
+                'level_id'   => $version->condition_level_id,
+                'pct'        => $cma['condition_pct']    ?? null,
+                'label'      => $cma['condition_label']  ?? null,
+                'source'     => $cma['condition_source'] ?? 'none',
+                'applied'    => (bool) ($cma['condition_applied'] ?? false),
+            ],
+            'cma'          => [
+                'lower'           => $cma['cma_lower']           ?? null,
+                'middle'          => $cma['cma_middle']          ?? null,
+                'middle_baseline' => $cma['cma_middle_baseline'] ?? null,
+                'upper'           => $cma['cma_upper']           ?? null,
+                'pool_n'          => $cma['compute_pool_n']      ?? 0,
+            ],
         ]);
     }
 
