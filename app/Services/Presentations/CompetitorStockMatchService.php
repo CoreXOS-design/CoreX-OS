@@ -12,6 +12,7 @@ use App\Services\PropertyMatchScoringService;
 use App\Support\Presentations\SuburbMatcher;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Competitor Stock matcher for presentations.
@@ -88,6 +89,27 @@ final class CompetitorStockMatchService
             $result = $scorer->scoreProspectingCapture($synthMatch, $listing);
             $stock  = $hfcStockMap[$this->stockKey($listing)] ?? null;
 
+            // Rich-card additions — thumbnail served via the existing
+            // corex.market.thumbnail route for the review screen, plus
+            // the absolute local-file path so DomPDF renders without
+            // a remote fetch.
+            $thumbPath = $listing->thumbnail_path ?? null;
+            $thumbUrl  = null;
+            $thumbAbs  = null;
+            if ($thumbPath) {
+                try {
+                    $thumbUrl = route('corex.market.thumbnail', ['listing' => $listing->id]);
+                } catch (\Throwable) {
+                    $thumbUrl = null;
+                }
+                try {
+                    $candidate = Storage::disk('local')->path($thumbPath);
+                    if (is_file($candidate)) $thumbAbs = $candidate;
+                } catch (\Throwable) {
+                    $thumbAbs = null;
+                }
+            }
+
             return [
                 'listing_id'       => (int) $listing->id,
                 'address'          => $listing->address ?? null,
@@ -95,15 +117,19 @@ final class CompetitorStockMatchService
                 'property_type'    => $listing->property_type ?? null,
                 'bedrooms'         => $listing->beds ?? null,
                 'bathrooms'        => isset($listing->bathrooms) ? (int) $listing->bathrooms : null,
+                'garages'          => isset($listing->garages) ? (int) $listing->garages : null,
                 'property_size_m2' => isset($listing->property_size_m2) && $listing->property_size_m2 !== null
                     ? (float) $listing->property_size_m2 : null,
                 'erf_size_m2'      => isset($listing->erf_size_m2) && $listing->erf_size_m2 !== null
                     ? (float) $listing->erf_size_m2 : null,
                 'price'            => (int) $listing->price,
                 'portal_url'       => $listing->portal_url ?? null,
+                'portal_ref'       => $listing->portal_ref ?? null,
                 'agent_name'       => $listing->agent_name ?? null,
                 'agency_name'      => $listing->agency_name ?? null,
-                'thumbnail_path'   => $listing->thumbnail_path ?? null,
+                'thumbnail_path'   => $thumbPath,
+                'thumbnail_url'    => $thumbUrl,
+                'thumbnail_abs_path' => $thumbAbs,
                 'first_seen_at'    => $listing->first_seen_at ?? null,
                 'score'            => (int) $result['score'],
                 'tier'             => (string) $result['tier'],

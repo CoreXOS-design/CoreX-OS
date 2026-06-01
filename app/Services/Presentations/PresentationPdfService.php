@@ -1570,18 +1570,25 @@ if (!empty($visibleCompetitors)):
     Active listings the property competes against, scored by Core Matches.
     Match % reflects proximity by price, suburb, type, and bedrooms.
 </p>
-<table style="width:100%;border-collapse:collapse;font-size:11px;">
-    <thead>
-        <tr style="background:#f1f5f9;color:#475569;text-transform:uppercase;letter-spacing:0.04em;font-size:10px;">
-            <th style="text-align:left;padding:6px 8px;">Listing</th>
-            <th style="text-align:right;padding:6px 8px;">Price</th>
-            <th style="text-align:center;padding:6px 8px;">Beds / Baths</th>
-            <th style="text-align:right;padding:6px 8px;">Size</th>
-            <th style="text-align:right;padding:6px 8px;">Match %</th>
-        </tr>
-    </thead>
-    <tbody>
-    <?php foreach ($visibleCompetitors as $c):
+
+<!-- Photo-card grid — same visual as the review-screen Active Competition
+     cards. DomPDF renders local file paths natively for the thumbnails
+     (no remote fetch). Cards without a cached thumbnail render the
+     placeholder icon — matches the CAPTURED PROPERTIES card behaviour. -->
+<table style="width:100%;border-collapse:separate;border-spacing:8px;">
+<?php
+$visibleCount = count($visibleCompetitors);
+$columns      = 2;
+for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
+?>
+    <tr>
+    <?php for ($col = 0; $col < $columns; $col++):
+        $idx = $rowStart + $col;
+        if (!isset($visibleCompetitors[$idx])):
+            ?><td style="width:50%;"></td><?php
+            continue;
+        endif;
+        $c = $visibleCompetitors[$idx];
         $tierBg = match ($c['tier'] ?? '') {
             'perfect'     => '#ecfdf5',
             'strong'      => '#eff6ff',
@@ -1594,38 +1601,62 @@ if (!empty($visibleCompetitors)):
             'approximate' => '#a16207',
             default       => '#475569',
         };
+        $tierLabel = ucfirst((string) ($c['tier'] ?? 'Match'));
+        $title     = $c['address'] ?? ('Listing #' . $c['listing_id']);
+        $thumbAbs  = $c['thumbnail_abs_path'] ?? null;
+        $stats     = [];
+        if (!empty($c['bedrooms']))         $stats[] = (int) $c['bedrooms']  . ' bed';
+        if (!empty($c['bathrooms']))        $stats[] = (int) $c['bathrooms'] . ' bath';
+        if (!empty($c['garages']))          $stats[] = (int) $c['garages']   . ' garage';
+        if (!empty($c['erf_size_m2']))      $stats[] = (int) $c['erf_size_m2']      . ' m² erf';
+        if (!empty($c['property_size_m2'])) $stats[] = (int) $c['property_size_m2'] . ' m² floor';
     ?>
-        <tr style="border-top:1px solid #e2e8f0;">
-            <td style="padding:6px 8px;">
-                <?= $esc($c['address'] ?? 'Listing #' . $c['listing_id']) ?>
-                <?php if (!empty($c['agency_name'])): ?>
-                    <span style="color:#94a3b8;font-size:10px;">· <?= $esc($c['agency_name']) ?></span>
-                <?php endif ?>
-                <?php if (!empty($c['is_hfc_owned'])): ?>
-                    <span style="color:#10b981;font-weight:600;font-size:9px;">HFC</span>
-                    <?php if (isset($c['days_on_market']) && $c['days_on_market'] !== null): ?>
-                        <span style="color:#94a3b8;font-size:10px;">· <?= (int) $c['days_on_market'] ?>d</span>
-                    <?php endif ?>
-                    <?php if (isset($c['views']) && $c['views'] !== null): ?>
-                        <span style="color:#94a3b8;font-size:10px;">· <?= number_format((int) $c['views']) ?> views</span>
-                    <?php endif ?>
-                <?php endif ?>
-            </td>
-            <td style="padding:6px 8px;text-align:right;"><?= $zar($c['price'] ?? null) ?></td>
-            <td style="padding:6px 8px;text-align:center;">
-                <?= $c['bedrooms'] !== null ? (int) $c['bedrooms'] : '—' ?> / <?= $c['bathrooms'] !== null ? (int) $c['bathrooms'] : '—' ?>
-            </td>
-            <td style="padding:6px 8px;text-align:right;">
-                <?= !empty($c['property_size_m2']) ? (int) $c['property_size_m2'] . 'm²' : '—' ?>
-            </td>
-            <td style="padding:6px 8px;text-align:right;">
-                <span style="background:<?= $tierBg ?>;color:<?= $tierColor ?>;padding:2px 6px;border-radius:8px;font-weight:600;font-size:10px;">
-                    <?= (int) ($c['score'] ?? 0) ?>%
-                </span>
-            </td>
-        </tr>
-    <?php endforeach ?>
-    </tbody>
+        <td style="width:50%;vertical-align:top;padding:0;">
+            <div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;background:#fff;">
+                <!-- Image / placeholder + price banner + match% top-right -->
+                <div style="position:relative;height:96px;background:#f1f5f9;overflow:hidden;">
+                    <?php if ($thumbAbs): ?>
+                        <img src="<?= $esc($thumbAbs) ?>" style="width:100%;height:100%;object-fit:cover;display:block;" />
+                    <?php else: ?>
+                        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cbd5e1;font-size:11px;">No photo</div>
+                    <?php endif; ?>
+                    <span style="position:absolute;top:6px;right:6px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:#ffffff;color:<?= $tierColor ?>;">
+                        <?= (int) ($c['score'] ?? 0) ?>%
+                    </span>
+                    <?php if (!empty($c['price'])): ?>
+                        <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.55);color:#fff;padding:4px 8px;">
+                            <span style="font-weight:700;font-size:12px;"><?= $zar($c['price']) ?></span>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <!-- Body -->
+                <div style="padding:6px 8px;">
+                    <div style="font-size:11px;font-weight:600;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?= $esc($title) ?></div>
+                    <?php if (!empty($c['suburb']) && $c['suburb'] !== $title): ?>
+                        <div style="font-size:10px;color:#94a3b8;"><?= $esc($c['suburb']) ?></div>
+                    <?php endif; ?>
+                    <?php if (!empty($stats)): ?>
+                        <div style="font-size:10px;color:#64748b;margin-top:2px;"><?= $esc(implode(' · ', $stats)) ?></div>
+                    <?php endif; ?>
+                    <?php if (!empty($c['agent_name']) || !empty($c['agency_name'])): ?>
+                        <div style="font-size:9px;color:#94a3b8;margin-top:2px;"><?= $esc($c['agent_name'] ?? $c['agency_name']) ?></div>
+                    <?php endif; ?>
+                    <!-- Footer: ref + tier badge + HFC/DOM/views -->
+                    <div style="border-top:1px solid #f1f5f9;margin-top:4px;padding-top:4px;font-size:9px;color:#94a3b8;">
+                        <?php if (!empty($c['portal_ref'])): ?><span style="font-family:monospace;"><?= $esc($c['portal_ref']) ?></span> · <?php endif; ?>
+                        <span style="background:<?= $tierBg ?>;color:<?= $tierColor ?>;padding:1px 5px;border-radius:6px;font-weight:600;"><?= $esc($tierLabel) ?></span>
+                        <?php if (!empty($c['is_hfc_owned'])): ?>
+                            · <span style="color:#10b981;font-weight:600;">HFC</span>
+                            <?php if (isset($c['days_on_market']) && $c['days_on_market'] !== null): ?> · <?= (int) $c['days_on_market'] ?>d<?php endif; ?>
+                            <?php if (isset($c['views']) && $c['views'] !== null): ?> · <?= number_format((int) $c['views']) ?> views<?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </td>
+    <?php endfor; ?>
+    </tr>
+<?php endfor; ?>
 </table>
 <?php endif; ?>
 

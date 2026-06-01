@@ -366,14 +366,18 @@
             if ($includedSet === null) return true;
             return isset($includedSet[(int) $listingId]);
         };
-        $tierLabel = fn ($t) => match ($t) {
-            'perfect'     => ['Perfect',     '#10b981', '#ecfdf5'],
-            'strong'      => ['Strong',      '#0ea5e9', '#eff6ff'],
-            'approximate' => ['Approximate', '#a16207', '#fefce8'],
-            default       => [ucfirst((string) $t), '#475569', 'var(--surface-2)'],
-        };
+        // Annotate each match with the resolved included-state so the JS
+        // doesn't have to recompute the whitelist semantics — same shape
+        // CoreXBuildListingCard consumes.
+        $competitorMatchesForJs = array_map(function ($m) use ($isCompetitorIncluded) {
+            $m['is_included'] = $isCompetitorIncluded($m['listing_id']);
+            return $m;
+        }, $competitorMatches);
     @endphp
     @if(count($competitorMatches) > 0)
+    {{-- Shared listing-card builder. Defines window.CoreXBuildListingCard. --}}
+    @include('partials._listing-card-helper')
+
     <div class="review-card">
         <div class="review-section-header">
             <div class="review-section-tag" style="background:#7c3aed;"></div>
@@ -384,57 +388,71 @@
             this subject by the Core Matches engine. Tick to include in the seller PDF;
             unticked cards stay on this review screen but drop from the published version.
         </p>
-        <div id="competitor-stock-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;">
-            @foreach($competitorMatches as $m)
-                @php
-                    [$tLabel, $tColor, $tBg] = $tierLabel($m['tier']);
-                    $included = $isCompetitorIncluded($m['listing_id']);
-                    $rPerM2 = ($m['property_size_m2'] && $m['price'])
-                        ? (int) round($m['price'] / max(1, $m['property_size_m2']))
-                        : null;
-                @endphp
-                <div class="competitor-card{{ $included ? '' : ' excluded' }}"
-                     data-listing-id="{{ $m['listing_id'] }}"
-                     style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--surface);position:relative;{{ $included ? '' : 'opacity:0.45;' }}">
-                    {{-- Line 1: label · price · match% · tier --}}
-                    <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;margin-bottom:6px;">
-                        <div style="flex:1;min-width:0;">
-                            @if($m['portal_url'])
-                                <a href="{{ $m['portal_url'] }}" target="_blank" rel="noopener"
-                                   style="font-weight:600;font-size:12px;color:var(--text-primary);text-decoration:none;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-                                   title="{{ $m['address'] }} ({{ $m['agency_name'] ?? 'Unknown agency' }})">
-                                    {{ $m['address'] ?? 'Listing #' . $m['listing_id'] }}
-                                </a>
-                            @else
-                                <span style="font-weight:600;font-size:12px;color:var(--text-primary);">{{ $m['address'] ?? 'Listing #' . $m['listing_id'] }}</span>
-                            @endif
-                            <span style="font-size:11px;color:var(--text-muted);">R {{ number_format($m['price'], 0, '.', ' ') }}</span>
-                        </div>
-                        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;">
-                            <span style="font-weight:700;font-size:13px;color:{{ $tColor }};">{{ $m['score'] }}%</span>
-                            <span style="font-size:9px;padding:1px 6px;border-radius:8px;color:{{ $tColor }};background:{{ $tBg }};font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">{{ $tLabel }}</span>
-                        </div>
-                    </div>
-                    {{-- Line 2: beds · baths · size · R/m² · DOM/views for HFC --}}
-                    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--text-secondary);align-items:center;">
-                        @if($m['bedrooms'] !== null)<span>🛏 {{ $m['bedrooms'] }}</span>@endif
-                        @if($m['bathrooms'] !== null)<span>🛁 {{ $m['bathrooms'] }}</span>@endif
-                        @if($m['property_size_m2'])<span>{{ (int) $m['property_size_m2'] }}m²</span>@endif
-                        @if($rPerM2)<span>R {{ number_format($rPerM2, 0, '.', ' ') }}/m²</span>@endif
-                        @if($m['is_hfc_owned'])
-                            <span style="margin-left:auto;font-weight:600;color:#10b981;font-size:10px;">HFC</span>
-                            @if($m['days_on_market'] !== null)<span style="font-size:10px;">· {{ $m['days_on_market'] }}d on market</span>@endif
-                            @if($m['views'] !== null)<span style="font-size:10px;">· {{ number_format($m['views']) }} views</span>@endif
-                        @endif
-                        <label style="margin-left:auto;display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:10px;color:var(--text-muted);">
-                            <input type="checkbox" class="competitor-toggle" data-listing-id="{{ $m['listing_id'] }}" {{ $included ? 'checked' : '' }}>
-                            Include
-                        </label>
-                    </div>
-                </div>
-            @endforeach
-        </div>
+        <div id="competitor-stock-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
     </div>
+
+    <script>
+    (function () {
+        var COMPETITOR_MATCHES = @json($competitorMatchesForJs);
+        var listEl = document.getElementById('competitor-stock-list');
+        if (!listEl || !window.CoreXBuildListingCard) return;
+
+        // Tier → badge palette. Mirrors the colors used pre-refactor for
+        // the inline Section 2b markup.
+        function tierBadge(tier) {
+            switch (tier) {
+                case 'perfect':     return { label: 'Perfect',     fg: '#10b981', bg: '#ecfdf5' };
+                case 'strong':      return { label: 'Strong',      fg: '#0ea5e9', bg: '#eff6ff' };
+                case 'approximate': return { label: 'Approximate', fg: '#a16207', bg: '#fefce8' };
+                default:            return { label: (tier || 'Match'), fg: '#475569', bg: '#f1f5f9' };
+            }
+        }
+
+        function buildCompetitorCard(m) {
+            var badges = [tierBadge(m.tier)];
+            if (m.is_hfc_owned) {
+                badges.push({ label: 'HFC', fg: '#10b981', bg: '#ecfdf5' });
+                if (m.days_on_market !== null && m.days_on_market !== undefined) {
+                    badges.push({ label: m.days_on_market + 'd', fg: '#475569', bg: '#f1f5f9' });
+                }
+                if (m.views !== null && m.views !== undefined) {
+                    badges.push({ label: Number(m.views).toLocaleString('en-ZA') + ' views', fg: '#475569', bg: '#f1f5f9' });
+                }
+            }
+            var checked = m.is_included ? 'checked' : '';
+            var includeToggle =
+                '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:10px;color:#94a3b8;" title="Include in seller PDF">'
+                + '<input type="checkbox" class="competitor-toggle" data-listing-id="' + m.listing_id + '" ' + checked + '>'
+                + 'Include</label>';
+
+            var html = window.CoreXBuildListingCard({
+                image_url:    m.thumbnail_url || null,
+                title:        m.address || ('Listing #' + m.listing_id),
+                address:      m.suburb && m.suburb !== m.address ? m.suburb : null,
+                price:        m.price,
+                beds:         m.bedrooms,
+                baths:        m.bathrooms,
+                garages:      m.garages,
+                erf_m2:       m.erf_size_m2 ? Math.round(m.erf_size_m2) : null,
+                floor_m2:     m.property_size_m2 ? Math.round(m.property_size_m2) : null,
+                agent_name:   m.agent_name || m.agency_name || null,
+                ref:          m.portal_ref || null,
+                click_url:    m.portal_url || null,
+                badges:       badges,
+                top_right_pill: { label: m.score + '%', fg: tierBadge(m.tier).fg, bg: 'rgba(255,255,255,0.92)' },
+                actions_html: includeToggle,
+            });
+
+            // Wrap so we can dim on untick + carry the listing id.
+            var wrapper = '<div class="competitor-card' + (m.is_included ? '' : ' excluded')
+                + '" data-listing-id="' + m.listing_id + '"'
+                + (m.is_included ? '' : ' style="opacity:0.45;"') + '>' + html + '</div>';
+            return wrapper;
+        }
+
+        listEl.innerHTML = COMPETITOR_MATCHES.map(buildCompetitorCard).join('');
+    })();
+    </script>
     @endif
 
     {{-- ─────────── SECTION 3 — Generate ─────────── --}}
@@ -676,8 +694,16 @@
     });
 
     // ── Competitor Stock toggle (mirrors comp toggle pattern) ──────────
-    document.querySelectorAll('.competitor-toggle').forEach(cb => {
-        cb.addEventListener('change', () => {
+    // Event delegation — the Active Competition cards are JS-rendered
+    // by the shared CoreXBuildListingCard helper AFTER this handler
+    // attaches, so we listen at the container level. The container
+    // (#competitor-stock-list) is present in the static HTML even when
+    // empty.
+    var competitorList = document.getElementById('competitor-stock-list');
+    if (competitorList) {
+        competitorList.addEventListener('change', function (e) {
+            if (!e.target || !e.target.classList.contains('competitor-toggle')) return;
+            var cb = e.target;
             const listingId = parseInt(cb.dataset.listingId, 10);
             const card = cb.closest('.competitor-card');
             const next = cb.checked;
@@ -699,7 +725,6 @@
                 body, credentials: 'same-origin',
             }).then(r => r.json()).then(d => {
                 if (!d?.ok) {
-                    // Rollback.
                     cb.checked = !next;
                     if (card) {
                         card.style.opacity = (!next) ? '' : '0.45';
@@ -713,7 +738,7 @@
                 toast('Network error saving competitor toggle');
             });
         });
-    });
+    }
 
     // Show/hide excluded rows.
     document.getElementById('show-excluded').addEventListener('change', e => {

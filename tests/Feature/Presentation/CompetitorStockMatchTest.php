@@ -167,6 +167,36 @@ final class CompetitorStockMatchTest extends TestCase
         $this->assertSame(8, $hfc['matches']);
     }
 
+    public function test_output_includes_rich_card_fields_for_review_screen(): void
+    {
+        [$subject, $agencyId] = $this->seedSubject(price: 2_000_000, beds: 3, suburb: 'Uvongo', type: 'House');
+        $this->seedListing(
+            $agencyId,
+            suburb:    'Uvongo',
+            price:     1_950_000,
+            beds:      3,
+            type:      'House',
+            portalRef: 'P24-RICH-001',
+        );
+
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
+        $this->assertNotEmpty($matches);
+        $row = $matches[0];
+
+        // garages — was missing pre-fix; now exposed for the rich card.
+        $this->assertArrayHasKey('garages',            $row);
+        // portal_ref — fetched internally pre-fix, surfaced now.
+        $this->assertArrayHasKey('portal_ref',         $row);
+        $this->assertSame('P24-RICH-001', $row['portal_ref']);
+        // thumbnail_url + thumbnail_abs_path — null when no thumbnail
+        // cached, but the keys must exist so the card can render the
+        // placeholder branch.
+        $this->assertArrayHasKey('thumbnail_url',      $row);
+        $this->assertArrayHasKey('thumbnail_abs_path', $row);
+        $this->assertNull($row['thumbnail_url']);
+        $this->assertNull($row['thumbnail_abs_path']);
+    }
+
     public function test_non_hfc_listings_do_not_get_dom_or_views(): void
     {
         [$subject, $agencyId] = $this->seedSubject(price: 2_000_000, beds: 3, suburb: 'Uvongo', type: 'House');
