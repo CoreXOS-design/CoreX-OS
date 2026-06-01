@@ -63,7 +63,11 @@
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; C:\\\\xampp\\\\php\\\\php.exe artisan test tests/Feature/ClientAuth/ClientAuthFlowTest.php 2>&1 | Select-Object -Last 30)",
       "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan view:clear)",
       "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan route:clear)",
-      "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan cache:clear)"
+      "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan cache:clear)",
+      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; if \\(-not \\(Test-Path $php\\)\\) { $php = \\(Get-Command php\\).Source }; & $php -l \"app\\\\Http\\\\Controllers\\\\Tools\\\\PdfSuiteController.php\"; & $php -l \"config\\\\pdf-suite.php\"; & $php -l \"routes\\\\web.php\")",
+      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; if \\(-not \\(Test-Path $php\\)\\) { $php = \\(Get-Command php\\).Source }; & $php artisan view:clear; & $php artisan route:clear; & $php artisan config:clear; & $php artisan route:list --name=pdf_suite.enhance)",
+      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; if \\(-not \\(Test-Path $php\\)\\) { $php = \\(Get-Command php\\).Source }; & $php -r \"echo 'imagick loaded: '.\\(extension_loaded\\('imagick'\\) ? 'YES' : 'NO'\\).PHP_EOL; if\\(extension_loaded\\('imagick'\\)\\){ \\\\$im=new Imagick\\(\\); echo 'autoOrientImage: '.\\(method_exists\\(\\\\$im,'autoOrientImage'\\)?'Y':'N'\\).' brightnessContrastImage: '.\\(method_exists\\(\\\\$im,'brightnessContrastImage'\\)?'Y':'N'\\).' unsharpMaskImage: '.\\(method_exists\\(\\\\$im,'unsharpMaskImage'\\)?'Y':'N'\\).' enhanceImage: '.\\(method_exists\\(\\\\$im,'enhanceImage'\\)?'Y':'N'\\).PHP_EOL; }\")",
+      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; if \\(-not \\(Test-Path $php\\)\\) { $php = \\(Get-Command php\\).Source }; & $php \"storage\\\\enhance_probe.php\")"
     ]
   }
 }

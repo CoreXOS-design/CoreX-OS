@@ -15,4 +15,18 @@ return [
         'ebook'   => 'Recommended — good quality, small size (150 dpi)',
         'printer' => 'Print quality, larger file (300 dpi)',
     ],
+
+    // Enhance tool — DPI used when rasterising PDF pages before applying the
+    // readability pipeline. Higher = sharper output but more memory per page.
+    // 200 balances readability against the synchronous, single-request budget.
+    'enhance_dpi' => env('PDF_SUITE_ENHANCE_DPI', 200),
+
+    // Enhance one-click presets. Each maps to a tuned Imagick pipeline in
+    // PdfSuiteController::enhancePage(). Order here is the order shown in the UI.
+    'enhance_presets' => [
+        'auto'     => 'Recommended — balanced contrast, de-blur and sharpen for most scans',
+        'document' => 'Crisp black-on-white text — best for blurry photographed forms & IDs',
+        'sharpen'  => 'Maximum de-blur — aggressive sharpening for very soft / out-of-focus scans',
+        'photo'    => 'Colour-safe — denoise and gently sharpen while keeping original colours',
+    ],
 ];

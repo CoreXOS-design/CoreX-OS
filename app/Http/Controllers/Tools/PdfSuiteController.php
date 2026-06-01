@@ -362,6 +362,125 @@ class PdfSuiteController extends Controller
         return $this->stream($out, 'redacted.pdf');
     }
 
+    // ── Enhance (make a blurry PDF / image readable) ─────────────────────────
+    public function enhance()
+    {
+        return view('tools.pdf-suite.enhance');
+    }
+
+    public function enhanceRun(Request $request)
+    {
+        $data = $request->validate([
+            'file'   => 'required|file|mimes:pdf,jpg,jpeg,png,heic,heif,webp,bmp,tiff,tif|max:' . self::MAX_KB,
+            'preset' => 'required|in:auto,document,sharpen,photo',
+        ]);
+
+        if (! extension_loaded('imagick')) {
+            return back()->withErrors(['file' => 'Imagick PHP extension is required for Enhance.']);
+        }
+
+        $file = $data['file'];
+        $isPdf = strtolower($file->getClientOriginalExtension()) === 'pdf'
+            || $file->getClientMimeType() === 'application/pdf';
+        $in  = $this->stash($file);
+        $out = $this->outPath('enhanced');
+
+        $dpi = (int) config('pdf-suite.enhance_dpi', 200);
+        if ($dpi < 72) { $dpi = 72; }
+
+        // Build the list of page-image paths to enhance. PDFs are rasterised
+        // first (one PNG per page); a single image is enhanced as one page.
+        $pagePaths = [];
+        if ($isPdf) {
+            $tmpDir = $this->tmpDir('enhance');
+            $proc = new Process([
+                self::pdftoppmPath(), '-png', '-r', (string) $dpi, $in, $tmpDir . DIRECTORY_SEPARATOR . 'pg',
+            ]);
+            $proc->setTimeout(300);
+            $proc->run();
+
+            $pagePaths = glob($tmpDir . DIRECTORY_SEPARATOR . 'pg-*.png') ?: [];
+            sort($pagePaths);
+            if (empty($pagePaths)) {
+                return $this->binaryError('pdftoppm', 'SPLITTER_PDFTOPPM_PATH');
+            }
+        } else {
+            $pagePaths = [$in];
+        }
+
+        try {
+            $output = new \Imagick();
+            foreach ($pagePaths as $path) {
+                $img = new \Imagick($path);
+                $img->setImageResolution($dpi, $dpi);
+                if (method_exists($img, 'setImageUnits')) {
+                    $img->setImageUnits(\Imagick::RESOLUTION_PIXELSPERINCH);
+                }
+                $this->enhancePage($img, $data['preset']);
+                $img->setImageFormat('pdf');
+                $output->addImage($img);
+            }
+            $output->setImageFormat('pdf');
+            $output->writeImages($out, true);
+        } catch (\Throwable $e) {
+            return back()->withErrors(['file' => 'Enhancement failed: ' . $e->getMessage()]);
+        }
+
+        if (! is_file($out)) {
+            return back()->withErrors(['file' => 'Enhancement produced no output. Try a different preset or file.']);
+        }
+
+        return $this->stream($out, 'enhanced.pdf');
+    }
+
+    /**
+     * Apply a preset-specific readability pipeline to one rasterised page.
+     * Each Imagick op is wrapped against older builds; the whole call is
+     * already inside a try/catch in enhanceRun().
+     */
+    private function enhancePage(\Imagick $img, string $preset): void
+    {
+        if (method_exists($img, 'autoOrientImage')) {
+            try { $img->autoOrientImage(); } catch (\Throwable $e) {}
+        }
+        $img->setImageBackgroundColor('#ffffff');
+
+        switch ($preset) {
+            case 'document':
+                // Push toward crisp black-on-white text.
+                $img->transformImageColorspace(\Imagick::COLORSPACE_GRAY);
+                $img->normalizeImage();
+                $img->unsharpMaskImage(0, 1.2, 1.4, 0.02);
+                $img->brightnessContrastImage(3, 22);
+                break;
+
+            case 'sharpen':
+                // Aggressive de-blur for very soft / out-of-focus scans.
+                $img->normalizeImage();
+                $img->unsharpMaskImage(0, 1.6, 2.0, 0.0);
+                $img->sharpenImage(0, 1.0);
+                $img->brightnessContrastImage(0, 12);
+                break;
+
+            case 'photo':
+                // Colour-safe: denoise + gentle sharpen, keep original colours.
+                if (method_exists($img, 'enhanceImage')) {
+                    try { $img->enhanceImage(); } catch (\Throwable $e) {}
+                }
+                $img->normalizeImage();
+                $img->unsharpMaskImage(0, 0.8, 0.8, 0.02);
+                break;
+
+            case 'auto':
+            default:
+                // Balanced general-purpose readability fix.
+                $img->normalizeImage();
+                $img->unsharpMaskImage(0, 1.0, 1.2, 0.02);
+                $img->brightnessContrastImage(2, 12);
+                break;
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
     private function stash($file): string
     {

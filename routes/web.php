@@ -661,6 +661,9 @@ Route::middleware(['auth'])->group(function () {
 
         Route::get('/redact',        [PdfSuiteController::class, 'redact'])->name('redact');
         Route::post('/redact',       [PdfSuiteController::class, 'redactRun'])->name('redact.run');
+
+        Route::get('/enhance',       [PdfSuiteController::class, 'enhance'])->name('enhance');
+        Route::post('/enhance',      [PdfSuiteController::class, 'enhanceRun'])->name('enhance.run');
     });
 
     // Image Converter — HEIC / JPG / PNG / WEBP / BMP / TIFF / GIF → PNG / JPG / WEBP

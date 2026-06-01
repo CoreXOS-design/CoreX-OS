@@ -7,7 +7,7 @@
 
 ## 1. What & Why
 
-The existing **PDF Splitter** is being expanded into a **PDF Suite** — a single entry point in the sidebar that hosts the splitter plus seven new PDF utilities every HFC agent needs day-to-day:
+The existing **PDF Splitter** is being expanded into a **PDF Suite** — a single entry point in the sidebar that hosts the splitter plus eight new PDF utilities every HFC agent needs day-to-day:
 
 | # | Tool | Slug | Why an agent needs it |
 |---|------|------|------------------------|
@@ -19,6 +19,7 @@ The existing **PDF Splitter** is being expanded into a **PDF Suite** — a singl
 | 5 | Page Reorder / Delete | `reorder` | Drag pages into order, drop blanks from scans |
 | 6 | Password Protect / Unlock | `protect` | Lock commission statements & mandates with sensitive figures |
 | 7 | PDF Redactor | `redact` | Black out ID numbers / bank details before sharing — POPIA win |
+| 8 | PDF Enhancer | `enhance` | De-blur and sharpen faint phone-scanned IDs / forms into a readable PDF |
 
 The Splitter's URLs and routes remain intact (no broken bookmarks); the sidebar simply re-points to the new hub at `/tools/pdf-suite`.
 
@@ -46,7 +47,7 @@ Day-one scope is pure tools. Pillar write-back is deferred and tracked in ROADMA
 
 ### Hub layout (`/tools/pdf-suite`)
 - `<x-page-header title="PDF Suite">` — uses `--brand-default` per design system.
-- 8 tool cards in a responsive grid (`grid-cols-1 md:grid-cols-2 lg:grid-cols-4`).
+- 9 tool cards in a responsive grid (`grid-cols-1 md:grid-cols-2 lg:grid-cols-4`).
 - Each card: icon (in `--brand-icon`), title, one-line description, `rounded-md` 6px corner, `var(--surface)` bg, `var(--border)` border, `transition-all duration-300` hover lift.
 - Click → navigates to that tool's own page.
 
@@ -78,14 +79,14 @@ Reuses the same external binaries already configured for the splitter (`config/s
 | `qpdf` | rotate, reorder, protect, merge | Already configured |
 | `pdfunite` | merge (fallback) | Already configured |
 | `gs` (Ghostscript) | compress | New — `pdf_suite.gs_path` |
-| `pdftoppm` | redact (rasterise pages) | Already configured |
-| Imagick / GD (PHP ext) | image-to-pdf, redact (composite) | Imagick preferred, GD fallback |
+| `pdftoppm` | redact, enhance (rasterise pages) | Already configured |
+| Imagick / GD (PHP ext) | image-to-pdf, redact (composite), enhance (sharpen/contrast) | Imagick preferred, GD fallback |
 
 If a binary is missing, the tool returns a friendly error pointing to the env key — **never** a 500.
 
 ### Controller
 Single facade: `App\Http\Controllers\Tools\PdfSuiteController` with method per tool:
-`hub`, `compress`, `compressRun`, `merge`, `mergeRun`, `imageToPdf`, `imageToPdfRun`, `rotate`, `rotateRun`, `reorder`, `reorderRun`, `protect`, `protectRun`, `redact`, `redactRun`.
+`hub`, `compress`, `compressRun`, `merge`, `mergeRun`, `imageToPdf`, `imageToPdfRun`, `rotate`, `rotateRun`, `reorder`, `reorderRun`, `protect`, `protectRun`, `redact`, `redactRun`, `enhance`, `enhanceRun` (plus the private `enhancePage()` pipeline helper).
 
 The existing `PdfSplitterController` is untouched — only its URL is reachable via the new hub.
 
@@ -112,6 +113,7 @@ Tool-specific deltas:
 - **Reorder** — drag-and-drop thumbnail grid, X-button to drop a page.
 - **Protect** — two modes: "Lock" (set owner+user password) or "Unlock" (provide existing password).
 - **Redact** — pdf.js client-side preview, drag rectangles, server rasterises pages and burns black rects (true redaction — text is destroyed, not just covered).
+- **Enhance** — accepts a **PDF or a single image**. One-click presets (`auto` / `document` / `sharpen` / `photo`, default `auto`). PDF pages are rasterised at `pdf-suite.enhance_dpi` (default 200) via `pdftoppm`; each page runs an Imagick pipeline (normalize contrast, unsharp-mask de-blur, sharpen, brightness/contrast — `document` adds grayscale, `photo` denoises and keeps colour); pages recombine into a readable PDF. Imagick required — missing ext returns a friendly error, never a 500.
 
 ---
 
@@ -147,6 +149,7 @@ All Suite routes use `permission:access_pdf_suite,access_pdf_splitter` (any-of).
 - `resources/views/tools/pdf-suite/reorder.blade.php`
 - `resources/views/tools/pdf-suite/protect.blade.php`
 - `resources/views/tools/pdf-suite/redact.blade.php`
+- `resources/views/tools/pdf-suite/enhance.blade.php`
 
 ### Modify
 - `routes/web.php` — add `Route::prefix('tools/pdf-suite')->…` block
@@ -165,9 +168,9 @@ All Suite routes use `permission:access_pdf_suite,access_pdf_splitter` (any-of).
 A reviewer can mark the feature done only when **all** of these pass:
 
 1. Sidebar shows **"PDF Suite"** (not "PDF Splitter") and links to `/tools/pdf-suite`.
-2. The hub renders 8 tool cards. Each card click opens a working tool page.
+2. The hub renders 9 tool cards. Each card click opens a working tool page.
 3. Existing PDF Splitter at `/tools/pdf-splitter` still works end-to-end (upload → review → ZIP).
-4. Each of the 7 new tools, given a real PDF/image, produces a valid downloadable result:
+4. Each of the 8 new tools, given a real PDF/image, produces a valid downloadable result:
    - **Compress:** output file is smaller than input on a typical scanned mandate (≥30% reduction at `ebook` setting).
    - **Merge:** a 3-file upload yields a single PDF whose page count = sum of inputs.
    - **Image → PDF:** 3 phone photos yield a 3-page A4 PDF, EXIF-rotated correctly.
@@ -176,6 +179,7 @@ A reviewer can mark the feature done only when **all** of these pass:
    - **Protect (lock):** output requires the password to open in a viewer.
    - **Protect (unlock):** locked input + correct password → unlocked output.
    - **Redact:** rectangles selected in the browser appear as solid black in the output, and text under them is gone (verified by `pdftotext` finding none of the redacted string).
+   - **Enhance:** a blurry/low-contrast PDF or image yields a sharper, higher-contrast readable PDF; a single image input produces a one-page PDF; if Imagick is missing the tool shows an inline error (no 500).
 5. Every page passes the **Post-Restyle Audit Checklist** in `DESIGN-SYSTEM.md` §9 (geometry `rounded-md`, brand vars, dual-theme, no hardcoded slate/gray).
 6. Permission gating works: a user without `access_pdf_suite` (or legacy `access_pdf_splitter`) sees no sidebar entry and gets a 403 on direct URL.
 7. Missing-binary path: if `gs` is not installed, the Compress tool shows an inline error pointing to `PDF_SUITE_GS_PATH` — no 500.

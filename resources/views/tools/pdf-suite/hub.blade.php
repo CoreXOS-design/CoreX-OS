@@ -9,7 +9,7 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">PDF Suite</h1>
-                <p class="text-sm text-white/60">Eight tools for everything you need to do with a PDF — split, compress, merge, rotate, redact and more.</p>
+                <p class="text-sm text-white/60">Nine tools for everything you need to do with a PDF — split, compress, merge, rotate, redact, enhance and more.</p>
             </div>
             @permission('access_settings')
                 @if(\Illuminate\Support\Facades\Route::has('admin.splitter.doc-types.index'))
@@ -45,6 +45,7 @@
                 ['route' => 'tools.pdf_suite.reorder',      'title' => 'Reorder / Delete', 'desc' => 'Drag pages into order, drop blank pages from scans.',             'icon' => 'reorder'],
                 ['route' => 'tools.pdf_suite.protect',      'title' => 'Password Protect', 'desc' => 'Lock or unlock a PDF — protect commission statements.',           'icon' => 'lock'],
                 ['route' => 'tools.pdf_suite.redact',       'title' => 'Redact',           'desc' => 'Black out IDs and bank details — POPIA-safe true redaction.',      'icon' => 'redact'],
+                ['route' => 'tools.pdf_suite.enhance',      'title' => 'Enhance',          'desc' => 'Make a blurry scan or photo readable — de-blur, sharpen, clean up.', 'icon' => 'enhance'],
             ];
 
             $svgFor = function (string $key) {
@@ -57,6 +58,7 @@
                     'reorder'  => '<path d="M3 6h13"/><path d="M3 12h13"/><path d="M3 18h13"/><path d="m18 9 3 3-3 3"/>',
                     'lock'     => '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/><circle cx="12" cy="16" r="1"/>',
                     'redact'   => '<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="6" y="8" width="9" height="3" fill="currentColor"/><rect x="6" y="14" width="12" height="3" fill="currentColor"/>',
+                    'enhance'  => '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
                     default    => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
                 };
             };

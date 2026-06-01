@@ -9,6 +9,7 @@
         ['route' => 'tools.pdf_suite.reorder',      'label' => 'Reorder'],
         ['route' => 'tools.pdf_suite.protect',      'label' => 'Protect'],
         ['route' => 'tools.pdf_suite.redact',       'label' => 'Redact'],
+        ['route' => 'tools.pdf_suite.enhance',      'label' => 'Enhance'],
     ];
 @endphp
 <div class="rounded-md p-1.5 flex flex-wrap items-center justify-center gap-1 overflow-x-auto"
