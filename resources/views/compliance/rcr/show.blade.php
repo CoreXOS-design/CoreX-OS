@@ -118,11 +118,11 @@
                         <div style="padding:12px 0;border-top:{{ $loop->first ? '0' : '1px solid var(--border)' }};" x-data="rcrAnswer({
                             questionId: {{ $question->id }},
                             answerId: {{ $a?->id ?? 'null' }},
-                            initialValue: @json($a?->answer_value ?? ''),
-                            initialStatus: @json($a?->status ?? 'unanswered'),
+                            initialValue: @js($a?->answer_value ?? ''),
+                            initialStatus: @js($a?->status ?? 'unanswered'),
                             isAutoPopulated: {{ $a?->is_auto_populated ? 'true' : 'false' }},
                             manuallyEdited: {{ $a?->manually_edited ? 'true' : 'false' }},
-                            saveUrl: @json($a ? route('corex.compliance.rcr.answers.save', [$submission->id, $a->id]) : null),
+                            saveUrl: @js($a ? route('corex.compliance.rcr.answers.save', [$submission->id, $a->id]) : null),
                         })">
                             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px;">
                                 <div style="flex:1;">

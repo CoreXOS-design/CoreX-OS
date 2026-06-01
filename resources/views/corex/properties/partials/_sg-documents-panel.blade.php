@@ -23,13 +23,13 @@
      x-data="sgDocumentsPanel({
         propertyId: {{ $property->id }},
         initialDocs: @js($sgDocs->map(fn ($d) => $d->toArray())->all()),
-        searchUrl: @json(route('corex.properties.sg.search', $property)),
-        saveAllUrl: @json(route('corex.properties.sg.save-all', $property)),
+        searchUrl: @js(route('corex.properties.sg.search', $property)),
+        saveAllUrl: @js(route('corex.properties.sg.save-all', $property)),
         defaults: @js($sgBuild['defaults'] ?? new \stdClass()),
         missing: @js($sgBuild['missing'] ?? []),
         hasErf: @js($hasErf ?? false),
         hasSearched: @js($hasSearched ?? false),
-        lastSearchedAt: @json($property->sg_last_searched_at?->diffForHumans()),
+        lastSearchedAt: @js($property->sg_last_searched_at?->diffForHumans()),
      })">
 
     <div class="flex items-start justify-between gap-4 mb-3">

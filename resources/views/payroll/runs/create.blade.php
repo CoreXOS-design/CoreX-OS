@@ -18,11 +18,11 @@
 
         <form method="POST" action="{{ route('payroll.runs.store') }}" x-data="{
             allChecked: true,
-            employeeIds: @json($employees->pluck('id')->toArray()),
+            employeeIds: @js($employees->pluck('id')->toArray()),
             toggleAll() {
                 this.allChecked = !this.allChecked;
                 document.querySelectorAll('input[name=\'employee_ids[]\']').forEach(cb => cb.checked = this.allChecked);
-                this.employeeIds = this.allChecked ? @json($employees->pluck('id')->toArray()) : [];
+                this.employeeIds = this.allChecked ? @js($employees->pluck('id')->toArray()) : [];
             },
             updateCount() {
                 this.employeeIds = Array.from(document.querySelectorAll('input[name=\'employee_ids[]\']:checked')).map(cb => parseInt(cb.value));

@@ -21,10 +21,10 @@
      x-data="rcrDeepView({
         submissionId: {{ $submission->id }},
         questionId:   {{ $question->id }},
-        copyUrl:      @json(route('corex.compliance.rcr.answer.copied')),
-        transposedUrl: @json(route('corex.compliance.rcr.answer.transposed')),
-        prevUrl:      @json($prevQuestion ? route('corex.compliance.rcr.question.show', [$submission->id, $prevQuestion->question_code]) : null),
-        nextUrl:      @json($nextQuestion ? route('corex.compliance.rcr.question.show', [$submission->id, $nextQuestion->question_code]) : null),
+        copyUrl:      @js(route('corex.compliance.rcr.answer.copied')),
+        transposedUrl: @js(route('corex.compliance.rcr.answer.transposed')),
+        prevUrl:      @js($prevQuestion ? route('corex.compliance.rcr.question.show', [$submission->id, $prevQuestion->question_code]) : null),
+        nextUrl:      @js($nextQuestion ? route('corex.compliance.rcr.question.show', [$submission->id, $nextQuestion->question_code]) : null),
         flowMode:     localStorage.getItem('rcr_flow_mode') === '1',
      })"
      :class="flowMode ? 'rcr-flow-mode' : ''">
@@ -91,11 +91,11 @@
                     submissionId: {{ $submission->id }},
                     questionId:   {{ $question->id }},
                     period:       '{{ $p }}',
-                    initialValue: @json($a?->answer_value ?? ''),
-                    initialFormat: @json($a?->final_answer_format ?? $question->answer_type),
+                    initialValue: @js($a?->answer_value ?? ''),
+                    initialFormat: @js($a?->final_answer_format ?? $question->answer_type),
                     initialTransposed: {{ $a && $a->transposed_to_goaml_at ? 'true' : 'false' }},
-                    transposedAt: @json($a?->transposed_to_goaml_at?->format('H:i')),
-                    saveUrl: @json($a ? route('corex.compliance.rcr.answers.save', [$submission->id, $a->id]) : ''),
+                    transposedAt: @js($a?->transposed_to_goaml_at?->format('H:i')),
+                    saveUrl: @js($a ? route('corex.compliance.rcr.answers.save', [$submission->id, $a->id]) : ''),
                  })">
                 <div style="display:flex;align-items:center;justify-content:space-between;">
                     <span style="font-size:0.625rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">{{ $periodLabel($p) }}</span>
