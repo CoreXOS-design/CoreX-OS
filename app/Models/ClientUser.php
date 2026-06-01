@@ -88,4 +88,23 @@ class ClientUser extends Authenticatable
     {
         return !empty($this->password);
     }
+
+    /**
+     * True when this login was fabricated by an agency — a non-deliverable
+     * fake email under the configured fake-email domain (the agent also set
+     * the temp password). Such logins are locked to their origin agency for
+     * password reset / force-logout / remove, because the client has no real
+     * mailbox to self-recover through.
+     *
+     * A self-service login (real email, client set their own password via
+     * OTP) is NOT agency-managed: the client owns their credentials and can
+     * self-recover, so no agency "owns" the login and the origin-agency lock
+     * must not apply. Spec: .ai/specs/client-auth.md — origin-agency rule.
+     */
+    public function isAgencyManaged(): bool
+    {
+        $domain = ltrim((string) config('clientauth.fake_email_domain', 'corexclient.co.za'), '@');
+
+        return str_ends_with(strtolower((string) $this->email), '@' . strtolower($domain));
+    }
 }

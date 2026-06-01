@@ -7,12 +7,17 @@
     $canRemove  = auth()->user()->hasPermission('client_app.remove_access');
     $canViewLogs= auth()->user()->hasPermission('client_app.view_logs');
 
-    // Origin-agency gating — only the agency that created this client login
-    // can manage it (reset password, force logout, remove access). Other
-    // agencies see read-only status with a "Managed by …" notice.
-    // Spec: .ai/specs/client-auth.md
+    // Origin-agency gating — only the agency that fabricated an agency-managed
+    // login (fake @domain email + agent-set password) can manage it (reset
+    // password, force logout, remove access). Other agencies see read-only
+    // status with a "Managed by …" notice. Self-service logins (real email,
+    // client set their own password via OTP) are owned by the client, never an
+    // agency, so the lock never applies. Spec: .ai/specs/client-auth.md
     $originAgencyId = $clientUser?->created_by_agency_id;
-    $isOriginAgency = !$clientUser || $originAgencyId === null || (int) $originAgencyId === (int) $contact->agency_id;
+    $isOriginAgency = !$clientUser
+        || !$clientUser->isAgencyManaged()
+        || $originAgencyId === null
+        || (int) $originAgencyId === (int) $contact->agency_id;
     $originAgencyName = (!$isOriginAgency && $originAgencyId)
         ? optional(\App\Models\Agency::withoutGlobalScopes()->find($originAgencyId))->name
         : null;

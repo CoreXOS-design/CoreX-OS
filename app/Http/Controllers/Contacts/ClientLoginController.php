@@ -162,12 +162,17 @@ class ClientLoginController extends Controller
     }
 
     /**
-     * Only the agency that created the client login may manage it
-     * (reset password, force logout, remove access). See spec:
-     * .ai/specs/client-auth.md — origin-agency rule.
+     * Only the agency that fabricated an agency-managed login (fake @domain
+     * email + agent-set password) may manage it (reset password, force logout,
+     * remove access). Self-service logins (real email, client-set password via
+     * OTP) are owned by the client — any linked agency may manage them and the
+     * origin lock never applies. See spec: .ai/specs/client-auth.md.
      */
     private function ensureOriginAgency(ClientUser $cu, Contact $contact): void
     {
+        if (!$cu->isAgencyManaged()) {
+            return; // self-service login — client owns credentials, no origin lock.
+        }
         $origin = $cu->created_by_agency_id;
         if ($origin === null) {
             return; // legacy row — allow (will be backfilled).

@@ -294,6 +294,22 @@ class ClientAuthFlowTest extends TestCase
         $this->assertSame('andre1@corexclient.co.za', $second);
     }
 
+    public function test_is_agency_managed_true_for_fake_email_false_for_real_email(): void
+    {
+        $fake = ClientUser::create(['email' => 'andre@corexclient.co.za']);
+        $real = ClientUser::create(['email' => 'andre@gmail.com']);
+
+        $this->assertTrue($fake->isAgencyManaged(), 'Fake @corexclient.co.za login must be agency-managed.');
+        $this->assertFalse($real->isAgencyManaged(), 'Self-service real-email login must NOT be agency-managed.');
+    }
+
+    public function test_is_agency_managed_is_case_insensitive_on_domain(): void
+    {
+        $fake = ClientUser::create(['email' => 'JANE@CoreXClient.CO.ZA']);
+
+        $this->assertTrue($fake->isAgencyManaged());
+    }
+
     public function test_logout_revokes_current_token(): void
     {
         // Production behaviour is verified: ClientAuthController::logout calls

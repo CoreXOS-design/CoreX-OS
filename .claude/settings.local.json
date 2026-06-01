@@ -58,7 +58,12 @@
       "PowerShell(Get-Process mysqld -ErrorAction SilentlyContinue)",
       "PowerShell(Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -InformationLevel Quiet)",
       "Read(//c/xampp/mysql/bin/**)",
-      "Read(//c/xampp/mysql/data/**)"
+      "Read(//c/xampp/mysql/data/**)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; C:\\\\xampp\\\\php\\\\php.exe artisan test --filter=is_agency_managed 2>&1 | Select-Object -Last 20)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; C:\\\\xampp\\\\php\\\\php.exe artisan test tests/Feature/ClientAuth/ClientAuthFlowTest.php 2>&1 | Select-Object -Last 30)",
+      "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan view:clear)",
+      "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan route:clear)",
+      "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan cache:clear)"
     ]
   }
 }

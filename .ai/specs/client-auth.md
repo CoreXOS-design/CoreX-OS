@@ -312,12 +312,16 @@ Two related rules govern how a single `ClientUser` (one real person, keyed by em
 When a `Contact` is being created with a non-empty `email`, `ContactObserver::creating()` checks whether a `ClientUser` already exists for that email. If yes, the new Contact's `client_user_id` is set automatically. The client therefore immediately sees the new agency in their app's agency picker on next session refresh — no action required from staff. Staff in the new agency see the contact as already having a client login (the "Create Client Login" button is hidden and "Managed by {origin agency}" is shown instead).
 
 ### Rule 2 — Origin-agency lock on login management
-The agency that **first created** the client login owns the lifecycle of that login. Only that agency may:
+The origin-agency lock applies **only to agency-managed logins** — those fabricated by an agency with a non-deliverable fake email under the configured `fake_email_domain` (`@corexclient.co.za`) plus an agent-set temp password. For those, the agency that **first created** the login owns its lifecycle. Only that agency may:
 - Reset the password
 - Force logout all devices
 - Remove client app access
 
-Other agencies see the panel in read-only mode with a "Managed by {Origin Agency Name}" notice. This is enforced both in the blade view (`client-app-access.blade.php`) and server-side in `ClientLoginController::ensureOriginAgency()` (returns 403 on mismatch).
+Other agencies see the panel in read-only mode with a "Managed by {Origin Agency Name}" notice.
+
+**Self-service logins are never locked.** When a client self-registers with a real email and sets their own password via OTP, they own their credentials and can self-recover (forgot-password OTP). No agency "owns" such a login, so the origin-agency lock does **not** apply — any agency the client is linked to sees the full management panel. The discriminator is `ClientUser::isAgencyManaged()` (email ends with the fake-email domain).
+
+This is enforced both in the blade view (`client-app-access.blade.php`) and server-side in `ClientLoginController::ensureOriginAgency()` (returns 403 on mismatch, only for agency-managed logins).
 
 The origin is recorded in `client_users.created_by_agency_id`:
 - Set to `contact->agency_id` in `ClientLoginController::create()` when an agent creates the login.
