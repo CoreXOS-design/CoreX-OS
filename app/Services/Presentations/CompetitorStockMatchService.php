@@ -324,12 +324,16 @@ final class CompetitorStockMatchService
             ->select([
                 'id', 'address', 'suburb', 'price', 'bedrooms', 'bathrooms', 'garages',
                 'property_size_m2', 'erf_size_m2', 'property_type',
+                'latitude', 'longitude',
                 'portal_url', 'portal_source', 'portal_ref',
                 'agent_name', 'agency_name', 'thumbnail_path',
                 'first_seen_at', 'last_seen_at',
             ])
-            ->get()
-            ->map(fn ($row) => $this->adaptCandidateRow($row));
+            ->get();
+
+        // Same eager geocode hook as the auto-pool path.
+        $this->geocodeMissingCompetitionRows($rows);
+        $rows = $rows->map(fn ($row) => $this->adaptCandidateRow($row));
 
         if ($rows->isEmpty()) return collect();
 
@@ -592,6 +596,12 @@ final class CompetitorStockMatchService
             'address'          => $listing->address ?? null,
             'suburb'           => $listing->suburb ?? null,
             'property_type'    => $listing->property_type ?? null,
+            // CMA-map — surface lat/lng on the result so review +
+            // PDF can plot. null when the row is still unresolvable
+            // (no address or resolver failed); the map's "X of Y
+            // plotted · Z no location" caption surfaces the residual.
+            'latitude'         => isset($listing->latitude)  && $listing->latitude  !== null ? (float) $listing->latitude  : null,
+            'longitude'        => isset($listing->longitude) && $listing->longitude !== null ? (float) $listing->longitude : null,
             'bedrooms'         => $listing->beds ?? null,
             'bathrooms'        => isset($listing->bathrooms) ? (int) $listing->bathrooms : null,
             'garages'          => isset($listing->garages) ? (int) $listing->garages : null,
@@ -702,16 +712,73 @@ final class CompetitorStockMatchService
             ->select([
                 'id', 'address', 'suburb', 'price', 'bedrooms', 'bathrooms', 'garages',
                 'property_size_m2', 'erf_size_m2', 'property_type',
+                'latitude', 'longitude',
                 'portal_url', 'portal_source', 'portal_ref',
                 'agent_name', 'agency_name', 'thumbnail_path',
                 'first_seen_at', 'last_seen_at',
             ])
             ->get();
 
+        // Eager geocode hook — prospecting_listings starts with 100%
+        // address but 0% GPS. Resolve any row that has an address but
+        // no coords via AddressResolverService and persist back to the
+        // new latitude/longitude columns. The map plots the resolved
+        // result; future presentations read the column directly.
+        //
+        // Bounded by the per-candidate-pool count (already narrowed by
+        // price band + suburb LIKE + family whereIn so typically <100
+        // rows per call). Cache + cache-as-failed prevents repeated
+        // Google calls for unresolvable addresses.
+        $this->geocodeMissingCompetitionRows($rows);
+
         // Adapt each row to the loose shape scoreProspectingCapture
         // expects (price / suburb / property_type / beds; everything
         // else passes through for the card).
         return $rows->map(fn ($row) => $this->adaptCandidateRow($row));
+    }
+
+    /**
+     * For each loaded candidate row that has an address but no GPS,
+     * resolve via AddressResolverService and persist the result back
+     * to prospecting_listings.latitude/longitude. Mutates the row
+     * objects in place so downstream adaptCandidateRow + scoreAndMapRow
+     * see the fresh coords.
+     */
+    private function geocodeMissingCompetitionRows(\Illuminate\Support\Collection $rows): void
+    {
+        $resolver = null;
+        foreach ($rows as $row) {
+            $hasGps = $row->latitude !== null && $row->longitude !== null
+                && (float) $row->latitude !== 0.0 && (float) $row->longitude !== 0.0;
+            if ($hasGps) continue;
+            if (empty($row->address)) continue;
+
+            $resolver ??= new \App\Services\Geocoding\AddressResolverService();
+            try {
+                $result = $resolver->resolve(
+                    (string) $row->address,
+                    $row->suburb ?: null,
+                    null,
+                    context: 'prospecting_listing:' . (int) $row->id,
+                );
+                if ($result->hasGps()) {
+                    $row->latitude  = $result->latitude;
+                    $row->longitude = $result->longitude;
+                    DB::table('prospecting_listings')
+                        ->where('id', (int) $row->id)
+                        ->update([
+                            'latitude'  => $result->latitude,
+                            'longitude' => $result->longitude,
+                            'updated_at'=> now(),
+                        ]);
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::debug('competition row geocode failed', [
+                    'listing_id' => $row->id ?? null,
+                    'err'        => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     /**
@@ -727,6 +794,8 @@ final class CompetitorStockMatchService
             'price'            => (int) $row->price,
             'suburb'           => $row->suburb,
             'property_type'    => $row->property_type,
+            'latitude'         => $row->latitude  !== null ? (float) $row->latitude  : null,
+            'longitude'        => $row->longitude !== null ? (float) $row->longitude : null,
             'beds'             => $row->bedrooms !== null ? (int) $row->bedrooms : null,
             'bedrooms'         => $row->bedrooms !== null ? (int) $row->bedrooms : null,
             'bathrooms'        => $row->bathrooms !== null ? (int) $row->bathrooms : null,

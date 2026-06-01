@@ -350,7 +350,9 @@
                     <span><span style="display:inline-block;width:8px;height:8px;background:#0b2a4a;vertical-align:middle;margin-right:4px;border-radius:50%;"></span>Full title comp</span>
                     <span><span style="display:inline-block;width:8px;height:8px;background:#7c3aed;vertical-align:middle;margin-right:4px;"></span>Sectional comp</span>
                     <span><span style="display:inline-block;width:8px;height:8px;background:#06b6d4;vertical-align:middle;margin-right:4px;clip-path:polygon(50% 0,100% 100%,0 100%);"></span>Vacant land comp</span>
+                    <span><span style="display:inline-block;width:9px;height:9px;background:#f59e0b;margin-right:4px;transform:rotate(45deg);"></span>Active competition</span>
                 </div>
+                <div id="review-map-plot-caption" style="margin-top:4px; font-size:11px; color: var(--text-muted);"></div>
             </div>
         </div>
     </div>
@@ -420,7 +422,11 @@
 
     <script>
     (function () {
-        var COMPETITOR_VISIBLE = @json($competitorVisibleForJs);
+        // Exposed on window so the review-map script (which runs earlier
+        // in the page) can read the visible competition rows for marker
+        // rendering. Same array drives the cards + the orange diamonds.
+        window.COMPETITOR_VISIBLE = @json($competitorVisibleForJs);
+        var COMPETITOR_VISIBLE = window.COMPETITOR_VISIBLE;
         var listEl = document.getElementById('competitor-stock-list');
         if (!listEl || !window.CoreXBuildListingCard) return;
 
@@ -681,6 +687,98 @@
         markers.set(id, m);
     });
 
+    // ── Active Competition layer — orange diamond, distinct from sold-
+    // comp circles/squares so "what's competing now" reads as a different
+    // visual stratum from "what sold". Wired to the competition tick
+    // state via window.competitionMarkers (Map keyed by listing_id) so
+    // the modal close + per-card untick paths can show/hide markers in
+    // place. Honest no-coord handling — rows without lat/lng are silently
+    // skipped (no fake fallback pin) and counted in the caption below.
+    function diamondSvg(px) {
+        const half = px / 2;
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="' + px + '" height="' + px + '" viewBox="0 0 ' + px + ' ' + px + '">'
+             + '<polygon points="' + half + ',1 ' + (px - 1) + ',' + half + ' ' + half + ',' + (px - 1) + ' 1,' + half + '"'
+             + ' fill="#f59e0b" stroke="#ffffff" stroke-width="2"/></svg>';
+    }
+    window.competitionMarkers = window.competitionMarkers || new Map();
+
+    function renderCompetitionMarkers(visibleRows) {
+        // Clear existing layer (modal close re-fetches and re-renders).
+        window.competitionMarkers.forEach(m => map.removeLayer(m));
+        window.competitionMarkers.clear();
+        let plotted = 0, unplotted = 0;
+        (visibleRows || []).forEach(row => {
+            const lat = row.latitude  !== null && row.latitude  !== undefined ? parseFloat(row.latitude)  : NaN;
+            const lng = row.longitude !== null && row.longitude !== undefined ? parseFloat(row.longitude) : NaN;
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                unplotted++;
+                return;
+            }
+            plotted++;
+            const m = L.marker([lat, lng], {
+                icon: L.divIcon({
+                    html: diamondSvg(16),
+                    className: 'review-pin review-pin-competition',
+                    iconSize: [16, 16], iconAnchor: [8, 8],
+                }),
+                zIndexOffset: 500,
+            });
+            const title = (row.address || ('Listing #' + row.listing_id))
+                        + (row.price ? ' · R ' + Number(row.price).toLocaleString('en-ZA') : '')
+                        + (row.score ? ' · ' + row.score + '%' : '');
+            m.bindTooltip(title, { direction: 'top' });
+            m.addTo(map);
+            window.competitionMarkers.set(row.listing_id, m);
+        });
+        return { plotted, unplotted };
+    }
+
+    // Initial paint — visible rows are passed in by the section script
+    // (window.COMPETITOR_VISIBLE is populated at section render time).
+    window.refreshMapCaption = function (compCounts, competitionCounts) {
+        const el = document.getElementById('review-map-plot-caption');
+        if (!el) return;
+        const parts = [];
+        const compPlotted   = compCounts?.plotted   ?? 0;
+        const compUnplotted = compCounts?.unplotted ?? 0;
+        const competitionPlotted   = competitionCounts?.plotted   ?? 0;
+        const competitionUnplotted = competitionCounts?.unplotted ?? 0;
+        parts.push('Sold comps: ' + compPlotted + ' plotted' + (compUnplotted ? ' · ' + compUnplotted + ' no location' : ''));
+        parts.push('Active competition: ' + competitionPlotted + ' plotted' + (competitionUnplotted ? ' · ' + competitionUnplotted + ' no location' : ''));
+        el.textContent = parts.join(' · ');
+    };
+
+    // Count sold-comp plotted vs unplotted from the rows we already
+    // iterated above (markers Map holds the plotted set; the table rows
+    // include those with no lat/lng too).
+    const compPlottedCount = markers.size;
+    const compTotalIncluded = document.querySelectorAll('#comp-table .comp-row[data-included="1"]').length;
+    const compUnplotted = Math.max(0, compTotalIncluded - compPlottedCount);
+
+    // Source of truth for competition rows on the section render is
+    // COMPETITOR_VISIBLE, defined in the Active Competition script
+    // below. We hook the initial paint via a microtask so that runs
+    // first.
+    queueMicrotask(() => {
+        const competitionRows = window.COMPETITOR_VISIBLE || [];
+        const counts = renderCompetitionMarkers(competitionRows);
+        window.refreshMapCaption(
+            { plotted: compPlottedCount, unplotted: compUnplotted },
+            counts,
+        );
+    });
+
+    // Expose for the manual-picker modal close path: re-render the
+    // competition markers from a fresh visible[] payload + update the
+    // caption.
+    window.refreshCompetitionMarkers = function (visibleRows) {
+        const counts = renderCompetitionMarkers(visibleRows);
+        window.refreshMapCaption(
+            { plotted: compPlottedCount, unplotted: compUnplotted },
+            counts,
+        );
+    };
+
     // ── Live tile patch helper (shared by comp toggle + condition picker) ─
     // applyCmaUpdate is defined further down (after the valuation-strip
     // DOM nodes are resolved); both flushToggle here and the condition
@@ -768,10 +866,16 @@
             const card = cb.closest('.competitor-card');
             const next = cb.checked;
 
-            // Optimistic dim/undim.
+            // Optimistic dim/undim + diamond show/hide on the map.
             if (card) {
                 card.style.opacity = next ? '' : '0.45';
                 card.classList.toggle('excluded', !next);
+            }
+            if (window.competitionMarkers) {
+                const marker = window.competitionMarkers.get(listingId);
+                if (marker) {
+                    if (next) marker.addTo(map); else map.removeLayer(marker);
+                }
             }
 
             const url = COMPETITOR_TOGGLE_TPL.replace('__LISTING_ID__', String(listingId));

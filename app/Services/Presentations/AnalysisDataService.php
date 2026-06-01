@@ -819,11 +819,28 @@ class AnalysisDataService
             $visible = $deduped;
         }
 
+        // CMA-map plotted counts. The map plots only rows with real
+        // lat/lng — never a fake fallback. The caption surfaces the
+        // honest count to the agent ("12 of 30 plotted · 18 no
+        // location"). Computed over `visible` so the section header
+        // matches what actually renders on the map.
+        $plotted = 0;
+        $unplotted = 0;
+        foreach ($visible as $row) {
+            if (!empty($row['latitude']) && !empty($row['longitude'])) {
+                $plotted++;
+            } else {
+                $unplotted++;
+            }
+        }
+
         return [
             'matches'      => $matches,
             'included_ids' => $whitelist,
             'visible'      => $visible,
             'display_cap'  => $displayCap > 0 ? $displayCap : null,
+            'map_plotted_count'   => $plotted,
+            'map_unplotted_count' => $unplotted,
         ];
     }
 

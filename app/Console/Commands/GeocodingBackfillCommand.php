@@ -26,12 +26,12 @@ final class GeocodingBackfillCommand extends Command
 {
     protected $signature = 'geocoding:backfill
         {--limit=0 : Max rows to process (0 = all unresolved)}
-        {--type=both : both | properties | tracked_properties}
+        {--type=both : both | properties | tracked_properties | comp_rows | competition}
         {--force : Re-resolve rows that already have GPS}
         {--id= : Single property ID to re-resolve (implies --force)}
         {--suspect-only : Limit re-resolve to suburb_centroid / unresolved / low-confidence pins (implies --force)}';
 
-    protected $description = 'Resolve GPS + municipal value for properties and tracked properties via the geocoding waterfall.';
+    protected $description = 'Resolve GPS via AddressResolverService for properties, tracked properties, market_report_comp_rows (sold-comp pool), and prospecting_listings (Active Competition pool).';
 
     public function handle(PropertyGeoBackfillService $svc): int
     {
@@ -44,7 +44,7 @@ final class GeocodingBackfillCommand extends Command
         // --id and --suspect-only both imply force re-resolve.
         if ($singleId !== null || $suspectOnly) $force = true;
 
-        if (!in_array($type, ['both', 'properties', 'tracked_properties'], true)) {
+        if (!in_array($type, ['both', 'properties', 'tracked_properties', 'comp_rows', 'competition'], true)) {
             $this->error("Invalid --type: {$type}");
             return self::INVALID;
         }
@@ -86,6 +86,23 @@ final class GeocodingBackfillCommand extends Command
         if ($type === 'both' || $type === 'tracked_properties') {
             $this->info('=== Backfilling tracked_properties ===');
             $this->runForModel(TrackedProperty::query()->withoutGlobalScopes(), $svc, 'tracked_property', $limit, $force, false, $batchId, $tallyTotal, $bySource);
+            $this->newLine();
+        }
+
+        // CMA-map backfill: comp rows (market_report_comp_rows — 25% of
+        // the historic pool lacks GPS) + competition (prospecting_listings
+        // — 100% historic gap until this build). Plain DB::table loops
+        // (no Eloquent model) — each row gets one resolver call, persists
+        // back to the table. The eager hooks in MicSnapshotHydrator +
+        // CompetitorStockMatchService keep these populated going forward.
+        if ($type === 'comp_rows' || $type === 'both') {
+            $this->info('=== Backfilling market_report_comp_rows ===');
+            $this->backfillCompRows($limit, $force, $tallyTotal, $bySource);
+            $this->newLine();
+        }
+        if ($type === 'competition' || $type === 'both') {
+            $this->info('=== Backfilling prospecting_listings (competition) ===');
+            $this->backfillCompetition($limit, $force, $tallyTotal, $bySource);
             $this->newLine();
         }
 
@@ -183,6 +200,122 @@ final class GeocodingBackfillCommand extends Command
                     $tallyTotal['resolved'],
                     $tallyTotal['failed'],
                 ));
+            }
+        }
+    }
+
+    /**
+     * Backfill GPS on market_report_comp_rows for the CMA-map fix.
+     * Rows with an address but no lat/lng get resolved + persisted.
+     * `--force` re-resolves rows that already have GPS (rare; mostly
+     * for testing).
+     */
+    private function backfillCompRows(int $limit, bool $force, array &$tallyTotal, array &$bySource): void
+    {
+        $q = \Illuminate\Support\Facades\DB::table('market_report_comp_rows')
+            ->whereNotNull('address')->where('address', '<>', '');
+        if (!$force) {
+            $q->where(function ($q) {
+                $q->whereNull('latitude')->orWhereNull('longitude');
+            });
+        }
+        if ($limit > 0) $q->limit($limit);
+        $rows = $q->select(['id', 'address', 'suburb_normalised', 'latitude', 'longitude'])->get();
+        $total = $rows->count();
+        if ($total === 0) {
+            $this->line('  Nothing to resolve.');
+            return;
+        }
+
+        $resolver = new \App\Services\Geocoding\AddressResolverService();
+        $processed = 0;
+        foreach ($rows as $row) {
+            try {
+                $result = $resolver->resolve(
+                    (string) $row->address,
+                    $row->suburb_normalised ?: null,
+                    null,
+                    context: 'mic_comp_row:' . (int) $row->id,
+                );
+                if ($result->hasGps()) {
+                    \Illuminate\Support\Facades\DB::table('market_report_comp_rows')
+                        ->where('id', (int) $row->id)
+                        ->update([
+                            'latitude'  => $result->latitude,
+                            'longitude' => $result->longitude,
+                            'updated_at'=> now(),
+                        ]);
+                    $tallyTotal['resolved']++;
+                    $src = (string) $result->source;
+                    $bySource[$src] = ($bySource[$src] ?? 0) + 1;
+                } else {
+                    $tallyTotal['failed']++;
+                }
+            } catch (\Throwable $e) {
+                $this->warn("  comp_row#{$row->id}: " . $e->getMessage());
+                $tallyTotal['failed']++;
+            }
+            $processed++;
+            if ($processed % 50 === 0 || $processed === $total) {
+                $this->line("  {$processed}/{$total} processed — {$tallyTotal['resolved']} resolved, {$tallyTotal['failed']} failed.");
+            }
+        }
+    }
+
+    /**
+     * Backfill GPS on prospecting_listings for the CMA-map Active
+     * Competition layer. Historic rows have 100% address + 0% GPS;
+     * this clears the gap.
+     */
+    private function backfillCompetition(int $limit, bool $force, array &$tallyTotal, array &$bySource): void
+    {
+        $q = \Illuminate\Support\Facades\DB::table('prospecting_listings')
+            ->whereNotNull('address')->where('address', '<>', '')
+            ->whereNull('deleted_at');
+        if (!$force) {
+            $q->where(function ($q) {
+                $q->whereNull('latitude')->orWhereNull('longitude');
+            });
+        }
+        if ($limit > 0) $q->limit($limit);
+        $rows = $q->select(['id', 'address', 'suburb', 'latitude', 'longitude'])->get();
+        $total = $rows->count();
+        if ($total === 0) {
+            $this->line('  Nothing to resolve.');
+            return;
+        }
+
+        $resolver = new \App\Services\Geocoding\AddressResolverService();
+        $processed = 0;
+        foreach ($rows as $row) {
+            try {
+                $result = $resolver->resolve(
+                    (string) $row->address,
+                    $row->suburb ?: null,
+                    null,
+                    context: 'prospecting_listing:' . (int) $row->id,
+                );
+                if ($result->hasGps()) {
+                    \Illuminate\Support\Facades\DB::table('prospecting_listings')
+                        ->where('id', (int) $row->id)
+                        ->update([
+                            'latitude'  => $result->latitude,
+                            'longitude' => $result->longitude,
+                            'updated_at'=> now(),
+                        ]);
+                    $tallyTotal['resolved']++;
+                    $src = (string) $result->source;
+                    $bySource[$src] = ($bySource[$src] ?? 0) + 1;
+                } else {
+                    $tallyTotal['failed']++;
+                }
+            } catch (\Throwable $e) {
+                $this->warn("  competition#{$row->id}: " . $e->getMessage());
+                $tallyTotal['failed']++;
+            }
+            $processed++;
+            if ($processed % 50 === 0 || $processed === $total) {
+                $this->line("  {$processed}/{$total} processed — {$tallyTotal['resolved']} resolved, {$tallyTotal['failed']} failed.");
             }
         }
     }

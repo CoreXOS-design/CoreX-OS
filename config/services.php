@@ -122,8 +122,14 @@ return [
     ],
 
     // Phase 3f — Geocoding waterfall (AddressResolverService).
+    // CMA map — Google Static Maps reuses the same Google Cloud project +
+    // API key (Maps Static API must be enabled on it). When the static_maps
+    // env var isn't set we default to the geocoding key so a single config
+    // is the common case; a separate key is supported for agencies that
+    // want to split quotas / billing.
     'google' => [
-        'geocoding_api_key' => env('GOOGLE_GEOCODING_API_KEY'),
+        'geocoding_api_key'   => env('GOOGLE_GEOCODING_API_KEY'),
+        'static_maps_api_key' => env('GOOGLE_STATIC_MAPS_API_KEY', env('GOOGLE_GEOCODING_API_KEY')),
     ],
 
     'nominatim' => [

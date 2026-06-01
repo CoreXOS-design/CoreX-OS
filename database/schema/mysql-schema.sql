@@ -215,6 +215,7 @@ CREATE TABLE `agencies` (
   `competitor_stock_min_score` tinyint unsigned NOT NULL DEFAULT '50' COMMENT 'Competitor Stock — minimum match score (Core Matches 0-100) to include in section. 50 = Approximate tier floor.',
   `competitor_stock_min_same_type` tinyint unsigned NOT NULL DEFAULT '5' COMMENT 'Competitor Stock — minimum exact-property-type matches before stepping up to same-family-other-type. Level 1 (FH/SS) is never crossed.',
   `competitor_stock_default_display_count` tinyint unsigned NOT NULL DEFAULT '10' COMMENT 'Competitor Stock — top-N display cap on the review screen + auto-tick floor. Rest live in the manual-picker modal.',
+  `presentations_map_provider` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'svg_radial' COMMENT 'Presentation PDF map renderer: svg_radial (polar diagram, self-contained) or static_image (Google Static Maps PNG, requires API key).',
   `presentations_default_comp_scope` enum('radius_all','suburb_only') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'radius_all',
   `presentations_default_radius_m` smallint unsigned NOT NULL DEFAULT '1000',
   `presentations_default_rates_per_million_zar` int unsigned NOT NULL DEFAULT '800' COMMENT 'Monthly municipal rates per R1M of property value.',
@@ -7961,6 +7962,8 @@ CREATE TABLE `prospecting_listings` (
   `normalized_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `property_group_id` bigint unsigned DEFAULT NULL,
   `suburb` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `latitude` decimal(10,7) DEFAULT NULL COMMENT 'Resolved by AddressResolverService — building-level when street parts present, suburb_centroid as last resort. Indexed for radius queries.',
+  `longitude` decimal(10,7) DEFAULT NULL,
   `district` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `price` int NOT NULL,
   `bedrooms` smallint DEFAULT NULL,
@@ -7993,6 +7996,7 @@ CREATE TABLE `prospecting_listings` (
   KEY `prospecting_listings_property_group_id_index` (`property_group_id`),
   KEY `prospecting_listings_matched_property_id_index` (`matched_property_id`),
   KEY `idx_prospecting_listings_tracked` (`tracked_property_id`),
+  KEY `idx_prospecting_listings_geo` (`latitude`,`longitude`),
   CONSTRAINT `prospecting_listings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_listings_captured_by_user_id_foreign` FOREIGN KEY (`captured_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_listings_matched_property_id_foreign` FOREIGN KEY (`matched_property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
@@ -11075,3 +11079,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (808,'2026_06_19_14
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (809,'2026_06_19_140200_add_freehold_monthly_to_presentations',240);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (810,'2026_06_01_201014_add_competitor_stock_min_same_type_to_agencies',241);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (811,'2026_06_01_204407_add_competitor_stock_default_display_count_to_agencies',242);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (812,'2026_06_01_211936_add_geo_columns_to_prospecting_listings_and_map_provider_to_agencies',243);

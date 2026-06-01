@@ -527,6 +527,72 @@ final class CompetitorStockMatchTest extends TestCase
             'After untick of first auto-pick, top-2 seed minus one = 1 entry');
     }
 
+    // ── CMA map — lat/lng exposed, geocode hook, plotted counts ────────
+
+    public function test_match_row_includes_latitude_longitude_when_persisted(): void
+    {
+        [$subject, $agencyId] = $this->seedSubject(
+            price: 1_200_000, beds: 2, suburb: 'Uvongo', type: 'Sectional Title',
+        );
+        // Listing with pre-persisted GPS — no resolver call needed.
+        $listingId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_200_000, beds: 2, type: 'Apartment');
+        DB::table('prospecting_listings')->where('id', $listingId)->update([
+            'latitude'  => -30.830687,
+            'longitude' =>  30.398586,
+        ]);
+
+        $rows = (new CompetitorStockMatchService())->findCompetitors($subject);
+        $hit = $rows->firstWhere('listing_id', $listingId);
+        $this->assertNotNull($hit);
+        $this->assertEqualsWithDelta(-30.830687, (float) $hit['latitude'],  0.0001);
+        $this->assertEqualsWithDelta( 30.398586, (float) $hit['longitude'], 0.0001);
+    }
+
+    public function test_match_row_lat_lng_null_when_unresolvable(): void
+    {
+        // No GOOGLE_GEOCODING_API_KEY in test env → resolver waterfall
+        // exhausts all branches + caches as failed → null persists.
+        [$subject, $agencyId] = $this->seedSubject(
+            price: 1_200_000, beds: 2, suburb: 'Uvongo', type: 'Sectional Title',
+        );
+        $listingId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_200_000, beds: 2, type: 'Apartment');
+
+        $rows = (new CompetitorStockMatchService())->findCompetitors($subject);
+        $hit = $rows->firstWhere('listing_id', $listingId);
+        $this->assertNotNull($hit);
+        // No fake fallback — honest null when the resolver returns nothing.
+        $this->assertNull($hit['latitude']);
+        $this->assertNull($hit['longitude']);
+    }
+
+    public function test_compile_competitor_stock_emits_plotted_counts(): void
+    {
+        [$subject, $agencyId] = $this->seedSubject(
+            price: 1_200_000, beds: 2, suburb: 'Uvongo', type: 'Sectional Title',
+        );
+        Agency::find($agencyId)->update(['competitor_stock_default_display_count' => 5]);
+
+        // 3 with GPS + 2 without — visible top-N = 5 → plotted=3, unplotted=2.
+        for ($i = 0; $i < 5; $i++) {
+            $id = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_200_000 + $i * 5_000, beds: 2, type: 'Apartment');
+            if ($i < 3) {
+                DB::table('prospecting_listings')->where('id', $id)->update([
+                    'latitude'  => -30.83 + $i * 0.001,
+                    'longitude' =>  30.39 + $i * 0.001,
+                ]);
+            }
+        }
+
+        $presentation = $this->seedPresentation($subject);
+        $version = $this->seedVersion($presentation);
+
+        $analysis = (new AnalysisDataService())->compile($presentation->fresh(), $version);
+        $cs = $analysis['competitor_stock'];
+        $this->assertSame(3, $cs['map_plotted_count'],   'Three plottable rows in top-N visible set');
+        $this->assertSame(2, $cs['map_unplotted_count'], 'Two unplottable rows in top-N visible set');
+        $this->assertCount(5, $cs['visible']);
+    }
+
     public function test_toggle_competitor_rejects_cross_family_pick(): void
     {
         [$subject, $agencyId] = $this->seedSubject(

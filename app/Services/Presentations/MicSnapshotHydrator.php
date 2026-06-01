@@ -682,6 +682,49 @@ final class MicSnapshotHydrator
 
     private function encodeRaw(object $row, array $sourceReportIds, Presentation $presentation): string
     {
+        // Eager geocode hook — when the upstream comp row has an
+        // address but no GPS, resolve once via AddressResolverService
+        // and persist back to market_report_comp_rows so future
+        // presentations get the result for free. The 34% of comp rows
+        // that lack GPS at parse time become plottable on the next
+        // hydration without an explicit backfill pass.
+        //
+        // Silent on failure — the resolver's own cache prevents
+        // hammering Google for permanently-unresolvable addresses
+        // (cache-as-failed branch). The map's plotted/unplotted
+        // caption surfaces the residual to the agent.
+        $lat = $row->latitude  ?? null;
+        $lng = $row->longitude ?? null;
+        if (($lat === null || $lng === null) && !empty($row->address)) {
+            try {
+                $result = (new \App\Services\Geocoding\AddressResolverService())->resolve(
+                    (string) $row->address,
+                    null, // suburb already in $row->address typically
+                    null,
+                    context: 'mic_comp_row:' . (int) $row->id,
+                );
+                if ($result->hasGps()) {
+                    $lat = $result->latitude;
+                    $lng = $result->longitude;
+                    // Persist back so the next hydration reads from
+                    // the column directly. saveQuietly equivalent via
+                    // raw update (no model in scope; cheap).
+                    \Illuminate\Support\Facades\DB::table('market_report_comp_rows')
+                        ->where('id', (int) $row->id)
+                        ->update([
+                            'latitude'  => $lat,
+                            'longitude' => $lng,
+                            'updated_at'=> now(),
+                        ]);
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::debug('comp_row geocode failed', [
+                    'comp_row_id' => $row->id ?? null,
+                    'err'         => $e->getMessage(),
+                ]);
+            }
+        }
+
         $payload = [
             'source'              => 'mic_snapshot',
             'source_report_id'    => (int) $row->market_report_id,
@@ -701,6 +744,13 @@ final class MicSnapshotHydrator
                                         ? (int) round($row->list_price / $row->extent_m2)
                                         : null),
             'subject_match_used'  => in_array((int) $row->market_report_id, $sourceReportIds, true),
+            // CMA-map fix — expose GPS so the review-screen marker
+            // placement (PresentationReviewController:117) reads real
+            // values instead of always-null. Pre-fix the columns were
+            // SELECTed but never encoded into the snapshot JSON, which
+            // silently broke comp plotting on the review map.
+            'latitude'            => $lat,
+            'longitude'           => $lng,
         ];
         return json_encode($payload, JSON_THROW_ON_ERROR);
     }

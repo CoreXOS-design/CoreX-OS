@@ -311,12 +311,23 @@ if (typeof window.competitorPicker !== 'function') {
                     });
                     if (!r.ok) return;
                     const data = await r.json();
+                    const visible = (data.visible || []).map(m => Object.assign({}, m, { is_included: true }));
+                    const total   = (data.matches || []).length;
+                    const summary = 'showing ' + visible.length + ' of ' + total + ' scored';
                     if (typeof window.renderCompetitorStockList === 'function') {
-                        const visible = (data.visible || []).map(m => Object.assign({}, m, { is_included: true }));
-                        const total   = (data.matches || []).length;
-                        const summary = 'showing ' + visible.length + ' of ' + total + ' scored';
                         window.renderCompetitorStockList(visible, summary);
                     }
+                    // CMA map — refresh the orange-diamond competition
+                    // layer in place. Newly-ticked rows appear; unticked
+                    // rows disappear. Honest plotted/unplotted caption
+                    // updates via the renderer.
+                    if (typeof window.refreshCompetitionMarkers === 'function') {
+                        window.refreshCompetitionMarkers(visible);
+                    }
+                    // Keep the source-of-truth window var in sync so the
+                    // initial queueMicrotask read on next paint sees the
+                    // post-modal state.
+                    window.COMPETITOR_VISIBLE = visible;
                 } catch (e) { /* silent — modal already closed, agent can refresh manually */ }
             },
         };

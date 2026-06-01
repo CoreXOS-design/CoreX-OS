@@ -1246,11 +1246,70 @@ a:hover { text-decoration: underline; }
                 'sale_date' => null,
             ];
         }
+
+        // CMA-map — Active Competition layer (Build's new orange diamond
+        // on the review screen). Reads competitor_stock.visible from the
+        // compiled data so the PDF shows EXACTLY what the agent ticked.
+        // No fake fallback pins — rows without lat/lng silently skip
+        // and the caption surfaces the count.
+        $_competitorVisible = $data['competitor_stock']['visible'] ?? [];
+        foreach ($_competitorVisible as $_cv) {
+            $_lat = $_cv['latitude']  ?? null;
+            $_lng = $_cv['longitude'] ?? null;
+            if ($_lat === null || $_lng === null) continue;
+            $_svgComps[] = [
+                'lat'       => (float) $_lat,
+                'lng'       => (float) $_lng,
+                'title'     => $_cv['address'] ?? ('Listing #' . ($_cv['listing_id'] ?? '')),
+                'layer'     => 'competitor_stock',
+                'price'     => isset($_cv['price']) ? (int) $_cv['price'] : null,
+                'sale_date' => null,
+            ];
+        }
+    }
+
+    // PDF map provider selection. svg_radial (default, self-contained)
+    // OR static_image (Google Static Maps PNG, requires key). If the
+    // agency selected static_image but the key is missing, fall back
+    // to the radial silently — a misconfigured agency never gets a
+    // broken PDF.
+    $_mapProvider = $agency?->presentations_map_provider ?? 'svg_radial';
+    $_staticMapDataUri = null;
+    if ($_mapProvider === 'static_image' && $_subjLat !== null && $_subjLng !== null) {
+        $_subjForStatic = ['lat' => (float) $_subjLat, 'lng' => (float) $_subjLng, 'title' => $address];
+        // Re-bucket _svgComps into sold-comp + competition lists for the
+        // static service, which needs them separately to colour-tag.
+        $_staticSold = [];
+        $_staticComp = [];
+        foreach ($_svgComps as $_pt) {
+            if (($_pt['layer'] ?? '') === 'competitor_stock') {
+                $_staticComp[] = ['latitude' => $_pt['lat'], 'longitude' => $_pt['lng']];
+            } else {
+                $_staticSold[] = ['lat' => $_pt['lat'], 'lng' => $_pt['lng'], 'title_type' => $_pt['title_type'] ?? null];
+            }
+        }
+        $_staticMapDataUri = (new \App\Services\Presentations\Pdf\PresentationStaticMapService())
+            ->renderBase64($_subjForStatic, $_staticSold, $_staticComp, 640, 480);
     }
 ?>
-<?php if ($_subjLat !== null && $_subjLng !== null && !empty($_svgComps)): ?>
+<?php if ($_subjLat !== null && $_subjLng !== null && $_staticMapDataUri !== null): ?>
+<?php // Static-image path — Google Static Maps PNG, embedded base64.
+      // Caption shows plotted/unplotted counts honestly. ?>
 <div style="margin-top:18px;">
-    <h3 style="margin-bottom:8px;">Spatial View — Comps Around Subject</h3>
+    <h3 style="margin-bottom:8px;">CMA Map — Subject + Sold Comps + Active Competition</h3>
+    <img src="<?= $_staticMapDataUri ?>" alt="CMA map" style="width:100%;max-width:640px;height:auto;border:1px solid #e2e8f0;border-radius:6px;">
+    <p style="font-size:10px;color:#64748b;margin-top:4px;">
+        Sold comps: <?= count($_svgComps) - (isset($_staticComp) ? count($_staticComp) : 0) ?> plotted ·
+        Active competition: <?= isset($_staticComp) ? count($_staticComp) : 0 ?> plotted ·
+        Subject (S) green pin · Competition (C) amber pins.
+    </p>
+</div>
+<?php elseif ($_subjLat !== null && $_subjLng !== null && !empty($_svgComps)): ?>
+<?php // Radial SVG path — default + fallback. SpatialViewSvgRenderer now
+      // includes the competitor_stock layer (amber, matches the review
+      // map's orange diamond palette). ?>
+<div style="margin-top:18px;">
+    <h3 style="margin-bottom:8px;">Spatial View — Subject + Comps + Competition</h3>
     <?= (new \App\Services\Presentations\Pdf\SpatialViewSvgRenderer())->render(
         ['lat' => (float) $_subjLat, 'lng' => (float) $_subjLng, 'title' => $address],
         $_svgComps,

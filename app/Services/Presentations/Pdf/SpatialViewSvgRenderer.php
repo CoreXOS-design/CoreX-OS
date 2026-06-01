@@ -75,13 +75,18 @@ final class SpatialViewSvgRenderer
         $subjectLabel = $this->escape($subject['title'] ?? 'Subject');
         $svg .= '<text x="' . $cx . '" y="' . ($cy + 26) . '" text-anchor="middle" font-size="9" font-weight="700" fill="#0f172a">' . $subjectLabel . '</text>';
 
-        // Comp dots — colour per layer matches the web map.
+        // Comp dots — colour per layer matches the web map. The new
+        // 'competitor_stock' layer (orange diamond on the review map)
+        // shares the amber palette with the legacy 'active_listings'
+        // — both represent "active stock competing with subject" and
+        // the agent doesn't need them visually distinct in the PDF.
         $colours = [
-            'sold_comps'      => '#3b82f6',
-            'active_listings' => '#f59e0b',
-            'mic_subjects'    => '#64748b',
-            'scheme_owners'   => '#8b5cf6',
-            'hfc_listings'    => '#00d4aa',
+            'sold_comps'       => '#3b82f6',
+            'active_listings'  => '#f59e0b',
+            'competitor_stock' => '#f59e0b',
+            'mic_subjects'     => '#64748b',
+            'scheme_owners'    => '#8b5cf6',
+            'hfc_listings'     => '#00d4aa',
         ];
 
         // Label-collision avoidance: simple greedy placement at offsets that

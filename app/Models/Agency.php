@@ -148,6 +148,7 @@ class Agency extends Model
         'competitor_stock_min_score',
         'competitor_stock_min_same_type',
         'competitor_stock_default_display_count',
+        'presentations_map_provider',
         // Holding Cost — freehold component Tier-2 defaults.
         'presentations_default_garden_zar',
         'presentations_default_pool_zar',
