@@ -208,7 +208,13 @@ TXT;
         // portable across the dev/staging/prod MySQL versions.
         $deg = 0.01;
         $candidates = \App\Models\Deal::withoutGlobalScopes()
-            ->where('agency_id', $presentation->agency_id)
+            // Qualify with the `deals` prefix: this query joins
+            // `properties`, which ALSO has an `agency_id` column, so the
+            // unqualified form is ambiguous (SQLSTATE[23000]). The
+            // sale's agency is the semantically-correct filter (deal
+            // ownership = closing agency, not asset listing-agency),
+            // and matches the pre-withoutGlobalScopes() AgencyScope.
+            ->where('deals.agency_id', $presentation->agency_id)
             ->whereNotNull('property_id')
             ->whereNotNull('sale_date')
             ->where('sale_date', '>=', $cutoff)
