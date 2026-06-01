@@ -408,6 +408,54 @@ TXT;
     }
 
     /**
+     * Auto-generate the default-tone (first active by sort_order)
+     * Executive Summary for a freshly-created version + accept it
+     * immediately. The "presentation is auto, agent overrides" model
+     * means every version ships with a real summary by default;
+     * the agent re-picks tone via the Exec Summary panel to override.
+     *
+     * NEVER throws. Any AI failure (budget cap, network, fallback,
+     * variant missing) is silently logged and leaves `ai_summary_text`
+     * null — the PDF readiness gate then blocks Compile/Download
+     * until the agent regenerates. This is intentional: the caller
+     * (PresentationGeneratorService) wraps an entire DB transaction
+     * around generate, and a thrown AI error would roll back the
+     * whole presentation. Soft-fail is the right behaviour.
+     */
+    public function generateDefaultAndAccept(Presentation $presentation, PresentationVersion $version, User $user): void
+    {
+        try {
+            $defaultVariantId = PresentationAiVariant::where('is_active', true)
+                ->orderBy('sort_order')
+                ->value('id');
+            if (!$defaultVariantId) {
+                Log::warning('AiSummaryService::generateDefaultAndAccept — no active variant configured', [
+                    'presentation_id' => $presentation->id,
+                    'version_id'      => $version->id,
+                ]);
+                return;
+            }
+
+            $result = $this->generate($presentation, $version, $defaultVariantId, $user);
+
+            // Only accept when the gateway returned real text (not the
+            // fallback "(AI summary unavailable…)" placeholder). Fallback
+            // means the AI was unreachable or budget-capped; leaving
+            // ai_summary_text null lets the readiness gate block the PDF
+            // until the agent regenerates from the panel.
+            if (!$result['from_fallback'] && !empty($result['text'])) {
+                $this->acceptForVersion($version, $result['history_id']);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('AiSummaryService::generateDefaultAndAccept threw — leaving summary null', [
+                'presentation_id' => $presentation->id,
+                'version_id'      => $version->id,
+                'error'           => mb_substr($e->getMessage(), 0, 300),
+            ]);
+        }
+    }
+
+    /**
      * Lock the chosen history row's text into the version snapshot. If
      * $editedText differs from history.generated_text, flag the edit.
      */

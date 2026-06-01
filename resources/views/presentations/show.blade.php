@@ -32,7 +32,8 @@
                 <h2 class="text-sm font-semibold text-gray-700 truncate">{{ $presentation->title }}</h2>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('presentations.edit', $presentation) }}" class="px-3 py-1.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">Edit</a>
+                {{-- Edit Property link removed — property data has ONE source
+                     (the property page itself). No manual edit path here. --}}
                 <a href="{{ route('presentations.analysis', [$presentation, 'refresh' => 1]) }}" class="px-3 py-1.5 text-sm font-medium text-white rounded-lg" style="background:#00d4aa;color:#0f172a;font-weight:600;">
                     {{ $latestSnapshot ? 'Re-run Analysis' : 'Run Analysis' }}
                 </a>
@@ -123,46 +124,64 @@
                 Seller Live Test
             </a>
         @endif
+        @php
+            // PDF readiness gate — the auto-presentation flow guarantees
+            // data capture + auto-generates a default-tone Executive
+            // Summary at generate time, so under normal conditions
+            // ai_summary_text is populated before the agent reaches this
+            // screen. The gate only blocks when (a) Analysis hasn't been
+            // run yet OR (b) the AI was unreachable at generate time and
+            // the agent hasn't regenerated from the Exec Summary panel.
+            // Holding Cost does NOT gate — it's auto-filled by the Tier
+            // 0/1/2 chain and agent overrides happen inline.
+            $hasAiSummary = $latestVersion?->ai_summary_text;
+            $pdfReady     = $latestVersion && $hasAiSummary;
+            $pdfBlockMsg  = !$latestVersion
+                ? 'Run Analysis first to produce a compiled snapshot'
+                : (!$hasAiSummary ? 'Generate the Executive Summary to enable the PDF' : '');
+        @endphp
         @if(config('features.presentation_blueprint'))
-            @php
-                // Compile Pack gate — the auto-presentation flow guarantees
-                // data capture, so the legacy readiness checklist is gone.
-                // The REAL prerequisites are (a) a compiled snapshot exists
-                // (analysis has been run at least once) and (b) the agent
-                // has accepted an AI summary on that version.
-                $hasAiSummary    = $latestVersion?->ai_summary_text;
-                $canCompileFull  = $latestVersion && $hasAiSummary;
-                $compileBlockMsg = !$latestVersion
-                    ? 'Run Analysis first to produce a compiled snapshot'
-                    : (!$hasAiSummary ? 'Generate AI Summary first (see Executive Summary panel below)' : '');
-            @endphp
             <form method="POST" action="{{ route('presentations.compile', $presentation) }}" class="inline">
                 @csrf
                 <button type="submit"
-                        class="corex-btn-primary" style="{{ $canCompileFull ? '' : 'opacity:0.5;cursor:not-allowed;' }}"
-                        {{ $canCompileFull ? '' : 'disabled title="' . e($compileBlockMsg) . '"' }}>
+                        class="corex-btn-primary" style="{{ $pdfReady ? '' : 'opacity:0.5;cursor:not-allowed;' }}"
+                        {{ $pdfReady ? '' : 'disabled title="' . e($pdfBlockMsg) . '"' }}>
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
                     Compile Pack
                 </button>
             </form>
         @endif
         @if(config('features.presentation_pdf_v1') && isset($latestVersion) && $latestVersion)
-            <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
-               class="corex-btn-primary">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                Download PDF (v{{ $latestVersion->id }})
-            </a>
-            <a href="{{ route('presentations.versions.complete-pack', [$presentation, $latestVersion]) }}"
-               class="corex-btn-primary">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
-                Complete Pack (ZIP)
-            </a>
+            @if($pdfReady)
+                <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
+                   class="corex-btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                    Download PDF (v{{ $latestVersion->id }})
+                </a>
+                <a href="{{ route('presentations.versions.complete-pack', [$presentation, $latestVersion]) }}"
+                   class="corex-btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
+                    Complete Pack (ZIP)
+                </a>
+            @else
+                {{-- Disabled state for Download PDF + Complete Pack — share
+                     the same readiness boolean + tooltip as Compile Pack so
+                     the agent sees consistent messaging across all three. --}}
+                <span class="corex-btn-primary" style="opacity:0.5;cursor:not-allowed;"
+                      title="{{ $pdfBlockMsg }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                    Download PDF (v{{ $latestVersion->id }})
+                </span>
+                <span class="corex-btn-primary" style="opacity:0.5;cursor:not-allowed;"
+                      title="{{ $pdfBlockMsg }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
+                    Complete Pack (ZIP)
+                </span>
+            @endif
         @endif
-        <a href="{{ route('presentations.edit', $presentation) }}"
-           class="corex-btn-outline text-sm" title="Edit property details">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
-            Edit Details
-        </a>
+        {{-- Edit Details button removed — property data has ONE source (the
+             property page itself). Changes there flow through regenerate;
+             no manual override on the presentation screen. --}}
     </div>
 </div>
 

@@ -112,7 +112,20 @@ class PresentationCompilerService
             : array_fill_keys(array_keys(PresentationVersion::SECTIONS_CATALOGUE), true);
         $enabledSections = $this->enforceSectionDependencies($enabledSections, $presentation->id);
 
-        return PresentationVersion::create([
+        // PDF readiness gate (auto-summary build) — Executive Summary
+        // copy-forward from the most recent prior version. Every new
+        // version inherits the agent's accepted summary text + edited
+        // flag so Compile never erases work AND never triggers a fresh
+        // AI call. When no prior version had a summary (or this is the
+        // first compile after that build shipped), the fields stay null
+        // and the readiness gate blocks the PDF until the agent
+        // regenerates from the Exec Summary panel.
+        $previousVersion = PresentationVersion::where('presentation_id', $presentation->id)
+            ->whereNotNull('ai_summary_text')
+            ->orderByDesc('id')
+            ->first();
+
+        $createPayload = [
             'presentation_id'       => $presentation->id,
             'compiled_by'           => $compiledBy,
             'blueprint_version'     => PresentationBlueprintService::CURRENT_VERSION,
@@ -121,7 +134,21 @@ class PresentationCompilerService
             'data_snapshot_json'    => json_encode($snapshot, JSON_THROW_ON_ERROR),
             'compiled_at'           => now(),
             'enabled_sections_json' => $enabledSections,
-        ]);
+        ];
+        if ($previousVersion) {
+            // PRESERVE ai_summary_edited_by_agent — an edit stays flagged
+            // across versions until the agent regenerates. Decision
+            // locked in the auto-summary build prompt.
+            $createPayload['ai_summary_text']            = $previousVersion->ai_summary_text;
+            $createPayload['ai_summary_raw_text']        = $previousVersion->ai_summary_raw_text;
+            $createPayload['ai_variant_id']              = $previousVersion->ai_variant_id;
+            $createPayload['ai_summary_edited_by_agent'] = $previousVersion->ai_summary_edited_by_agent;
+            $createPayload['ai_summary_generated_at']    = $previousVersion->ai_summary_generated_at;
+            $createPayload['ai_summary_model']           = $previousVersion->ai_summary_model;
+            $createPayload['ai_summary_prompt_hash']     = $previousVersion->ai_summary_prompt_hash;
+        }
+
+        return PresentationVersion::create($createPayload);
     }
 
     /**

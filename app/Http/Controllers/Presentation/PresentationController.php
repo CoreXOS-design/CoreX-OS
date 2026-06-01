@@ -1023,6 +1023,22 @@ class PresentationController extends Controller
             }
         }
 
+        // PDF readiness gate (auto-summary build) — defence-in-depth.
+        // The show-screen UI already disables this button when
+        // ai_summary_text is null, so this fires only on a hand-crafted
+        // POST. Same boolean as the UI gate (latestVersion + summary
+        // present). When no version exists yet the auto-summary hook
+        // hasn't run, which means the agent hasn't generated yet —
+        // that's a different prerequisite ("Run Analysis first") that
+        // the UI surfaces correctly.
+        $latestForGate = $presentation->versions()->latest('compiled_at')->first();
+        if (!$latestForGate || empty($latestForGate->ai_summary_text)) {
+            return redirect()->route('presentations.show', $presentation)
+                ->with('error', !$latestForGate
+                    ? 'Cannot compile — run Analysis first to produce a compiled snapshot.'
+                    : 'Cannot compile — generate the Executive Summary before compiling the pack.');
+        }
+
         $version = (new PresentationCompilerService())->compile(
             $presentation->id,
             auth()->id(),

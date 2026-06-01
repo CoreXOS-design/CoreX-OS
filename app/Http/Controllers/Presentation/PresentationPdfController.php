@@ -36,13 +36,21 @@ class PresentationPdfController extends Controller
      *
      * GET /presentations/{presentation}/versions/{version}/pdf
      */
-    public function download(Request $request, Presentation $presentation, PresentationVersion $version): BinaryFileResponse
+    public function download(Request $request, Presentation $presentation, PresentationVersion $version): BinaryFileResponse|\Illuminate\Http\RedirectResponse
     {
         $this->authorizePresentation($presentation);
         abort_unless(config('features.presentation_pdf_v1', false), 404);
 
         // Ensure the version belongs to this presentation
         abort_if($version->presentation_id !== $presentation->id, 404);
+
+        // PDF readiness gate — defence-in-depth. The show-screen UI
+        // hides this link when ai_summary_text is null; this catches
+        // the hand-crafted GET. Same boolean as the UI gate.
+        if (empty($version->ai_summary_text)) {
+            return redirect()->route('presentations.show', $presentation)
+                ->with('error', 'Cannot download PDF — generate the Executive Summary first (see panel on the presentation screen).');
+        }
 
         // Always regenerate HTML to ensure latest data/sections are included
         $htmlStoragePath = $this->pdfService->generate($version);
@@ -67,11 +75,20 @@ class PresentationPdfController extends Controller
      *
      * GET /presentations/{presentation}/versions/{version}/complete-pack
      */
-    public function downloadCompletePack(Request $request, Presentation $presentation, PresentationVersion $version): BinaryFileResponse
+    public function downloadCompletePack(Request $request, Presentation $presentation, PresentationVersion $version): BinaryFileResponse|\Illuminate\Http\RedirectResponse
     {
         $this->authorizePresentation($presentation);
         abort_unless(config('features.presentation_pdf_v1', false), 404);
         abort_if($version->presentation_id !== $presentation->id, 404);
+
+        // PDF readiness gate — same defence-in-depth check as
+        // download(). The ZIP includes the rendered HTML pack, so an
+        // incomplete summary would ship to the seller via this path
+        // too. Reject the same way.
+        if (empty($version->ai_summary_text)) {
+            return redirect()->route('presentations.show', $presentation)
+                ->with('error', 'Cannot download Complete Pack — generate the Executive Summary first (see panel on the presentation screen).');
+        }
 
         // Ensure HTML pack exists
         $htmlPath = $this->pdfService->storagePath($version);

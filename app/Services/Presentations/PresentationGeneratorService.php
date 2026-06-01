@@ -44,6 +44,7 @@ class PresentationGeneratorService
         private HoldingCostEstimator $holdingCostEstimator = new HoldingCostEstimator(),
         private SimilarActiveListingsResolver $linkSuggestions = new SimilarActiveListingsResolver(),
         private \App\Services\Geocoding\PropertyGeoBackfillService $geoBackfill = new \App\Services\Geocoding\PropertyGeoBackfillService(),
+        private AiSummaryService $aiSummary = new AiSummaryService(),
     ) {}
 
     /**
@@ -264,6 +265,19 @@ class PresentationGeneratorService
             $version->review_status      = \App\Models\PresentationVersion::REVIEW_AWAITING;
             $version->awaiting_review_at = now();
             $version->save();
+
+            // ── 5b. AUTO-GENERATE Executive Summary (PDF readiness gate) ──
+            // Every fresh version ships with a real default-tone summary so
+            // the PDF is downloadable immediately + the gate auto-passes.
+            // generateDefaultAndAccept NEVER throws — AI failures (budget,
+            // network, fallback) leave ai_summary_text null and the gate
+            // blocks the PDF until the agent regenerates from the panel.
+            // The transaction is safe regardless of AI outcome.
+            $user = \App\Models\User::find($agentUserId);
+            if ($user) {
+                $this->aiSummary->generateDefaultAndAccept($presentation, $version, $user);
+                $version->refresh();
+            }
 
             // ── 6. Fire event ──────────────────────────────────────────────
             PresentationGenerated::dispatch($presentation, $version);
