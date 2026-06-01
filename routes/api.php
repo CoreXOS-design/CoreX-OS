@@ -239,6 +239,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/properties/pull-from-portal',          [PropertyPullController::class, 'pullFromPortal'])->name('v1.properties.pull-from-portal');
         Route::get('/properties/{propertyId}/pull-status',   [PropertyPullController::class, 'pullStatus'])->name('v1.properties.pull-status');
 
+        // ── Properties — geocoding (Map strip → AddressResolverService) ──
+        // Replaces the legacy frontend Nominatim suburb-only call with a
+        // building-level lookup. ?force=1 triggers re-resolve even when the
+        // property already has coords (used after street_number / street_name
+        // edits to overwrite stale suburb-centroid pins).
+        Route::post('/properties/{property}/geocode',        [\App\Http\Controllers\CoreX\PropertyController::class, 'geocode'])->name('v1.properties.geocode');
+
         // ── Mobile P24 location tree (token-authed) ──────────────────
         Route::prefix('mobile/p24')->group(function () {
             Route::get('/provinces', [\App\Http\Controllers\Api\V1\P24LocationController::class, 'provinces'])->name('v1.mobile.p24.provinces');

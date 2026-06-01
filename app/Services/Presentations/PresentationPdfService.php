@@ -1261,6 +1261,14 @@ a:hover { text-decoration: underline; }
         Distances Haversine-corrected · Compass: north up
     </p>
 </div>
+<?php elseif ($_subjLat === null || $_subjLng === null): ?>
+<?php // Empty state — subject property has no resolved GPS. Surface this
+      // in the PDF so the agent sees the spatial view is missing because
+      // of stale geocoding, not because no comps were found. ?>
+<div class="callout callout-info" style="margin-top:14px;">
+    Spatial View unavailable — subject property has no resolved GPS pin.
+    Open the property and use the Map strip to set the pin, then regenerate this PDF.
+</div>
 <?php endif ?>
 
 <?php endif // /spatial_view ?>

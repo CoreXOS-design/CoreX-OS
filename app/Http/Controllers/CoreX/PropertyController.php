@@ -1264,6 +1264,98 @@ class PropertyController extends Controller
         return $query->get(['id', 'name', 'email']);
     }
 
+    /**
+     * Resolve property GPS from the full structured address — used by the
+     * property Map strip on show.blade.php to replace the suburb-only
+     * Nominatim call with a building-level lookup via AddressResolverService.
+     *
+     * Why: the legacy frontend geocodeSuburb() in show.blade.php sent only
+     * "suburb, city, state" to Nominatim, which returned the suburb centroid.
+     * That centroid was then persisted as properties.latitude/longitude,
+     * locking every property to a pin 3–4 km off the actual building.
+     * The backend resolver uses street_number + street_name when present
+     * (Google → Nominatim → KZN bbox clamp) and degrades to suburb_centroid
+     * with that explicit source label only when no street parts are known.
+     *
+     * Two modes:
+     *   - Payload mode: client sends street_number / street_name / suburb /
+     *     town in the body → resolve from those without persisting (user is
+     *     editing the form; submit will persist via PropertyObserver).
+     *   - Saved-record mode (no payload): resolve from the property's saved
+     *     address columns, persist via PropertyGeoBackfillService(force=true).
+     */
+    public function geocode(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $payload = $request->validate([
+            'street_number' => 'sometimes|nullable|string|max:50',
+            'street_name'   => 'sometimes|nullable|string|max:200',
+            'suburb'        => 'sometimes|nullable|string|max:200',
+            'town'          => 'sometimes|nullable|string|max:200',
+            'force'         => 'sometimes|boolean',
+        ]);
+
+        $hasOverride = $request->hasAny(['street_number', 'street_name', 'suburb', 'town']);
+
+        if ($hasOverride) {
+            // Payload mode — resolve without persisting.
+            $resolver = new \App\Services\Geocoding\AddressResolverService();
+            $structured = trim(implode(' ', array_filter([
+                $payload['street_number'] ?? null,
+                $payload['street_name']   ?? null,
+            ])));
+            $address = $structured !== '' ? $structured : (string) ($property->address ?? '');
+            $suburb  = $payload['suburb'] ?? $property->suburb;
+            $town    = $payload['town']   ?? $property->town;
+
+            $result = $resolver->resolve(
+                $address,
+                $suburb,
+                $town,
+                context: 'property:' . $property->id . ':inflight',
+            );
+
+            $source = $result->source;
+            $isApprox = in_array((string) $source, [
+                'suburb_centroid', 'unresolved', 'nominatim_suburb',
+            ], true);
+
+            return response()->json([
+                'ok'             => $result->hasGps(),
+                'latitude'       => $result->hasGps() ? (float) $result->latitude : null,
+                'longitude'      => $result->hasGps() ? (float) $result->longitude : null,
+                'source'         => $source,
+                'confidence'     => $result->confidence,
+                'resolved_at'    => null,
+                'is_approximate' => $isApprox,
+                'persisted'      => false,
+            ]);
+        }
+
+        // Saved-record mode — persist.
+        $force = (bool) ($payload['force'] ?? false);
+        $service = new \App\Services\Geocoding\PropertyGeoBackfillService();
+        $property->refresh();
+        $result = $service->backfillProperty($property, batchId: null, force: $force);
+        $property->refresh();
+
+        $isApproximate = in_array((string) $property->geo_source, [
+            'suburb_centroid', 'unresolved', 'nominatim_suburb',
+        ], true);
+
+        return response()->json([
+            'ok'              => (bool) $result['lat_lng_resolved'],
+            'latitude'        => $property->latitude !== null ? (float) $property->latitude : null,
+            'longitude'       => $property->longitude !== null ? (float) $property->longitude : null,
+            'source'          => $property->geo_source,
+            'confidence'      => $property->geo_confidence,
+            'resolved_at'     => $property->geo_resolved_at?->toIso8601String(),
+            'is_approximate'  => $isApproximate,
+            'persisted'       => true,
+        ]);
+    }
+
     private function authorizeProperty(Property $property): void
     {
         /** @var User $user */

@@ -143,6 +143,35 @@ class PropertyObserver
     }
 
     /**
+     * Fired only on UPDATE (not INSERT). Re-resolve GPS when an address
+     * field changed but lat/lng was NOT updated in the same save. Catches
+     * every ingress path (form submit without Map widget open, import job,
+     * API update, mass-assign) so building-level pins stay in sync with
+     * the address columns.
+     *
+     * Skipped when lat/lng was explicitly changed in this save — frontend
+     * / drag handler / explicit set wins. Not in saved() because
+     * `wasRecentlyCreated` persists across subsequent saves on the same
+     * in-memory instance, which would suppress the legitimate follow-up
+     * UPDATE after a CREATE in the same request.
+     */
+    public function updated(Property $property): void
+    {
+        try {
+            $addrFields = ['address', 'street_number', 'street_name', 'suburb', 'town'];
+            $dirtyKeys = array_keys($property->getChanges());
+            $addrDirty = (bool) array_intersect($dirtyKeys, $addrFields);
+            $gpsDirty  = (bool) array_intersect($dirtyKeys, ['latitude', 'longitude']);
+            if ($addrDirty && !$gpsDirty) {
+                (new \App\Services\Geocoding\PropertyGeoBackfillService())
+                    ->backfillProperty($property, batchId: null, force: true);
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Geocode-on-address-change failed for property #{$property->id}: {$e->getMessage()}");
+        }
+    }
+
+    /**
      * Fired after create or update.
      * Only sync if the property has been published.
      */

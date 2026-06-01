@@ -2458,11 +2458,15 @@
                     <div class="mt-2 rounded-md overflow-hidden"
                          style="border:1px solid var(--border); background:var(--surface); position:relative; z-index:0; isolation:isolate;"
                          x-data="propertyMapWidget({
-                             initialLat:      {{ (float) old('latitude',  $property->latitude  ?? 0) }},
-                             initialLng:      {{ (float) old('longitude', $property->longitude ?? 0) }},
-                             initialSuburb:   @js(old('suburb',   $property->suburb   ?? '')),
-                             initialCity:     @js(old('city',     $property->city     ?? '')),
-                             initialProvince: @js(old('province', $property->province ?? '')),
+                             propertyId:           {{ (int) $property->id }},
+                             initialLat:           {{ (float) old('latitude',  $property->latitude  ?? 0) }},
+                             initialLng:           {{ (float) old('longitude', $property->longitude ?? 0) }},
+                             initialStreetNumber:  @js(old('street_number', $property->street_number ?? '')),
+                             initialStreetName:    @js(old('street_name',   $property->street_name   ?? '')),
+                             initialSuburb:        @js(old('suburb',        $property->suburb        ?? '')),
+                             initialCity:          @js(old('city',          $property->city          ?? '')),
+                             initialProvince:      @js(old('province',      $property->province      ?? '')),
+                             initialGeoSource:     @js($property->geo_source ?? ''),
                          })"
                          x-init="init()"
                          x-effect="if (openModal && open) open = false">
@@ -2483,6 +2487,14 @@
                                 <span class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-primary);">Map</span>
                                 <span class="text-[10px]" style="color:var(--text-muted);"
                                       x-text="lat && lng ? ('pin: ' + (+lat).toFixed(5) + ', ' + (+lng).toFixed(5)) : 'no pin yet — click to drop'"></span>
+                                {{-- Approximate-pin warning: pin came back as suburb_centroid
+                                     (no street_number / street_name available, or geocoder fell
+                                     through to suburb level). Agent should add street parts and
+                                     re-resolve for building-level accuracy. --}}
+                                <span x-show="isApproximate" x-cloak
+                                      class="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                      style="background:rgba(245,158,11,0.15); color:#b45309; border:1px solid rgba(245,158,11,0.35);"
+                                      title="Pin is a suburb-level approximation. Add street_number + street_name and re-resolve for a building-level pin.">approx</span>
                             </div>
                             <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-all duration-300" style="color:var(--text-muted);"
                                  xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -6324,20 +6336,30 @@ function p24Syndication(config) {
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 /**
- * Map widget under the Public/Internal address card. Reads address fields
- * from the surrounding propertyAddress Alpine scope and drops a Leaflet/OSM
- * pin via Nominatim geocoding. Drag-to-adjust. lat/lng saved on form submit.
+ * Map widget under the Public/Internal address card. Calls the backend
+ * AddressResolverService (POST /api/v1/properties/{id}/geocode) with the
+ * FULL address (street_number + street_name + suburb + town) so the pin
+ * lands at building level when street parts are present. Falls back to
+ * suburb_centroid only when no street parts are available, and surfaces
+ * that case in the UI with an "approx" badge so the agent can fix it.
+ *
+ * Drag-to-adjust still wins (manual marker move overrides the geocoded
+ * value); form submit persists lat/lng via the hidden inputs.
  */
 function propertyMapWidget(cfg) {
     return {
         open: false,
+        propertyId: cfg.propertyId || 0,
         lat: cfg.initialLat || 0,
         lng: cfg.initialLng || 0,
+        isApproximate: ['suburb_centroid','unresolved','nominatim_suburb',''].includes(cfg.initialGeoSource || '') && !!(cfg.initialLat && cfg.initialLng),
         geocoding: false,
         _map: null, _marker: null,
-        _initialSuburb:   cfg.initialSuburb   || '',
-        _initialCity:     cfg.initialCity     || '',
-        _initialProvince: cfg.initialProvince || '',
+        _initialStreetNumber: cfg.initialStreetNumber || '',
+        _initialStreetName:   cfg.initialStreetName   || '',
+        _initialSuburb:       cfg.initialSuburb       || '',
+        _initialCity:         cfg.initialCity         || '',
+        _initialProvince:     cfg.initialProvince     || '',
 
         init() {
             // Panel starts CLOSED — user opens it to see the map.
@@ -6345,61 +6367,59 @@ function propertyMapWidget(cfg) {
 
             // Auto-geocode every time the P24 picker reports a new suburb.
             window.addEventListener('p24-location-changed', (e) => {
-                if (e.detail && e.detail.suburbId) this.geocodeSuburb(e.detail);
+                if (e.detail && e.detail.suburbName) {
+                    this.geocodeFromBackend({
+                        suburb: e.detail.suburbName,
+                        town:   e.detail.cityName || this._initialCity,
+                    });
+                }
             });
 
             // Render the map only after the user expands the panel.
             this.$watch('open', (val) => { if (val) this.$nextTick(() => this._renderMap()); });
 
-            // On initial load: if no saved coords but property already has
-            // a suburb, geocode it now so the pin is ready when the user
-            // expands, and so submit saves real coords.
-            if ((!this.lat || !this.lng) && this._initialSuburb) {
-                this.geocodeSuburb({
-                    suburbName:   this._initialSuburb,
-                    cityName:     this._initialCity,
-                    provinceName: this._initialProvince,
+            // On initial load: if no saved coords, kick the backend to
+            // resolve from whatever address parts we have. The backend will
+            // pick the building level when street parts are present; if not,
+            // it will return suburb_centroid + we'll show the approx badge.
+            if (!this.lat || !this.lng) {
+                this.geocodeFromBackend({
+                    street_number: this._initialStreetNumber,
+                    street_name:   this._initialStreetName,
+                    suburb:        this._initialSuburb,
+                    town:          this._initialCity,
                 });
             }
         },
 
         /**
-         * Geocode the suburb centroid using Nominatim's STRUCTURED query
-         * (suburb / city / state) — much more accurate than free-text,
-         * which previously matched the wrong "Port Edward" and dropped
-         * the pin in Kimberley.
+         * Resolve via the backend AddressResolverService. Payload is the
+         * in-flight form values (not the saved record); backend returns
+         * coords + source label but does NOT persist (form submit handles
+         * persistence via the hidden lat/lng inputs).
          */
-        async geocodeSuburb(detail) {
-            const params = new URLSearchParams({
-                format: 'json',
-                limit: '1',
-                countrycodes: 'za',
-            });
-            if (detail.suburbName)   params.set('suburb', detail.suburbName);
-            if (detail.cityName)     params.set('city',   detail.cityName);
-            if (detail.provinceName) params.set('state',  detail.provinceName);
+        async geocodeFromBackend(detail) {
+            if (!this.propertyId) return;
+            // Send whatever parts we have; backend tolerates nulls.
+            const body = {
+                street_number: detail.street_number ?? null,
+                street_name:   detail.street_name   ?? null,
+                suburb:        detail.suburb        ?? null,
+                town:          detail.town          ?? null,
+            };
             this.geocoding = true;
             try {
-                const r = await fetch('https://nominatim.openstreetmap.org/search?' + params.toString(),
-                                      { headers: { 'Accept': 'application/json' } });
-                const arr = await r.json();
-                let hit = Array.isArray(arr) && arr[0];
-                if (!hit) {
-                    // Fallback: looser free-text query with suburb+state.
-                    const q = [detail.suburbName, detail.provinceName, 'South Africa'].filter(Boolean).join(', ');
-                    const r2 = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=za&q=' + encodeURIComponent(q),
-                                           { headers: { 'Accept': 'application/json' } });
-                    const arr2 = await r2.json();
-                    hit = Array.isArray(arr2) && arr2[0];
+                const data = await window.CoreX.api.fetch(
+                    '/api/v1/properties/' + this.propertyId + '/geocode',
+                    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+                );
+                if (data && data.ok && data.latitude !== null && data.longitude !== null) {
+                    this.lat = (+data.latitude).toFixed(7);
+                    this.lng = (+data.longitude).toFixed(7);
+                    this.isApproximate = !!data.is_approximate;
+                    if (this.open) this.$nextTick(() => this._placeMarker(+this.lat, +this.lng));
                 }
-                if (hit) {
-                    this.lat = (+hit.lat).toFixed(7);
-                    this.lng = (+hit.lon).toFixed(7);
-                    // Don't force the panel open — the pin is saved silently;
-                    // user can expand the Map strip whenever they want.
-                    if (this.open) this.$nextTick(() => this._placeMarker(+hit.lat, +hit.lon));
-                }
-            } catch (e) { /* silent */ }
+            } catch (e) { /* silent — pin stays where it was */ }
             finally { this.geocoding = false; }
         },
 
@@ -6428,6 +6448,8 @@ function propertyMapWidget(cfg) {
                     const p = e.target.getLatLng();
                     this.lat = p.lat.toFixed(7);
                     this.lng = p.lng.toFixed(7);
+                    // Manual drag = trusted pin. Clear the approx badge.
+                    this.isApproximate = false;
                 });
             }
             this._map.setView([lat, lng], 16);

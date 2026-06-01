@@ -536,8 +536,16 @@
     const SECTION_URL   = @json(route('presentations.review.sections',  $version->id));
     const SECTION_LABELS = @json($sectionsCatalogue);
 
-    const SUBJECT_LAT = {{ (float) ($presentation->latitude ?? -30.84) }};
-    const SUBJECT_LNG = {{ (float) ($presentation->longitude ?? 30.39) }};
+    // Subject GPS comes from the linked property record (presentations
+    // table has no lat/lng columns). When the property has no resolved
+    // coords yet, leave the values null so the map can render an empty
+    // state instead of pinning every presentation to a hardcoded
+    // Uvongo Beach centroid (the legacy `-30.84 / 30.39` fallback was
+    // the second root bug — every presentation map showed the same pin
+    // regardless of property location).
+    const SUBJECT_LAT = {{ $presentation->property?->latitude !== null ? (float) $presentation->property->latitude : 'null' }};
+    const SUBJECT_LNG = {{ $presentation->property?->longitude !== null ? (float) $presentation->property->longitude : 'null' }};
+    const SUBJECT_HAS_GPS = SUBJECT_LAT !== null && SUBJECT_LNG !== null;
 
     const toastEl = document.getElementById('review-toast');
     function toast(msg) {
@@ -548,11 +556,20 @@
     }
 
     // ── Map init with bucket palette (Build 1) ────────────────────────
+    // When the property has GPS, center on it at street zoom. Without GPS
+    // we still draw the tile layer (so comps render on a real map) but
+    // open at a KZN South Coast overview zoom + drop a banner.
     const map = L.map('review-map', { scrollWheelZoom: true })
-        .setView([SUBJECT_LAT, SUBJECT_LNG], 14);
+        .setView(SUBJECT_HAS_GPS ? [SUBJECT_LAT, SUBJECT_LNG] : [-30.84, 30.39], SUBJECT_HAS_GPS ? 14 : 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors', maxZoom: 19,
     }).addTo(map);
+    if (!SUBJECT_HAS_GPS) {
+        const banner = document.createElement('div');
+        banner.style.cssText = 'position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(245,158,11,0.95);color:#1f2937;font-size:11px;font-weight:600;padding:4px 10px;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,0.2);pointer-events:none;';
+        banner.textContent = 'No subject GPS — open the linked property and use the Map strip to set the pin.';
+        document.getElementById('review-map').appendChild(banner);
+    }
 
     function bucketSvg(titleType, size) {
         const px = size || 18, sw = 2;
@@ -591,14 +608,16 @@
              + '<polygon points="'+pts.join(' ')+'" fill="#00d4aa" stroke="#0b2a4a" stroke-width="2"/></svg>';
     }
 
-    // Subject marker (always shown).
-    L.marker([SUBJECT_LAT, SUBJECT_LNG], {
-        icon: L.divIcon({
-            html: subjectSvg(), className: 'review-pin',
-            iconSize: [22, 22], iconAnchor: [11, 11],
-        }),
-        zIndexOffset: 1000,
-    }).addTo(map);
+    // Subject marker — only drawn when the property has resolved GPS.
+    if (SUBJECT_HAS_GPS) {
+        L.marker([SUBJECT_LAT, SUBJECT_LNG], {
+            icon: L.divIcon({
+                html: subjectSvg(), className: 'review-pin',
+                iconSize: [22, 22], iconAnchor: [11, 11],
+            }),
+            zIndexOffset: 1000,
+        }).addTo(map);
+    }
 
     // Comp markers — keyed by comp_id so toggle can hide/show.
     const markers = new Map();

@@ -46,20 +46,26 @@ final class PropertyGeoBackfillService
      *   batch_id?: string,
      * }
      */
-    public function backfillProperty(Property $property, ?string $batchId = null): array
+    public function backfillProperty(Property $property, ?string $batchId = null, bool $force = false): array
     {
         $started = microtime(true);
 
         $latLngBefore = $this->hasGps($property);
         $munBefore    = !empty($property->municipal_valuation);
 
+        // Force re-resolve overrides the !hasGps guard. Used by the
+        // geocode endpoint when address fields change AND by the
+        // suburb_centroid cleanup pass.
+        $shouldResolve = !$latLngBefore || $force;
+
         $result = null;
-        if (!$latLngBefore) {
+        if ($shouldResolve) {
+            $addressForResolve = $this->composePropertyAddress($property);
             $result = $this->resolver->resolve(
-                $property->address ?? '',
+                $addressForResolve,
                 $property->suburb,
                 $property->town,
-                context: 'property:' . $property->id,
+                context: 'property:' . $property->id . ($force ? ':force' : ''),
             );
             if ($result->hasGps()) {
                 $property->latitude        = $result->latitude;
@@ -68,11 +74,16 @@ final class PropertyGeoBackfillService
                 $property->geo_confidence  = $result->confidence;
                 $property->geo_resolved_at = now();
             } else {
-                $property->geo_source      = 'unresolved';
-                $property->geo_confidence  = 'failed';
-                $property->geo_resolved_at = now();
+                // Preserve existing coords on force-resolve failure —
+                // a transient Google quota error shouldn't blank out
+                // a previously-valid pin. Only clear them on the
+                // initial-resolve path (when there were no coords).
+                if (!$latLngBefore) {
+                    $property->geo_source      = 'unresolved';
+                    $property->geo_confidence  = 'failed';
+                    $property->geo_resolved_at = now();
+                }
             }
-            // Save GPS / source attempt regardless of outcome.
             $property->saveQuietly();
         }
 
@@ -254,6 +265,45 @@ final class PropertyGeoBackfillService
             && $entity->longitude !== null
             && (float) $entity->latitude !== 0.0
             && (float) $entity->longitude !== 0.0;
+    }
+
+    /**
+     * Compose the most precise address string available for a property.
+     * Street_number + street_name win when present (building-level
+     * accuracy); fall back to the property.address free-text column
+     * (often agent-typed). Suburb + town are passed separately so
+     * AddressResolverService can append them with its own normalisation.
+     */
+    private function composePropertyAddress(Property $property): string
+    {
+        $structured = trim(implode(' ', array_filter([
+            $property->street_number,
+            $property->street_name,
+        ])));
+        if ($structured !== '') {
+            return $structured;
+        }
+        return (string) ($property->address ?? '');
+    }
+
+    /**
+     * "Is this pin suspicious enough to warrant re-resolution?"
+     * Suburb-centroid pins (from the pre-fix Map strip JS) + unresolved
+     * + low-confidence rows are all candidates. Used by the CLI batch
+     * cleanup + by the observer hook.
+     */
+    public function pinIsSuspect(Property $property): bool
+    {
+        if (!$this->hasGps($property)) return false;
+        $source = (string) ($property->geo_source ?? '');
+        if (in_array($source, ['suburb_centroid', 'unresolved', '', 'nominatim_suburb'], true)) {
+            return true;
+        }
+        $confidence = (string) ($property->geo_confidence ?? '');
+        if (in_array($confidence, ['failed', 'low', ''], true)) {
+            return true;
+        }
+        return false;
     }
 
     private function addressNeedles(string $address): array
