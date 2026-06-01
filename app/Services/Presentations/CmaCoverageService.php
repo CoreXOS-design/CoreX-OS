@@ -7,6 +7,7 @@ use App\Models\Property;
 use App\Models\Prospecting\TrackedProperty;
 use App\Support\MarketAnalytics\HaversineDistance;
 use App\Support\Presentations\CompFingerprint;
+use App\Support\Presentations\SuburbMatcher;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -144,7 +145,12 @@ class CmaCoverageService
 
         $dateFrom = Carbon::today()->subMonths($periodMonths)->toDateString();
         $dateTo   = Carbon::today()->toDateString();
-        $like     = '%' . mb_strtolower(trim($suburb)) . '%';
+        // SuburbMatcher core — strips trailing locality suffix so SQL
+        // pre-filter LIKE catches "uvongo" comps when subject is
+        // "Uvongo Beach". PHP-side SuburbMatcher::matches() narrows the
+        // hits to actual locality matches.
+        $subjectCore = SuburbMatcher::normaliseSuburbToken($suburb);
+        $coreLike    = $subjectCore !== '' ? '%' . $subjectCore . '%' : '%';
 
         $fingerprints = [];
 
@@ -160,20 +166,33 @@ class CmaCoverageService
             })
             ->where('deals.is_demo', $subjectIsDemo)
             ->whereBetween('deals.registration_date', [$dateFrom, $dateTo])
-            ->where(function ($q) use ($like, $suburb) {
-                $q->whereRaw('LOWER(properties.suburb) = ?', [mb_strtolower(trim($suburb))])
-                  ->orWhere(function ($qq) use ($like) {
+            ->where(function ($q) use ($coreLike) {
+                $q->whereRaw('LOWER(properties.suburb) LIKE ?', [$coreLike])
+                  ->orWhere(function ($qq) use ($coreLike) {
                       $qq->whereNull('deals.property_id')
-                         ->whereRaw('LOWER(deals.property_address) LIKE ?', [$like]);
+                         ->whereRaw('LOWER(deals.property_address) LIKE ?', [$coreLike]);
                   });
             });
         if ($agencyId > 0) {
             $dealsQuery->where('deals.agency_id', $agencyId);
         }
         $dealRows = $dealsQuery
-            ->select(['deals.property_address', 'deals.registration_date', 'deals.property_value', 'deals.sale_price'])
+            ->select([
+                'deals.property_address',
+                'deals.registration_date',
+                'deals.property_value',
+                'deals.sale_price',
+                'deals.property_id',
+                'properties.suburb as prop_suburb',
+            ])
             ->get();
         foreach ($dealRows as $r) {
+            // Narrow linked deals via SuburbMatcher; unlinked already
+            // passed the SQL core-token LIKE on property_address.
+            if (!empty($r->prop_suburb)
+                && !SuburbMatcher::matches($r->prop_suburb, $suburb)) {
+                continue;
+            }
             $fingerprints[$this->fingerprintDeal($r)] = true;
         }
 
@@ -190,24 +209,29 @@ class CmaCoverageService
 
         $micRows = $micQuery->get();
         foreach ($micRows as $r) {
-            if (!$this->compInScope($r, $scope, $like, $radiusM, $subjectLat, $subjectLng)) continue;
+            if (!$this->compInScope($r, $scope, $suburb, $radiusM, $subjectLat, $subjectLng)) continue;
             $fingerprints[$this->fingerprintMic($r)] = true;
         }
 
-        // 3. Legacy presentation_sold_comps fallback (suburb LIKE only).
+        // 3. Legacy presentation_sold_comps fallback.
         // Phase 3h Step 9 — demo/real isolation.
+        // SuburbMatcher: SQL pre-filter on core token, PHP narrow to
+        // locality match. Mirrors the deal/MIC fix.
         $psRows = DB::table('presentation_sold_comps')
             ->whereNull('deleted_at')
             ->whereNotNull('sold_date')
             ->whereNotNull('sold_price_inc')
             ->where('is_demo', $subjectIsDemo)
             ->whereBetween('sold_date', [$dateFrom, $dateTo])
-            ->where(function ($q) use ($like) {
-                $q->whereNull('suburb')->orWhereRaw('LOWER(suburb) LIKE ?', [$like]);
+            ->where(function ($q) use ($coreLike) {
+                $q->whereNull('suburb')->orWhereRaw('LOWER(suburb) LIKE ?', [$coreLike]);
             })
             ->select(['suburb', 'sold_date', 'sold_price_inc', 'raw_row_json'])
             ->get();
         foreach ($psRows as $r) {
+            if (!empty($r->suburb) && !SuburbMatcher::matches($r->suburb, $suburb)) {
+                continue;
+            }
             $fingerprints[$this->fingerprintPs($r)] = true;
         }
 
@@ -216,25 +240,22 @@ class CmaCoverageService
 
     /**
      * Does a market_report_comp_rows row satisfy the configured scope?
+     *
+     * Suburb signature now goes through SuburbMatcher so subject
+     * "Uvongo Beach" matches comp suburb_normalised "uvongo". Pre-fix
+     * the directional substring check dropped every cross-naming pair.
      */
-    private function compInScope(object $row, string $scope, string $suburbLike, int $radiusM, ?float $subjectLat, ?float $subjectLng): bool
+    private function compInScope(object $row, string $scope, string $subjectSuburb, int $radiusM, ?float $subjectLat, ?float $subjectLng): bool
     {
         if ($scope === self::SCOPE_SUBURB_ONLY) {
-            return $this->matchesSuburb($row->suburb_normalised, $suburbLike);
+            return SuburbMatcher::matches($row->suburb_normalised, $subjectSuburb);
         }
         // radius_all — Haversine when both sides have geo, else fall back to suburb.
         if ($subjectLat !== null && $subjectLng !== null && $row->latitude !== null && $row->longitude !== null) {
             $d = HaversineDistance::distanceMetres($subjectLat, $subjectLng, (float) $row->latitude, (float) $row->longitude);
             return $d <= max(1, $radiusM);
         }
-        return $this->matchesSuburb($row->suburb_normalised, $suburbLike);
-    }
-
-    private function matchesSuburb(?string $rowSuburb, string $needleLike): bool
-    {
-        if (!is_string($rowSuburb) || $rowSuburb === '') return false;
-        $needle = trim($needleLike, '%');
-        return $needle === '' || str_contains(mb_strtolower($rowSuburb), $needle);
+        return SuburbMatcher::matches($row->suburb_normalised, $subjectSuburb);
     }
 
     /**

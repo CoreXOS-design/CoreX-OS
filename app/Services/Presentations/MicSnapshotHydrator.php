@@ -16,6 +16,7 @@ use App\Models\PropertySettingItem;
 use App\Support\MarketAnalytics\HaversineDistance;
 use App\Support\MarketAnalytics\OutlierGuard;
 use App\Support\Presentations\CompFingerprint;
+use App\Support\Presentations\SuburbMatcher;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -207,8 +208,14 @@ final class MicSnapshotHydrator
         }
 
         $subjectIsDemo = (bool) ($presentation->property?->is_demo ?? false);
-        $like          = '%' . mb_strtolower(trim($suburb)) . '%';
         $suburbNorm    = mb_strtolower(trim($suburb));
+        // SuburbMatcher core token — strips "Beach"/"Bay"/etc so SQL pre-
+        // filter matches "uvongo" comps when subject is "Uvongo Beach".
+        // PHP-side SuburbMatcher::matches() narrows the SQL set to actual
+        // locality matches, keeping the helper as the single source of
+        // truth for matching semantics.
+        $subjectCore   = SuburbMatcher::normaliseSuburbToken($suburb);
+        $coreLike      = $subjectCore !== '' ? '%' . $subjectCore . '%' : '%';
 
         // Pre-load fingerprints for the just-materialised MIC rows on
         // this presentation. CMA precedence: a deal that matches one of
@@ -244,11 +251,11 @@ final class MicSnapshotHydrator
             })
             ->where('deals.is_demo', $subjectIsDemo)
             ->whereBetween('deals.registration_date', [$cfg['date_from'], $cfg['date_to']])
-            ->where(function ($q) use ($like, $suburbNorm) {
-                $q->whereRaw('LOWER(properties.suburb) = ?', [$suburbNorm])
-                  ->orWhere(function ($qq) use ($like) {
+            ->where(function ($q) use ($coreLike) {
+                $q->whereRaw('LOWER(properties.suburb) LIKE ?', [$coreLike])
+                  ->orWhere(function ($qq) use ($coreLike) {
                       $qq->whereNull('deals.property_id')
-                         ->whereRaw('LOWER(deals.property_address) LIKE ?', [$like]);
+                         ->whereRaw('LOWER(deals.property_address) LIKE ?', [$coreLike]);
                   });
             })
             ->select([
@@ -273,6 +280,17 @@ final class MicSnapshotHydrator
         $added = 0;
         $skipped = 0;
         foreach ($dealRows as $r) {
+            // SuburbMatcher narrow: SQL pre-filter used the core token
+            // (permissive LIKE), now confirm full match semantics. Linked
+            // deals: compare joined property suburb against subject.
+            // Unlinked deals (no property_id): the SQL LIKE on
+            // deal.property_address already required the core token to
+            // appear in the free-text address — accept those as-is.
+            if (!empty($r->prop_suburb)
+                && !SuburbMatcher::matches($r->prop_suburb, $suburb)) {
+                continue;
+            }
+
             // Price: prefer canonical bigint sale_price, fall back to
             // property_value (legacy decimal mirror). OutlierGuard for
             // floor/ceiling sanity — same gate as MIC comps.
@@ -597,8 +615,12 @@ final class MicSnapshotHydrator
             }
 
             // Branch 2: suburb match (when row has a suburb).
+            // Uses SuburbMatcher to bridge subject "Uvongo Beach" ⇄ comp
+            // "uvongo" naming. Pre-helper the directional str_contains
+            // dropped 59-of-59 in-window candidates on the local Uvongo
+            // Beach probe.
             if ($suburbNorm !== '' && !empty($row->suburb_normalised)
-                && str_contains(mb_strtolower((string) $row->suburb_normalised), $suburbNorm)) {
+                && SuburbMatcher::matches($row->suburb_normalised, $suburbNorm)) {
                 return true;
             }
 
