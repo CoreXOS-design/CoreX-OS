@@ -64,7 +64,7 @@
     <footer class="border-t border-black/5 py-4 mt-8">
         <div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between text-xs text-muted">
             <div>Powered by <span class="font-semibold">CoreX <span class="portal-accent">OS</span></span></div>
-            <div>© {{ date('Y') }} Home Finders Coastal</div>
+            <div>© {{ date('Y') }} CoreX OS</div>
         </div>
     </footer>
 </div>

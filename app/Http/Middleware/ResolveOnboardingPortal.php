@@ -46,6 +46,32 @@ class ResolveOnboardingPortal
             ], 410);
         }
 
+        // A completed portal is "done", not broken — show a friendly completion
+        // screen rather than letting the controller's guardActive() raise a raw
+        // 410 exception page. Programmatic callers still get a 410 JSON.
+        if ($portal->completed_at) {
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'message'      => 'This onboarding review has already been submitted.',
+                    'portal_id'    => $portal->id,
+                    'completed_at' => $portal->completed_at,
+                ], 410);
+            }
+            $base = $portal->rowsQuery();
+            $counts = [
+                'confirmed' => (clone $base)->where('status', 'confirmed')->count(),
+                'excluded'  => (clone $base)->where('status', 'excluded')->count(),
+                'pending'   => (clone $base)->where('status', 'pending')->count(),
+                'error'     => (clone $base)->where('status', 'error')->count(),
+                'total'     => (clone $base)->count(),
+            ];
+            return response()->view('onboarding.portal.completed', [
+                'portal' => $portal,
+                'agency' => $portal->agency,
+                'counts' => $counts,
+            ]);
+        }
+
         // Bind onto request only. We deliberately do NOT write to
         // session('active_agency_id') because that would leak into any
         // subsequent authenticated CoreX session in the same browser.
