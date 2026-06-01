@@ -474,14 +474,22 @@ TXT;
 
         $c = $facts['cma'] ?? [];
         if (!empty($c['lower']) || !empty($c['upper'])) {
-            $out[] = 'CMA Evaluation Range: ' . $this->zar($c['lower']) . ' to ' . $this->zar($c['upper'])
+            // ?? null on each bound — the outer || passes when ONLY ONE of
+            // lower/upper is set, and the array_filter at L154 strips the
+            // missing one. zar() already handles null (returns 'R 0').
+            $out[] = 'CMA Evaluation Range: ' . $this->zar($c['lower'] ?? null) . ' to ' . $this->zar($c['upper'] ?? null)
                 . (!empty($c['middle']) ? ' (middle ' . $this->zar($c['middle']) . ')' : '');
         }
 
         $s = $facts['suburb'] ?? [];
         if (!empty($s['name'])) {
             $out[] = '';
-            $out[] = 'Suburb (' . $s['name'] . ($s['year'] ? ' ' . $s['year'] : '') . '):';
+            // Guard every $s[...] read — gatherFacts wraps the suburb dict
+            // in array_filter at L155, which STRIPS null-valued keys, so any
+            // missing field (e.g. no suburb.latest_year hydrated) throws
+            // "Undefined array key" under strict error handling. Same class
+            // of bug fixed in two other places below (CMA, agent).
+            $out[] = 'Suburb (' . $s['name'] . (!empty($s['year']) ? ' ' . $s['year'] : '') . '):';
             if (!empty($s['sales_count']))  $out[] = '  - ' . $s['sales_count'] . ' residential sales';
             if (!empty($s['median_price'])) $out[] = '  - Median sale price ' . $this->zar($s['median_price']);
             if (!empty($s['low_range']) && !empty($s['high_range'])) {
@@ -583,7 +591,11 @@ TXT;
         $g = $facts['agent'] ?? [];
         if (!empty($g['name']) || !empty($g['agency_name'])) {
             $out[] = '';
-            $out[] = 'Agent: ' . ($g['name'] ?? 'Agent') . ($g['agency_name'] ? ' at ' . $g['agency_name'] : '');
+            // !empty guard on agency_name — outer || passes when ONLY name
+            // is set, and array_filter at L173-178 strips a missing
+            // agency_name key entirely. Same bug class as the suburb year +
+            // CMA bounds above.
+            $out[] = 'Agent: ' . ($g['name'] ?? 'Agent') . (!empty($g['agency_name']) ? ' at ' . $g['agency_name'] : '');
         }
 
         return implode("\n", $out);

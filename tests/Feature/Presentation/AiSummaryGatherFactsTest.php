@@ -147,6 +147,84 @@ final class AiSummaryGatherFactsTest extends TestCase
         $this->assertSame(2_100_000, $hfc['most_recent']['price']);
     }
 
+    // ── renderFactsBlock unguarded-array-read class fixes ─────────────
+    //
+    // After array_filter strips null-valued keys at gatherFacts L154/155/
+    // L173-178, renderFactsBlock used to do direct $arr['key'] reads in
+    // three places (suburb year, cma lower/upper, agent agency_name) →
+    // "Undefined array key" under strict error handling. These tests
+    // exercise the rendered prompt directly with hand-crafted fact
+    // arrays so every missing-key scenario is covered without staging
+    // round-trips.
+
+    public function test_render_facts_block_handles_suburb_with_name_but_no_year(): void
+    {
+        $facts = [
+            'property' => ['address' => '1 Test Way'],
+            // 'year' key DELIBERATELY absent — array_filter would strip
+            // it when suburb.latest_year wasn't hydrated.
+            'suburb'   => ['name' => 'Margate'],
+        ];
+
+        $out = $this->renderFactsBlock($facts);
+        $this->assertStringContainsString('Suburb (Margate):', $out,
+            'Suburb header still renders, year suffix silently omitted.');
+        $this->assertStringNotContainsString('Margate ', $out);  // no trailing space before colon
+    }
+
+    public function test_render_facts_block_handles_cma_with_only_upper_bound(): void
+    {
+        $facts = [
+            'property' => ['address' => '1 Test Way'],
+            // 'lower' DELIBERATELY absent — common when the CMA report
+            // has only an upper bound captured.
+            'cma'      => ['upper' => 1_500_000],
+        ];
+
+        $out = $this->renderFactsBlock($facts);
+        $this->assertStringContainsString('CMA Evaluation Range', $out,
+            'CMA line still renders when only one bound is present.');
+        $this->assertStringContainsString('R 1 500 000', $out);
+    }
+
+    public function test_render_facts_block_handles_cma_with_only_lower_bound(): void
+    {
+        $facts = [
+            'property' => ['address' => '1 Test Way'],
+            'cma'      => ['lower' => 1_200_000],
+        ];
+        $out = $this->renderFactsBlock($facts);
+        $this->assertStringContainsString('CMA Evaluation Range', $out);
+        $this->assertStringContainsString('R 1 200 000', $out);
+    }
+
+    public function test_render_facts_block_handles_agent_with_name_but_no_agency(): void
+    {
+        $facts = [
+            'property' => ['address' => '1 Test Way'],
+            // 'agency_name' DELIBERATELY absent.
+            'agent'    => ['name' => 'Jane Agent'],
+        ];
+
+        $out = $this->renderFactsBlock($facts);
+        $this->assertStringContainsString('Agent: Jane Agent', $out,
+            'Agent line still renders, " at <agency>" suffix omitted when agency_name absent.');
+        $this->assertStringNotContainsString(' at ', $out);
+    }
+
+    /**
+     * Exercise the private renderFactsBlock via reflection — the bug
+     * class lives inside this method and is most cheaply tested with
+     * hand-crafted fact arrays (vs full presentation seeding for each).
+     */
+    private function renderFactsBlock(array $facts): string
+    {
+        $svc = new AiSummaryService();
+        $rm = new \ReflectionMethod($svc, 'renderFactsBlock');
+        $rm->setAccessible(true);
+        return (string) $rm->invoke($svc, $facts);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────
 
     /** @return array{0:Presentation, 1:PresentationVersion, 2:int, 3:Property} */
