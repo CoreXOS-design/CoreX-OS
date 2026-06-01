@@ -20,17 +20,38 @@
 
     @php
         $rows = $run->rows->where('row_type', 'agent');
-        $errorCount = $rows->filter(fn($r) => !empty($r->errors_json))->count();
+        $errorRows  = $rows->filter(fn($r) => !empty($r->errors_json));
+        $errorCount = $errorRows->count();
+        $validRows  = $rows->filter(fn($r) => empty($r->errors_json));
+        $newCount   = $validRows->where('action', 'create')->count();
+        $linkCount  = $validRows->where('action', 'update')->count();
+        $skipCount  = $validRows->where('action', 'skip')->count();
+
+        // Action presentation: label, one-line reason, colour. Matches the
+        // import job's create/link/skip outcomes (spec §4.1 / §13 Q1).
+        $actionMeta = [
+            'create' => ['Create',  'New agent — will be created (inactive).',                              'text-emerald-300'],
+            'update' => ['Link',    'Matches an existing user in this agency — linked, not duplicated.',    'text-sky-300'],
+            'skip'   => ['Skip',    'Email belongs to a user in another agency — excluded by default.',     'text-amber-300'],
+        ];
     @endphp
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div class="rounded-md bg-surface p-4">
             <div class="text-xs text-muted uppercase">Total</div>
             <div class="text-2xl font-bold">{{ $rows->count() }}</div>
         </div>
         <div class="rounded-md bg-surface p-4">
-            <div class="text-xs text-muted uppercase">Ready</div>
-            <div class="text-2xl font-bold">{{ $rows->count() - $errorCount }}</div>
+            <div class="text-xs text-muted uppercase">New</div>
+            <div class="text-2xl font-bold text-emerald-400">{{ $newCount }}</div>
+        </div>
+        <div class="rounded-md bg-surface p-4">
+            <div class="text-xs text-muted uppercase">Link existing</div>
+            <div class="text-2xl font-bold text-sky-400">{{ $linkCount }}</div>
+        </div>
+        <div class="rounded-md bg-surface p-4">
+            <div class="text-xs text-muted uppercase">Skip</div>
+            <div class="text-2xl font-bold text-amber-400">{{ $skipCount }}</div>
         </div>
         <div class="rounded-md bg-surface p-4">
             <div class="text-xs text-muted uppercase">With errors</div>
@@ -54,16 +75,28 @@
             </thead>
             <tbody>
             @foreach ($rows as $r)
-                @php $m = $r->mapped_json ?? []; @endphp
-                <tr class="border-b border-subtle/40 {{ !empty($r->errors_json) ? 'bg-red-500/5' : '' }}">
+                @php
+                    $m = $r->mapped_json ?? [];
+                    $act = $r->action ?? 'create';
+                    [$actLabel, $actReason, $actCls] = $actionMeta[$act] ?? [$act, '', 'text-muted'];
+                    $isSkip = $act === 'skip';
+                @endphp
+                <tr class="border-b border-subtle/40 {{ !empty($r->errors_json) ? 'bg-red-500/5' : ($isSkip ? 'bg-amber-500/5' : '') }}">
                     <td class="px-2 py-2">
-                        <input type="checkbox" name="excluded[]" value="{{ $r->id }}">
+                        <input type="checkbox" name="excluded[]" value="{{ $r->id }}" {{ $isSkip ? 'checked' : '' }}>
                     </td>
                     <td class="px-2 py-2 font-mono text-xs">{{ $m['p24_agent_id'] ?? '—' }}</td>
                     <td class="px-2 py-2">{{ $m['name'] ?? '' }}</td>
                     <td class="px-2 py-2">{{ $m['email'] ?? '' }}</td>
                     <td class="px-2 py-2 text-xs">{{ $m['p24_status'] ?? '' }}</td>
-                    <td class="px-2 py-2 text-xs">{{ $r->action }}</td>
+                    <td class="px-2 py-2 text-xs">
+                        @if (empty($r->errors_json))
+                            <span class="font-medium {{ $actCls }}">{{ $actLabel }}</span>
+                            <div class="text-muted text-[11px] leading-tight mt-0.5">{{ $actReason }}</div>
+                        @else
+                            <span class="text-muted">—</span>
+                        @endif
+                    </td>
                     <td class="px-2 py-2 text-xs text-red-400">
                         @foreach ((array)($r->errors_json ?? []) as $e) <div>{{ $e }}</div> @endforeach
                     </td>

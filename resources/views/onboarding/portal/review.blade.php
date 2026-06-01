@@ -6,7 +6,7 @@
 
     {{-- Filters --}}
     <form method="GET" class="rounded-md bg-surface p-4 border border-subtle/30 sticky top-0 z-10">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
             <select name="status" class="rounded-md bg-surface-2 border border-subtle px-2 py-1.5 text-sm">
                 @foreach (['pending','confirmed','excluded','error','all'] as $s)
                     <option value="{{ $s }}" @selected($status === $s)>{{ ucfirst($s) }}</option>
@@ -16,6 +16,12 @@
                 <option value="all" @selected($type === 'all')>All types</option>
                 <option value="Sale" @selected($type === 'Sale')>Sale</option>
                 <option value="Rental" @selected($type === 'Rental')>Rental</option>
+            </select>
+            <select name="per_page" onchange="this.form.submit()"
+                    class="rounded-md bg-surface-2 border border-subtle px-2 py-1.5 text-sm" title="Listings per page">
+                @foreach ([15, 30, 50, 100, 200] as $pp)
+                    <option value="{{ $pp }}" @selected((int) $perPage === $pp)>{{ $pp }} per page</option>
+                @endforeach
             </select>
             <input type="text" name="search" value="{{ $search }}" placeholder="Search address / listing # / headline"
                    class="rounded-md bg-surface-2 border border-subtle px-2 py-1.5 text-sm">
@@ -141,6 +147,7 @@
                     'status'       => $status !== 'pending' ? $status : null,
                     'listing_type' => $type !== 'all' ? $type : null,
                     'search'       => $search !== '' ? $search : null,
+                    'per_page'     => (int) $perPage !== 30 ? (int) $perPage : null,
                 ]);
                 $nextStatusSort = $sort === 'status_asc' ? 'status_desc' : 'status_asc';
                 $statusSortUrl  = route('onboarding.portal.review', $portal->urlKey()) . '?' . http_build_query(array_merge($baseSortParams, ['sort' => $nextStatusSort]));
@@ -364,21 +371,50 @@ function portalReview(token) {
             this.recordError(id, r);
             return { ok: false, error: msg };
         },
+        // A SINGLE review action (confirm or exclude) removes the row and then
+        // reloads the list at the front of the remaining queue, so freshly
+        // surfaced listings flow in without a manual refresh. Bulk actions skip
+        // the per-item reload — they refresh once at the end via finishBatch().
         async confirmRow(id) {
-            await this.confirmSingle(id);
+            const r = await this.confirmSingle(id);
+            if (r.ok) this.afterSingleAction(id);
         },
         async excludeRow(id) {
             if (!confirm('Exclude this listing from going live?')) return;
+            const ok = await this.doExclude(id);
+            if (ok) this.afterSingleAction(id);
+        },
+        // Low-level exclude with no confirm dialog — shared by single + bulk.
+        async doExclude(id) {
             this.setRow(id, { busy: true });
-            const r = await this.post(`/onboarding/${token}/rows/${id}/exclude`);
+            let r;
+            try {
+                r = await this.post(`/onboarding/${token}/rows/${id}/exclude`);
+            } catch (e) {
+                r = { ok: false, status: 0, data: null, error: e?.message ?? 'Network error' };
+            }
             if (r.ok) {
                 this.setRow(id, { busy: false, status: 'excluded', hidden: true });
                 this.selected = this.selected.filter(x => x !== id);
-                await this.refreshCounts();
-            } else {
-                this.setRow(id, { busy: false });
-                alert('Could not exclude this listing.');
+                return true;
             }
+            this.setRow(id, { busy: false, status: 'error' });
+            this.recordError(id, r);
+            return false;
+        },
+        afterSingleAction(id) {
+            this.setRow(id, { hidden: true });
+            this.reloadFresh(300);
+        },
+        // Reload the list at the front of the remaining queue (drops ?page=)
+        // while keeping the current filters and page size.
+        reloadFresh(delay = 0) {
+            const go = () => {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('page');
+                window.location.assign(url.toString());
+            };
+            delay ? setTimeout(go, delay) : go();
         },
         async reassignAgent(id, userId) {
             if (!userId) return;
@@ -393,7 +429,29 @@ function portalReview(token) {
                 this.progress.done += 1;
                 if (!r.ok) this.progress.errors += 1;
             }
-            setTimeout(() => { this.progress = { active: false, total: 0, done: 0, errors: 0, label: '' }; }, 1500);
+            this.finishBatch();
+        },
+        // Exclude many ids under one shared progress bar (no per-row dialog).
+        async excludeBatch(ids, label) {
+            if (!ids.length) return;
+            this.progress = { active: true, total: ids.length, done: 0, errors: 0, label };
+            for (const id of ids) {
+                const ok = await this.doExclude(id);
+                this.progress.done += 1;
+                if (!ok) this.progress.errors += 1;
+            }
+            this.finishBatch();
+        },
+        // Called once a whole batch is done — wait for every item, THEN refresh
+        // the list. If some failed, keep them on screen (and the error log open)
+        // instead of reloading, so they can be inspected and retried.
+        finishBatch() {
+            if (this.progress.errors > 0) {
+                setTimeout(() => { this.progress = { active: false, total: 0, done: 0, errors: 0, label: '' }; }, 1500);
+                this.refreshCounts();
+            } else {
+                this.reloadFresh(900);
+            }
         },
         async bulkConfirm() {
             if (!this.selected.length) {
@@ -410,10 +468,7 @@ function portalReview(token) {
                 return;
             }
             if (!confirm(`Exclude ${this.selected.length} listings?`)) return;
-            const ids = [...this.selected];
-            for (const id of ids) {
-                await this.excludeRow(id);
-            }
+            await this.excludeBatch([...this.selected], 'Excluding selected');
         },
         async confirmAllPending() {
             const boxes = document.querySelectorAll('tbody input[type=checkbox]');
