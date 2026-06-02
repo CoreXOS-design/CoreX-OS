@@ -158,14 +158,18 @@ class TrajectorySimulationService
 
     /**
      * Resolve the monthly holding cost total from presentation canonical fields.
+     *
+     * Build 8 — delegate to HoldingCostEstimator::monthlyTotalFor so the
+     * trajectory simulator sees the SAME monthly total the PDF tile,
+     * the AI summary, the itemised breakdown, and the teaser show.
+     * Pre-fix this hardcoded six columns (no garden/pool/security),
+     * undercounting freehold properties — the simulator's cumulative
+     * holding cost then disagreed with the PDF's "cost of waiting"
+     * callout for the same property.
      */
     private function resolveMonthlyHoldingCost(Presentation $presentation): float
     {
-        return (float) ($presentation->monthly_bond ?? 0)
-             + (float) ($presentation->monthly_rates ?? 0)
-             + (float) ($presentation->monthly_levies ?? 0)
-             + (float) ($presentation->monthly_insurance ?? 0)
-             + (float) ($presentation->monthly_utilities ?? 0)
-             + (float) ($presentation->monthly_opportunity_cost ?? 0);
+        return (float) app(\App\Services\Presentations\HoldingCostEstimator::class)
+            ->monthlyTotalFor($presentation);
     }
 }

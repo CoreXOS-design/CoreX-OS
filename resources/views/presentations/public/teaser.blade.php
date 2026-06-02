@@ -38,13 +38,14 @@
     $active = $analysisData['active_competition'] ?? [];
     $activeCount = $active['count'] ?? 0;
 
-    // Holding cost summary (if visible).
-    $holdingCost = $presentation->monthly_rates !== null
-        ? ((int) $presentation->monthly_rates + (int) ($presentation->monthly_levies ?? 0)
-            + (int) ($presentation->monthly_insurance ?? 0)
-            + (int) ($presentation->monthly_utilities ?? 0)
-            + (int) ($presentation->monthly_opportunity_cost ?? 0))
-        : null;
+    // Holding cost summary (if visible). Build 8 — read the canonical
+    // monthly_total from $analysisData['holding_cost'] (sourced via
+    // HoldingCostEstimator::monthlyTotalFor inside compileHoldingCost),
+    // so the teaser shows the same total as the PDF tile and the AI
+    // summary. Pre-fix the teaser hardcoded five columns (no bond, no
+    // garden/pool/security), under-counting freehold properties.
+    $holdingMonthlyTotal = (int) ($analysisData['holding_cost']['monthly_total'] ?? 0);
+    $holdingCost = $holdingMonthlyTotal > 0 ? $holdingMonthlyTotal : null;
 @endphp
 <!doctype html>
 <html lang="en">

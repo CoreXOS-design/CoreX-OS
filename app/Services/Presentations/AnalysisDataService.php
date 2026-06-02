@@ -918,7 +918,14 @@ class AnalysisDataService
             ];
         }
 
-        $monthly = array_sum($breakdown);
+        // Build 8 — monthly_total comes from the canonical
+        // HoldingCostEstimator::monthlyTotalFor so the AI summary,
+        // teaser blade, trajectory sim, and this itemised breakdown
+        // can never diverge. Same components, same bcmath sum, same
+        // int rand. The breakdown[] above still drives the per-row
+        // table; only the headline figure goes through the canonical
+        // path.
+        $monthly = (float) $estimator->monthlyTotalFor($p);
 
         return [
             'breakdown'       => $breakdown,
@@ -1341,12 +1348,10 @@ class AnalysisDataService
 
     private function calcMonthlyHolding(Presentation $p): float
     {
-        return (float) ($p->monthly_bond ?? 0)
-             + (float) ($p->monthly_rates ?? 0)
-             + (float) ($p->monthly_levies ?? 0)
-             + (float) ($p->monthly_insurance ?? 0)
-             + (float) ($p->monthly_utilities ?? 0)
-             + (float) ($p->monthly_opportunity_cost ?? 0);
+        // Build 8 — delegate to the canonical method. Pre-fix this
+        // hardcoded six columns (no garden/pool/security), under-
+        // counting freehold properties that had those populated.
+        return (float) app(HoldingCostEstimator::class)->monthlyTotalFor($p);
     }
 
     private function intOrNull(mixed $value): ?int

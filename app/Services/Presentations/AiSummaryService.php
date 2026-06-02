@@ -130,12 +130,15 @@ TXT;
         // Stock absorption + holding cost come from the snapshot if compiled,
         // otherwise from presentation fields directly.
         $stock = $snapshot['analytics']['stock_absorption'] ?? [];
-        $holdingCostMonthly = (int) ($presentation->monthly_rates ?? 0)
-            + (int) ($presentation->monthly_levies ?? 0)
-            + (int) ($presentation->monthly_insurance ?? 0)
-            + (int) ($presentation->monthly_utilities ?? 0)
-            + (int) ($presentation->monthly_opportunity_cost ?? 0)
-            + (int) ($presentation->monthly_bond ?? 0);
+        // Build 8 — canonical monthly holding total via HoldingCostEstimator.
+        // Pre-fix this method hardcoded six columns and silently omitted
+        // monthly_garden / monthly_pool / monthly_security, so a freehold
+        // with those populated produced a smaller AI-facts total than the
+        // itemised breakdown rendered in the same PDF (Johan's R8,492 vs
+        // R13,992 split). The estimator branches the component set by
+        // title_type and bcmath-sums identically to compileHoldingCost.
+        $holdingCostMonthly = app(\App\Services\Presentations\HoldingCostEstimator::class)
+            ->monthlyTotalFor($presentation);
 
         return [
             'property' => array_filter([

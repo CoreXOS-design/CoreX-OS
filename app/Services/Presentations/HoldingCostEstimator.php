@@ -438,6 +438,58 @@ final class HoldingCostEstimator
     }
 
     /**
+     * Build 8 — canonical monthly holding-cost total. Single source of
+     * truth for the monthly total across the presentation/AI/PDF/teaser
+     * paths. Pre-fix five ad-hoc summations across the codebase summed
+     * different subsets of the same DB columns:
+     *
+     *   - AnalysisDataService::compileHoldingCost used componentsFor()
+     *     + bond — branched by title_type (freehold gets garden/pool/
+     *     security; sectional gets levy/utilities). CORRECT.
+     *   - AnalysisDataService::calcMonthlyHolding hardcoded six columns
+     *     (no garden/pool/security). UNDERCOUNT.
+     *   - AiSummaryService::buildFactsArray hardcoded the same six
+     *     columns. UNDERCOUNT.
+     *   - TrajectorySimulationService::resolveMonthlyHoldingCost
+     *     hardcoded the same six. UNDERCOUNT.
+     *   - resources/views/presentations/public/teaser.blade.php
+     *     hardcoded five (also missing bond). UNDERCOUNT.
+     *
+     * For a freehold with garden / pool / security populated, the
+     * undercount paths produced a different "monthly total" than the
+     * itemised breakdown — Johan's R13,992 vs R8,492 contradiction.
+     *
+     * This method centralises the branching once. Bond is always
+     * included (independent of title type, per
+     * compileHoldingCost L902-903). Sum runs in bcmath at SCALE=2 so a
+     * future move to decimal-stored monthly columns lands cleanly;
+     * today the persisted columns are whole-rand floats, so the int
+     * cast at the end is lossless. Null columns coerce to 0.
+     */
+    public function monthlyTotalFor(Presentation $presentation): int
+    {
+        $titleType  = $presentation->property?->title_type ?? null;
+        $components = array_values(array_unique(array_merge(
+            [HoldingCostDataPoint::COMPONENT_BOND],
+            $this->componentsFor($titleType),
+        )));
+
+        $sum = '0';
+        foreach ($components as $component) {
+            $col = $this->columnFor($component);
+            if ($col === null) continue;
+            $raw = $presentation->{$col} ?? 0;
+            if (!is_numeric($raw)) continue;
+            $sum = bcadd($sum, (string) $raw, 2);
+        }
+
+        // Round-half-up via bcadd 0.5 + truncate to integer scale.
+        $half    = bccomp($sum, '0', 2) >= 0 ? '0.5' : '-0.5';
+        $rounded = bcadd(bcadd($sum, $half, 2), '0', 0);
+        return (int) $rounded;
+    }
+
+    /**
      * Map component → presentations column. Components without a
      * dedicated column return null (none today after the migration —
      * all 9 components have columns).
