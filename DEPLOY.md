@@ -39,7 +39,7 @@ rsync --version              # confirm: ditto
 
 ### 2b. Create the deploy secrets file
 
-`/etc/hfc-deploy.env` holds the DB password and Storage Box credentials.
+`/etc/hfc-deploy.env` holds backup-mode + Storage Box credentials.
 This file is **read by `scripts/deploy.sh` only**. It is NEVER committed
 to git. Mode 0600 (readable only by root + the deploy user).
 
@@ -48,20 +48,92 @@ sudo install -m 0600 -o root -g root /dev/null /etc/hfc-deploy.env
 sudo nano /etc/hfc-deploy.env
 ```
 
-Paste (replace the placeholders with the real values):
+Paste — pick **one** of the two templates below depending on whether
+this host has a Hetzner Storage Box yet:
+
+#### Template A — production / staging WITH Storage Box (recommended)
 
 ```ini
 # /etc/hfc-deploy.env
-# DB
-MYSQL_ROOT_PASSWORD="<the root password for MySQL on this host>"
+# DEPLOY-2 — backup mode (offsite = local mysqldump + rsync to Storage Box).
+# Production MUST be 'offsite' — the deploy script refuses 'local' for prod.
+BACKUP_MODE="offsite"
+
 # Hetzner Storage Box for off-server backups
 # (Find these in https://robot.your-server.de → Storage Box → access data)
 BACKUP_STORAGEBOX_USER="u123456"
 BACKUP_STORAGEBOX_HOST="u123456.your-storagebox.de"
 BACKUP_STORAGEBOX_PATH="/home/backups/hfc"
+
+# OPTIONAL — dedicated backup DB user (best practice). If unset, deploy.sh
+# uses the app's DB_USERNAME + DB_PASSWORD from .env. See §2b-DB below.
+# MYSQL_BACKUP_USER="hfc_backup"
+# MYSQL_BACKUP_PASSWORD="<a strong password>"
 ```
 
+#### Template B — staging WITHOUT Storage Box yet (validation-only)
+
+```ini
+# /etc/hfc-deploy.env
+# DEPLOY-2 — local-only backup (staging validation, NOT for production).
+# The deploy script will refuse to run in this mode if you pass
+# `production` as the argument.
+BACKUP_MODE="local"
+
+# OPTIONAL — dedicated backup DB user (see Template A).
+# MYSQL_BACKUP_USER="hfc_backup"
+# MYSQL_BACKUP_PASSWORD="<a strong password>"
+```
+
+#### §2b-DB — which DB user does the backup use?
+
+DEPLOY-2 resolves the mysqldump credentials in this priority order:
+
+1. **`MYSQL_BACKUP_USER` + `MYSQL_BACKUP_PASSWORD`** from
+   `/etc/hfc-deploy.env`. Use this when the host has a dedicated backup
+   user with the right grants (best practice for hosts with
+   least-privilege app users).
+2. **`DB_USERNAME` + `DB_PASSWORD`** from the app's `.env` (e.g. `nexus`).
+   This is the default — the deploy script already knows the app root,
+   and the app's DB user is guaranteed to exist and have access to the
+   app's database.
+
+The script **never** falls back to MySQL root. Coupling deploys to the
+admin password is fragile (rotating root would silently break deploys).
+
+**Privileges required on the chosen backup user:**
+
+| Flag | Privilege |
+|---|---|
+| `--single-transaction` | `SELECT` on the schema (the standard app-user grant — works for the `nexus`-style user out of the box). |
+| `--routines` | `SHOW_ROUTINE` (MySQL 8.0+) or `SELECT` on `mysql.proc` (5.7). May fail for least-privilege app users. |
+| `--triggers` | `TRIGGER` privilege on the schema. The CoreX repo has at least one trigger (`knowledge_chunks_search_trigger` in `2026_02_25_000001_create_knowledge_base_tables.php:74`) — **mandatory** for complete backups. |
+
+If `mysqldump` complains about missing `SHOW_ROUTINE` or `TRIGGER`
+during step 2, you have two choices:
+
+```sql
+-- Option A: grant the missing privs to the app user
+GRANT SHOW_ROUTINE, TRIGGER ON nexus_os.* TO 'nexus'@'localhost';
+FLUSH PRIVILEGES;
+
+-- Option B: create a dedicated backup user (and set MYSQL_BACKUP_USER
+-- in /etc/hfc-deploy.env)
+CREATE USER 'hfc_backup'@'localhost' IDENTIFIED BY '<strong pw>';
+GRANT SELECT, SHOW VIEW, SHOW_ROUTINE, TRIGGER, LOCK TABLES,
+      EVENT ON nexus_os.* TO 'hfc_backup'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Run the deploy after the grant; the script will succeed without further
+config change.
+
 ### 2c. SSH key for the Storage Box
+
+**Skip this section if your `/etc/hfc-deploy.env` sets `BACKUP_MODE="local"`.**
+The SSH key is only needed when off-server backups are enabled
+(`BACKUP_MODE="offsite"` — the default + the required mode for
+production).
 
 Hetzner Storage Boxes accept SSH on port 23 with an SSH key. The deploy
 script reads the key at `~/.ssh/storagebox_ed25519` (falls back to
@@ -255,7 +327,16 @@ LATEST=/var/backups/hfc/<db>-pre-deploy-LATEST.sql.gz
 #    real filename — the script symlinks the most recent pre-deploy
 #    backup as ${DB}-pre-deploy-LATEST.sql.gz.
 source /etc/hfc-deploy.env
-gunzip -c "$LATEST" | mysql -u root -p"$MYSQL_ROOT_PASSWORD" hfc_prod
+# Restore as the SAME user the dump was created with. Priority:
+#   MYSQL_BACKUP_USER from /etc/hfc-deploy.env (if set)
+#   else DB_USERNAME from /hfc/.env (e.g. 'nexus')
+DUMP_USER="${MYSQL_BACKUP_USER:-$(grep -E '^DB_USERNAME=' /hfc/.env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")}"
+DUMP_PW="${MYSQL_BACKUP_PASSWORD:-$(grep -E '^DB_PASSWORD=' /hfc/.env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")}"
+DUMP_DB=$(grep -E '^DB_DATABASE=' /hfc/.env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+MYSQL_PWD="$DUMP_PW" gunzip -c "$LATEST" | mysql --user="$DUMP_USER" "$DUMP_DB"
+# (If the dump user lacks DROP/CREATE privs to restore, fall back to a
+# privileged admin user — but the standard nexus/app user typically
+# has ALL PRIVILEGES on the app database.)
 
 # 3. Roll the code back to the pre-deploy SHA (printed by the failure trap):
 git reset --hard <PREV_SHA>
@@ -278,7 +359,11 @@ php artisan up
 ```
 
 If you don't have the pre-deploy backup file locally (e.g. the deploy
-host's disk died), fetch it from the Storage Box:
+host's disk died), fetch it from the Storage Box — **only possible if
+the deploy ran with `BACKUP_MODE="offsite"` (the default + production
+default)**. If the deploy ran in `local` mode (staging-validation), the
+backup ONLY exists on the local disk; if that's gone, there is no
+backup to fetch.
 
 ```bash
 source /etc/hfc-deploy.env
@@ -338,3 +423,4 @@ deploy from the staging shell" mistakes).
 | Date | Author | Change |
 |---|---|---|
 | 2026-06-02 | DEPLOY-1 | Initial v1. Replaces the legacy four-line deploy script. |
+| 2026-06-02 | DEPLOY-2 | Backup now dumps as the app's `DB_USERNAME` from `.env` (e.g. `nexus`) instead of MySQL root. Optional `MYSQL_BACKUP_USER` override for hosts with a dedicated backup user. Added `BACKUP_MODE` (`offsite` default / `local` for staging-only) — `local` is HARD-REFUSED for production. |

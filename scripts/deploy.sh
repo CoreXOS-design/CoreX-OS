@@ -14,12 +14,18 @@
 # Prerequisites — see DEPLOY.md §"One-time server setup":
 #   - mysql-client installed (for mysqldump)
 #   - rsync installed
-#   - /etc/hfc-deploy.env exists (mode 0600) with:
-#       MYSQL_ROOT_PASSWORD=...
+#   - /etc/hfc-deploy.env exists (mode 0600). Required keys:
+#       BACKUP_MODE="offsite"   # or "local" for staging-only.
+#                               # "local" is HARD-REFUSED for production.
+#     Required IF BACKUP_MODE=offsite:
 #       BACKUP_STORAGEBOX_USER=u123456
 #       BACKUP_STORAGEBOX_HOST=u123456.your-storagebox.de
 #       BACKUP_STORAGEBOX_PATH=/home/backups/hfc
+#     Optional (otherwise app's DB_USERNAME / DB_PASSWORD from .env are used):
+#       MYSQL_BACKUP_USER=hfc_backup
+#       MYSQL_BACKUP_PASSWORD=<strong pw>
 #   - SSH key registered with the Storage Box (~/.ssh/storagebox_ed25519)
+#     [skip if BACKUP_MODE=local]
 #   - Passwordless sudo for the deploy user on:
 #       /bin/systemctl reload php8.2-fpm
 #       /bin/systemctl reload nginx
@@ -85,8 +91,11 @@ on_error() {
         log ""
         log "🔁 ROLLBACK (database restore from the pre-deploy backup):"
         log "    cd $DIR"
-        log "    gunzip -c \"$BACKUP_FILE\" | mysql --defaults-extra-file=/etc/hfc-deploy-mysql.cnf $DB_NAME_DEFAULT"
-        log "    (or: gunzip -c \"$BACKUP_FILE\" | mysql -u root -p\"\$MYSQL_ROOT_PASSWORD\" $DB_NAME_DEFAULT)"
+        # Restore using the SAME backup user/password (resolved from .env or
+        # MYSQL_BACKUP_USER override). MYSQL_PWD avoids leaking the password
+        # in the process list. If the backup user lacks privileges to
+        # DROP/CREATE tables on restore, use a privileged user manually.
+        log "    MYSQL_PWD=\"\$BACKUP_PASSWORD\" gunzip -c \"$BACKUP_FILE\" | mysql --user=\"${BACKUP_USER:-<user>}\" \"${DB_NAME:-<db>}\""
         if [[ -n "$PREV_SHA" && -n "$NEW_SHA" && "$PREV_SHA" != "$NEW_SHA" ]]; then
             log "    git reset --hard $PREV_SHA"
             log "    composer install --no-dev --optimize-autoloader"
@@ -94,7 +103,12 @@ on_error() {
         fi
         log "    php artisan up"
         log ""
-        log "    Off-server copy: ${BACKUP_STORAGEBOX_HOST:-?}:${BACKUP_STORAGEBOX_PATH:-?}/$(basename "$BACKUP_FILE" 2>/dev/null || true)"
+        if [[ "${BACKUP_MODE:-offsite}" == "offsite" ]]; then
+            log "    Off-server copy: ${BACKUP_STORAGEBOX_HOST:-?}:${BACKUP_STORAGEBOX_PATH:-?}/$(basename "$BACKUP_FILE" 2>/dev/null || true)"
+        else
+            log "    ⚠ NO off-server copy (BACKUP_MODE=local). The only backup is the local file above —"
+            log "      if the host disk dies, the backup is gone with it."
+        fi
     elif (( MAINT_MODE_ON )); then
         log ""
         log "🔁 NO DB backup taken yet — only code/cache changes. Bring up with:"
@@ -139,16 +153,70 @@ done
 
 # 1d. .env present and APP_ENV matches?
 [[ -r "$DIR/.env" ]] || fail "Missing $DIR/.env"
-ACTUAL_APP_ENV=$(grep -E '^APP_ENV=' "$DIR/.env" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" )
+
+# Reusable: read a key from a Laravel-style .env file. Strips surrounding
+# single OR double quotes. Returns the empty string if the key isn't set.
+read_env_var() {
+    local file="$1" key="$2"
+    grep -E "^${key}=" "$file" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
+ACTUAL_APP_ENV=$(read_env_var "$DIR/.env" APP_ENV)
 [[ "$ACTUAL_APP_ENV" == "$EXPECT_APP_ENV" ]] || fail ".env APP_ENV='$ACTUAL_APP_ENV' but expected '$EXPECT_APP_ENV' for this deploy target."
 
-# 1e. Secrets loaded?
-: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD missing from $DEPLOY_ENV_FILE}"
-: "${BACKUP_STORAGEBOX_USER:?BACKUP_STORAGEBOX_USER missing from $DEPLOY_ENV_FILE}"
-: "${BACKUP_STORAGEBOX_HOST:?BACKUP_STORAGEBOX_HOST missing from $DEPLOY_ENV_FILE}"
-: "${BACKUP_STORAGEBOX_PATH:?BACKUP_STORAGEBOX_PATH missing from $DEPLOY_ENV_FILE}"
+# 1e. Resolve the database credentials the BACKUP step will use.
+# Priority order (DEPLOY-2):
+#   1. MYSQL_BACKUP_USER / MYSQL_BACKUP_PASSWORD from /etc/hfc-deploy.env
+#      — dedicated backup user with the right privileges (best practice).
+#   2. DB_USERNAME / DB_PASSWORD from the app's .env — the user the app
+#      already uses (e.g. `nexus`). This is the default because the deploy
+#      script already knows the app root, and the app user is guaranteed
+#      to exist + have access to the app's database.
+# NEVER falls back to root: requiring root coupled the deploy to the
+# MySQL admin password which is often different from the app password
+# (and rotating root would silently break deploys).
+APP_DB_USERNAME=$(read_env_var "$DIR/.env" DB_USERNAME)
+APP_DB_PASSWORD=$(read_env_var "$DIR/.env" DB_PASSWORD)
+APP_DB_DATABASE=$(read_env_var "$DIR/.env" DB_DATABASE)
 
-# 1f. Disk space ≥ 2 GiB free on the backup partition?
+BACKUP_USER="${MYSQL_BACKUP_USER:-$APP_DB_USERNAME}"
+BACKUP_PASSWORD="${MYSQL_BACKUP_PASSWORD:-$APP_DB_PASSWORD}"
+# Prefer .env's DB_DATABASE over the deploy-script default (handles the
+# case where the .env was customised to a non-standard DB name).
+if [[ -n "$APP_DB_DATABASE" ]]; then DB_NAME="$APP_DB_DATABASE"; fi
+
+[[ -n "$BACKUP_USER" ]] || fail "Cannot resolve backup DB user (neither MYSQL_BACKUP_USER nor DB_USERNAME is set)."
+[[ -n "$BACKUP_PASSWORD" ]] || fail "Cannot resolve backup DB password (neither MYSQL_BACKUP_PASSWORD nor DB_PASSWORD is set)."
+[[ -n "$DB_NAME" ]] || fail "Cannot resolve DB name (no DB_DATABASE in .env and no default)."
+
+# 1f. Resolve backup mode + Storage Box requirement.
+# BACKUP_MODE values (from /etc/hfc-deploy.env):
+#   "offsite" (default) — mysqldump locally then rsync to Hetzner
+#                         Storage Box. Required for production.
+#   "local"             — mysqldump locally ONLY. Skips the rsync step
+#                         AND does not require STORAGEBOX_* vars.
+#                         INTENDED FOR STAGING VALIDATION ONLY.
+BACKUP_MODE="${BACKUP_MODE:-offsite}"
+case "$BACKUP_MODE" in
+    offsite|local) ;;
+    *) fail "Invalid BACKUP_MODE='$BACKUP_MODE' (expected 'offsite' or 'local')" ;;
+esac
+
+# HARD GUARD: production with local-only backup is forbidden. A deploy
+# that loses the backup if the host dies is not a safe deploy.
+if [[ "$ENV_NAME" == "production" && "$BACKUP_MODE" == "local" ]]; then
+    fail "BACKUP_MODE='local' is forbidden for production. Production deploys MUST have an off-server backup. Set BACKUP_MODE=offsite in $DEPLOY_ENV_FILE and provision the Storage Box credentials before retrying."
+fi
+
+# Off-server mode: require all four Storage Box vars up-front.
+# Local-only mode: skip — vars need not be set.
+if [[ "$BACKUP_MODE" == "offsite" ]]; then
+    : "${BACKUP_STORAGEBOX_USER:?BACKUP_STORAGEBOX_USER missing from $DEPLOY_ENV_FILE (or set BACKUP_MODE=local for staging-only)}"
+    : "${BACKUP_STORAGEBOX_HOST:?BACKUP_STORAGEBOX_HOST missing from $DEPLOY_ENV_FILE}"
+    : "${BACKUP_STORAGEBOX_PATH:?BACKUP_STORAGEBOX_PATH missing from $DEPLOY_ENV_FILE}"
+fi
+
+# 1g. Disk space ≥ 2 GiB free on the backup partition?
 mkdir -p "$BACKUP_DIR"
 FREE_KB=$(df -P "$BACKUP_DIR" | awk 'NR==2 {print $4}')
 (( FREE_KB > 2 * 1024 * 1024 )) || fail "Less than 2 GiB free at $BACKUP_DIR (have $((FREE_KB/1024)) MiB)"
@@ -156,19 +224,37 @@ FREE_KB=$(df -P "$BACKUP_DIR" | awk 'NR==2 {print $4}')
 PREV_SHA=$(git rev-parse HEAD)
 ok "Branch=$BRANCH, dir=$DIR, .env APP_ENV=$EXPECT_APP_ENV, tools=present, $((FREE_KB/1024)) MiB free"
 ok "Pre-pull HEAD: $PREV_SHA"
+ok "Backup as DB user '$BACKUP_USER' on DB '$DB_NAME' (mode=$BACKUP_MODE)"
 
 # =============================================================================
-# STEP 2 — BACKUP (off-server BEFORE touching anything)
+# STEP 2 — BACKUP (BEFORE touching anything)
 # =============================================================================
 CURRENT_STEP="2 / backup"
-step 2 "full DB backup → local + Hetzner Storage Box"
+if [[ "$BACKUP_MODE" == "offsite" ]]; then
+    step 2 "full DB backup → local + Hetzner Storage Box"
+else
+    step 2 "full DB backup → LOCAL ONLY (BACKUP_MODE=local; staging-validation use)"
+fi
 
 BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}-pre-deploy-${START_TS}.sql.gz"
 
-# 2a. Local mysqldump
-# Pipefail catches any failure in the gzip-piped chain. --single-transaction
-# gives a consistent snapshot on InnoDB without locking writers.
-mysqldump \
+# 2a. Local mysqldump.
+# Dumps as the resolved backup user (MYSQL_BACKUP_USER override OR
+# the app's DB_USERNAME from .env — see step 1e). Privileges required:
+#   --single-transaction : SELECT on the schema (avoids LOCK TABLES on
+#                          InnoDB — the standard app-user grant works).
+#   --routines           : SHOW_ROUTINE (MySQL 8) or SELECT on mysql.proc
+#                          (5.7). May fail for least-privilege app users;
+#                          if it does, grant the user SHOW_ROUTINE or use
+#                          MYSQL_BACKUP_USER with broader grants.
+#   --triggers           : TRIGGER privilege on the schema. The repo
+#                          has at least one trigger
+#                          (knowledge_chunks_search_trigger), so this
+#                          flag is mandatory — backups MUST be complete.
+# Pipefail catches any failure in the gzip-piped chain. The MYSQL_PWD
+# env var is used in preference to -p"$pw" so the password never appears
+# in the process list (`ps`-visible) on the host.
+MYSQL_PWD="$BACKUP_PASSWORD" mysqldump \
     --single-transaction --routines --triggers --quick \
     --add-drop-table --default-character-set=utf8mb4 \
     --ignore-table="${DB_NAME}.failed_jobs" \
@@ -176,7 +262,7 @@ mysqldump \
     --ignore-table="${DB_NAME}.sessions" \
     --ignore-table="${DB_NAME}.cache" \
     --ignore-table="${DB_NAME}.cache_locks" \
-    -u root -p"$MYSQL_ROOT_PASSWORD" "$DB_NAME" \
+    --user="$BACKUP_USER" "$DB_NAME" \
   | gzip > "$BACKUP_FILE"
 
 [[ -s "$BACKUP_FILE" ]] || fail "Local backup is empty: $BACKUP_FILE"
@@ -185,17 +271,23 @@ ok "Local backup: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
 # 2b. Off-server to Hetzner Storage Box (SFTP/rsync over SSH port 23).
 # Failure here aborts BEFORE any code/DB changes — backups not stored
 # off-server are not backups for disaster-recovery purposes.
-SSH_KEY_OPT=""
-if [[ -r "${HOME}/.ssh/storagebox_ed25519" ]]; then
-    SSH_KEY_OPT="-i ${HOME}/.ssh/storagebox_ed25519"
+# DEPLOY-2: conditional on BACKUP_MODE. Staging may run BACKUP_MODE=local
+# before the Storage Box is provisioned; production REFUSES local mode
+# (already aborted in step 1f).
+if [[ "$BACKUP_MODE" == "offsite" ]]; then
+    SSH_KEY_OPT=""
+    if [[ -r "${HOME}/.ssh/storagebox_ed25519" ]]; then
+        SSH_KEY_OPT="-i ${HOME}/.ssh/storagebox_ed25519"
+    fi
+    # shellcheck disable=SC2086
+    rsync -az --partial \
+        -e "ssh -p 23 -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 $SSH_KEY_OPT" \
+        "$BACKUP_FILE" \
+        "${BACKUP_STORAGEBOX_USER}@${BACKUP_STORAGEBOX_HOST}:${BACKUP_STORAGEBOX_PATH}/"
+    ok "Off-server: ${BACKUP_STORAGEBOX_HOST}:${BACKUP_STORAGEBOX_PATH}/$(basename "$BACKUP_FILE")"
+else
+    warn "BACKUP_MODE=local — skipping off-server copy. NOT permitted for production."
 fi
-# shellcheck disable=SC2086
-rsync -az --partial \
-    -e "ssh -p 23 -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 $SSH_KEY_OPT" \
-    "$BACKUP_FILE" \
-    "${BACKUP_STORAGEBOX_USER}@${BACKUP_STORAGEBOX_HOST}:${BACKUP_STORAGEBOX_PATH}/"
-
-ok "Off-server: ${BACKUP_STORAGEBOX_HOST}:${BACKUP_STORAGEBOX_PATH}/$(basename "$BACKUP_FILE")"
 
 # 2c. Convenience symlink so the failure trap and operator can find the
 #     pre-deploy backup by name (independent of timestamp).
@@ -422,8 +514,19 @@ log "✅ DEPLOY OK — $ENV_NAME"
 log "   Commit:          $PREV_SHA → $NEW_SHA"
 log "   Tag:             $TAG (local; push manually if desired)"
 log "   Backup (local):  $BACKUP_FILE"
-log "   Backup (remote): ${BACKUP_STORAGEBOX_HOST}:${BACKUP_STORAGEBOX_PATH}/$(basename "$BACKUP_FILE")"
+if [[ "$BACKUP_MODE" == "offsite" ]]; then
+    log "   Backup (remote): ${BACKUP_STORAGEBOX_HOST}:${BACKUP_STORAGEBOX_PATH}/$(basename "$BACKUP_FILE")"
+else
+    log "   Backup (remote): (none — BACKUP_MODE=local)"
+fi
+log "   Backup user:     $BACKUP_USER (DB=$DB_NAME)"
 log "   Workers:         $WORKER_MECHANISM"
 log "   Duration:        ${DURATION}s"
 log "   Timestamp:       $(date -Iseconds)"
 log "════════════════════════════════════════════════════════════"
+if [[ "$BACKUP_MODE" == "local" ]]; then
+    log ""
+    log "⚠ LOCAL-ONLY BACKUP — no off-server copy. NOT permitted for production."
+    log "   Provision a Hetzner Storage Box and switch /etc/hfc-deploy.env"
+    log "   to BACKUP_MODE=offsite (see DEPLOY.md §2c) before the next prod deploy."
+fi
