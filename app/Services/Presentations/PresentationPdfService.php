@@ -80,6 +80,61 @@ class PresentationPdfService
             }
         }
 
+        // Subject Property card — hero image + static map data URIs.
+        // Hero: first entry from Property::allImages() (the flatten over
+        // dawn/noon/dusk/gallery/images_json). External URLs are skipped
+        // — PDF must be self-contained (Puppeteer waitUntil:'load').
+        // Map: PresentationStaticMapService with empty comp/competition
+        // arrays renders a subject-only pin. Falls back to null when no
+        // Maps key configured OR no GPS — view emits a placeholder.
+        $_resolvePropertyImage = function (?string $raw): ?string {
+            if (!$raw) return null;
+            $raw = explode('?', $raw)[0];
+            if (str_starts_with($raw, 'http://') || str_starts_with($raw, 'https://')) {
+                return null;
+            }
+            $rel = ltrim($raw, '/');
+            if (str_starts_with($rel, 'storage/')) $rel = substr($rel, strlen('storage/'));
+            $abs = storage_path('app/public/' . $rel);
+            if (!is_file($abs)) return null;
+            $bytes = @file_get_contents($abs);
+            if ($bytes === false || $bytes === '') return null;
+            $ext = strtolower(pathinfo($abs, PATHINFO_EXTENSION));
+            $mime = match ($ext) {
+                'jpg', 'jpeg' => 'image/jpeg',
+                'png'         => 'image/png',
+                'gif'         => 'image/gif',
+                'webp'        => 'image/webp',
+                default       => 'image/' . $ext,
+            };
+            return 'data:' . $mime . ';base64,' . base64_encode($bytes);
+        };
+        $_subjectHeroDataUri = null;
+        if ($presentation->property) {
+            $_images = $presentation->property->allImages();
+            if (!empty($_images)) {
+                $_subjectHeroDataUri = $_resolvePropertyImage((string) ($_images[0] ?? ''));
+            }
+        }
+        $_subjectMapDataUri = null;
+        $_subjPropLat = $presentation->property?->latitude;
+        $_subjPropLng = $presentation->property?->longitude;
+        if ($_subjPropLat !== null && $_subjPropLng !== null) {
+            try {
+                $_subjectMapDataUri = (new \App\Services\Presentations\Pdf\PresentationStaticMapService())
+                    ->renderBase64(
+                        ['lat' => (float) $_subjPropLat, 'lng' => (float) $_subjPropLng,
+                         'title' => (string) ($presentation->property_address ?? '')],
+                        [],
+                        [],
+                        640,
+                        360,
+                    );
+            } catch (\Throwable) {
+                $_subjectMapDataUri = null;
+            }
+        }
+
         // Compile analysis data from AnalysisDataService (real extracted data).
         // Build 3 — pass the LATEST PUBLISHED version so the condition snapshot
         // travels with the PDF. If there's no published version yet (rare; the
@@ -267,6 +322,8 @@ h3 { font-size: 14px; font-weight: 600; }
     margin-bottom: 18px;
     padding-bottom: 10px;
     border-bottom: 2px solid var(--brand);
+    page-break-inside: avoid;
+    page-break-after: avoid;
 }
 .section-header h2 { color: var(--brand); }
 .section-number {
@@ -281,6 +338,98 @@ h3 { font-size: 14px; font-weight: 600; }
     font-size: 13px;
     font-weight: 700;
     flex-shrink: 0;
+}
+
+/* ── SUBJECT PROPERTY CARD ───────────────────────────────────────────── */
+.subject-card {
+    margin-top: 18px;
+    border: 1px solid var(--brand);
+    border-radius: 6px;
+    background: var(--bg);
+    page-break-inside: avoid;
+    overflow: hidden;
+}
+.subject-card-header {
+    padding: 12px 18px;
+    background: var(--brand);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.subject-card-header .accent { width: 4px; height: 18px; background: #00d4aa; flex-shrink: 0; }
+.subject-card-header h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.subject-card-header .subject-card-sub {
+    font-size: 11px;
+    color: rgba(255,255,255,0.85);
+    margin-left: auto;
+    font-weight: 500;
+    text-align: right;
+}
+.subject-card-body {
+    display: flex;
+    gap: 18px;
+    padding: 16px 18px;
+}
+.subject-card-photo {
+    flex: 0 0 52%;
+    height: 240px;
+    background: var(--bg-alt);
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.subject-card-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.subject-card-photo-placeholder { font-size: 11px; color: var(--text-muted); text-align: center; padding: 14px; }
+.subject-card-facts {
+    flex: 1;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 7px 16px;
+    align-content: center;
+}
+.subject-card-facts .fact-label {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+.subject-card-facts .fact-value { font-size: 12px; color: var(--text); font-weight: 600; }
+.subject-card-facts .fact-value.price {
+    font-size: 16px;
+    color: var(--brand);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+}
+.subject-card-map { padding: 0 18px 16px; }
+.subject-card-map img {
+    width: 100%;
+    height: auto;
+    max-height: 320px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    display: block;
+}
+.subject-card-map-placeholder {
+    padding: 28px 16px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-alt);
+    border-radius: 4px;
+    border: 1px dashed var(--border);
 }
 
 /* ── TABLES ──────────────────────────────────────────────────────────── */
@@ -661,98 +810,81 @@ a:hover { text-decoration: underline; }
 </div>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 1b — SUBJECT FACTS CARD (Build 1 / BUG-5)
-      // Data path: AnalysisDataService::compileSubjectProperty produces the
-      // dict consumed below. Card is positioned BEFORE the PAGE 2 page-break
-      // so it sits on page 1 immediately after the cover hero.
-      // POPIA: owner is intentionally omitted at the model level — this
-      // builder does not include any owner-PII surface today; if a future
-      // version introduces an owner facet it must replicate the §95c05b09
-      // map-side gate (server-side suppress, never CSS hide).
+      // PAGE 2 — SUBJECT PROPERTY CARD (Build 8 — hero image + subject map)
+      // Layout: hero image beside a clean fact grid, subject location map
+      // below. Default fact set is intentionally trim (address / suburb /
+      // type / beds / baths / garages / extent / asking) — agents will tune
+      // the visible fields later. The card is page-break-inside:avoid via
+      // .subject-card so it never splits across a page boundary.
+      // POPIA: no owner field is rendered.
       // ══════════════════════════════════════════════════════════════════════ ?>
-<div style="margin-top:18px;padding:18px;border:1px solid #0b2a4a;border-radius:3px;background:#f8fafc;page-break-inside:avoid;">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-        <div style="width:4px;height:18px;background:#00d4aa;"></div>
-        <h3 style="margin:0;font-size:13px;font-weight:700;color:#0b2a4a;letter-spacing:0.04em;text-transform:uppercase;">Subject Property — At a Glance</h3>
+<div class="subject-card">
+    <div class="subject-card-header">
+        <div class="accent"></div>
+        <h3>Subject Property</h3>
+        <?php if (!empty($subject['address'])): ?>
+            <span class="subject-card-sub"><?= $esc($subject['address']) ?></span>
+        <?php endif ?>
     </div>
-    <?php
-        $_facts = [];
-        $_addLine = function (string $label, $value) use (&$_facts) {
-            if ($value === null || $value === '' || $value === '—') return;
-            $_facts[] = ['label' => $label, 'value' => $value];
-        };
-
-        // Address — full line, separate from suburb.
-        $_addLine('Address',         $subject['address']         ?? null);
-        $_addLine('Suburb',          $subject['suburb']          ?? null);
-        $_addLine('Erf number',      $subject['erf']             ?? null);
-
-        // Extent / type / category — humanType'd display.
-        if (!empty($subject['extent_m2'])) {
-            $_addLine('Extent', number_format((int) $subject['extent_m2']) . ' m²');
-        }
-        if (!empty($subject['property_type'])) {
-            $_addLine('Type', \Illuminate\Support\Str::humanType($subject['property_type']));
-        }
-        if (!empty($presentation->property?->category)) {
-            // Build 7 — render the agency's configured label (proper-
-            // case) instead of the raw lowercase column.
-            $_categoryLabel = app(\App\Services\TitleTypeClassifier::class)
-                ->displayCategoryLabel((int) $presentation->agency_id, $presentation->property->category)
-                ?? $presentation->property->category;
-            $_addLine('Category', $_categoryLabel);
-        }
-
-        // GPS (only render when both lat and lng are present).
-        if (!empty($subject['gps'])) {
-            $_addLine('GPS', $subject['gps']);
-        }
-
-        // Municipal valuation + year.
-        if (!empty($subject['municipal_value'])) {
-            $munLabel = 'Municipal valuation';
-            $_munText = 'R ' . number_format((int) $subject['municipal_value'], 0, '.', ' ');
-            if (!empty($subject['municipal_year'])) {
-                $_munText .= ' (' . $subject['municipal_year'] . ')';
-            }
-            $_addLine($munLabel, $_munText);
-        }
-
-        // Last sale (purchase_date + purchase_price together when both present).
-        if (!empty($subject['purchase_date']) && !empty($subject['purchase_price'])) {
-            $_addLine('Last sale',
-                'R ' . number_format((int) $subject['purchase_price'], 0, '.', ' ')
-                . ' (' . $subject['purchase_date'] . ')');
-        } elseif (!empty($subject['purchase_price'])) {
-            $_addLine('Last sale', 'R ' . number_format((int) $subject['purchase_price'], 0, '.', ' '));
-        }
-
-        // Title deed (if the property carries one) and mandate / listing type.
-        if (!empty($presentation->property?->deed_number)) {
-            $_addLine('Title deed', $presentation->property->deed_number);
-        }
-        if (!empty($presentation->property?->listing_type)) {
-            $_addLine('Sale type', \Illuminate\Support\Str::humanType($presentation->property->listing_type));
-        }
-    ?>
-    <?php if (empty($_facts)): ?>
-        <p style="margin:0;font-size:11px;color:#64748b;">Source property record carries no enriched fact data yet. Populate the property record to surface this card.</p>
-    <?php else: ?>
-        <table style="width:100%;border-collapse:collapse;font-size:11.5px;color:#0f172a;">
-            <?php $_n = count($_facts); foreach (array_chunk($_facts, 2) as $_row): ?>
-                <tr>
-                    <?php foreach ($_row as $_f): ?>
-                        <td style="padding:5px 12px 5px 0;width:18%;color:#64748b;font-weight:600;vertical-align:top;white-space:nowrap;"><?= $esc($_f['label']) ?></td>
-                        <td style="padding:5px 24px 5px 0;width:32%;color:#0f172a;vertical-align:top;"><?= $esc($_f['value']) ?></td>
-                    <?php endforeach ?>
-                    <?php if (count($_row) === 1): ?>
-                        <td style="padding:5px 12px 5px 0;width:18%;"></td>
-                        <td style="padding:5px 24px 5px 0;width:32%;"></td>
-                    <?php endif ?>
-                </tr>
-            <?php endforeach ?>
-        </table>
-    <?php endif ?>
+    <div class="subject-card-body">
+        <div class="subject-card-photo">
+            <?php if ($_subjectHeroDataUri): ?>
+                <img src="<?= $_subjectHeroDataUri ?>" alt="Subject property">
+            <?php else: ?>
+                <div class="subject-card-photo-placeholder">No primary photo on the property record yet.</div>
+            <?php endif ?>
+        </div>
+        <div class="subject-card-facts">
+            <?php
+                $_facts = [];
+                $_addFact = function (string $label, $value, bool $isPrice = false) use (&$_facts) {
+                    if ($value === null || $value === '' || $value === '—') return;
+                    $_facts[] = ['label' => $label, 'value' => $value, 'price' => $isPrice];
+                };
+                $_addFact('Address', $subject['address'] ?? $presentation->property_address ?? null);
+                $_addFact('Suburb',  $subject['suburb']  ?? $presentation->suburb ?? null);
+                $_typeRaw = $presentation->property?->property_type ?? $presentation->property_type ?? null;
+                if ($_typeRaw) {
+                    $_addFact('Type', \Illuminate\Support\Str::humanType($_typeRaw));
+                }
+                $_beds    = $presentation->property?->beds    ?? $presentation->bedrooms ?? null;
+                $_baths   = $presentation->property?->baths   ?? null;
+                $_garages = $presentation->property?->garages ?? null;
+                if ($_beds    !== null && $_beds    !== '') $_addFact('Beds',    (int) $_beds);
+                if ($_baths   !== null && $_baths   !== '') $_addFact('Baths',   (int) $_baths);
+                if ($_garages !== null && $_garages !== '') $_addFact('Garages', (int) $_garages);
+                if (!empty($subject['extent_m2'])) {
+                    $_addFact($isSectional ? 'Floor area' : 'Extent',
+                        number_format((int) $subject['extent_m2']) . ' m²');
+                }
+                if (!empty($askingPrice)) {
+                    $_addFact('Asking price',
+                        'R ' . number_format((int) $askingPrice, 0, '.', ' '),
+                        true);
+                }
+            ?>
+            <?php if (empty($_facts)): ?>
+                <div style="grid-column:1/-1;font-size:11px;color:var(--text-muted);">Property record carries no field data yet.</div>
+            <?php else: foreach ($_facts as $_f): ?>
+                <div class="fact-label"><?= $esc($_f['label']) ?></div>
+                <div class="fact-value<?= $_f['price'] ? ' price' : '' ?>"><?= $esc((string) $_f['value']) ?></div>
+            <?php endforeach; endif ?>
+        </div>
+    </div>
+    <div class="subject-card-map">
+        <?php if ($_subjectMapDataUri): ?>
+            <img src="<?= $_subjectMapDataUri ?>" alt="Subject location map">
+        <?php elseif ($_subjPropLat !== null && $_subjPropLng !== null): ?>
+            <div class="subject-card-map-placeholder">
+                Subject GPS on file (<?= number_format((float) $_subjPropLat, 5) ?>, <?= number_format((float) $_subjPropLng, 5) ?>).
+                Map render requires the agency's Google Static Maps key.
+            </div>
+        <?php else: ?>
+            <div class="subject-card-map-placeholder">
+                Subject location not geocoded yet. Capture GPS on the property record to render the map here.
+            </div>
+        <?php endif ?>
+    </div>
 </div>
 
 <?php // ══════════════════════════════════════════════════════════════════════
@@ -927,7 +1059,6 @@ a:hover { text-decoration: underline; }
       // PAGE 3 — MARKET OVERVIEW  (Build 4 toggleable)
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php if ($sectionEnabled('market_overview')): ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number">2</span>
     <h2>Market Overview — <?= $suburbName ?></h2>
@@ -1679,7 +1810,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         if (!empty($c['property_size_m2'])) $stats[] = (int) $c['property_size_m2'] . ' m² floor';
     ?>
         <td style="width:50%;vertical-align:top;padding:0;">
-            <div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;background:#fff;">
+            <div class="avoid-break" style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;background:#fff;">
                 <!-- Image / placeholder + price banner + match% top-right -->
                 <div style="position:relative;height:96px;background:#f1f5f9;overflow:hidden;">
                     <?php if ($thumbAbs): ?>
@@ -1734,7 +1865,6 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php if ($sectionEnabled('inflow_absorption')): ?>
 <?php if (!empty($inflow['has_data'])): ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number">6</span>
     <h2>New Listing Inflow &amp; Absorption</h2>
@@ -1892,17 +2022,10 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <p style="font-size:8.5px;color:var(--text-light);margin-top:10px;">
     Source: P24 alert email imports (<?= number_format($inflow['total_p24_listings'] ?? 0) ?> total listings in database)
 </p>
-<?php else: ?>
-<div class="page-break"></div>
-<div class="section-header">
-    <span class="section-number">6</span>
-    <h2>New Listing Inflow &amp; Absorption</h2>
-</div>
-<div class="callout callout-info">
-    No P24 alert data available for this suburb in the selected period.
-    The inflow story will populate once alerts arrive.
-</div>
-<?php endif // end inflow has_data ?>
+<?php endif // end inflow has_data — no-data placeholder removed; the
+      // section is silently absent when no P24 data, so the downstream
+      // PropCon section becomes "6" naturally without a duplicate header.
+?>
 <?php endif // /inflow_absorption ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
@@ -2039,7 +2162,6 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
       // PAGE 8 — HOLDING COST ANALYSIS  (Build 4 toggleable)
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php if ($sectionEnabled('holding_cost')): ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number"><?= $sectionAfterInflow ?></span>
     <h2>Holding Cost Analysis</h2>
@@ -2128,7 +2250,6 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
       // dependency-gated to cma_analysis at the compiler + review layers)
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php if ($sectionEnabled('pricing_strategy')): ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number"><?= $sectionAfterInflow + 1 ?></span>
     <h2>Pricing Strategy &amp; Recommendation</h2>
@@ -2363,7 +2484,6 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
             default                                           => 'background:#fecaca;color:#dc2626',
         };
 ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number">&bull;</span>
     <h2>Seller Pricing Confirmation</h2>
