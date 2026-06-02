@@ -127,6 +127,43 @@ class Phase3bSyndicationTest extends TestCase
             ->assertOk()->assertJsonCount(2, 'data');
     }
 
+    public function test_activate_then_deactivate_via_panel_routes(): void
+    {
+        $p = $this->makeProperty('active');
+
+        $this->actingAs($this->user)
+            ->postJson(route('corex.properties.website-syndication.activate', [$p, $this->key]))
+            ->assertOk()->assertJson(['enabled' => true, 'status' => 'active', 'website' => 'Main Website']);
+        $this->assertDatabaseHas('property_website_syndication', ['property_id' => $p->id, 'agency_api_key_id' => $this->key->id, 'enabled' => 1]);
+
+        $this->actingAs($this->user)
+            ->postJson(route('corex.properties.website-syndication.deactivate', [$p, $this->key]))
+            ->assertOk()->assertJson(['enabled' => false, 'status' => 'deactivated']);
+    }
+
+    public function test_refresh_requires_an_active_listing(): void
+    {
+        $p = $this->makeProperty('active');
+        // Not yet activated on this website → refresh 422.
+        $this->actingAs($this->user)
+            ->postJson(route('corex.properties.website-syndication.refresh', [$p, $this->key]))
+            ->assertStatus(422)->assertJson(['success' => false]);
+    }
+
+    public function test_refresh_stamps_last_synced_when_live(): void
+    {
+        $p = $this->makeProperty('active');
+        app(WebsiteSyndicationService::class)->setEnabled($p, $this->key, true);
+
+        $this->actingAs($this->user)
+            ->postJson(route('corex.properties.website-syndication.refresh', [$p, $this->key]))
+            ->assertOk()->assertJson(['success' => true]);
+
+        $row = PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
+            ->where('property_id', $p->id)->where('agency_api_key_id', $this->key->id)->first();
+        $this->assertNotNull($row->last_synced_at);
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private function makeProperty(string $status): Property

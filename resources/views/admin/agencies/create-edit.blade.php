@@ -622,7 +622,7 @@
             <p class="text-xs" style="color:var(--text-muted);">Each website gets its own key. The key's name is the label shown as its Syndication Portal on every property.</p>
 
             @forelse($agency->apiKeys as $key)
-                <div class="rounded-md p-3 space-y-2" style="background: var(--surface); border:1px solid var(--border);" x-data="{ editing: false }">
+                <div class="rounded-md p-3 space-y-2" style="background: var(--surface); border:1px solid var(--border);" x-data="{ editing: false, showSecret: false }">
                     <div class="flex items-center justify-between gap-3 flex-wrap">
                         <div>
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $key->name }}</div>
@@ -639,6 +639,20 @@
                         @if($key->webhook_url) · Webhook: {{ \Illuminate\Support\Str::limit($key->webhook_url, 40) }} @endif
                     </div>
                     @if(auth()->user()?->hasPermission('agency_api.manage'))
+                    {{-- Webhook signing secret — needed for COREX_WEBHOOK_SECRET on the website to verify X-CoreX-Signature --}}
+                    @if($key->webhook_secret && in_array(\App\Models\AgencyApiKey::SCOPE_WEBHOOKS_RECEIVE, $key->scopes ?? [], true))
+                    <div class="text-xs" style="color:var(--text-muted);">
+                        <button type="button" @click="showSecret = !showSecret" class="underline" x-text="showSecret ? 'Hide webhook secret' : 'Reveal webhook signing secret'"></button>
+                        <div x-show="showSecret" x-cloak class="flex items-center gap-2 mt-1">
+                            <input type="text" readonly value="{{ $key->webhook_secret }}" id="whsec-{{ $key->id }}"
+                                   class="flex-1 rounded-md px-2 py-1 text-xs font-mono"
+                                   style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                            <button type="button" class="corex-btn-outline text-xs"
+                                    onclick="navigator.clipboard.writeText(document.getElementById('whsec-{{ $key->id }}').value); this.innerText='Copied ✓'; setTimeout(()=>this.innerText='Copy',1200);">Copy</button>
+                        </div>
+                        <p x-show="showSecret" x-cloak class="mt-0.5" style="color:var(--text-muted);">Put this in the website's <span class="font-mono">COREX_WEBHOOK_SECRET</span>.</p>
+                    </div>
+                    @endif
                     <div class="flex gap-2 flex-wrap pt-1">
                         <button type="button" @click="editing = !editing" class="corex-btn-outline text-xs" x-text="editing ? 'Close' : 'Edit scopes / webhook'"></button>
                         <form method="POST" action="{{ route('agencies.api-keys.regenerate', [$agency, $key]) }}" onsubmit="return confirm('Regenerate the secret? The old secret stops working immediately.');">
