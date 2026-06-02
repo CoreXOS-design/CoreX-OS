@@ -124,6 +124,25 @@ class Phase5aAgentSyncTest extends TestCase
         $this->assertFalse($names->contains($inactive->id));
     }
 
+    public function test_per_agent_toggle_website_flips_and_fires_webhooks(): void
+    {
+        Http::fake(['*' => Http::response('', 200)]);
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $agent = $this->agent(false);
+
+        // Toggle ON → show_on_website true + agent.published
+        $this->actingAs($admin)->postJson(route('admin.users.toggle-website', $agent))
+            ->assertOk()->assertJson(['success' => true, 'show_on_website' => true]);
+        $this->assertTrue((bool) $agent->fresh()->show_on_website);
+        $this->assertDatabaseHas('agency_webhook_deliveries', ['event_name' => 'agent.published']);
+
+        // Toggle OFF → false + agent.removed
+        $this->actingAs($admin)->postJson(route('admin.users.toggle-website', $agent))
+            ->assertOk()->assertJson(['show_on_website' => false]);
+        $this->assertFalse((bool) $agent->fresh()->show_on_website);
+        $this->assertDatabaseHas('agency_webhook_deliveries', ['event_name' => 'agent.removed']);
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private function keyWithWebhook(): AgencyApiKey

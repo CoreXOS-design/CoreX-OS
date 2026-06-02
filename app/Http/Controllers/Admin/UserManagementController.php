@@ -818,6 +818,23 @@ class UserManagementController extends Controller
     }
 
     /**
+     * Quick on/off toggle for an agent's website visibility (show_on_website).
+     * Saving fires the UserObserver → agent.published / agent.removed webhook.
+     * Spec: .ai/specs/agency-public-api.md §2 (layer 3), §6.1.
+     */
+    public function toggleWebsite(Request $request, User $user)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $user->update(['show_on_website' => ! $user->show_on_website]);
+
+        return response()->json([
+            'success'         => true,
+            'show_on_website' => (bool) $user->show_on_website,
+        ]);
+    }
+
+    /**
      * JSON preview for the agent-delete modal: counts of attached records
      * and the list of eligible reassignment targets in the same agency.
      */

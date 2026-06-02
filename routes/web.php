@@ -320,6 +320,9 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/admin/users/{user}/toggle', [App\Http\Controllers\Admin\UserManagementController::class, 'toggle'])
         ->middleware('permission:manage_users')->name('admin.users.toggle');
+    // Agency Public API — quick website-visibility toggle per agent. Spec §2 (layer 3).
+    Route::post('/admin/users/{user}/toggle-website', [App\Http\Controllers\Admin\UserManagementController::class, 'toggleWebsite'])
+        ->middleware('permission:manage_users')->name('admin.users.toggle-website');
 
     Route::post('/admin/users/{user}/delete', [App\Http\Controllers\Admin\UserManagementController::class, 'delete'])
         ->middleware('permission:manage_users')->name('admin.users.delete');

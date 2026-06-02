@@ -206,14 +206,59 @@
                                    {{ old('counts_for_branch_split', $isEdit ? (int)($user->counts_for_branch_split ?? 1) : 1) ? 'checked' : '' }}>
                             Counts for Branch Split
                         </label>
-                        {{-- Agency Public API — agent appears on the agency website(s). Spec §2 (layer 3). --}}
-                        <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
-                            <input type="hidden" name="show_on_website" value="0">
-                            <input type="checkbox" name="show_on_website" value="1" class="rounded"
-                                   style="accent-color:var(--brand-icon, #0ea5e9);"
-                                   {{ old('show_on_website', $isEdit ? (int)($user->show_on_website ?? 0) : 0) ? 'checked' : '' }}>
-                            Show on website
-                        </label>
+                        {{-- Agency Public API — agent appears on the agency website(s). Spec §2 (layer 3).
+                             Only shown once the agency has a website (≥1 API key). --}}
+                        @php
+                            $agentAgencyId = $isEdit ? $user->agency_id : auth()->user()?->effectiveAgencyId();
+                            $agencyHasWebsite = $agentAgencyId && \App\Models\AgencyApiKey::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                                ->where('agency_id', $agentAgencyId)->whereNull('revoked_at')->exists();
+                        @endphp
+                        @if($agencyHasWebsite)
+                            @if($isEdit)
+                            {{-- Quick on/off toggle (immediate, fires the agent webhook) --}}
+                            <div class="flex items-center gap-2.5 text-sm"
+                                 x-data="{
+                                    on: {{ (int)($user->show_on_website ?? 0) ? 'true' : 'false' }},
+                                    loading: false, err: '',
+                                    csrf: '{{ csrf_token() }}',
+                                    url: '{{ route('admin.users.toggle-website', $user) }}',
+                                    async toggle() {
+                                        if (this.loading) return;
+                                        this.loading = true; this.err = '';
+                                        const fd = new FormData(); fd.append('_token', this.csrf);
+                                        try {
+                                            const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                                            const j = await r.json().catch(() => ({}));
+                                            if (r.ok && j.success) { this.on = j.show_on_website; } else { this.err = j.message || ('HTTP ' + r.status); }
+                                        } catch (e) { this.err = e.message || 'Network error'; }
+                                        this.loading = false;
+                                    }
+                                 }">
+                                <button type="button" @click.stop="toggle()" :disabled="loading"
+                                        class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                                        :style="on ? 'background:var(--ds-green)' : 'background:var(--surface-3)'"
+                                        role="switch" :aria-checked="on">
+                                    <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                          style="background:#fff; margin-top:2px;"
+                                          :style="on ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                </button>
+                                <span style="color:var(--text-secondary);">Show on website</span>
+                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase"
+                                      :style="on ? 'background:rgba(34,197,94,0.15); color:var(--ds-green);' : 'background:var(--surface-3); color:var(--text-muted);'"
+                                      x-text="on ? 'On' : 'Off'"></span>
+                                <span x-show="err" x-cloak class="text-[0.6875rem]" style="color:var(--ds-crimson);" x-text="err"></span>
+                            </div>
+                            @else
+                            {{-- New user: form checkbox (no id yet to toggle) --}}
+                            <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                                <input type="hidden" name="show_on_website" value="0">
+                                <input type="checkbox" name="show_on_website" value="1" class="rounded"
+                                       style="accent-color:var(--brand-icon, #0ea5e9);"
+                                       {{ old('show_on_website') ? 'checked' : '' }}>
+                                Show on website
+                            </label>
+                            @endif
+                        @endif
                     </div>
                 </div>
 
