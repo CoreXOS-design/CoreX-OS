@@ -92,6 +92,37 @@ class Phase1cKeyManagementTest extends TestCase
             ->assertSessionHasErrors('webhook_url');
     }
 
+    public function test_edit_updates_scopes_and_webhook_without_a_new_key(): void
+    {
+        $key = $this->makeKey(['scopes' => [AgencyApiKey::SCOPE_LISTINGS_READ], 'webhook_url' => null]);
+
+        $this->actingAs($this->user)->put(route('agencies.api-keys.update', [$this->agency, $key]), [
+            'name'        => 'Coastal Website',
+            'scopes'      => [AgencyApiKey::SCOPE_LISTINGS_READ, AgencyApiKey::SCOPE_WEBHOOKS_RECEIVE],
+            'webhook_url' => 'https://coastal.example/hook',
+        ])->assertRedirect();
+
+        $key->refresh();
+        $this->assertSame('Coastal Website', $key->name);
+        $this->assertEqualsCanonicalizing(
+            [AgencyApiKey::SCOPE_LISTINGS_READ, AgencyApiKey::SCOPE_WEBHOOKS_RECEIVE],
+            $key->scopes
+        );
+        $this->assertSame('https://coastal.example/hook', $key->webhook_url);
+        // webhooks:receive now granted → a signing secret was minted.
+        $this->assertNotEmpty($key->webhook_secret);
+        // Same key — no new row created.
+        $this->assertSame(1, AgencyApiKey::withoutGlobalScope(AgencyScope::class)->where('agency_id', $this->agency->id)->count());
+    }
+
+    public function test_edit_requires_a_name(): void
+    {
+        $key = $this->makeKey();
+        $this->actingAs($this->user)
+            ->put(route('agencies.api-keys.update', [$this->agency, $key]), ['name' => '', 'scopes' => []])
+            ->assertSessionHasErrors('name');
+    }
+
     public function test_regenerate_rotates_secret_and_reactivates(): void
     {
         $key = $this->makeKey(['revoked_at' => now()]);

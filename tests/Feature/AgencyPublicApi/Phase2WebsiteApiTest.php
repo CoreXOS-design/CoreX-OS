@@ -185,6 +185,48 @@ class Phase2WebsiteApiTest extends TestCase
             ->assertViewHas('groups', fn ($groups) => $groups->has('Website'));
     }
 
+    public function test_listing_detail_exposes_full_p24_parity_fields(): void
+    {
+        $p = Property::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'external_id' => (string) Str::uuid(), 'title' => 'Rental unit', 'suburb' => 'Uvongo',
+            'property_type' => 'apartment', 'listing_type' => 'rental', 'status' => 'active',
+            'beds' => 2, 'baths' => 1, 'garages' => 1, 'size_m2' => 85, 'erf_size_m2' => 0,
+            'rental_amount' => 12500, 'deposit_amount' => 25000, 'has_deposit' => true, 'lease_period' => '12 months',
+            'rates_taxes' => 800, 'levy' => 1500, 'special_levy' => 200, 'pet_friendly' => true,
+            'complex_name' => 'Sea Breeze', 'unit_number' => '4B', 'floor_number' => 4,
+            'features_json' => ['Pool', 'Sea view'], 'spaces_json' => ['Covered parking'],
+            'gallery_categories_json' => ['Kitchen' => ['https://img.example/k1.jpg']],
+            'youtube_video_id' => 'abc123', 'virtual_tour_url' => 'https://tour.example/1',
+            'published_at' => now(),
+        ]);
+        \App\Models\PropertyShowday::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'property_id' => $p->id,
+            'start_date' => now()->addDay(), 'end_date' => now()->addDay()->addHours(2),
+            'description' => 'Open house', 'active' => true,
+        ]);
+        $this->syndicate($p, true);
+
+        $r = $this->withToken($this->token)->getJson("/api/v1/website/listings/{$p->id}")->assertOk();
+        $r->assertJsonPath('data.mandate_type', null === $p->mandate_type ? null : $p->mandate_type)
+            ->assertJsonPath('data.rental.rental_amount', 12500)
+            ->assertJsonPath('data.rental.lease_period', '12 months')
+            ->assertJsonPath('data.costs.levy', 1500)
+            ->assertJsonPath('data.costs.special_levy', 200)
+            ->assertJsonPath('data.pet_friendly', true)
+            ->assertJsonPath('data.complex_name', 'Sea Breeze')
+            ->assertJsonPath('data.floor_number', 4)
+            ->assertJsonPath('data.video.youtube_id', 'abc123')
+            ->assertJsonPath('data.video.virtual_tour_url', 'https://tour.example/1');
+
+        $data = $r->json('data');
+        $this->assertContains('Pool', $data['features']);
+        $this->assertContains('Covered parking', $data['spaces']);
+        $this->assertArrayHasKey('Kitchen', $data['gallery']);
+        $this->assertCount(1, $data['show_days']);
+        $this->assertSame('Open house', $data['show_days'][0]['note']);
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private function makeProperty(string $title, string $status, int $price): Property

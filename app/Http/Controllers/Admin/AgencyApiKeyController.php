@@ -23,7 +23,7 @@ class AgencyApiKeyController extends Controller
     /** Generate a new key (= a new website) for the agency. */
     public function store(Request $request, Agency $agency): RedirectResponse
     {
-        $data = $this->validatePayload($request);
+        $data = $this->validatePayload($request, $agency);
 
         $minted = AgencyApiKey::mintSecret();
 
@@ -54,7 +54,7 @@ class AgencyApiKeyController extends Controller
     public function update(Request $request, Agency $agency, AgencyApiKey $apiKey): RedirectResponse
     {
         $this->ensureBelongs($agency, $apiKey);
-        $data = $this->validatePayload($request);
+        $data = $this->validatePayload($request, $agency);
 
         $apiKey->fill([
             'name'               => $data['name'],
@@ -139,9 +139,9 @@ class AgencyApiKeyController extends Controller
 
     // ---- helpers -----------------------------------------------------------
 
-    private function validatePayload(Request $request): array
+    private function validatePayload(Request $request, Agency $agency): array
     {
-        return $request->validate([
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'name'               => 'required|string|max:100',
             'scopes'             => 'nullable|array',
             'scopes.*'           => ['string', Rule::in(array_keys(AgencyApiKey::SCOPES))],
@@ -152,6 +152,20 @@ class AgencyApiKeyController extends Controller
             'name.required' => 'Give the website a name (e.g. “Production website”).',
             'webhook_url.url' => 'The webhook URL must be a valid URL (https://…).',
         ]);
+
+        // On failure, redirect back to the API Access tab (with errors + input)
+        // so the user lands where they were, not the default Company tab.
+        if ($validator->fails()) {
+            throw new \Illuminate\Validation\ValidationException(
+                $validator,
+                redirect()->route('agencies.edit', $agency)
+                    ->withFragment('api-access')
+                    ->withInput($request->all())
+                    ->withErrors($validator)
+            );
+        }
+
+        return $validator->validated();
     }
 
     /** A key must belong to the agency in the route — otherwise 404. */
