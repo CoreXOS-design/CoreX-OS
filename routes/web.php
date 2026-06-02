@@ -1851,6 +1851,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::put('/{agency}/api-keys/{apiKey}',          [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'update'])->name('api-keys.update');
             Route::post('/{agency}/api-keys/{apiKey}/regenerate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'regenerate'])->name('api-keys.regenerate');
             Route::post('/{agency}/api-keys/{apiKey}/revoke',  [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'revoke'])->name('api-keys.revoke');
+            Route::post('/{agency}/api-keys/{apiKey}/bulk-activate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'bulkActivate'])->name('api-keys.bulk-activate');
             Route::delete('/{agency}/api-keys/{apiKey}',       [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'destroy'])->name('api-keys.destroy');
         });
     });
@@ -2048,6 +2049,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/p24-syndication/reactivate', [\App\Http\Controllers\Property24\P24SyndicationController::class, 'reactivate'])->name('p24-syndication.reactivate');
         Route::get('/{property}/p24-syndication/status',      [\App\Http\Controllers\Property24\P24SyndicationController::class, 'status'])->name('p24-syndication.status');
         Route::get('/{property}/p24-syndication/readiness',   [\App\Http\Controllers\Property24\P24SyndicationController::class, 'readiness'])->name('p24-syndication.readiness');
+        // Website syndication — per-(property × website key) toggle. Spec: agency-public-api.md §6.5.2
+        Route::post('/{property}/website-syndication/{apiKey}/toggle', [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'toggle'])->name('website-syndication.toggle');
     });
 
     // Phase 3g — Map module (standalone page + JSON pin + detail endpoints).

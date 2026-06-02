@@ -108,6 +108,24 @@ class AgencyApiKeyController extends Controller
         return $this->backToPanel($agency)->with('success', "“{$apiKey->name}” deleted.");
     }
 
+    /**
+     * "Add all Active listings" — enable this website for every active listing
+     * in the agency, in one batched action (the launch-day button).
+     */
+    public function bulkActivate(Request $request, Agency $agency, AgencyApiKey $apiKey): RedirectResponse
+    {
+        $this->ensureBelongs($agency, $apiKey);
+
+        $summary = app(\App\Services\Syndication\Website\WebsiteSyndicationService::class)
+            ->bulkActivateActive($apiKey);
+
+        return $this->backToPanel($agency)->with(
+            'success',
+            "“{$apiKey->name}”: {$summary['enabled']} active listing(s) enabled" .
+            ($summary['already_live'] > 0 ? ", {$summary['already_live']} already live" : '') . '.'
+        );
+    }
+
     /** Master "website is live" switch for the agency (visibility layer 1). */
     public function toggleWebsite(Request $request, Agency $agency): RedirectResponse
     {
