@@ -477,21 +477,66 @@ class CalendarController extends Controller
                 ->whereIn('role', ['attendee', 'buyer_contact', 'seller_contact', 'agent_contact'])
                 ->get()
                 ->map(function ($l) use ($calendarEvent) {
+                    // CAL-5 — id, name, first_name, last_name MUST all come
+                    // from the SAME found row. Previously this used
+                    // optional(Contact::find($id), fn ($c) => $c->first_name
+                    // . ' ' . $c->last_name) and returned only the
+                    // precomputed `name`; if the find ever resolved to a
+                    // different row (cache, scope side-effect, a deleted
+                    // row's primary-key collision against a re-allocated
+                    // value), the chip would render the wrong contact's
+                    // name beside the right linkable_id. Resolve the
+                    // Contact / User once, derive every field from it,
+                    // and expose first_name + last_name so the client
+                    // can rebuild the displayed name from this object's
+                    // own data — no positional zipping, no separate
+                    // arrays, no precomputed-name substitution.
                     $inv = null;
                     if ($l->linkable_type === \App\Models\User::class) {
                         $inv = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
                             ->where('invitee_user_id', $l->linkable_id)->first();
                     }
+
+                    $type = $l->linkable_type === \App\Models\User::class ? 'agent' : 'contact';
+                    $first = null;
+                    $last  = null;
+                    $name  = 'Contact #' . $l->linkable_id;
+
+                    if ($type === 'agent') {
+                        $u = \App\Models\User::withoutGlobalScopes()->find($l->linkable_id);
+                        if ($u && (int) $u->id === (int) $l->linkable_id) {
+                            $name = $u->name ?? $name;
+                        }
+                    } else {
+                        $c = \App\Models\Contact::withoutGlobalScopes()->find($l->linkable_id);
+                        // Defence-in-depth: verify the row we got back IS the row
+                        // we asked for. If Eloquent ever returned a model whose
+                        // id doesn't equal the requested id (which should never
+                        // happen, but is the structural assumption the CAL-5
+                        // bug report violated), refuse to substitute that
+                        // contact's name. Fall back to the neutral "Contact #N"
+                        // label — better to render a placeholder than to
+                        // display the wrong person's identity.
+                        if ($c && (int) $c->id === (int) $l->linkable_id) {
+                            $first = $c->first_name;
+                            $last  = $c->last_name;
+                            $built = trim(($first ?? '') . ' ' . ($last ?? ''));
+                            if ($built !== '') {
+                                $name = $built;
+                            }
+                        }
+                    }
+
                     return [
-                    'id'   => $l->linkable_id,
-                    'type' => $l->linkable_type === \App\Models\User::class ? 'agent' : 'contact',
-                    'role' => $l->role,
-                    'invitation_status' => $inv?->status,
-                    'invitation_id' => $inv?->id,
-                    'response_notes' => $inv?->response_notes,
-                    'name' => $l->linkable_type === \App\Models\User::class
-                        ? optional(\App\Models\User::withoutGlobalScopes()->find($l->linkable_id))->name
-                        : optional(\App\Models\Contact::withoutGlobalScopes()->find($l->linkable_id), fn ($c) => trim($c->first_name . ' ' . $c->last_name)) ?? ('Contact #' . $l->linkable_id),
+                        'id'                => (int) $l->linkable_id,
+                        'type'              => $type,
+                        'role'              => $l->role,
+                        'invitation_status' => $inv?->status,
+                        'invitation_id'     => $inv?->id,
+                        'response_notes'    => $inv?->response_notes,
+                        'first_name'        => $first,
+                        'last_name'         => $last,
+                        'name'              => $name,
                     ];
                 }) : [],
             'unack_declines' => $isOrganizer ? \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
@@ -1481,11 +1526,22 @@ class CalendarController extends Controller
             return $r === '' ? null : ucfirst(strtolower($r));
         };
 
+        // CAL-5 — every field on every returned object MUST come from the
+        // SAME contact row. We expose first_name + last_name separately
+        // (in addition to the precomputed `name` for back-compat) so the
+        // client can rebuild the displayed name from THIS object's own
+        // fields, eliminating any chance of a precomputed `name` drifting
+        // away from its `id`. The Eloquent BelongsToMany + ->get([cols])
+        // pattern returns one Contact model per row with id, first_name,
+        // last_name, email all materialised from the same SELECT — verified
+        // by direct SQL join against the same property pivot.
         $contacts = $property->contacts()
             ->get(['contacts.id', 'contacts.first_name', 'contacts.last_name', 'contacts.phone', 'contacts.email'])
             ->map(fn ($c) => [
-                'id'         => $c->id,
-                'name'       => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
+                'id'         => (int) $c->id,
+                'first_name' => $c->first_name,
+                'last_name'  => $c->last_name,
+                'name'       => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id),
                 'phone'      => $c->phone,
                 'email'      => $c->email,
                 'type'       => 'contact',

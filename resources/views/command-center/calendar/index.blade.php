@@ -2021,7 +2021,14 @@
                               :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : c.role === 'buyer_contact' ? 'background:var(--brand-icon);color:#fff' : 'background:var(--text-muted);color:#fff')"
                               x-text="c.type === 'agent' ? 'Agent' : (c.role_label || (c.role === 'seller_contact' ? 'Seller' : c.role === 'buyer_contact' ? 'Buyer' : 'Attendee'))"></span>
                         <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">⚠ </span></template>
-                        <span x-text="c.name"></span>
+                        {{-- CAL-5 — chip text is rebuilt from THIS object's
+                             own first_name + last_name fields so the
+                             displayed name can never originate from a
+                             different contact row than c.id. The precomputed
+                             `name` field is only used as a fallback for
+                             chips that pre-date the CAL-5 server response
+                             shape (none in normal flow; defensive only). --}}
+                        <span x-text="(((c.first_name || '') + ' ' + (c.last_name || '')).trim()) || c.name || ('Contact #' + c.id)"></span>
                         <button type="button" @click="remove(c)" class="opacity-60 hover:opacity-100">&times;</button>
                     </span>
                 </template>
@@ -3368,7 +3375,25 @@ function propertySearch() {
             this.chosen.push(r); this.results = []; this.query = '';
             await this.autoPopulateOwners(r.id);
         },
-        remove(p) { this.chosen = this.chosen.filter(x => x.id !== p.id); },
+        remove(p) {
+            this.chosen = this.chosen.filter(x => x.id !== p.id);
+            // CAL-5 — when a property is removed from the picker, also
+            // remove every attendee that was auto-filled FROM that property
+            // (stamped with source_property_id in setOwners). Without this
+            // a stale auto-filled contact from a previously-selected
+            // property would survive into the new selection and the chip
+            // text could be misread as belonging to the new property's
+            // pivot. Manually-added attendees (no source_property_id)
+            // are untouched.
+            const form = this.$el?.closest?.('form');
+            const picker = form?.querySelector('[x-ref="attendeePicker"]');
+            if (picker) {
+                const pickerData = Alpine.$data(picker);
+                pickerData.chosen = (pickerData.chosen || []).filter(c => {
+                    return Number(c.source_property_id) !== Number(p.id);
+                });
+            }
+        },
         get selected() { return this.chosen.length > 0 ? this.chosen[0] : null; },
         async autoPopulateOwners(propertyId) {
             const config = this.getClassConfig();
@@ -3381,9 +3406,20 @@ function propertySearch() {
                 });
                 if (!r.ok) return;
                 const owners = await r.json();
+                // CAL-5 — stamp source_property_id on every auto-filled
+                // contact so propertySearch.remove(p) can scrub them when
+                // the originating property leaves the selection. This is
+                // the "clear prior attendee state when the selected
+                // property changes" guarantee from the spec — applied
+                // per-property so multi-property events keep each
+                // property's auto-fills isolated from the others.
+                const stamped = (Array.isArray(owners) ? owners : []).map(o => ({
+                    ...o,
+                    source_property_id: Number(propertyId),
+                }));
                 const picker = form?.querySelector('[x-ref="attendeePicker"]');
                 if (picker) {
-                    Alpine.$data(picker).setOwners(owners);
+                    Alpine.$data(picker).setOwners(stamped);
                 }
             } catch (e) { console.warn('Auto-populate owners failed:', e); }
         },
