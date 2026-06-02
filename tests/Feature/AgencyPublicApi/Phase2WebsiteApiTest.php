@@ -196,7 +196,9 @@ class Phase2WebsiteApiTest extends TestCase
             'rates_taxes' => 800, 'levy' => 1500, 'special_levy' => 200, 'pet_friendly' => true,
             'complex_name' => 'Sea Breeze', 'unit_number' => '4B', 'floor_number' => 4,
             'features_json' => ['Pool', 'Sea view'], 'spaces_json' => ['Covered parking'],
-            'gallery_categories_json' => ['Kitchen' => ['https://img.example/k1.jpg']],
+            // Photos live in the dusk bucket — proves allImages() merge (not just images_json).
+            'dusk_images_json' => ['https://img.example/dusk1.jpg'],
+            'gallery_categories_json' => ['categories' => [['name' => 'Kitchen', 'images' => ['https://img.example/k1.jpg']]]],
             'youtube_video_id' => 'abc123', 'virtual_tour_url' => 'https://tour.example/1',
             'published_at' => now(),
         ]);
@@ -222,7 +224,9 @@ class Phase2WebsiteApiTest extends TestCase
         $data = $r->json('data');
         $this->assertContains('Pool', $data['features']);
         $this->assertContains('Covered parking', $data['spaces']);
+        $this->assertContains('https://img.example/dusk1.jpg', $data['images']); // allImages() merge
         $this->assertArrayHasKey('Kitchen', $data['gallery']);
+        $this->assertContains('https://img.example/k1.jpg', $data['gallery']['Kitchen']);
         $this->assertCount(1, $data['show_days']);
         $this->assertSame('Open house', $data['show_days'][0]['note']);
     }

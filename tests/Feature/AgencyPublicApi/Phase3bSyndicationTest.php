@@ -81,24 +81,29 @@ class Phase3bSyndicationTest extends TestCase
     public function test_bulk_activate_enables_only_active_listings_and_is_idempotent(): void
     {
         $a1 = $this->makeProperty('active');
-        $a2 = $this->makeProperty('active');
+        $forSale = $this->makeProperty('for_sale');   // real prod status — must be included
+        $toLet = $this->makeProperty('to_let');       // real prod status — must be included
         $draft = $this->makeProperty('draft');
         $sold = $this->makeProperty('sold');
+        $withdrawn = $this->makeProperty('withdrawn');
 
         $svc = app(WebsiteSyndicationService::class);
 
         $first = $svc->bulkActivateActive($this->key);
-        $this->assertSame(2, $first['enabled']);
-        $this->assertSame(0, $first['already_live']);
+        $this->assertSame(3, $first['enabled']); // active + for_sale + to_let
 
-        // Draft + sold are NOT enabled.
+        // Off-market statuses are NOT enabled.
         $this->assertDatabaseMissing('property_website_syndication', ['property_id' => $draft->id, 'enabled' => 1]);
         $this->assertDatabaseMissing('property_website_syndication', ['property_id' => $sold->id, 'enabled' => 1]);
+        $this->assertDatabaseMissing('property_website_syndication', ['property_id' => $withdrawn->id, 'enabled' => 1]);
+        // Marketable ones ARE.
+        $this->assertDatabaseHas('property_website_syndication', ['property_id' => $forSale->id, 'enabled' => 1]);
+        $this->assertDatabaseHas('property_website_syndication', ['property_id' => $toLet->id, 'enabled' => 1]);
 
-        // Idempotent re-run: nothing new, both already live.
+        // Idempotent re-run: nothing new, all three already live.
         $second = $svc->bulkActivateActive($this->key);
         $this->assertSame(0, $second['enabled']);
-        $this->assertSame(2, $second['already_live']);
+        $this->assertSame(3, $second['already_live']);
     }
 
     public function test_bulk_activate_via_admin_route(): void

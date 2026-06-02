@@ -85,8 +85,9 @@ class ListingResource extends JsonResource
 
             'features' => array_values(array_filter((array) ($this->features_json ?? []))),
 
-            // Media.
-            'images'  => $this->mapImages($this->images_json ?: $this->gallery_images_json),
+            // Media — allImages() merges dawn/noon/dusk/gallery/images JSON buckets,
+            // mirroring what CoreX syndicates to P24.
+            'images'  => $this->mapImages($this->allImages()),
             'gallery' => $this->mapGallery(),
             'video'   => [
                 'youtube_id'       => $this->youtube_video_id,
@@ -119,7 +120,7 @@ class ListingResource extends JsonResource
      */
     private function mapImages($raw): array
     {
-        return array_values(array_filter(array_map(function ($item) {
+        $mapped = array_filter(array_map(function ($item) {
             $val = is_array($item) ? ($item['url'] ?? $item['path'] ?? null) : $item;
             if (!is_string($val) || $val === '') {
                 return null;
@@ -128,18 +129,35 @@ class ListingResource extends JsonResource
                 return $val;
             }
             return Storage::disk('public')->url(ltrim($val, '/'));
-        }, (array) $raw)));
+        }, (array) $raw));
+
+        return array_values(array_unique($mapped));
     }
 
     /**
-     * Categorised gallery: { category => [urls] }. Mirrors P24's gallery
-     * categories so the website can group images (e.g. "Kitchen", "Garden").
+     * Categorised gallery: { category => [urls] }. Handles both the canonical
+     * CoreX shape gallery_categories_json = {categories:[{name, images:[]}]} and
+     * a plain {name: [images]} map.
      */
     private function mapGallery(): array
     {
-        $cats = (array) ($this->gallery_categories_json ?? []);
+        $raw = $this->gallery_categories_json ?? [];
         $out = [];
-        foreach ($cats as $name => $images) {
+
+        if (isset($raw['categories']) && is_array($raw['categories'])) {
+            foreach ($raw['categories'] as $cat) {
+                $urls = $this->mapImages($cat['images'] ?? []);
+                if (!empty($urls)) {
+                    $out[(string) ($cat['name'] ?? 'Gallery')] = $urls;
+                }
+            }
+            return $out;
+        }
+
+        foreach ((array) $raw as $name => $images) {
+            if (!is_array($images)) {
+                continue;
+            }
             $urls = $this->mapImages($images);
             if (!empty($urls)) {
                 $out[(string) $name] = $urls;

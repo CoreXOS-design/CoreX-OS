@@ -94,9 +94,12 @@ class WebsiteSyndicationService
         $alreadyLive = 0;
         $scanned = 0;
 
+        // "Active" = currently marketable. Statuses vary across data
+        // (active / for_sale / for_rent / to_let / on_show / under_offer …), so we
+        // exclude the clearly off-market ones rather than whitelist a single value.
         Property::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $key->agency_id)
-            ->where('status', 'active')
+            ->whereNotIn('status', ['draft', 'sold', 'withdrawn'])
             ->with('agent')
             ->chunkById(200, function ($properties) use ($key, &$enabled, &$alreadyLive, &$scanned) {
                 foreach ($properties as $property) {
