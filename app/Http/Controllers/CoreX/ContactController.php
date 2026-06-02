@@ -132,12 +132,20 @@ class ContactController extends Controller
         }
         $drivePropertyMap = $contact->properties->keyBy('id');
 
-        // Viewings & Feedback — buyer perspective: events where this contact is buyer/attendee
+        // Viewings & Feedback — buyer perspective: every event where this
+        // contact appears as a Contact-typed link, regardless of pivot.role.
+        // CAL-7 Class 3 — previously this whitelisted role IN [buyer_contact,
+        // attendee]. On staging's live-copy DB (and any host where CAL-7
+        // Class 1's null-config path saves links with a different role),
+        // valid contact links with role='seller_contact' or NULL were
+        // silently dropped — surface-level symptom: "captured feedback on a
+        // viewing, the contact page shows nothing." The linkable_type
+        // predicate already restricts to Contact rows; the role filter
+        // was duplicative + harmful.
         $buyerViewings = collect();
         $buyerEventIds = \DB::table('calendar_event_links')
             ->where('linkable_type', \App\Models\Contact::class)
             ->where('linkable_id', $contact->id)
-            ->whereIn('role', ['buyer_contact', 'attendee'])
             ->pluck('calendar_event_id');
 
         if ($buyerEventIds->isNotEmpty()) {
@@ -180,11 +188,19 @@ class ContactController extends Controller
             $buyerViewings = $buyerViewings->sortByDesc('event_date')->values();
         }
 
-        // Seller perspective: properties this contact owns, and feedback from buyers on those
+        // Seller perspective: every property this contact is linked to in the
+        // contact_property pivot, regardless of role. CAL-7 Class 3 — the
+        // ['owner','seller','landlord','lessor'] whitelist matched the
+        // pre-CAL-4 propertyOwners whitelist and dropped pivot rows with
+        // NULL or any other role. The same scale-dependent staging bug
+        // CAL-4 fixed for the create-event auto-fill applied here on the
+        // contact-page read side. Surface every linked property; the
+        // section header reads "Seller perspective" but a contact linked
+        // to a property via ANY role is effectively a stakeholder in that
+        // property's viewing feedback.
         $sellerViewings = collect();
         $ownedPropertyIds = \DB::table('contact_property')
             ->where('contact_id', $contact->id)
-            ->whereIn('role', ['owner', 'seller', 'landlord', 'lessor'])
             ->pluck('property_id');
 
         if ($ownedPropertyIds->isNotEmpty()) {

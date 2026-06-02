@@ -37,6 +37,31 @@ class AgencyFeedbackOptionsSeeder extends Seeder
             ['category' => 'lost_reason', 'label' => 'Personal circumstances changed',  'sort_order' => 50],
             ['category' => 'lost_reason', 'label' => 'Lost contact',                    'sort_order' => 60],
             ['category' => 'lost_reason', 'label' => 'Other',                           'sort_order' => 99],
+
+            // CAL-7 Class 4 — listing-presentation outcomes. Previously
+            // these were hardcoded in CalendarController::showFeedback at
+            // L624-627 ('Mandate signed', 'Considering', ...), bypassing
+            // the seed table. Migrating into agency_feedback_options
+            // means: same source of truth for every feedback variant; per-
+            // agency override possible (set agency_id=X for a custom list);
+            // empty-state banner (CAL-6) catches missing data uniformly
+            // across feedback modes.
+            ['category' => 'lp_outcome', 'label' => 'Mandate signed',       'sort_order' => 10],
+            ['category' => 'lp_outcome', 'label' => 'Considering',          'sort_order' => 20],
+            ['category' => 'lp_outcome', 'label' => 'Lost',                 'sort_order' => 30],
+            ['category' => 'lp_outcome', 'label' => 'Other agent',          'sort_order' => 40],
+            ['category' => 'lp_outcome', 'label' => 'Pricing too far',      'sort_order' => 50],
+            ['category' => 'lp_outcome', 'label' => 'Not ready',            'sort_order' => 60],
+            ['category' => 'lp_outcome', 'label' => 'Reschedule',           'sort_order' => 70],
+
+            // CAL-7 Class 4 — listing-presentation mandate types. Same
+            // story: previously hardcoded as ['Sole','Open','N/A']; now
+            // seeded so the listing-presentation modal renders the same
+            // way the per-contact mode does (empty table -> empty-state
+            // banner; populated -> rendered options).
+            ['category' => 'lp_mandate_type', 'label' => 'Sole', 'sort_order' => 10],
+            ['category' => 'lp_mandate_type', 'label' => 'Open', 'sort_order' => 20],
+            ['category' => 'lp_mandate_type', 'label' => 'N/A',  'sort_order' => 30],
         ];
 
         foreach ($defaults as $option) {

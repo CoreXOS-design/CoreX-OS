@@ -461,9 +461,21 @@ class CalendarController extends Controller
             'is_past' => $calendarEvent->event_date->isPast(),
             'has_contacts' => $calendarEvent->linkedContacts()->exists(),
             'is_editable' => $isManual,
-            'is_actionable' => ($cfg->event_nature ?? 'actionable') === 'actionable',
-            'actor_role' => $cfg->actor_role ?? 'neither',
-            'completion_behaviour' => $cfg->completion_behaviour ?? 'freeform',
+            // CAL-7 Class 1 — explicit null-safe with SENSIBLE ACTIVE defaults.
+            // Locally the seeder populates every event_class row; staging
+            // (live-copy DB pre-dating SEED-GUARD) often has zero rows so
+            // forAgencyAndClass() returns null. PHP 8's `??` already prevents
+            // the throw, but the previous defaults silently DISABLED features
+            // (actor_role='neither' -> autoPopulateOwners never fires;
+            // completion_behaviour='freeform' -> no "Require feedback" gate).
+            // The new defaults keep the calendar usable when reference data
+            // is missing: 'both' covers buyer + seller auto-fill; the
+            // deploy-verify hard-fails if calendar_event_class_settings is
+            // empty so this branch is the runtime safety-net, not the
+            // expected steady state.
+            'is_actionable' => ($cfg?->event_nature ?? 'actionable') === 'actionable',
+            'actor_role' => $cfg?->actor_role ?? 'both',
+            'completion_behaviour' => $cfg?->completion_behaviour ?? 'freeform',
             'is_draggable' => $isManual,
             'linked_property' => $calendarEvent->property_id ? [
                 'id' => $calendarEvent->property_id,
@@ -580,7 +592,13 @@ class CalendarController extends Controller
 
         $agencyId = $calendarEvent->agency_id;
         $cfg = CalendarEventClassSetting::forAgencyAndClass($agencyId, $calendarEvent->category);
-        $feedbackMode = $cfg->feedback_mode ?? 'per_contact';
+        // CAL-7 Class 1 — null-safe. Default 'per_contact' is the historically
+        // correct mode for the most common event (viewings); the heuristic
+        // below catches the one known case where the class is by definition
+        // per_property (listing presentations) so a missing-config staging
+        // doesn't degrade their feedback flow.
+        $feedbackMode = $cfg?->feedback_mode
+            ?? ($calendarEvent->category === 'listing_presentation' ? 'per_property' : 'per_contact');
 
         $properties = $calendarEvent->linkedProperties;
 
@@ -621,11 +639,25 @@ class CalendarController extends Controller
                     'internal_notes' => optional($existing->get($p->id))->internal_notes,
                     'next_action'    => optional($existing->get($p->id))->next_action_notes,
                 ]),
-                'lp_outcomes' => [
-                    'Mandate signed', 'Considering', 'Lost', 'Other agent',
-                    'Pricing too far', 'Not ready', 'Reschedule',
-                ],
-                'lp_mandate_types' => ['Sole', 'Open', 'N/A'],
+                // CAL-7 Class 4 — read lp_outcome + lp_mandate_type from the
+                // same agency_feedback_options table the per_contact mode
+                // uses (the seeder now seeds them). Empty seed -> empty
+                // array -> CAL-6 empty-state banner fires consistently
+                // across both feedback modes.
+                'lp_outcomes' => \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
+                    ->where('category', 'lp_outcome')
+                    ->where('is_active', true)
+                    ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
+                    ->orderBy('sort_order')
+                    ->pluck('label')
+                    ->values(),
+                'lp_mandate_types' => \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
+                    ->where('category', 'lp_mandate_type')
+                    ->where('is_active', true)
+                    ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
+                    ->orderBy('sort_order')
+                    ->pluck('label')
+                    ->values(),
                 'lp_concerns' => $concerns,
                 'outcomes' => $outcomes,
                 'concerns' => $concerns,
@@ -1405,7 +1437,14 @@ class CalendarController extends Controller
             ->where(fn($q) => $q->where('agency_id', $user->effectiveAgencyId())->orWhereNull('agency_id'))
             ->orderByRaw('agency_id IS NULL')
             ->first();
-        $defaultRole = match ($classConfig->actor_role ?? 'neither') {
+        // CAL-7 Class 1 — null-safe with explicit fallback. When the class
+        // config row is missing on staging (no seed), `actor_role` falls
+        // through to the default `attendee` role rather than throwing or
+        // mis-typing the saved link. Both that role and any class-resolved
+        // role end up in calendar_event_links.role; the read-side relation
+        // (CAL-7 Class 3) no longer whitelists, so any of these surface
+        // correctly on every read surface.
+        $defaultRole = match ($classConfig?->actor_role ?? 'neither') {
             'buyer_action' => 'buyer_contact',
             'seller_action' => 'seller_contact',
             default => CalendarEventLink::ROLE_ATTENDEE,

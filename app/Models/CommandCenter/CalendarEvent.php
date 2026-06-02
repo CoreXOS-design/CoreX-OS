@@ -130,8 +130,17 @@ class CalendarEvent extends Model
 
     public function linkedContacts(): MorphToMany
     {
-        return $this->morphedByMany(Contact::class, 'linkable', 'calendar_event_links', 'calendar_event_id')
-            ->wherePivotIn('role', [CalendarEventLink::ROLE_ATTENDEE, 'buyer_contact', 'seller_contact']);
+        // CAL-7 Class 3 — surface EVERY contact link, regardless of pivot.role.
+        // Previously this whitelisted role IN [attendee, buyer_contact,
+        // seller_contact]. On staging's live-copy DB, legacy calendar_event_
+        // links rows exist with role=NULL or other historical values, and
+        // when CalendarEventClassSetting rows are missing (no seed), newly
+        // saved links default to 'attendee' — but the same Class 1 path
+        // could land any role here in future. The polymorphic
+        // linkable_type=Contact::class predicate is already correct
+        // scoping; the role filter was a duplicate of intent that excluded
+        // valid contacts.
+        return $this->morphedByMany(Contact::class, 'linkable', 'calendar_event_links', 'calendar_event_id');
     }
 
     public function linkedDeals(): MorphToMany

@@ -33,6 +33,18 @@ class CalendarEventClassSetting extends Model
         // 'freeform' the panel never offered "Capture Feedback to
         // Complete". CalendarEventClassSeeder now reasserts the map.
         'actor_role', 'completion_behaviour',
+        // CAL-7 Class 6 — every migration column that the app is meant to
+        // set must appear here. Previously omitted columns silently
+        // dropped their mass-assigned values (Model::create([col=>X])
+        // -> row got the DB default). The regression test at
+        // tests/Feature/Calendar/CalendarEventClassSettingFillableTest.php
+        // compares this list against Schema::getColumnListing and fails
+        // CI on any divergence — so the next contributor adding a
+        // migration is forced to update both sides.
+        //   feedback_mode  — 2026_05_11_094044
+        //   buyer_facing   — 2026_05_05_000021
+        'feedback_mode',
+        'buyer_facing',
     ];
 
     public const NATURE_ACTIONABLE    = 'actionable';

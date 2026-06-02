@@ -155,11 +155,14 @@ class PropertyIntelligenceService
             ->where('category', 'outcome')
             ->pluck('label', 'id');
 
-        // Resolve buyer contacts for each event
+        // Resolve buyer contacts for each event. CAL-7 Class 3 — dropped the
+        // ['buyer_contact','attendee'] whitelist; on staging legacy/missing-
+        // config events save links with other roles (or NULL), and they
+        // were silently absent from the property-page feedback list.
+        // linkable_type=Contact is sufficient scoping.
         $buyerLinks = DB::table('calendar_event_links')
             ->whereIn('calendar_event_id', $eventIds)
             ->where('linkable_type', 'App\\Models\\Contact')
-            ->whereIn('role', ['buyer_contact', 'attendee'])
             ->get()
             ->groupBy('calendar_event_id');
 

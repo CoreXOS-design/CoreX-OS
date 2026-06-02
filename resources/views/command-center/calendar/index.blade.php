@@ -46,7 +46,7 @@
     };
 @endphp
 
-<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); } }); $watch('panelOpen', open => { if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
+<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
     {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
     <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-4 lg:pt-6" style="background: var(--bg);">
@@ -1878,9 +1878,18 @@
     </div>
 
     {{-- Body (scrollable) --}}
+    {{-- CAL-7 Class 2 — on submit, clear the panel's sessionStorage state so
+         the redirect-back doesn't restore the just-saved chips onto the
+         next "+ New Event" click. The form data itself has already been
+         serialised into the POST body by the browser at this point;
+         clearing chosen[] now does not affect what the server receives.
+         If validation returns 422 the user lands back with old() input
+         in form fields but the picker chips are gone — acceptable
+         trade-off for the much more common success path. --}}
     <form id="createEventFormV2" method="POST"
           :action="editMode ? '/corex/command-center/calendar/' + editingEventId : '{{ route('command-center.calendar.store') }}'"
-          class="flex-1 overflow-y-auto px-6 py-4 space-y-4" @submit="submitting = true">
+          class="flex-1 overflow-y-auto px-6 py-4 space-y-4"
+          @submit="submitting = true; sessionStorage.removeItem('corex.calendar.createEventState'); clearStalePickerState();">
         @csrf
         <template x-if="editMode"><input type="hidden" name="_method" value="PUT"></template>
 
@@ -2693,6 +2702,12 @@ function calendarPage() {
                 this.editMode = false;
                 this.editingEventId = null;
                 this.showCreateEvent = true;
+                // CAL-7 Class 2 — clear any prior session-restored chips
+                // BEFORE the prefill pushes its own. Without this, a
+                // session-restored Larochelle (from a previous panel state)
+                // would merge with the URL prefill's contact and the user
+                // would see TWO chips, one of which they didn't pick.
+                this.clearStalePickerState();
 
                 // Pre-populate property picker if the buyer-pipeline handoff
                 // passed properties. Runs after $nextTick so the form is in the DOM.
