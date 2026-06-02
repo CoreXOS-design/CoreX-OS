@@ -622,7 +622,7 @@
             <p class="text-xs" style="color:var(--text-muted);">Each website gets its own key. The key's name is the label shown as its Syndication Portal on every property.</p>
 
             @forelse($agency->apiKeys as $key)
-                <div class="rounded-md p-3 space-y-2" style="background: var(--surface); border:1px solid var(--border);">
+                <div class="rounded-md p-3 space-y-2" style="background: var(--surface); border:1px solid var(--border);" x-data="{ editing: false }">
                     <div class="flex items-center justify-between gap-3 flex-wrap">
                         <div>
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $key->name }}</div>
@@ -640,6 +640,7 @@
                     </div>
                     @if(auth()->user()?->hasPermission('agency_api.manage'))
                     <div class="flex gap-2 flex-wrap pt-1">
+                        <button type="button" @click="editing = !editing" class="corex-btn-outline text-xs" x-text="editing ? 'Close' : 'Edit scopes / webhook'"></button>
                         <form method="POST" action="{{ route('agencies.api-keys.regenerate', [$agency, $key]) }}" onsubmit="return confirm('Regenerate the secret? The old secret stops working immediately.');">
                             @csrf
                             <button class="corex-btn-outline text-xs">Regenerate secret</button>
@@ -655,6 +656,38 @@
                             <button class="corex-btn-outline text-xs" style="color:var(--ds-crimson);">Delete</button>
                         </form>
                     </div>
+
+                    {{-- Inline edit: change scopes / webhook on an existing key (no new key needed) --}}
+                    <form x-show="editing" x-cloak method="POST" action="{{ route('agencies.api-keys.update', [$agency, $key]) }}"
+                          class="space-y-3 pt-2 mt-1" style="border-top:1px solid var(--border);">
+                        @csrf @method('PUT')
+                        <div>
+                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Website name</label>
+                            <input type="text" name="name" required maxlength="100" value="{{ $key->name }}"
+                                   class="rounded-md px-3 py-2 text-sm w-full max-w-md"
+                                   style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Scopes</label>
+                            <div class="flex flex-col gap-1">
+                                @foreach(\App\Models\AgencyApiKey::SCOPES as $scopeKey => $scopeLabel)
+                                    <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                        <input type="checkbox" name="scopes[]" value="{{ $scopeKey }}"
+                                               {{ in_array($scopeKey, $key->scopes ?? [], true) ? 'checked' : '' }}>
+                                        {{ $scopeLabel }} <span class="text-xs font-mono" style="color:var(--text-muted);">{{ $scopeKey }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Webhook URL (optional)</label>
+                            <input type="url" name="webhook_url" value="{{ $key->webhook_url }}"
+                                   class="rounded-md px-3 py-2 text-sm w-full max-w-md"
+                                   style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);"
+                                   placeholder="https://your-site.co.za/api/corex-webhook">
+                        </div>
+                        <button type="submit" class="corex-btn-primary text-xs">Save changes</button>
+                    </form>
                     @endif
                 </div>
             @empty
