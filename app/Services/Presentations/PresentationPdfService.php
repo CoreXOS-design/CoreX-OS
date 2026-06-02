@@ -1299,7 +1299,52 @@ a:hover { text-decoration: underline; }
 </div>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 2 — SUBJECT PROPERTY CARD (Build 8 — hero image + subject map)
+      // PAGE 2 — EXECUTIVE SUMMARY (B2-followup: moved BEFORE Subject card)
+      // ══════════════════════════════════════════════════════════════════════ ?>
+<?php // B2 — Executive Summary primary page (spec
+      // .ai/specs/seller-report-restructure.md).
+      // Pure prose + five token-templated bullets. The CMA tiles +
+      // price-position chart + recommended-band callout that used to
+      // live here have moved to Beat 4 (Pricing Strategy section)
+      // where they belong as proof, not summary. The bullets each
+      // carry their canonical figures + a → p.{N} cross-reference
+      // computed in buildSummaryPayload(). ?>
+<div class="page-break"></div>
+<div class="section-header">
+    <span class="section-number">1</span>
+    <h2>Executive Summary</h2>
+</div>
+
+<?php // AI tone prose — figure-free per spec §2. Frozen on the
+      // version snapshot. If a legacy version has hard figures in its
+      // stored text, the bullets below carry the load and the prose
+      // reads as warm context. ?>
+<?php if (!empty($summary['tone_text'])): ?>
+    <div style="font-size:12px;line-height:1.65;color:var(--text-primary);margin-bottom:18px;white-space:pre-wrap;"><?= e($summary['tone_text']) ?></div>
+<?php endif ?>
+
+<?php // Five bullets — locked copy from spec §3, tokens resolved in
+      // buildSummaryPayload. Suppressed bullets are skipped per spec
+      // §7 degraded-state matrix; the sectionIndex page refs already
+      // account for the recompute. ?>
+<ol style="list-style:none;padding:0;margin:0;counter-reset:execbullet;">
+    <?php foreach ($summary['bullets'] as $b): ?>
+        <?php if (!empty($b['suppressed'])) continue; ?>
+        <li style="display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--border);counter-increment:execbullet;">
+            <div style="flex-shrink:0;width:28px;height:28px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">
+                <?= array_search($b, $summary['bullets'], true) + 1 ?>
+            </div>
+            <div style="flex:1;font-size:12.5px;line-height:1.65;color:var(--text);">
+                <?= $b['html'] ?>
+                <span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:3px;background:var(--bg-alt);font-size:10.5px;font-weight:600;color:var(--text-muted);">→ <?= $b['ref'] ?></span>
+            </div>
+        </li>
+    <?php endforeach ?>
+</ol>
+
+<?php // ══════════════════════════════════════════════════════════════════════
+      // PAGE 3 — BEAT 1 · YOUR PROPERTY (B2-followup: Subject card moved
+      // AFTER Exec Summary so the Bullet 1 → p.3 ref lines up physically).
       // Layout: hero image beside a clean fact grid, subject location map
       // below. Default fact set is intentionally trim (address / suburb /
       // type / beds / baths / garages / extent / asking) — agents will tune
@@ -1307,6 +1352,8 @@ a:hover { text-decoration: underline; }
       // .subject-card so it never splits across a page boundary.
       // POPIA: no owner field is rendered.
       // ══════════════════════════════════════════════════════════════════════ ?>
+<div class="page-break"></div>
+<div class="beat-eyebrow">Section <?= $summary['section_index']['your_property'] ?? 3 ?> · Beat 1 — Your Property</div>
 <div class="subject-card">
     <div class="subject-card-header">
         <div class="accent"></div>
@@ -1375,50 +1422,6 @@ a:hover { text-decoration: underline; }
         <?php endif ?>
     </div>
 </div>
-
-<?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 2 — EXECUTIVE SUMMARY
-      // ══════════════════════════════════════════════════════════════════════ ?>
-<?php // B2 — Executive Summary primary page (spec
-      // .ai/specs/seller-report-restructure.md).
-      // Pure prose + five token-templated bullets. The CMA tiles +
-      // price-position chart + recommended-band callout that used to
-      // live here have moved to Beat 4 (Pricing Strategy section)
-      // where they belong as proof, not summary. The bullets each
-      // carry their canonical figures + a → p.{N} cross-reference
-      // computed in buildSummaryPayload(). ?>
-<div class="page-break"></div>
-<div class="section-header">
-    <span class="section-number">1</span>
-    <h2>Executive Summary</h2>
-</div>
-
-<?php // AI tone prose — figure-free per spec §2. Frozen on the
-      // version snapshot. If a legacy version has hard figures in its
-      // stored text, the bullets below carry the load and the prose
-      // reads as warm context. ?>
-<?php if (!empty($summary['tone_text'])): ?>
-    <div style="font-size:12px;line-height:1.65;color:var(--text-primary);margin-bottom:18px;white-space:pre-wrap;"><?= e($summary['tone_text']) ?></div>
-<?php endif ?>
-
-<?php // Five bullets — locked copy from spec §3, tokens resolved in
-      // buildSummaryPayload. Suppressed bullets are skipped per spec
-      // §7 degraded-state matrix; the sectionIndex page refs already
-      // account for the recompute. ?>
-<ol style="list-style:none;padding:0;margin:0;counter-reset:execbullet;">
-    <?php foreach ($summary['bullets'] as $b): ?>
-        <?php if (!empty($b['suppressed'])) continue; ?>
-        <li style="display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--border);counter-increment:execbullet;">
-            <div style="flex-shrink:0;width:28px;height:28px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">
-                <?= array_search($b, $summary['bullets'], true) + 1 ?>
-            </div>
-            <div style="flex:1;font-size:12.5px;line-height:1.65;color:var(--text);">
-                <?= $b['html'] ?>
-                <span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:3px;background:var(--bg-alt);font-size:10.5px;font-weight:600;color:var(--text-muted);">→ <?= $b['ref'] ?></span>
-            </div>
-        </li>
-    <?php endforeach ?>
-</ol>
 
 <?php // ══════════════════════════════════════════════════════════════════════
       // PAGE 3 — MARKET OVERVIEW  (Build 4 toggleable)
