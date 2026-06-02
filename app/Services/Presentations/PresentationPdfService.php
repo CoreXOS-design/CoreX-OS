@@ -156,18 +156,34 @@ class PresentationPdfService
             'recommendation' => $recommendedPrice !== null,             // §7: no CMA middle → Beat 4 suppressed
             'waiting'        => $holdingMonthly > 0,                    // §7: zero monthly_total → Beat 5 suppressed
         ];
+
+        // B2-followup-2 — per-beat page sizes calibrated to the post-
+        // reorder physical layout. Beats are no longer uniform 1-page
+        // blocks: Beat 2 (Market Overview + Recent Sales table + sale-
+        // trend chart + Spatial map) spans roughly 3 pages, Beat 3
+        // (Active Competition + Scored Competitor cards) spans roughly
+        // 2 pages. Beats 1, 4, 5 each fit on one page in the common
+        // case. These are approximations — Chromium pagination depends
+        // on exact content size — but they're MUCH closer to physical
+        // truth than the previous uniform 1-page-per-beat assumption.
+        // Suppressed beats (per beatPresent above) consume zero pages,
+        // so a no-comps subject's Beat 3/4/5 refs shift up correctly.
+        $beatSize = [
+            'your_property'  => 1,
+            'sold'           => 3,
+            'competition'    => 2,
+            'recommendation' => 1,
+            'waiting'        => 1,
+        ];
         $sectionIndex = [];
         $pageCursor   = 3; // cover=1, exec summary=2, beats start at 3
         foreach ($beatOrder as $beat) {
+            $sectionIndex[$beat] = $pageCursor;
             if ($beatPresent[$beat]) {
-                $sectionIndex[$beat] = $pageCursor++;
-            } else {
-                // Beat absent — still emit an entry pointing at the next
-                // surviving page so the bullet (if it slips through
-                // suppression) lands somewhere sensible. Suppressed
-                // bullets won't render at all in practice.
-                $sectionIndex[$beat] = $pageCursor;
+                $pageCursor += $beatSize[$beat] ?? 1;
             }
+            // Suppressed beats consume zero pages — the next beat lands
+            // on the same page the suppressed one would have started on.
         }
 
         // ── Bullets — locked copy from spec §3, token substitution + ref ──
@@ -576,6 +592,18 @@ class PresentationPdfService
         $propcon     = $data['propcon_insights']    ?? [];
         $holding     = $data['holding_cost']        ?? [];
         $insights    = $data['key_insights']        ?? [];
+
+        // B2-followup-2 — section-number offset for the appendix sections
+        // (Inflow / PropCon / Holding / Pricing Strategy / Scenarios).
+        // Hoisted here from its former mid-heredoc location (was at the
+        // old §7 PropCon close, between PropCon and Holding Cost) so it
+        // resolves BEFORE any of those blocks render — necessary because
+        // the buffer-and-replay refactor captures each block into a
+        // variable and emits in spec order; the locals used inside each
+        // capture must be defined upstream of the capture.
+        $sectionAfterInflow = 6;
+        if (!empty($inflow['has_data']))   $sectionAfterInflow++;
+        if (!empty($propcon['has_data']))  $sectionAfterInflow++;
 
         $compiledAt = $version->compiled_at?->format('d F Y') ?? now()->format('d F Y');
 
@@ -1424,8 +1452,12 @@ a:hover { text-decoration: underline; }
 </div>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 3 — MARKET OVERVIEW  (Build 4 toggleable)
+      // BEAT 2 — What's Happened Around You. Composed of Market Overview
+      // (context strip) + Recent Sales (primary content) + Spatial map.
+      // Banner is unconditional — Beat 2 always exists as a page in the
+      // seller report; the sub-sections inside are agency-toggleable.
       // ══════════════════════════════════════════════════════════════════════ ?>
+<div class="beat-eyebrow">Section <?= $summary['section_index']['sold'] ?? 4 ?> · Beat 2 — What's Happened Around You</div>
 <?php if ($sectionEnabled('market_overview')): ?>
 <div class="section-header">
     <span class="section-number">2</span>
@@ -1930,10 +1962,14 @@ a:hover { text-decoration: underline; }
 <?php endif // /spatial_view ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 5 — COMPARATIVE MARKET ANALYSIS  (Build 4 toggleable as cma_analysis)
+      // BEAT 4 (part 1) — Comparative Market Analysis. B2-followup-2:
+      // captured into $beat4CmaHtml via ob_start so the call-site emit
+      // can re-order beats (Beat 3 must render before Beat 4).
       // ══════════════════════════════════════════════════════════════════════ ?>
+<?php ob_start(); ?>
 <?php if ($sectionEnabled('cma_analysis')): ?>
 <div class="page-break"></div>
+<div class="beat-eyebrow">Section <?= $summary['section_index']['recommendation'] ?? 6 ?> · Beat 4 — Where You Should Be</div>
 <div class="section-header">
     <span class="section-number">4</span>
     <h2>Comparative Market Analysis</h2>
@@ -2128,12 +2164,17 @@ a:hover { text-decoration: underline; }
 <?php endif ?>
 
 <?php endif // /cma_analysis ?>
+<?php $beat4CmaHtml = ob_get_clean(); ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 6 — ACTIVE COMPETITION  (Build 4 toggleable)
+      // BEAT 3 — What's On The Market Now (Active Competition).
+      // B2-followup-2: captured into $beat3Html so the call-site emit
+      // can render it BEFORE Beat 4 (CMA) per spec §1 beat order.
       // ══════════════════════════════════════════════════════════════════════ ?>
+<?php ob_start(); ?>
 <?php if ($sectionEnabled('active_competition')): ?>
 <div class="page-break"></div>
+<div class="beat-eyebrow">Section <?= $summary['section_index']['competition'] ?? 5 ?> · Beat 3 — What's On The Market Now</div>
 <div class="section-header">
     <span class="section-number">5</span>
     <h2>Active Competition</h2>
@@ -2398,10 +2439,14 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <?php endif; ?>
 
 <?php endif // /active_competition ?>
+<?php $beat3Html = ob_get_clean(); ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 7 — NEW LISTING INFLOW & ABSORPTION  (Build 4 toggleable)
+      // APPENDIX — Inflow / Absorption. B2-followup-2: captured into
+      // $appendixInflowHtml so it renders AFTER Beat 5 Holding Cost in
+      // the call-site emit (so Beat 5's bullet → p.7 ref stays correct).
       // ══════════════════════════════════════════════════════════════════════ ?>
+<?php ob_start(); ?>
 <?php if ($sectionEnabled('inflow_absorption')): ?>
 <?php if (!empty($inflow['has_data'])): ?>
 <div class="section-header">
@@ -2568,10 +2613,13 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
       // PropCon section becomes "6" naturally without a duplicate header.
 ?>
 <?php endif // /inflow_absorption ?>
+<?php $appendixInflowHtml = ob_get_clean(); ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 7.5 — PROPCON LISTING PERFORMANCE INSIGHTS
+      // APPENDIX — PropCon Listing Performance. B2-followup-2: captured
+      // into $appendixPropconHtml. Conditional render preserved.
       // ══════════════════════════════════════════════════════════════════════ ?>
+<?php ob_start(); ?>
 <?php if (!empty($propcon['has_data'])): ?>
 <div class="page-break"></div>
 <div class="section-header">
@@ -2691,18 +2739,16 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
     Source: PropCon agency data &middot; <?= number_format($propcon['total_propcon_listings'] ?? 0) ?> listings in database &middot; Updated weekly
 </p>
 <?php endif // end propcon section ?>
-
-<?php
-    // Compute dynamic section number offset for remaining sections
-    $sectionAfterInflow = 6;
-    if (!empty($inflow['has_data'])) $sectionAfterInflow++;
-    if (!empty($propcon['has_data'])) $sectionAfterInflow++;
-?>
+<?php $appendixPropconHtml = ob_get_clean(); ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 8 — HOLDING COST ANALYSIS  (Build 4 toggleable)
+      // BEAT 5 — What Waiting Costs (Holding Cost Analysis). B2-followup-2:
+      // captured into $beat5Html so it renders BEFORE the appendix
+      // (Inflow/PropCon/Pricing Scenarios) in the call-site emit.
       // ══════════════════════════════════════════════════════════════════════ ?>
+<?php ob_start(); ?>
 <?php if ($sectionEnabled('holding_cost')): ?>
+<div class="beat-eyebrow">Section <?= $summary['section_index']['waiting'] ?? 7 ?> · Beat 5 — What Waiting Costs</div>
 <div class="section-header">
     <span class="section-number"><?= $sectionAfterInflow ?></span>
     <h2>Holding Cost Analysis</h2>
@@ -2789,11 +2835,15 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <?php endif ?>
 
 <?php endif // /holding_cost ?>
+<?php $beat5Html = ob_get_clean(); ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 9 — PRICING STRATEGY & RECOMMENDATION  (Build 4 toggleable;
-      // dependency-gated to cma_analysis at the compiler + review layers)
+      // BEAT 4 (part 2) — Pricing Strategy & Recommendation. B2-followup-2:
+      // captured into $beat4StrategyHtml. The call-site emits Beat 4 as
+      // $beat4CmaHtml + $beat4StrategyHtml — grouping CMA + Strategy
+      // contiguously on the recommendation page per spec.
       // ══════════════════════════════════════════════════════════════════════ ?>
+<?php ob_start(); ?>
 <?php if ($sectionEnabled('pricing_strategy')): ?>
 <div class="section-header">
     <span class="section-number"><?= $sectionAfterInflow + 1 ?></span>
@@ -2911,10 +2961,14 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 </div>
 <?php endif ?>
 <?php endif // /pricing_strategy ?>
+<?php $beat4StrategyHtml = ob_get_clean(); ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // PAGE 10 — PRICING SCENARIOS (conditional — only if simulator saved with include_in_pdf)
+      // APPENDIX — Pricing Scenarios (conditional — only if simulator
+      // saved with include_in_pdf). B2-followup-2: captured into
+      // $appendixScenariosHtml so it renders AFTER Beat 5.
       // ══════════════════════════════════════════════════════════════════════ ?>
+<?php ob_start(); ?>
 <?php
     $simConfig = $presentation->simulator_config_json;
     if ($simConfig && !empty($simConfig['include_in_pdf']) && !empty($simConfig['scenarios'])):
@@ -3018,6 +3072,28 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <?php endif ?>
 
 <?php endif // end simulator page ?>
+<?php $appendixScenariosHtml = ob_get_clean(); ?>
+
+<?php // ══════════════════════════════════════════════════════════════════════
+      // B2-followup-2 — BEAT REPLAY in spec order. The Cover, Exec
+      // Summary, Beat 1 (Subject card), and Beat 2 (Market Overview +
+      // Recent Sales + Spatial) already rendered above in physical
+      // order. Now emit the captured buffers in the locked beat order:
+      //   Beat 3 — Active Competition
+      //   Beat 4 — CMA tiles + Pricing Strategy (recommendation)
+      //   Beat 5 — Holding Cost (the close)
+      //   Appendix — Inflow + PropCon + Pricing Scenarios
+      // The bullets on the Exec Summary page → p.N refs were computed
+      // by buildSummaryPayload assuming this order; emit-time order
+      // matches by construction.
+      // ══════════════════════════════════════════════════════════════════════ ?>
+<?= $beat3Html ?>
+<?= $beat4CmaHtml ?>
+<?= $beat4StrategyHtml ?>
+<?= $beat5Html ?>
+<?= $appendixInflowHtml ?>
+<?= $appendixPropconHtml ?>
+<?= $appendixScenariosHtml ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
       // SELLER PRICING CONFIRMATION (conditional — only if seller live capture exists)

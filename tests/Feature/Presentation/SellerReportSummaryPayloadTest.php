@@ -63,13 +63,19 @@ final class SellerReportSummaryPayloadTest extends TestCase
         $data = (new AnalysisDataService())->compile($presentation->fresh(['property']), $version);
         $payload = (new PresentationPdfService())->buildSummaryPayload($presentation, $version, $data);
 
-        // section_index — all five beats present, cover+exec offset = 2.
+        // section_index — all five beats present. Per B2-followup-2,
+        // page cursor accounts for per-beat content size:
+        //   Beat 1 (Your Property)      = 1 page → starts p.3
+        //   Beat 2 (Sold/Market/Spatial) = 3 pages → starts p.4
+        //   Beat 3 (Competition)         = 2 pages → starts p.7
+        //   Beat 4 (Recommendation)      = 1 page → starts p.9
+        //   Beat 5 (Waiting)             = 1 page → starts p.10
         $this->assertSame(['your_property', 'sold', 'competition', 'recommendation', 'waiting'], array_keys($payload['section_index']));
-        $this->assertSame(3, $payload['section_index']['your_property']);
-        $this->assertSame(4, $payload['section_index']['sold']);
-        $this->assertSame(5, $payload['section_index']['competition']);
-        $this->assertSame(6, $payload['section_index']['recommendation']);
-        $this->assertSame(7, $payload['section_index']['waiting']);
+        $this->assertSame(3,  $payload['section_index']['your_property']);
+        $this->assertSame(4,  $payload['section_index']['sold']);
+        $this->assertSame(7,  $payload['section_index']['competition']);
+        $this->assertSame(9,  $payload['section_index']['recommendation']);
+        $this->assertSame(10, $payload['section_index']['waiting']);
 
         // Five bullets, all unsuppressed.
         $this->assertCount(5, $payload['bullets']);
