@@ -1486,16 +1486,29 @@ class CalendarController extends Controller
 
     /**
      * Return ALL linked contacts for a property — used by the create-event
-     * panel's property-select auto-fill (CAL-4). Includes the pivot.role
-     * (raw string) plus a mapped attendee-role suitable for the
-     * calendar_event_links save-side, plus a human-readable role_label
-     * for the chip display. Previously this endpoint applied a hard
-     * whitelist `wherePivotIn('role', ['owner','seller','landlord',
-     * 'lessor'])` — any contact whose pivot.role was NULL or outside
-     * that 4-set was silently dropped, even though property_contacts
-     * relationships freely admit other roles (and blank). Removing the
-     * filter is the load-bearing fix; the rest of the payload changes
-     * exist so the client can label what it received without guessing.
+     * panel's property-select auto-fill.
+     *
+     * CAL-6 — rewritten as a raw DB::table join (no Eloquent BelongsToMany).
+     * The previous Eloquent version was correct in isolation but relied on
+     * the BelongsToMany relation to apply the pivot WHERE clause implicitly,
+     * AND on Contact's global scopes (BelongsToAgency + ContactScope) to
+     * NOT widen the result at scale. Both of those depend on layers above
+     * the SQL — any scope override (sub-class, side-effect inside another
+     * scope, a future relationship rewrite) could re-introduce the
+     * "returns contacts not in the pivot" failure mode. The raw join
+     * makes the WHERE clauses inarguable:
+     *
+     *   FROM contact_property cp
+     *   JOIN contacts c ON c.id = cp.contact_id
+     *   WHERE cp.property_id = ?       — explicit pivot filter
+     *     AND c.deleted_at IS NULL     — explicit soft-delete filter
+     *     AND c.agency_id = ?          — cross-agency belt-and-braces
+     *                                    (the property's own agency_id)
+     *
+     * No global scopes apply to DB::table queries, so the surface area
+     * for "scale-dependent widening" is reduced to the SQL above — and
+     * that SQL has no way to return a contact whose pivot row does not
+     * point at this property.
      */
     public function propertyOwners(Request $request, int $propertyId)
     {
@@ -1526,30 +1539,31 @@ class CalendarController extends Controller
             return $r === '' ? null : ucfirst(strtolower($r));
         };
 
-        // CAL-5 — every field on every returned object MUST come from the
-        // SAME contact row. We expose first_name + last_name separately
-        // (in addition to the precomputed `name` for back-compat) so the
-        // client can rebuild the displayed name from THIS object's own
-        // fields, eliminating any chance of a precomputed `name` drifting
-        // away from its `id`. The Eloquent BelongsToMany + ->get([cols])
-        // pattern returns one Contact model per row with id, first_name,
-        // last_name, email all materialised from the same SELECT — verified
-        // by direct SQL join against the same property pivot.
-        $contacts = $property->contacts()
-            ->get(['contacts.id', 'contacts.first_name', 'contacts.last_name', 'contacts.phone', 'contacts.email'])
-            ->map(fn ($c) => [
-                'id'         => (int) $c->id,
-                'first_name' => $c->first_name,
-                'last_name'  => $c->last_name,
-                'name'       => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id),
-                'phone'      => $c->phone,
-                'email'      => $c->email,
-                'type'       => 'contact',
-                'role'       => $toAttendeeRole($c->pivot->role ?? null),
-                'role_label' => $toRoleLabel($c->pivot->role ?? null),
-            ]);
+        // Raw join — every WHERE clause visible in one SELECT statement.
+        // No global scopes apply (DB::table bypasses Eloquent). The cross-
+        // agency check (c.agency_id = property.agency_id) is belt-and-
+        // braces — a single agency owns both sides of the link by
+        // construction, but the explicit predicate kills any future
+        // cross-agency pivot rows dead.
+        $rows = DB::table('contact_property as cp')
+            ->join('contacts as c', 'c.id', '=', 'cp.contact_id')
+            ->where('cp.property_id', $property->id)
+            ->whereNull('c.deleted_at')
+            ->where('c.agency_id', $property->agency_id)
+            ->orderBy('c.id')
+            ->get(['c.id', 'c.first_name', 'c.last_name', 'c.phone', 'c.email', 'cp.role']);
 
-        return response()->json($contacts);
+        return response()->json($rows->map(fn ($r) => [
+            'id'         => (int) $r->id,
+            'first_name' => $r->first_name,
+            'last_name'  => $r->last_name,
+            'name'       => trim(($r->first_name ?? '') . ' ' . ($r->last_name ?? '')) ?: ('Contact #' . $r->id),
+            'phone'      => $r->phone,
+            'email'      => $r->email,
+            'type'       => 'contact',
+            'role'       => $toAttendeeRole($r->role ?? null),
+            'role_label' => $toRoleLabel($r->role ?? null),
+        ]));
     }
 
     /**

@@ -1497,6 +1497,34 @@
             {{-- Body --}}
             <div class="flex-1 overflow-y-auto px-6 py-4 space-y-6">
 
+                {{-- CAL-6 — empty-state banner. The form's Outcome <select>
+                     and Concerns checkbox list are nested inside the per-
+                     contact / per-property loops and read from
+                     feedbackData.outcomes / .concerns / .lp_outcomes /
+                     .lp_concerns. If the agency_feedback_options table
+                     hasn't been seeded on this host, all four arrays come
+                     back empty, every <select> is reduced to "Select…"
+                     with no options, and the user reads the modal as
+                     "blank". Surface the actual root cause to whoever's
+                     using the form instead of staring at an empty
+                     dropdown. --}}
+                <template x-if="(feedbackData.feedback_mode === 'per_property'
+                                 ? (feedbackData.lp_outcomes.length === 0)
+                                 : (feedbackData.outcomes.length === 0))">
+                    <div class="rounded-md p-4 text-xs"
+                         style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 6%, var(--surface));
+                                border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, var(--border));
+                                color: var(--text-primary);">
+                        <strong>No feedback options configured for this agency.</strong><br>
+                        The Outcome / Concerns lists are empty because
+                        <code>agency_feedback_options</code> has no rows seeded
+                        for this host. An admin needs to run:
+                        <pre class="mt-2 p-2 rounded text-[11px]"
+                             style="background: var(--surface-2); border: 1px solid var(--border); white-space: pre-wrap;">php artisan db:seed --class=Database\Seeders\AgencyFeedbackOptionsSeeder --force</pre>
+                        Once that's done, reopen this event and the form will render its fields.
+                    </div>
+                </template>
+
                 {{-- Per-property feedback (listing_presentation events) --}}
                 <template x-if="feedbackData.feedback_mode === 'per_property'">
                     <div class="space-y-4">
@@ -2457,6 +2485,7 @@ function calendarPage() {
             this.editingEventId = null;
             this.submitting = false;
             this.showCreateEvent = true;
+            this.clearStalePickerState();
         },
 
         // View switches in this calendar are full page reloads (<a href>
@@ -2511,6 +2540,28 @@ function calendarPage() {
                 const el = document.querySelector('[x-data*="' + componentMatch + '"]');
                 return el ? (Alpine.$data(el).chosen || []) : [];
             } catch { return []; }
+        },
+        // CAL-6 — clear stale state on every fresh "+ New Event" open.
+        // Without this, attendees and properties left over from a prior
+        // URL prefill (?prefill_contact_id=X), session-restore on a view
+        // switch, or an edit-mode load would bleed into the new event:
+        // the user would see chips that look "auto-filled" but were
+        // actually carried forward from the previous panel state. The
+        // bug surfaced on staging where a buyer-pipeline handoff for
+        // contact 3177 (Larochelle) left that contact pinned in the
+        // attendee picker; subsequent picking of a different property
+        // didn't displace it, and the user read 3177 as the property's
+        // auto-fill. Runs after the panel becomes visible so Alpine has
+        // wired up the picker components.
+        clearStalePickerState() {
+            this.$nextTick(() => {
+                const form = document.getElementById('createEventFormV2');
+                if (!form) return;
+                const propPicker = form.querySelector('[x-data*="propertySearch"]');
+                if (propPicker) Alpine.$data(propPicker).chosen = [];
+                const attPicker = form.querySelector('[x-ref="attendeePicker"]');
+                if (attPicker) Alpine.$data(attPicker).chosen = [];
+            });
         },
         restoreCreateEventState() {
             try {
@@ -2576,6 +2627,7 @@ function calendarPage() {
             this.editingEventId = null;
             this.submitting = false;
             this.showCreateEvent = true;
+            this.clearStalePickerState();
         },
 
         // â”€â”€ Prefill from URL params (Schedule from Contact/Buyer) â”€â”€
