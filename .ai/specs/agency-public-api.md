@@ -194,6 +194,30 @@ Events that should fire webhooks (emit if not already emitted — current `app/E
 - Retry with exponential backoff (e.g. 1m, 5m, 30m, 2h, 6h) up to N attempts; log every attempt in `agency_webhook_deliveries`.
 - Payloads are small (the changed resource); sites may treat the webhook as a "refresh this id" signal and re-pull via the REST API for the full record.
 
+### 6.3 Operations (cron + .env) — built
+
+Retries are driven by `next_retry_at` + a scheduled sweep, NOT queue-native backoff
+(so a failed POST never marks the queue job failed or floods logs):
+
+- `DeliverAgencyWebhook` (queued) records `response_status` / `delivered_at` /
+  `attempts` / `next_retry_at` / `failed_at` / `last_error`; on failure it sets
+  `next_retry_at` (backoff 1m/5m/30m/2h/6h) up to 5 attempts, then `failed_at`.
+- `webhooks:retry-due` (artisan command) re-dispatches due rows; scheduled
+  `everyMinute()->withoutOverlapping()` in `routes/console.php`.
+
+**CoreX server (one-time, platform-wide — already provisioned on prod):**
+- `.env`: `QUEUE_CONNECTION=database` (webhooks queue instead of blocking requests).
+  No per-website keys live in CoreX's `.env`.
+- Scheduler cron: `* * * * * cd /hfc && php artisan schedule:run >> /dev/null 2>&1`
+  (drives `webhooks:retry-due` + all other CoreX schedules).
+- A queue worker (systemd/supervisor): `php artisan queue:work --queue=default --tries=1`
+  (delivers the webhooks).
+
+**Each website you build (per site):** the key + webhook secret go in THAT site's
+env (`COREX_API_BASE`, `COREX_API_KEY`, `COREX_WEBHOOK_SECRET`) — surfaced in the
+"Connecting a website" note in Admin → Agencies → API Access. Pushes require: master
+switch ON + key has `webhooks:receive` scope + a `webhook_url`.
+
 ---
 
 ## 6.5 Syndication integration (how listings reach the website)
