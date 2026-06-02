@@ -46,7 +46,7 @@
     };
 @endphp
 
-<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (!open) sessionStorage.removeItem('corex.calendar.createEventState'); }); $watch('panelOpen', open => { if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
+<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); } }); $watch('panelOpen', open => { if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
     {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
     <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-4 lg:pt-6" style="background: var(--bg);">
@@ -179,8 +179,11 @@
 
     {{-- ══════ FLEX ROW: Calendar grid + Right panel (fills remaining height) ══════ --}}
     <div class="flex gap-0 flex-1 min-h-0 overflow-hidden px-4 lg:px-6">
-    {{-- Main calendar column (scrolls independently) --}}
-    <div class="flex-1 min-w-0 overflow-y-auto space-y-4 pr-0">
+    {{-- Main calendar column (scrolls independently). CAL-2: min-w pins
+         the calendar so the right-docked create-event aside can never
+         squeeze it to zero — preserves the "calendar stays visible on the
+         left" guarantee when filter panel + create panel are both open. --}}
+    <div class="flex-1 min-w-0 sm:min-w-[320px] overflow-y-auto space-y-4 pr-0">
 
     {{-- ══════ FILTER BAR (compact — panel toggle + active filter summary) ══════ --}}
     <div class="flex items-center gap-3 rounded-md px-4 py-2"
@@ -1810,7 +1813,21 @@
      The panel docks as a real column inside the flex row. When x-show flips
      to true, the panel takes its column space and the grid (flex-1) shrinks
      to make room — no overlap. NO fixed positioning, NO backdrop, NO
-     click-outside-to-close. Escape closes. --}}
+     click-outside-to-close. Escape closes.
+
+     CAL-2 width contract:
+       - Mobile (< sm): w-full — acts as a full-screen sheet because the
+         calendar would be too narrow alongside any side panel anyway.
+       - sm and up: fixed 420px column docked at the right edge of the
+         flex row. Calendar column's min-w-[320px] guarantees it stays
+         visible to the left even when the filter panel is also open.
+         420 + 360 (filter panel) + 320 (calendar min) = 1100px fits a
+         typical laptop viewport; on narrower screens the calendar
+         scrolls horizontally rather than collapsing to zero.
+     The flex-shrink-0 lock keeps the panel at 420px when the grid
+     tries to claim space — without it max-w-md plus flex-shrink:1
+     allowed the panel to compress below readable width on very wide
+     screens with multiple asides open. --}}
 <aside x-show="showCreateEvent" x-cloak
        x-transition:enter="transform transition ease-out duration-200"
        x-transition:enter-start="translate-x-full opacity-0"
@@ -1819,7 +1836,7 @@
        x-transition:leave-start="translate-x-0 opacity-100"
        x-transition:leave-end="translate-x-full opacity-0"
        @keydown.escape.window="showCreateEvent = false"
-       class="w-full max-w-md flex-shrink-0 flex flex-col overflow-hidden"
+       class="w-full sm:w-[420px] flex-shrink-0 flex flex-col overflow-hidden"
        style="background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 12px rgba(0,0,0,0.08);">
 
     {{-- Header --}}
@@ -2265,6 +2282,15 @@ function calendarPage() {
         form: { title: '', category: '', startDate: '', startTime: '', endDate: '', endTime: '', description: '', allDay: false },
         endManuallyEdited: false,
         selectedDate: '{{ $anchorDate->toDateString() }}',
+        // CAL-2 — explicit "user actively clicked this day to seed a new
+        // event" signal. Independent of selectedDate (which doubles as the
+        // day-preview index and is cleared by Escape — the resulting state
+        // collision was the date-passthrough bug). Set by selectDate +
+        // dragStart, consumed by openBlank, cleared on Escape / panel
+        // close. null = "no recent date pick" → openBlank falls back to
+        // today, which is the spec'd behaviour for the global + New Event
+        // button.
+        pendingCreateDate: null,
         editMode: false,
         editingEventId: null,
         submitting: false,
@@ -2359,7 +2385,7 @@ function calendarPage() {
                 if (this.panelOpen)       { this.panelOpen = false; e.preventDefault(); return; }
                 if (this.showCreateEvent) { this.showCreateEvent = false; e.preventDefault(); return; }
                 if (this.helpOpen)        { this.helpOpen = false; e.preventDefault(); return; }
-                if (this.selectedDate)    { this.selectedDate = null; e.preventDefault(); return; }
+                if (this.selectedDate)    { this.selectedDate = null; this.pendingCreateDate = null; e.preventDefault(); return; }
                 return;
             }
 
@@ -2467,11 +2493,17 @@ function calendarPage() {
         },
 
         // Called by date-cell clicks in Month/Week views. Always updates the
-        // day-preview selection (selectedDate). If the create-event panel is
-        // open, also pushes the date into the form so the agent can flip
-        // through the calendar to pick a date for the event being created.
+        // day-preview selection (selectedDate) AND records the click as the
+        // pending-create date (pendingCreateDate) — the latter is what
+        // openBlank consumes so the clicked day flows through to a new
+        // event even if selectedDate gets cleared by Escape between the
+        // click and the toolbar + New Event press (CAL-2). If the panel is
+        // already open, also pushes the date into the form so the agent
+        // can flip through the calendar to pick a date for the event
+        // being created.
         selectDate(dateStr, time = null) {
             this.selectedDate = dateStr;
+            this.pendingCreateDate = dateStr;
             if (this.showCreateEvent) {
                 this.form.startDate = dateStr;
                 if (time) this.form.startTime = time;
@@ -2484,7 +2516,15 @@ function calendarPage() {
         },
         openBlank() {
             const today = new Date().toISOString().slice(0, 10);
-            const dateToUse = this.selectedDate || today;
+            // CAL-2 — pendingCreateDate wins over selectedDate. selectedDate
+            // can legitimately be cleared (Escape) while the user still
+            // expects the day they just clicked to seed the new event;
+            // pendingCreateDate is the explicit signal for that flow.
+            // Falls back to selectedDate (preserves day-view "I'm on this
+            // day, + New Event should use this day" behaviour) and finally
+            // today (global toolbar button / 'n' shortcut with no
+            // prior context).
+            const dateToUse = this.pendingCreateDate || this.selectedDate || today;
             const nextQ = this.nextQuarterHour();
             this.form = { title: '', category: '', startDate: dateToUse, startTime: nextQ, endDate: dateToUse, endTime: this.addHour(nextQ), description: '', allDay: false };
             this.endManuallyEdited = false;
@@ -2846,6 +2886,10 @@ function calendarPage() {
             const pad = n => n.toString().padStart(2, '0');
             const fmt = m => pad(Math.floor(m / 60)) + ':' + pad(m % 60);
             this.drag.active = false;
+            // CAL-2 — seed pendingCreateDate so openBlank's date resolution
+            // already lands on the dragged day; the explicit startDate
+            // override below stays as defensive belt-and-suspenders.
+            this.pendingCreateDate = d.dayDate;
             this.openBlank();
             this.form.startDate = d.dayDate;
             this.form.startTime = fmt(s);
