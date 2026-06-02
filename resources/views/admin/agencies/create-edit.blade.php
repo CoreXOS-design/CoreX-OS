@@ -622,7 +622,7 @@
             <p class="text-xs" style="color:var(--text-muted);">Each website gets its own key. The key's name is the label shown as its Syndication Portal on every property.</p>
 
             @forelse($agency->apiKeys as $key)
-                <div class="rounded-md p-3 space-y-2" style="background: var(--surface); border:1px solid var(--border);" x-data="{ editing: false, showSecret: false }">
+                <div class="rounded-md p-3 space-y-2" style="background: var(--surface); border:1px solid var(--border);" x-data="{ editing: false, showSecret: false, showDeliveries: false }">
                     <div class="flex items-center justify-between gap-3 flex-wrap">
                         <div>
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $key->name }}</div>
@@ -655,6 +655,9 @@
                     @endif
                     <div class="flex gap-2 flex-wrap pt-1">
                         <button type="button" @click="editing = !editing" class="corex-btn-outline text-xs" x-text="editing ? 'Close' : 'Edit scopes / webhook'"></button>
+                        @if(in_array(\App\Models\AgencyApiKey::SCOPE_WEBHOOKS_RECEIVE, $key->scopes ?? [], true))
+                        <button type="button" @click="showDeliveries = !showDeliveries" class="corex-btn-outline text-xs" x-text="showDeliveries ? 'Hide deliveries' : 'Webhook deliveries'"></button>
+                        @endif
                         <form method="POST" action="{{ route('agencies.api-keys.regenerate', [$agency, $key]) }}" onsubmit="return confirm('Regenerate the secret? The old secret stops working immediately.');">
                             @csrf
                             <button class="corex-btn-outline text-xs">Regenerate secret</button>
@@ -670,6 +673,42 @@
                             <button class="corex-btn-outline text-xs" style="color:var(--ds-crimson);">Delete</button>
                         </form>
                     </div>
+
+                    {{-- Webhook delivery log — diagnose why pushes aren't arriving --}}
+                    @if(in_array(\App\Models\AgencyApiKey::SCOPE_WEBHOOKS_RECEIVE, $key->scopes ?? [], true))
+                    <div x-show="showDeliveries" x-cloak class="pt-2 mt-1 space-y-1" style="border-top:1px solid var(--border);">
+                        @php $deliveries = $key->webhookDeliveries()->latest()->limit(10)->get(); @endphp
+                        @if(!$key->webhook_url)
+                            <p class="text-xs" style="color:var(--ds-amber);">No webhook URL set on this key — pushes can't be sent. Add one under “Edit scopes / webhook”.</p>
+                        @elseif($deliveries->isEmpty())
+                            <p class="text-xs" style="color:var(--text-muted);">No deliveries yet. Submitting/refreshing a listing on this website queues one.</p>
+                        @else
+                            @php $stuck = $deliveries->whereNull('delivered_at')->whereNull('failed_at')->where('attempts', 0)->count(); @endphp
+                            @if($stuck > 0)
+                                <p class="text-xs" style="color:var(--ds-amber);">{{ $stuck }} delivery(ies) queued but never attempted — the <span class="font-mono">queue:work</span> worker is likely not running on the server.</p>
+                            @endif
+                            <table class="w-full text-[0.6875rem]" style="color:var(--text-secondary);">
+                                <thead><tr style="color:var(--text-muted);"><th class="text-left font-medium">Event</th><th class="text-left font-medium">Status</th><th class="text-left font-medium">When</th><th class="text-left font-medium">Detail</th></tr></thead>
+                                <tbody>
+                                @foreach($deliveries as $d)
+                                    @php
+                                        if ($d->delivered_at)      { $st = 'Delivered'; $col = 'var(--ds-emerald,#10b981)'; $detail = 'HTTP '.$d->response_status; }
+                                        elseif ($d->failed_at)     { $st = 'Failed';    $col = 'var(--ds-crimson)';        $detail = \Illuminate\Support\Str::limit($d->last_error, 60); }
+                                        elseif ($d->attempts == 0) { $st = 'Queued';    $col = 'var(--ds-amber)';          $detail = 'awaiting worker'; }
+                                        else                       { $st = 'Retrying';  $col = 'var(--ds-amber)';          $detail = 'attempt '.$d->attempts.($d->last_error ? ' · '.\Illuminate\Support\Str::limit($d->last_error,40) : ''); }
+                                    @endphp
+                                    <tr style="border-top:1px solid var(--border);">
+                                        <td class="py-1 font-mono">{{ $d->event_name }}</td>
+                                        <td class="py-1 font-semibold" style="color:{{ $col }};">{{ $st }}</td>
+                                        <td class="py-1">{{ $d->created_at?->diffForHumans() }}</td>
+                                        <td class="py-1">{{ $detail }}</td>
+                                    </tr>
+                                @endforeach
+                                </tbody>
+                            </table>
+                        @endif
+                    </div>
+                    @endif
 
                     {{-- Inline edit: change scopes / webhook on an existing key (no new key needed) --}}
                     <form x-show="editing" x-cloak method="POST" action="{{ route('agencies.api-keys.update', [$agency, $key]) }}"

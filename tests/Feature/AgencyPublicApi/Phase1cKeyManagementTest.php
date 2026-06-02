@@ -189,6 +189,26 @@ class Phase1cKeyManagementTest extends TestCase
         $this->assertNull($foreignKey->fresh()->revoked_at);
     }
 
+    public function test_webhook_delivery_log_renders_on_the_panel(): void
+    {
+        $key = $this->makeKey([
+            'scopes' => [AgencyApiKey::SCOPE_LISTINGS_READ, AgencyApiKey::SCOPE_WEBHOOKS_RECEIVE],
+            'webhook_url' => 'https://site.example/hook', 'webhook_secret' => 'whsec',
+        ]);
+        \App\Models\AgencyWebhookDelivery::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'agency_api_key_id' => $key->id,
+            'event_name' => 'listing.published', 'payload' => ['id' => 1],
+            'attempts' => 1, 'response_status' => 200, 'delivered_at' => now(),
+        ]);
+
+        $this->actingAs($this->user)
+            ->get(route('agencies.edit', $this->agency))
+            ->assertOk()
+            ->assertSee('Webhook deliveries')
+            ->assertSee('listing.published')
+            ->assertSee('Delivered');
+    }
+
     private function makeKey(array $overrides = []): AgencyApiKey
     {
         $minted = AgencyApiKey::mintSecret();
