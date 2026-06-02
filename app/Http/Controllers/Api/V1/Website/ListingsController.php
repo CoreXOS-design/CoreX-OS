@@ -24,7 +24,7 @@ class ListingsController extends Controller
 
         $listings = Property::query()
             ->whereHas('websiteSyndication', fn ($q) => $q->where('agency_api_key_id', $keyId)->where('enabled', true))
-            ->with('agent')
+            ->with(['agent', 'activeShowdays'])
             ->latest('published_at')
             ->paginate($perPage);
 
@@ -38,7 +38,7 @@ class ListingsController extends Controller
         $listing = Property::query()
             ->whereHas('websiteSyndication', fn ($q) => $q->where('agency_api_key_id', $keyId)->where('enabled', true))
             ->where(fn ($q) => $q->where('id', $idOrRef)->orWhere('external_id', $idOrRef))
-            ->with('agent')
+            ->with(['agent', 'activeShowdays'])
             ->first();
 
         abort_if($listing === null, 404, 'Listing not found.');

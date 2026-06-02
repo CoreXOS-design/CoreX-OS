@@ -161,6 +161,8 @@ Reuse the constant-time-compare + HMAC discipline already proven in `PpWebhookCo
 
 Responses use dedicated **public API Resources** (`app/Http/Resources/WebsiteApi/*`) so the external contract is decoupled from internal model shape — we can refactor models without breaking agency sites. PII not meant for the public web (owner contact, internal notes) is **never** included.
 
+**ListingResource is P24-parity** — it carries the same rich marketing field set CoreX syndicates to Property24: location detail (complex/unit/floor/stand + street parts), `costs` (rates/levy/special levy), a `rental` block (lease period, deposit, rental amount, gross/net, per-period rates) populated only for rentals, `mandate_type`, `pet_friendly`, `spaces`, `features`, a categorised `gallery`, `video` (YouTube/Matterport/virtual tour), and upcoming `show_days` — alongside the core price/beds/baths/size/images/agent. Numeric fields are coerced to int/float for a clean contract.
+
 ---
 
 ## 6. Webhooks (the "push" half)
