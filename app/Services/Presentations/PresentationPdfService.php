@@ -1452,12 +1452,18 @@ a:hover { text-decoration: underline; }
 </div>
 
 <?php // ══════════════════════════════════════════════════════════════════════
-      // BEAT 2 — What's Happened Around You. Composed of Market Overview
-      // (context strip) + Recent Sales (primary content) + Spatial map.
-      // Banner is unconditional — Beat 2 always exists as a page in the
-      // seller report; the sub-sections inside are agency-toggleable.
+      // BEAT 2 — What's Happened Around You. Spec §1 order:
+      //   1. Recent Sales (primary content — what actually transacted)
+      //   2. Sale-price trend chart (inside Recent Sales block)
+      //   3. Market Overview context strip (the broader backdrop)
+      //   4. Spatial map (where the sold homes sit around the subject)
+      // Banner is unconditional. The §2 Market Overview block is
+      // captured into $beat2MarketOverviewHtml via ob_start() and
+      // emitted AFTER §3 Recent Sales (call site below the
+      // recent_sales endif) — B2-followup-3 internal reorder.
       // ══════════════════════════════════════════════════════════════════════ ?>
 <div class="beat-eyebrow">Section <?= $summary['section_index']['sold'] ?? 4 ?> · Beat 2 — What's Happened Around You</div>
+<?php ob_start(); ?>
 <?php if ($sectionEnabled('market_overview')): ?>
 <div class="section-header">
     <span class="section-number">2</span>
@@ -1483,7 +1489,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody>
         <tr><td>Total Residential Sales</td><td class="num"><strong><?= (int) $suburbSales ?></strong></td></tr>
-        <tr><td>Median Sale Price</td><td class="num"><strong><?= $zar($suburbMedian) ?></strong></td></tr>
+        <tr><td>Typical Sale Price</td><td class="num"><strong><?= $zar($suburbMedian) ?></strong></td></tr>
         <tr><td>Low Range</td><td class="num"><?= $zar($suburbLow) ?></td></tr>
         <tr><td>High Range</td><td class="num"><?= $zar($suburbHigh) ?></td></tr>
         <tr><td>Maximum Sale Price</td><td class="num"><?= $zar($suburbMax) ?></td></tr>
@@ -1494,9 +1500,9 @@ a:hover { text-decoration: underline; }
 <?php if ($askingPrice && $suburbMedian && $suburbMedian > 0): ?>
 <?php $askVsMedianPct = round(($askingPrice - $suburbMedian) / $suburbMedian * 100, 1); ?>
 <div class="callout <?= $askVsMedianPct > 50 ? 'callout-danger' : ($askVsMedianPct > 20 ? 'callout-warning' : 'callout-info') ?>" style="margin-top:14px;">
-    <strong>Your asking price of <?= $zar($askingPrice) ?> is <?= $pct($askVsMedianPct) ?> <?= $askVsMedianPct > 0 ? 'above' : 'below' ?> the suburb median.</strong>
+    <strong>Your asking price of <?= $zar($askingPrice) ?> is <?= $pct($askVsMedianPct) ?> <?= $askVsMedianPct > 0 ? 'above' : 'below' ?> the typical sale price in the suburb.</strong>
     <?php if ($askVsMedianPct > 50): ?>
-    Properties priced significantly above the suburb median typically experience extended market times.
+    Homes priced well above the typical sale price for the suburb usually take longer to sell.
     <?php endif ?>
 </div>
 <?php endif ?>
@@ -1509,7 +1515,7 @@ a:hover { text-decoration: underline; }
     $gaugePct = round($gaugeVal / $gaugeMax * 100);
 ?>
 <div class="avoid-break" style="margin-top:16px;">
-    <p style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">Market Absorption Gauge</p>
+    <p style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">How Quickly Homes Are Selling</p>
     <div class="gauge-container" style="width:100%;">
         <div class="gauge-bar">
             <div class="gauge-seg" style="width:12.5%;background:#059669;"></div>
@@ -1524,7 +1530,7 @@ a:hover { text-decoration: underline; }
         </div>
         <div style="text-align:center;margin-top:8px;">
             <span style="font-size:16px;font-weight:800;color:var(--brand);"><?= number_format($monthsOfSupply, 1) ?></span>
-            <span style="font-size:10px;color:var(--text-muted);"> months of supply</span>
+            <span style="font-size:10px;color:var(--text-muted);"> months' worth of stock on hand</span>
         </div>
     </div>
 </div>
@@ -1550,9 +1556,12 @@ a:hover { text-decoration: underline; }
 <?php endif ?>
 
 <?php endif // /market_overview ?>
+<?php $beat2MarketOverviewHtml = ob_get_clean(); ?>
 
 <?php // ══════════════════════════════════════════════════════════════════════
       // PAGE 4 — RECENT SALES NEAR YOUR PROPERTY  (Build 4 toggleable)
+      // Emits FIRST inside Beat 2 per spec §1 order — Market Overview
+      // context strip ($beat2MarketOverviewHtml) emits after this block.
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php if ($sectionEnabled('recent_sales')): ?>
 <div class="page-break"></div>
@@ -1616,7 +1625,7 @@ a:hover { text-decoration: underline; }
             <th class="num"><?= $esc($sizeLabel) ?></th>
             <th>Sale Date</th>
             <th class="num">Sale Price</th>
-            <th class="num">R/m²</th>
+            <th class="num">Per m²</th>
         </tr>
     </thead>
     <tbody>
@@ -1783,6 +1792,11 @@ a:hover { text-decoration: underline; }
 <div class="callout callout-info">No vicinity sales data available for this property.</div>
 <?php endif ?>
 <?php endif // /recent_sales ?>
+
+<?php // Beat 2 internal order — Market Overview context strip emits
+      // AFTER Recent Sales per spec §1 (B2-followup-3 reorder via
+      // captured $beat2MarketOverviewHtml). ?>
+<?= $beat2MarketOverviewHtml ?? '' ?>
 
 <?php // Phase 3g V2 Part D4/D5 — Spatial View SVG. Only renders when the
       // subject property has resolved GPS + at least one comp with GPS.
@@ -2018,7 +2032,7 @@ a:hover { text-decoration: underline; }
         <tr><td>Middle Range</td><td class="num"><?= $zar($cma['vicinity_middle']) ?></td></tr>
         <tr><td>Upper Range</td><td class="num"><?= $zar($cma['vicinity_upper']) ?></td></tr>
         <?php if ($cma['vicinity_ppm2']): ?>
-        <tr><td>Average R/m²</td><td class="num">R <?= number_format($cma['vicinity_ppm2']) ?></td></tr>
+        <tr><td>Average per m²</td><td class="num">R <?= number_format($cma['vicinity_ppm2']) ?></td></tr>
         <?php endif ?>
     </tbody>
 </table>
@@ -2038,7 +2052,7 @@ a:hover { text-decoration: underline; }
             <th class="num"><?= $esc($sizeLabel) ?></th>
             <th>Sale Date</th>
             <th class="num">Sale Price</th>
-            <th class="num">R/m²</th>
+            <th class="num">Per m²</th>
         </tr>
     </thead>
     <tbody>
@@ -2151,14 +2165,14 @@ a:hover { text-decoration: underline; }
               // The label sits just above the bars so it doesn't collide
               // with the bucket range labels below. ?>
         <div class="median-line" style="left:<?= number_format($cpMedianPct, 2) ?>%;height:108px;"></div>
-        <div class="median-line-label" style="left:<?= number_format($cpMedianPct, 2) ?>%;">Median <?= $cpFmt((int) $cpMedian) ?></div>
+        <div class="median-line-label" style="left:<?= number_format($cpMedianPct, 2) ?>%;">Typical price <?= $cpFmt((int) $cpMedian) ?></div>
     </div>
     <p style="font-size:10px;text-align:center;color:var(--text-muted);margin-top:6px;">
         <?php if ($askBktIdx !== null): ?>
-            <span style="color:#2563eb;font-weight:700;">■</span> Your asking-price bucket
+            <span style="color:#2563eb;font-weight:700;">■</span> Your asking-price bracket
             &nbsp;·&nbsp;
         <?php endif ?>
-        <span style="color:#dc2626;font-weight:700;">┊</span> Median of <?= count($allCompPrices) ?> comparable sales (<?= $cpFmt((int) $cpMedian) ?>)
+        <span style="color:#dc2626;font-weight:700;">┊</span> Typical sold price across <?= count($allCompPrices) ?> comparable sales (<?= $cpFmt((int) $cpMedian) ?>)
     </p>
 </div>
 <?php endif ?>
@@ -2284,10 +2298,11 @@ a:hover { text-decoration: underline; }
     };
 ?>
 <div class="callout <?= $compAbsClass ?>" style="margin-top:14px;">
-    <strong>Stock Absorption:</strong>
-    <?= (int) ($stock['annual_sales'] ?? 0) ?> sales/year
-    (<?= number_format($absorptionRate ?? 0, 1) ?>/month)
-    | <strong><?= number_format($monthsOfSupply, 1) ?> months of supply</strong>
+    <strong>How fast this suburb is selling:</strong>
+    About <?= (int) ($stock['annual_sales'] ?? 0) ?> homes change hands each year
+    (roughly <?= number_format($absorptionRate ?? 0, 1) ?> a month).
+    At that pace, today's listings would clear in about
+    <strong><?= number_format($monthsOfSupply, 1) ?> months</strong>
     — <?= $absorptionLabel ?>
 </div>
 <?php endif ?>
@@ -2302,10 +2317,10 @@ a:hover { text-decoration: underline; }
     };
 ?>
 <div class="callout <?= $posCalloutClass ?>" style="margin-top:10px;">
-    <strong>Your Price Position:</strong>
-    Ranked #<?= $pricePosition['price_rank'] ?> of <?= $pricePosition['total_listings'] ?> listings
-    (<?= $pricePosition['price_percentile'] ?>th percentile)
-    — <?= $pricePosition['listings_more_expensive'] ?> priced higher, <?= $pricePosition['listings_cheaper'] ?> priced lower.
+    <strong>Where you sit against the active competition:</strong>
+    Of the <?= $pricePosition['total_listings'] ?> homes a buyer can compare yours to right now,
+    <?= $pricePosition['listings_more_expensive'] ?> are priced higher than yours
+    and <?= $pricePosition['listings_cheaper'] ?> priced lower.
     <?= $pricePosition['position_label'] ?>.
 </div>
 <?php endif ?>
@@ -2898,7 +2913,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         <?php endif ?>
         <?php if ($suburbMedian): ?>
         <tr>
-            <td>Suburb Median (<?= $esc((string) $suburbYear) ?>)</td>
+            <td>Typical suburb price (<?= $esc((string) $suburbYear) ?>)</td>
             <td class="num"><?= $zar($suburbMedian) ?></td>
             <td><span class="cmp-badge cmp-success">Context</span></td>
         </tr>
@@ -2924,7 +2939,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <?php // Key Insights from comparisons ?>
 <?php if (!empty($insights['comparisons'])): ?>
 <div class="avoid-break" style="margin-bottom:18px;">
-<h3 style="margin-bottom:8px;">Price Position Analysis</h3>
+<h3 style="margin-bottom:8px;">How Your Asking Price Compares</h3>
 <table>
     <thead><tr><th>Comparison</th><th class="num">Benchmark</th><th class="num">Asking</th><th class="num">Difference</th><th>Status</th></tr></thead>
     <tbody>
