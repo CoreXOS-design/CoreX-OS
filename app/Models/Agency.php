@@ -375,6 +375,12 @@ class Agency extends Model
         return $this->hasMany(User::class);
     }
 
+    /** Website API keys (one per agency website). Spec: agency-public-api.md §3.5. */
+    public function apiKeys(): HasMany
+    {
+        return $this->hasMany(AgencyApiKey::class)->latest();
+    }
+
     /**
      * Active Admin users for this agency.
      * "Admin" = role string equal to 'admin' (per Role.name convention).
