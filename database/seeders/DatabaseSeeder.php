@@ -54,6 +54,27 @@ class DatabaseSeeder extends Seeder
             // MIC Phase A2 — supported report types for the upload UI.
             // Idempotent (updateOrInsert by key); 11 V1 types per spec §3.2.3.
             MarketReportTypesSeeder::class,
+            // CAL-1 — global calendar event class settings (44 classes
+            // including the 6 manual-creatable types the create-event
+            // picker reads at agency_id IS NULL). Previously only invoked
+            // by DemoDataSeeder, so staging deploys running `db:seed`
+            // left the picker empty until someone ran the demo seed.
+            // CalendarController::sharedViewData() L387 reads these
+            // globals; without them the appointment-type dropdown renders
+            // zero options. Seeder is idempotent (updateOrCreate keyed
+            // by [agency_id=null, event_class]) — safe to re-run on
+            // every deploy.
+            //
+            // Sibling reference seeders the demo invoked but production
+            // db:seed never reached: BuyerMatchTiersSeeder (Core Matches
+            // tier thresholds) + AgencyFeedbackOptionsSeeder (calendar
+            // feedback dropdown options keyed by category=outcome|concern,
+            // agency_id NULL ∪ agency_id=$id). Same fix-the-class pattern;
+            // both are idempotent and wired here so every fresh deploy
+            // bootstraps a working system.
+            CalendarEventClassSeeder::class,
+            BuyerMatchTiersSeeder::class,
+            AgencyFeedbackOptionsSeeder::class,
         ]);
     }
 }
