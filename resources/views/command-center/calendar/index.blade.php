@@ -2008,9 +2008,18 @@
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
                           :style="c.conflict ? 'background: var(--surface-2); border: 2px solid #f59e0b; color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                           :title="c.conflictLabel ? '⚠  Conflict: ' + c.conflictLabel : ''">
+                        {{-- CAL-4 — chip text prefers the server-supplied
+                             role_label (raw pivot role, e.g. "Owner",
+                             "Seller", "Lessor") when present so the
+                             auto-fill preserves the property↔contact pivot
+                             label. Falls through to the attendee-role enum
+                             ("Seller"/"Buyer") for chips added via search
+                             (no pivot context), and lands on the neutral
+                             "Attendee" for blank pivots — never on
+                             "Buyer", which is a misleading default. --}}
                         <span class="text-[10px] px-1 py-0.5 rounded font-bold"
-                              :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : 'background:var(--brand-icon);color:#fff')"
-                              x-text="c.type === 'agent' ? 'Agent' : (c.role === 'seller_contact' ? 'Seller' : 'Buyer')"></span>
+                              :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : c.role === 'buyer_contact' ? 'background:var(--brand-icon);color:#fff' : 'background:var(--text-muted);color:#fff')"
+                              x-text="c.type === 'agent' ? 'Agent' : (c.role_label || (c.role === 'seller_contact' ? 'Seller' : c.role === 'buyer_contact' ? 'Buyer' : 'Attendee'))"></span>
                         <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">⚠ </span></template>
                         <span x-text="c.name"></span>
                         <button type="button" @click="remove(c)" class="opacity-60 hover:opacity-100">&times;</button>
@@ -3434,10 +3443,17 @@ function contactSearch() {
             } catch (e) { /* silent */ }
         },
         setOwners(owners) {
-            // Auto-populate with property owners as seller_contact (additive, don't duplicate)
+            // CAL-4 — auto-populate with EVERY linked contact returned by the
+            // property-owners endpoint (now inclusive — see CalendarController
+            // ::propertyOwners). Honour the server-supplied `role` (mapped to
+            // the attendee_role enum) and `role_label` (raw pivot role for
+            // chip display). Falls back to 'attendee' when the server didn't
+            // supply a role — previously this hardcoded seller_contact, which
+            // mislabelled blank-pivot contacts on save. Additive — never
+            // duplicates an already-chosen contact.
             owners.forEach(o => {
                 if (!o.type) o.type = 'contact';
-                if (!o.role) o.role = 'seller_contact';
+                if (!o.role) o.role = 'attendee';
                 const key = o.type + ':' + o.id;
                 if (!this.chosen.some(c => c.type + ':' + c.id === key)) {
                     this.chosen.push(o);

@@ -1440,7 +1440,17 @@ class CalendarController extends Controller
     }
 
     /**
-     * Return owner/seller contacts for a property (used by auto-populate in create modal).
+     * Return ALL linked contacts for a property — used by the create-event
+     * panel's property-select auto-fill (CAL-4). Includes the pivot.role
+     * (raw string) plus a mapped attendee-role suitable for the
+     * calendar_event_links save-side, plus a human-readable role_label
+     * for the chip display. Previously this endpoint applied a hard
+     * whitelist `wherePivotIn('role', ['owner','seller','landlord',
+     * 'lessor'])` — any contact whose pivot.role was NULL or outside
+     * that 4-set was silently dropped, even though property_contacts
+     * relationships freely admit other roles (and blank). Removing the
+     * filter is the load-bearing fix; the rest of the payload changes
+     * exist so the client can label what it received without guessing.
      */
     public function propertyOwners(Request $request, int $propertyId)
     {
@@ -1449,18 +1459,41 @@ class CalendarController extends Controller
             return response()->json([]);
         }
 
-        $owners = $property->contacts()
-            ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+        // Map a free-form pivot.role to the attendee_role enum we save into
+        // calendar_event_links. The enum values are validated server-side in
+        // store()/update() (see attendees.*.role validation). Anything that
+        // doesn't fall into the seller-side or buyer-side bucket is the
+        // neutral 'attendee' — never excluded.
+        $toAttendeeRole = static function (?string $pivotRole): string {
+            $r = strtolower(trim((string) $pivotRole));
+            return match (true) {
+                in_array($r, ['seller', 'owner', 'landlord', 'lessor'], true) => 'seller_contact',
+                in_array($r, ['buyer', 'tenant', 'lessee'], true)             => 'buyer_contact',
+                default                                                       => 'attendee',
+            };
+        };
+
+        // Human-readable label for the chip. Capitalises the raw pivot.role
+        // ('owner' -> 'Owner'). Blank pivots get null so the chip can render
+        // the neutral default rather than a fabricated label.
+        $toRoleLabel = static function (?string $pivotRole): ?string {
+            $r = trim((string) $pivotRole);
+            return $r === '' ? null : ucfirst(strtolower($r));
+        };
+
+        $contacts = $property->contacts()
             ->get(['contacts.id', 'contacts.first_name', 'contacts.last_name', 'contacts.phone', 'contacts.email'])
             ->map(fn ($c) => [
-                'id'    => $c->id,
-                'name'  => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
-                'phone' => $c->phone,
-                'email' => $c->email,
-                'type'  => 'contact',
+                'id'         => $c->id,
+                'name'       => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
+                'phone'      => $c->phone,
+                'email'      => $c->email,
+                'type'       => 'contact',
+                'role'       => $toAttendeeRole($c->pivot->role ?? null),
+                'role_label' => $toRoleLabel($c->pivot->role ?? null),
             ]);
 
-        return response()->json($owners);
+        return response()->json($contacts);
     }
 
     /**
