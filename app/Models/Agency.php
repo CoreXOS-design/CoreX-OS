@@ -153,6 +153,19 @@ class Agency extends Model
         'presentations_default_garden_zar',
         'presentations_default_pool_zar',
         'presentations_default_security_zar',
+        // Agency Public API — master "website is live" switch + public website settings.
+        'website_enabled',
+        'website_url',
+        'website_tagline',
+        'website_about',
+        'website_social_facebook',
+        'website_social_instagram',
+        'website_social_linkedin',
+        'website_social_youtube',
+        'website_contact_email',
+        'website_contact_phone',
+        'website_show_agents',
+        'website_show_listings',
     ];
 
     protected $casts = [
@@ -225,6 +238,10 @@ class Agency extends Model
         'presentations_default_garden_zar'   => 'integer',
         'presentations_default_pool_zar'     => 'integer',
         'presentations_default_security_zar' => 'integer',
+        // Agency Public API — website flags.
+        'website_enabled'       => 'boolean',
+        'website_show_agents'   => 'boolean',
+        'website_show_listings' => 'boolean',
     ];
 
     /**

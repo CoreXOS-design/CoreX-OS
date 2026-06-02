@@ -40,6 +40,16 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Agency Public API — external agency websites authenticate with a
+        // per-website API key (Bearer "<prefix>.<secret>"). Resolved by a
+        // request guard registered in AppServiceProvider via Auth::viaRequest.
+        // The resolved AgencyApiKey is the request principal; because it
+        // exposes effectiveAgencyId(), the global AgencyScope filters every
+        // query to that key's agency. Spec: .ai/specs/agency-public-api.md §4.
+        'agency-api' => [
+            'driver' => 'agency-api',
+        ],
     ],
 
     /*
