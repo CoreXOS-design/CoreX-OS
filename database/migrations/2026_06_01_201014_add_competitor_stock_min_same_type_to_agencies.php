@@ -20,18 +20,32 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        // Order-independent + idempotent. This migration is dated earlier than
+        // 2026_06_19_120000 (which CREATES competitor_stock_min_score), so on a
+        // fresh ordered replay this runs first and that column does not yet
+        // exist. The ->after() is purely cosmetic column positioning, so we
+        // only apply it when the anchor column is present; otherwise we append.
+        if (Schema::hasColumn('agencies', 'competitor_stock_min_same_type')) {
+            return;
+        }
+
         Schema::table('agencies', function (Blueprint $table) {
-            $table->unsignedTinyInteger('competitor_stock_min_same_type')
+            $column = $table->unsignedTinyInteger('competitor_stock_min_same_type')
                 ->default(5)
-                ->after('competitor_stock_min_score')
                 ->comment('Competitor Stock — minimum exact-property-type matches before stepping up to same-family-other-type. Level 1 (FH/SS) is never crossed.');
+
+            if (Schema::hasColumn('agencies', 'competitor_stock_min_score')) {
+                $column->after('competitor_stock_min_score');
+            }
         });
     }
 
     public function down(): void
     {
         Schema::table('agencies', function (Blueprint $table) {
-            $table->dropColumn('competitor_stock_min_same_type');
+            if (Schema::hasColumn('agencies', 'competitor_stock_min_same_type')) {
+                $table->dropColumn('competitor_stock_min_same_type');
+            }
         });
     }
 };
