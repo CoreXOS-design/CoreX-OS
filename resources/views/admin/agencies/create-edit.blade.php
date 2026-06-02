@@ -2,7 +2,11 @@
 
 @section('corex-content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
-     x-data="{ activeTab: 'company', isDemo: {{ old('is_demo') ? 'true' : 'false' }} }">
+     x-data="{
+        activeTab: ['company','branding','branches','syndication','api-access','admin'].includes((window.location.hash || '').replace('#','')) ? (window.location.hash || '').replace('#','') : 'company',
+        isDemo: {{ old('is_demo') ? 'true' : 'false' }}
+     }"
+     x-init="$watch('activeTab', t => history.replaceState(null, '', '#' + t))">
 
     {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
