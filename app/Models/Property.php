@@ -307,6 +307,12 @@ class Property extends Model
         return $this->hasMany(PropertyFile::class)->latest();
     }
 
+    /** Per-(property × website) syndication rows. Spec: agency-public-api.md §6.5.2. */
+    public function websiteSyndication(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\App\Models\PropertyWebsiteSyndication::class);
+    }
+
     public function documents(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(Document::class, 'document_properties')

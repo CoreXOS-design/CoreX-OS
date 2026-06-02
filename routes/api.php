@@ -153,6 +153,33 @@ Route::prefix('v1/client')->middleware(['auth:sanctum', 'client.ability'])->grou
 });
 
 // ════════════════════════════════════════════════════════════════
+// Agency Public API (website API) — external agency websites
+// Authenticated by a per-website API key (agency-api guard). Gated by the
+// master "website is live" switch + per-route scopes + per-key rate limit.
+// Auto-listed under the "Website" section at /admin/api.
+// Spec: .ai/specs/agency-public-api.md §5
+// ════════════════════════════════════════════════════════════════
+Route::prefix('v1/website')
+    ->middleware(['auth:agency-api', 'website.live', 'throttle:website-api'])
+    ->group(function () {
+        Route::get('/ping',  [\App\Http\Controllers\Api\V1\Website\AgencyController::class, 'ping'])->name('v1.website.ping');
+
+        Route::middleware('website.scope:agency:read')->group(function () {
+            Route::get('/agency', [\App\Http\Controllers\Api\V1\Website\AgencyController::class, 'show'])->name('v1.website.agency.show');
+        });
+
+        Route::middleware('website.scope:listings:read')->group(function () {
+            Route::get('/listings',          [\App\Http\Controllers\Api\V1\Website\ListingsController::class, 'index'])->name('v1.website.listings.index');
+            Route::get('/listings/{idOrRef}', [\App\Http\Controllers\Api\V1\Website\ListingsController::class, 'show'])->name('v1.website.listings.show');
+        });
+
+        Route::middleware('website.scope:agents:read')->group(function () {
+            Route::get('/agents',       [\App\Http\Controllers\Api\V1\Website\AgentsController::class, 'index'])->name('v1.website.agents.index');
+            Route::get('/agents/{id}',  [\App\Http\Controllers\Api\V1\Website\AgentsController::class, 'show'])->name('v1.website.agents.show');
+        });
+    });
+
+// ════════════════════════════════════════════════════════════════
 // Authenticated (sanctum) — canonical v1 routes
 // ════════════════════════════════════════════════════════════════
 Route::middleware('auth:sanctum')->group(function () {
