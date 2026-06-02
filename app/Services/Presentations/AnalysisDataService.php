@@ -863,6 +863,26 @@ class AnalysisDataService
             }
         }
 
+        // Build 8 — canonical seller-facing competition denominator.
+        // The agent curates `visible` via the review screen; every
+        // seller-facing COUNT or rank/percentile/position VERDICT
+        // (PDF §1 + §5 tiles, public-show headline, teaser, agent
+        // analysis-tab card, pricing-simulator verdict, AI prose)
+        // now reads these derived keys instead of the legacy
+        // active_competition.count / price_position pipeline. Three
+        // different denominators in §5 collapse to one.
+        //
+        // visible rows are pre-filtered to whereBetween('price', ...)
+        // upstream in CompetitorStockMatchService::loadCandidates,
+        // so every row has a non-null int price.
+        $competingPrices = array_values(array_filter(
+            array_map(static fn (array $row) => isset($row['price']) ? (int) $row['price'] : 0, $visible),
+            static fn (int $p) => $p > 0,
+        ));
+        $askingPrice  = $presentation->asking_price_inc !== null ? (int) $presentation->asking_price_inc : null;
+        $canonicalPos = $this->rankPriceAgainstPool($askingPrice, $competingPrices);
+        $canonicalBkt = $this->bracketPricesAgainstAsking($competingPrices, $askingPrice);
+
         return [
             'matches'      => $matches,
             'included_ids' => $whitelist,
@@ -870,6 +890,11 @@ class AnalysisDataService
             'display_cap'  => $displayCap > 0 ? $displayCap : null,
             'map_plotted_count'   => $plotted,
             'map_unplotted_count' => $unplotted,
+            // Canonical denominator + verdict (Build 8 single-source).
+            'competing_count'           => count($visible),
+            'competing_with_price'      => count($competingPrices),
+            'price_position_canonical'  => $canonicalPos,
+            'price_brackets_canonical'  => $canonicalBkt,
         ];
     }
 
@@ -1161,11 +1186,11 @@ class AnalysisDataService
      */
     private function compilePricePosition(array $activeCompetition, ?int $askingPrice): array
     {
-        if (!$askingPrice || $askingPrice <= 0) {
-            return ['has_data' => false, 'reason' => 'no_asking_price'];
-        }
-
-        // Collect non-excluded listing prices
+        // Build 8 — thin wrapper. Extract the legacy active_competition.rows
+        // prices and delegate to rankPriceAgainstPool() so the same Type-7
+        // percentile + label thresholds drive both this legacy output AND
+        // the new competitor_stock.price_position_canonical surfaced for
+        // seller-facing tiles.
         $prices = [];
         foreach (($activeCompetition['rows'] ?? []) as $row) {
             if (!empty($row['is_excluded'])) continue;
@@ -1173,19 +1198,48 @@ class AnalysisDataService
                 $prices[] = (int) $row['list_price'];
             }
         }
+        return $this->rankPriceAgainstPool($askingPrice, $prices);
+    }
 
-        if (count($prices) === 0) {
+    /**
+     * Build 8 — single source of truth for the rank / percentile / label
+     * verdict shape. Called by both compilePricePosition (legacy
+     * active_competition pool) AND compileCompetitorStock (canonical
+     * scored visible pool) so the two surfaces can NEVER produce
+     * different label thresholds or percentile maths.
+     *
+     * Empty-pool / no-asking-price → has_data=false (do not synthesise
+     * "#1 of 1 / 0th percentile" off an empty set).
+     *
+     * @param array<int, int> $pool prices in cents/rand units (whole int).
+     * @return array{
+     *   has_data: bool, price_rank?: int, total_listings?: int,
+     *   listings_cheaper?: int, listings_more_expensive?: int, listings_same_price?: int,
+     *   price_percentile?: int, position_label?: string, position_color?: string,
+     *   asking_price?: int, reason?: string
+     * }
+     */
+    private function rankPriceAgainstPool(?int $askingPrice, array $pool): array
+    {
+        if (!$askingPrice || $askingPrice <= 0) {
+            return ['has_data' => false, 'reason' => 'no_asking_price'];
+        }
+
+        $pool = array_values(array_filter(
+            array_map('intval', $pool),
+            fn (int $p) => $p > 0,
+        ));
+        if (count($pool) === 0) {
             return ['has_data' => false, 'reason' => 'no_priced_listings'];
         }
 
-        // Sort descending (rank 1 = most expensive)
-        rsort($prices);
+        // Sort descending (rank 1 = most expensive).
+        rsort($pool);
 
-        // Count how many are cheaper / more expensive than asking price
         $cheaper = 0;
         $moreExpensive = 0;
         $samePrice = 0;
-        foreach ($prices as $p) {
+        foreach ($pool as $p) {
             if ($p > $askingPrice) {
                 $moreExpensive++;
             } elseif ($p < $askingPrice) {
@@ -1196,16 +1250,16 @@ class AnalysisDataService
         }
 
         // Phase 3e D — rank reads "subject's position among all priced
-        // properties INCLUDING the subject", so the denominator must include
-        // the subject too. Without this we get "#2 of 1" when there's one
-        // competitor priced higher than the subject.
+        // properties INCLUDING the subject", so the denominator includes
+        // the subject too.
         $rank  = $moreExpensive + 1;
-        $total = count($prices) + 1; // +1 for the subject property itself
+        $total = count($pool) + 1;
 
-        // Percentile: % of listings priced lower (0 = cheapest, 100 = most expensive)
+        // Percentile: % of pool priced LOWER than subject (0 = cheapest,
+        // 100 = most expensive). Denominator includes the subject so a
+        // subject above every competitor lands near 100.
         $percentile = $total > 0 ? (int) round(($cheaper / $total) * 100) : 0;
 
-        // Position label
         if ($percentile >= 80) {
             $positionLabel = 'Near the top — priced higher than most competition';
             $positionColor = 'red';
@@ -1224,16 +1278,16 @@ class AnalysisDataService
         }
 
         return [
-            'has_data'           => true,
-            'price_rank'         => $rank,
-            'total_listings'     => $total,
-            'listings_cheaper'   => $cheaper,
+            'has_data'                => true,
+            'price_rank'              => $rank,
+            'total_listings'          => $total,
+            'listings_cheaper'        => $cheaper,
             'listings_more_expensive' => $moreExpensive,
-            'listings_same_price' => $samePrice,
-            'price_percentile'   => $percentile,
-            'position_label'     => $positionLabel,
-            'position_color'     => $positionColor,
-            'asking_price'       => $askingPrice,
+            'listings_same_price'     => $samePrice,
+            'price_percentile'        => $percentile,
+            'position_label'          => $positionLabel,
+            'position_color'          => $positionColor,
+            'asking_price'            => $askingPrice,
         ];
     }
 
@@ -1247,7 +1301,11 @@ class AnalysisDataService
      */
     private function compilePriceBrackets(array $activeCompetition, ?int $askingPrice): array
     {
-        // Collect non-excluded listing prices
+        // Build 8 — thin wrapper. Extract the legacy active_competition.rows
+        // prices and delegate to bracketPricesAgainstAsking() so the same
+        // bracket-sizing/binning logic drives both this legacy output AND
+        // the new competitor_stock.price_brackets_canonical surfaced for
+        // the seller-facing §5 chart.
         $prices = [];
         foreach (($activeCompetition['rows'] ?? []) as $row) {
             if (!empty($row['is_excluded'])) continue;
@@ -1255,7 +1313,23 @@ class AnalysisDataService
                 $prices[] = (int) $row['list_price'];
             }
         }
+        return $this->bracketPricesAgainstAsking($prices, $askingPrice);
+    }
 
+    /**
+     * Build 8 — single source of truth for the price-bracket distribution
+     * chart shape. Called by both compilePriceBrackets (legacy pool) AND
+     * compileCompetitorStock (canonical scored pool).
+     *
+     * @param array<int, int> $prices
+     * @return array{has_data: bool, brackets: array<int, array{lower:int,upper:int,label:string,count:int,bar_pct:int,contains_asking:bool}>, total_priced?: int, bracket_size?: int}
+     */
+    private function bracketPricesAgainstAsking(array $prices, ?int $askingPrice): array
+    {
+        $prices = array_values(array_filter(
+            array_map('intval', $prices),
+            fn (int $p) => $p > 0,
+        ));
         if (count($prices) === 0) {
             return ['has_data' => false, 'brackets' => []];
         }
@@ -1265,24 +1339,21 @@ class AnalysisDataService
         $ceiling  = max($maxPrice, $askingPrice ?? 0);
         $floor    = min($minPrice, $askingPrice ?? $minPrice);
 
-        // Adaptive bracket sizing: divide range into ~6 equal brackets, round to clean boundaries
         $range = $ceiling - $floor;
         if ($range <= 0) {
             $range = $ceiling > 0 ? $ceiling * 0.5 : 500000;
         }
 
-        // Choose bracket size based on price range
         if ($range < 1000000) {
-            $bracketSize = 100000;      // R100k for small ranges
+            $bracketSize = 100000;
         } elseif ($range < 3000000) {
-            $bracketSize = 250000;      // R250k for medium ranges
+            $bracketSize = 250000;
         } elseif ($range < 10000000) {
-            $bracketSize = 500000;      // R500k for larger ranges
+            $bracketSize = 500000;
         } else {
-            $bracketSize = 1000000;     // R1M for very large ranges
+            $bracketSize = 1000000;
         }
 
-        // Ensure we get 5-8 brackets; adjust if needed
         $rawBracketCount = (int) ceil($range / $bracketSize);
         if ($rawBracketCount < 4 && $bracketSize > 50000) {
             $bracketSize = max(50000, (int) (ceil($range / 6 / 50000) * 50000));
@@ -1291,39 +1362,29 @@ class AnalysisDataService
             if ($bracketSize < 100000) $bracketSize = 100000;
         }
 
-        // Start from a clean boundary below the minimum price
         $startFrom = (int) (floor($floor / $bracketSize) * $bracketSize);
         $numBrackets = (int) ceil(($ceiling - $startFrom) / $bracketSize);
         if ($numBrackets < 1) $numBrackets = 1;
 
         $askingBracketIdx = null;
-
-        // Build brackets
         $brackets = [];
         foreach ($prices as $p) {
             $idx = min((int) floor(($p - $startFrom) / $bracketSize), $numBrackets - 1);
             if ($idx < 0) $idx = 0;
-            if (!isset($brackets[$idx])) {
-                $brackets[$idx] = 0;
-            }
+            if (!isset($brackets[$idx])) $brackets[$idx] = 0;
             $brackets[$idx]++;
         }
-
-        // Determine which bracket the asking price falls in
         if ($askingPrice && $askingPrice > 0) {
             $askingBracketIdx = min((int) floor(($askingPrice - $startFrom) / $bracketSize), $numBrackets - 1);
             if ($askingBracketIdx < 0) $askingBracketIdx = 0;
         }
 
-        // Build the result array
         $result = [];
-        $maxCount = max(array_values($brackets + [0 => 1])); // for bar width calc
+        $maxCount = max(array_values($brackets + [0 => 1]));
         for ($i = 0; $i < $numBrackets; $i++) {
             $lower = $startFrom + ($i * $bracketSize);
             $upper = $startFrom + (($i + 1) * $bracketSize);
             $count = $brackets[$i] ?? 0;
-
-            // Only include brackets that have listings OR contain the asking price
             if ($count === 0 && $i !== $askingBracketIdx) continue;
 
             $result[] = [
@@ -1331,16 +1392,16 @@ class AnalysisDataService
                 'upper'           => $upper,
                 'label'           => 'R ' . number_format($lower, 0, '.', ' ') . ' – R ' . number_format($upper, 0, '.', ' '),
                 'count'           => $count,
-                'bar_pct'         => $maxCount > 0 ? round($count / $maxCount * 100) : 0,
+                'bar_pct'         => $maxCount > 0 ? (int) round($count / $maxCount * 100) : 0,
                 'contains_asking' => $i === $askingBracketIdx,
             ];
         }
 
         return [
-            'has_data'       => true,
-            'brackets'       => $result,
-            'total_priced'   => count($prices),
-            'bracket_size'   => $bracketSize,
+            'has_data'     => true,
+            'brackets'     => $result,
+            'total_priced' => count($prices),
+            'bracket_size' => $bracketSize,
         ];
     }
 

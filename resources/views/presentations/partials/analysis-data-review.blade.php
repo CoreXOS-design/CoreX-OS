@@ -459,8 +459,16 @@
 
     {{-- ── PRICE POSITION & BRACKETS ─────────────────────────────────────── --}}
     @php
-        $pricePos = $analysisData['price_position'] ?? [];
-        $priceBrk = $analysisData['price_brackets'] ?? [];
+        // Build 8 — read canonical (competitor_stock-scored) verdict when
+        // present, fall back to legacy (active_competition-derived) for
+        // pre-Build-8 versions whose snapshot pre-dates the rewire.
+        $compStock      = $analysisData['competitor_stock'] ?? [];
+        $pricePosCanon  = $compStock['price_position_canonical'] ?? ['has_data' => false];
+        $priceBrkCanon  = $compStock['price_brackets_canonical'] ?? ['has_data' => false, 'brackets' => []];
+        $pricePosLegacy = $analysisData['price_position'] ?? [];
+        $priceBrkLegacy = $analysisData['price_brackets'] ?? [];
+        $pricePos = !empty($pricePosCanon['has_data']) ? $pricePosCanon : $pricePosLegacy;
+        $priceBrk = !empty($priceBrkCanon['has_data']) ? $priceBrkCanon : $priceBrkLegacy;
     @endphp
     @if(!empty($pricePos['has_data']) || !empty($priceBrk['has_data']))
     <div class="ds-status-card mb-4" style="border-left-color: var(--ds-cyan);">

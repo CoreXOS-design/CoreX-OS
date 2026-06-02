@@ -62,7 +62,16 @@
 ══════════════════════════════════════════════════════════════════════════ --}}
 @php
     $stock = $analysisData['stock_absorption'] ?? [];
-    $pricePos = $analysisData['price_position'] ?? [];
+    // Build 8 — verdict line (#X of Y / Zth percentile / position
+    // label) reads the canonical competitor_stock-derived position
+    // so the simulator agrees with the PDF + agent review screen.
+    // The stock-context banner ABOVE this stays on the broad-pool
+    // total_active_stock (legitimate market-pool denominator for
+    // months-of-supply math).
+    $compStock = $analysisData['competitor_stock'] ?? [];
+    $pricePosCanon  = $compStock['price_position_canonical'] ?? ['has_data' => false];
+    $pricePosLegacy = $analysisData['price_position'] ?? [];
+    $pricePos = !empty($pricePosCanon['has_data']) ? $pricePosCanon : $pricePosLegacy;
 @endphp
 @if(!empty($stock['total_active_stock']) && !empty($stock['monthly_sales']))
 @php

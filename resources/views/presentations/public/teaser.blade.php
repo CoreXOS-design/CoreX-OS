@@ -35,8 +35,15 @@
     $cmaUpper = $cma['cma_upper'] ?? null;
 
     // Active competition count (number only — addresses + prices locked).
+    // Build 8 — read the canonical scored set from competitor_stock so
+    // the teaser shows the same count as the PDF tile and full
+    // presentation. Falls back to legacy active_competition.count for
+    // pre-Build-8 snapshots that don't carry the canonical block.
     $active = $analysisData['active_competition'] ?? [];
-    $activeCount = $active['count'] ?? 0;
+    $compStock = $analysisData['competitor_stock'] ?? [];
+    $activeCount = isset($compStock['competing_count'])
+        ? (int) $compStock['competing_count']
+        : (int) ($active['count'] ?? 0);
 
     // Holding cost summary (if visible). Build 8 — read the canonical
     // monthly_total from $analysisData['holding_cost'] (sourced via

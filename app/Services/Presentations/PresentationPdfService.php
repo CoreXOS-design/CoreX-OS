@@ -253,9 +253,31 @@ class PresentationPdfService
         $absorptionLabel   = $stock['absorption_label'] ?? null;
         $absorptionColor   = $stock['absorption_color'] ?? null;
 
-        // Price position & brackets
-        $pricePosition = $data['price_position'] ?? [];
-        $priceBrackets = $data['price_brackets'] ?? [];
+        // Price position & brackets — Build 8 canonical denominator.
+        // Every seller-facing competition COUNT or rank/percentile/position
+        // VERDICT reads from competitor_stock (the scored Active Competition
+        // set the agent curates on the review screen). The legacy
+        // price_position / price_brackets — derived from
+        // active_competition.rows — are retained for back-compat but no
+        // longer drive any seller-facing surface; the canonical
+        // alternatives shadow them with the same shape so existing
+        // templates swap by reading a different key.
+        //
+        // Fallback: legacy versions whose snapshot pre-dates Build 8
+        // have no competitor_stock data. When the canonical block has
+        // has_data=false, the templates fall through to the legacy
+        // price_position so seller-facing screens never go blank.
+        $competitorStockCanonical = $data['competitor_stock'] ?? [];
+        $competingCount           = (int) ($competitorStockCanonical['competing_count'] ?? 0);
+        $pricePositionCanonical   = $competitorStockCanonical['price_position_canonical'] ?? ['has_data' => false];
+        $priceBracketsCanonical   = $competitorStockCanonical['price_brackets_canonical'] ?? ['has_data' => false, 'brackets' => []];
+
+        $pricePositionLegacy = $data['price_position'] ?? [];
+        $priceBracketsLegacy = $data['price_brackets'] ?? [];
+        // Seller-facing tiles read the canonical first, fall back to
+        // legacy if the canonical block is absent (pre-Build-8 snapshots).
+        $pricePosition = !empty($pricePositionCanonical['has_data']) ? $pricePositionCanonical : $pricePositionLegacy;
+        $priceBrackets = !empty($priceBracketsCanonical['has_data']) ? $priceBracketsCanonical : $priceBracketsLegacy;
 
         // Links for references
         $p24Links = $presentation->links->where('type', 'property24')->values();
@@ -943,7 +965,7 @@ a:hover { text-decoration: underline; }
 <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">
     A data-driven overview of your property's market position. This summary draws on
     <?= count($vicinitySales) + count($cmaComps) + count($streetSales) ?> comparable sales,
-    <?= $activeCount ?> active listing<?= $activeCount !== 1 ? 's' : '' ?>,
+    <?= $competingCount ?> competing listing<?= $competingCount !== 1 ? 's' : '' ?>,
     and current suburb statistics.
 </p>
 <?php endif ?>
@@ -1045,8 +1067,8 @@ a:hover { text-decoration: underline; }
     </div>
     <div class="metric-card">
         <div class="label">Active Competition</div>
-        <div class="value"><?= $totalActiveStock ?></div>
-        <div class="sub">listing<?= $totalActiveStock !== 1 ? 's' : '' ?> in area</div>
+        <div class="value"><?= $competingCount ?></div>
+        <div class="sub">competing listing<?= $competingCount !== 1 ? 's' : '' ?></div>
     </div>
     <?php if (!empty($pricePosition['has_data'])): ?>
     <div class="metric-card <?= ($pricePosition['position_color'] ?? '') === 'red' ? 'danger' : (($pricePosition['position_color'] ?? '') === 'orange' ? 'warning' : '') ?>">
@@ -1079,8 +1101,8 @@ a:hover { text-decoration: underline; }
 ?>
 <div class="callout <?= $absCalloutClass ?>" style="margin-top:14px;">
     <strong>Market Absorption:</strong>
-    <?= $totalActiveStock ?> active listing<?= $totalActiveStock !== 1 ? 's' : '' ?>
-    | <?= (int) ($stock['annual_sales'] ?? 0) ?> sales/year (<?= $absorptionRate ?>/month)
+    <?= (int) ($stock['annual_sales'] ?? 0) ?> sales/year
+    (<?= $absorptionRate ?>/month)
     | <strong><?= $monthsOfSupply ?> months of supply</strong>
     — <?= $absorptionLabel ?>
 </div>
@@ -1817,10 +1839,21 @@ a:hover { text-decoration: underline; }
     <strong>best-value option</strong> in the group is what moves a property.
 </div>
 <p style="font-size:10.5px;color:var(--text-muted);margin:0 0 12px 0;">
-    There <?= $totalActiveStock === 1 ? 'is' : 'are' ?> currently <strong><?= $totalActiveStock ?> active listing<?= $totalActiveStock !== 1 ? 's' : '' ?></strong> in the area<?php if ($totalActiveStock > $activeCount && $activeCount > 0): ?> (<?= $activeCount ?> with detailed price data)<?php endif ?>.<?php if ($avgAskPrice): ?> Average asking price: <strong><?= $zar($avgAskPrice) ?></strong>.<?php endif ?>
+    Your home competes against
+    <strong><?= $competingCount ?> active listing<?= $competingCount !== 1 ? 's' : '' ?></strong>
+    scored on price, suburb, type, and bedrooms.<?php if ($avgAskPrice): ?> Average asking price across the table below: <strong><?= $zar($avgAskPrice) ?></strong>.<?php endif ?>
 </p>
 
 <?php if (!empty($activeRows)): ?>
+<?php // Build 8 — audit display. The N above is the scored
+      // competitor_stock canonical denominator (curated on the review
+      // screen). The table below is the legacy CMA-Info + portal-
+      // capture pipeline retained for audit. Framing label makes
+      // clear these are recent-and-portal-sourced listings on record,
+      // NOT the same number as the canonical headline. ?>
+<p style="font-size:9.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600;margin:14px 0 4px 0;">
+    Recent &amp; portal-sourced listings on record
+</p>
 <table>
     <thead>
         <tr>
@@ -1904,8 +1937,8 @@ a:hover { text-decoration: underline; }
 ?>
 <div class="callout <?= $compAbsClass ?>" style="margin-top:14px;">
     <strong>Stock Absorption:</strong>
-    <?= $totalActiveStock ?> active listing<?= $totalActiveStock !== 1 ? 's' : '' ?>
-    | <?= (int) ($stock['annual_sales'] ?? 0) ?> sales/year (<?= number_format($absorptionRate ?? 0, 1) ?>/month)
+    <?= (int) ($stock['annual_sales'] ?? 0) ?> sales/year
+    (<?= number_format($absorptionRate ?? 0, 1) ?>/month)
     | <strong><?= number_format($monthsOfSupply, 1) ?> months of supply</strong>
     — <?= $absorptionLabel ?>
 </div>

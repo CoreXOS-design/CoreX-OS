@@ -111,20 +111,60 @@ TXT;
             $compsBlock['average_sale_price'] = $count > 0 ? (int) round($allSold->avg()) : null;
         }
 
-        $active = $presentation->activeListings()->whereNotNull('list_price_inc')->get();
-        $activeBlock = [
-            'count'                  => $active->count(),
-            'average_dom'            => null,
-            'median_list_price'      => null,
-            'sample'                 => $active->take(3)->map(fn ($a) => [
-                'address'        => is_string($a->raw_row_json) ? (json_decode($a->raw_row_json, true)['address'] ?? null) : null,
-                'list_price'     => $a->list_price_inc,
-                'days_on_market' => is_string($a->raw_row_json) ? (json_decode($a->raw_row_json, true)['days_on_market'] ?? null) : null,
-            ])->all(),
-        ];
-        if ($active->isNotEmpty()) {
-            $prices = $active->pluck('list_price_inc')->sort()->values();
-            $activeBlock['median_list_price'] = (int) ($prices[(int) floor($prices->count() / 2)] ?? 0);
+        // Build 8 — canonical "competition count" for the AI prose. Reads
+        // the scored competitor_stock.visible set the agent curated on the
+        // review screen, falling back to the legacy
+        // presentation_active_listings table for pre-Build-8 snapshots
+        // (or callers that bypass compile()). Same single-source contract
+        // as the PDF tiles / public-show headline / teaser — regenerated
+        // AI prose now quotes the same denominator the seller sees on
+        // every other surface.
+        $competitorStock  = $snapshot['analytics']['competitor_stock'] ?? null;
+        $visibleScored    = is_array($competitorStock) ? ($competitorStock['visible'] ?? []) : [];
+
+        if (!empty($visibleScored)) {
+            $scoredPrices = array_values(array_filter(
+                array_map(static fn (array $row) => isset($row['price']) ? (int) $row['price'] : 0, $visibleScored),
+                static fn (int $p) => $p > 0,
+            ));
+            sort($scoredPrices);
+            $scoredCount = count($visibleScored);
+            $activeBlock = [
+                'count'             => $scoredCount,
+                'average_dom'       => null,
+                'median_list_price' => $scoredPrices === []
+                    ? null
+                    : (int) ($scoredPrices[(int) floor(count($scoredPrices) / 2)] ?? 0),
+                'sample'            => array_map(static fn (array $row) => [
+                    'address'        => $row['address']        ?? null,
+                    'list_price'     => isset($row['price']) ? (int) $row['price'] : null,
+                    'days_on_market' => isset($row['days_on_market']) ? (int) $row['days_on_market'] : null,
+                ], array_slice($visibleScored, 0, 3)),
+                'source'            => 'competitor_stock',
+            ];
+        } else {
+            // Graceful degradation: pre-Build-8 snapshot has no
+            // competitor_stock block, OR the agent has unticked every
+            // scored competitor. Fall back to the legacy
+            // presentation_active_listings query so the AI never sees
+            // an empty competition block when at least the legacy
+            // pipeline has data.
+            $active = $presentation->activeListings()->whereNotNull('list_price_inc')->get();
+            $activeBlock = [
+                'count'             => $active->count(),
+                'average_dom'       => null,
+                'median_list_price' => null,
+                'sample'            => $active->take(3)->map(fn ($a) => [
+                    'address'        => is_string($a->raw_row_json) ? (json_decode($a->raw_row_json, true)['address'] ?? null) : null,
+                    'list_price'     => $a->list_price_inc,
+                    'days_on_market' => is_string($a->raw_row_json) ? (json_decode($a->raw_row_json, true)['days_on_market'] ?? null) : null,
+                ])->all(),
+                'source'            => 'legacy_active_listings',
+            ];
+            if ($active->isNotEmpty()) {
+                $prices = $active->pluck('list_price_inc')->sort()->values();
+                $activeBlock['median_list_price'] = (int) ($prices[(int) floor($prices->count() / 2)] ?? 0);
+            }
         }
 
         // Stock absorption + holding cost come from the snapshot if compiled,

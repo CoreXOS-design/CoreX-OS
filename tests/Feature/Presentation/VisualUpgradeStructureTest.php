@@ -116,6 +116,10 @@ final class VisualUpgradeStructureTest extends TestCase
     public function test_active_competition_renders_as_card_grid(): void
     {
         [$agencyId, $user] = $this->seedAgencyAndUser();
+        // Build 8 — the comp-grid renders the legacy active_competition.rows
+        // as audit display under the canonical headline. Seed BOTH the
+        // scored competitor_stock (drives the headline count) and the
+        // legacy rows (drive the grid). Both pipelines coexist post-B0b.
         $version = $this->seedVersionWithSnapshot($agencyId, $user->id, [
             'active_competition' => [
                 'count' => 3,
@@ -124,6 +128,14 @@ final class VisualUpgradeStructureTest extends TestCase
                     ['address' => '2 Beach Dr', 'list_price' => 2_400_000, 'days_on_market' => 45, 'property_type' => 'house'],
                     ['address' => '3 Sea View', 'list_price' => 2_900_000, 'days_on_market' => 78, 'property_type' => 'house'],
                 ],
+            ],
+            'competitor_stock' => [
+                'visible'         => [
+                    ['listing_id' => 1, 'address' => '1 Main Rd',  'price' => 2_100_000, 'score' => 95, 'tier' => 'strong'],
+                    ['listing_id' => 2, 'address' => '2 Beach Dr', 'price' => 2_400_000, 'score' => 80, 'tier' => 'approximate'],
+                    ['listing_id' => 3, 'address' => '3 Sea View', 'price' => 2_900_000, 'score' => 65, 'tier' => 'approximate'],
+                ],
+                'competing_count' => 3,
             ],
         ]);
         $link = $this->seedShareLink($agencyId, $user->id, $version);
@@ -153,6 +165,10 @@ final class VisualUpgradeStructureTest extends TestCase
         $version = $this->seedVersionWithSnapshot($agencyId, $user->id, [
             'cma_valuation' => ['cma_lower' => 1_000_000, 'cma_middle' => 1_500_000, 'cma_upper' => 2_000_000],
             'active_competition' => ['count' => 2, 'rows' => [['address' => 'a', 'list_price' => 1_000_000], ['address' => 'b', 'list_price' => 1_100_000]]],
+            'competitor_stock' => ['visible' => [
+                ['listing_id' => 1, 'address' => 'a', 'price' => 1_000_000, 'score' => 90, 'tier' => 'strong'],
+                ['listing_id' => 2, 'address' => 'b', 'price' => 1_100_000, 'score' => 85, 'tier' => 'strong'],
+            ], 'competing_count' => 2],
         ]);
         $link = $this->seedShareLink($agencyId, $user->id, $version);
 
@@ -249,6 +265,7 @@ final class VisualUpgradeStructureTest extends TestCase
             'cma_valuation'    => [],
             'comparable_sales' => ['vicinity' => ['count' => 0, 'rows' => []]],
             'active_competition' => ['count' => 0, 'rows' => []],
+            'competitor_stock' => ['visible' => [], 'competing_count' => 0, 'price_position_canonical' => ['has_data' => false]],
             'stock_absorption' => [],
             'holding_cost'     => null,
         ];

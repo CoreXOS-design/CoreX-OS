@@ -105,7 +105,18 @@
     $vicinityRows = $soldStats['rows'] ?? [];
 
     $active = $analysisData['active_competition'] ?? [];
-    $activeCount = $active['count'] ?? 0;
+    // Build 8 — seller-facing competition count reads the canonical
+    // competitor_stock (scored Active Competition curated by the agent
+    // on the review screen). Legacy active_competition.count becomes
+    // a fallback for pre-Build-8 snapshots that don't yet carry the
+    // canonical block. $active['rows'] still drives the audit grid
+    // below the headline.
+    $compStock = $analysisData['competitor_stock'] ?? [];
+    $competingCount = isset($compStock['competing_count'])
+        ? (int) $compStock['competing_count']
+        : (int) ($active['count'] ?? 0);
+    $activeCount = $competingCount;  // back-compat — anywhere downstream still reading it
+    $activeRowsForAudit = $active['rows'] ?? [];
 
     $stock = $analysisData['stock_absorption'] ?? [];
 @endphp
@@ -932,13 +943,20 @@
         @endif
 
         {{-- Active competition — card grid. Photo where available,
-             gradient fallback otherwise. NEVER a broken image. --}}
-        @if($secOn('active_competition') && $activeCount > 0 && !empty($active['rows']))
+             gradient fallback otherwise. NEVER a broken image.
+             Build 8 — headline count is the canonical scored set
+             (competitor_stock.competing_count). The audit grid below
+             continues to show recent + portal-sourced rows from
+             active_competition; the framing label after the headline
+             makes the two layers explicit. --}}
+        @if($secOn('active_competition') && ($competingCount > 0 || !empty($activeRowsForAudit)))
         <section class="block" data-section-id="active-competition">
             <div class="block-eyebrow">Active Competition</div>
-            <h2>{{ $activeCount }} live listings competing in this market</h2>
+            <h2>{{ $competingCount }} live listing{{ $competingCount === 1 ? '' : 's' }} competing in this market</h2>
+            @if(!empty($activeRowsForAudit))
+            <p class="block-eyebrow" style="margin-top:8px;">Recent &amp; portal-sourced listings on record</p>
             <div class="comp-grid">
-                @foreach(array_slice($active['rows'], 0, 9) as $row)
+                @foreach(array_slice($activeRowsForAudit, 0, 9) as $row)
                     @php
                         $rowImg = $row['primary_image'] ?? ($row['photo_url'] ?? null);
                     @endphp
@@ -962,7 +980,11 @@
                     </div>
                 @endforeach
             </div>
-            <p class="block-caption">Showing {{ min(9, count($active['rows'])) }} of {{ $activeCount }} competing listings.</p>
+            <p class="block-caption">
+                Showing {{ min(9, count($activeRowsForAudit)) }} of {{ count($activeRowsForAudit) }}
+                recent &amp; portal-sourced listings on record.
+            </p>
+            @endif
         </section>
         @endif
 

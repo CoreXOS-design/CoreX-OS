@@ -593,6 +593,100 @@ final class CompetitorStockMatchTest extends TestCase
         $this->assertCount(5, $cs['visible']);
     }
 
+    // ── Build 8 — canonical seller-facing competition denominator ──────
+
+    public function test_canonical_competing_count_matches_visible_size_and_pricing_position_consistent(): void
+    {
+        // Subject priced mid-range; 3 competitors above + 1 below.
+        [$subject, $agencyId] = $this->seedSubject(
+            price: 1_800_000, beds: 3, suburb: 'Uvongo', type: 'House',
+        );
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_600_000, beds: 3, type: 'House'); // cheaper
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_900_000, beds: 3, type: 'House'); // pricier
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: 3, type: 'House'); // pricier
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_100_000, beds: 3, type: 'House'); // pricier
+
+        $presentation = $this->seedPresentation($subject);
+        $version      = $this->seedVersion($presentation);
+
+        $analysis = (new AnalysisDataService())->compile($presentation->fresh(), $version);
+        $cs       = $analysis['competitor_stock'];
+
+        // Competing count = visible size; both must reflect the canonical
+        // pool. Empty-guard already covered by the next test below.
+        $this->assertSame(count($cs['visible']), $cs['competing_count']);
+        $this->assertGreaterThan(0, $cs['competing_count']);
+        $this->assertSame(4, $cs['competing_count'], 'All 4 seeded competitors must surface');
+
+        $pos = $cs['price_position_canonical'];
+        $this->assertTrue($pos['has_data']);
+        // total_listings = visible + 1 (subject included in the rank).
+        $this->assertSame($cs['competing_count'] + 1, $pos['total_listings']);
+        // Subject (R1.8m) sits with 3 priced higher + 1 priced lower:
+        //   rank      = moreExpensive + 1 = 4
+        //   cheaper   = 1
+        //   total     = 5
+        //   percentile = round(1/5 * 100) = 20
+        $this->assertSame(4, $pos['price_rank']);
+        $this->assertSame(3, $pos['listings_more_expensive']);
+        $this->assertSame(1, $pos['listings_cheaper']);
+        $this->assertSame(20, $pos['price_percentile']);
+    }
+
+    public function test_canonical_price_position_blank_when_visible_is_empty(): void
+    {
+        // Agent unticked every competitor → included_competitor_ids_json
+        // === [] → visible is empty by design. Canonical price position
+        // MUST return has_data=false rather than synthesise a rank.
+        [$subject, $agencyId] = $this->seedSubject(
+            price: 1_800_000, beds: 3, suburb: 'Uvongo', type: 'House',
+        );
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_900_000, beds: 3, type: 'House');
+
+        $presentation = $this->seedPresentation($subject);
+        $version      = $this->seedVersion($presentation, includedCompetitorIds: []);
+
+        $analysis = (new AnalysisDataService())->compile($presentation->fresh(), $version);
+        $cs       = $analysis['competitor_stock'];
+
+        $this->assertSame(0, $cs['competing_count']);
+        $this->assertFalse($cs['price_position_canonical']['has_data'] ?? null);
+        $this->assertArrayNotHasKey('price_rank',     $cs['price_position_canonical']);
+        $this->assertArrayNotHasKey('price_percentile', $cs['price_position_canonical']);
+    }
+
+    public function test_canonical_position_flips_to_top_when_subject_above_all_competitors(): void
+    {
+        // Seeskulp-class regression — subject priced above every
+        // visible competitor must report rank #1 with a HIGH percentile
+        // (not "0th percentile / aggressive pricing" off the legacy
+        // active_competition pipeline that under-counted competition).
+        [$subject, $agencyId] = $this->seedSubject(
+            price: 2_400_000, beds: 3, suburb: 'Uvongo', type: 'House',
+        );
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: 3, type: 'House');
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_100_000, beds: 3, type: 'House');
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_200_000, beds: 3, type: 'House');
+
+        $presentation = $this->seedPresentation($subject);
+        $version      = $this->seedVersion($presentation);
+
+        $analysis = (new AnalysisDataService())->compile($presentation->fresh(), $version);
+        $pos      = $analysis['competitor_stock']['price_position_canonical'];
+
+        $this->assertTrue($pos['has_data']);
+        $this->assertSame(1, $pos['price_rank'], 'Subject above all competitors must rank #1');
+        $this->assertSame(0, $pos['listings_more_expensive']);
+        $this->assertSame(3, $pos['listings_cheaper']);
+        // 3 cheaper out of 4 total = 75th percentile → "Upper range".
+        $this->assertSame(75, $pos['price_percentile']);
+        $this->assertSame('orange', $pos['position_color']);
+        $this->assertStringContainsString('Upper range', $pos['position_label']);
+        // CRITICALLY: must NOT be the legacy "Near the bottom — aggressive pricing"
+        // verdict that fires at percentile < 20.
+        $this->assertStringNotContainsString('aggressive', $pos['position_label']);
+    }
+
     public function test_toggle_competitor_rejects_cross_family_pick(): void
     {
         [$subject, $agencyId] = $this->seedSubject(
