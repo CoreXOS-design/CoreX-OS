@@ -206,6 +206,14 @@
                                    {{ old('counts_for_branch_split', $isEdit ? (int)($user->counts_for_branch_split ?? 1) : 1) ? 'checked' : '' }}>
                             Counts for Branch Split
                         </label>
+                        {{-- Agency Public API — agent appears on the agency website(s). Spec §2 (layer 3). --}}
+                        <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                            <input type="hidden" name="show_on_website" value="0">
+                            <input type="checkbox" name="show_on_website" value="1" class="rounded"
+                                   style="accent-color:var(--brand-icon, #0ea5e9);"
+                                   {{ old('show_on_website', $isEdit ? (int)($user->show_on_website ?? 0) : 0) ? 'checked' : '' }}>
+                            Show on website
+                        </label>
                     </div>
                 </div>
 

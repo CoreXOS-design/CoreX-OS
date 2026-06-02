@@ -138,6 +138,37 @@ class CompanySettingsController extends Controller
             ->with('success', 'Company settings updated.');
     }
 
+    /**
+     * Agency Public API — save the public website settings (Website tab). Its
+     * own form/route so it never collides with the Company/Branding forms that
+     * share update(). Spec: .ai/specs/agency-public-api.md §3.7, §7.4.
+     */
+    public function updateWebsite(Request $request, Agency $agency)
+    {
+        $this->authorizeAccess();
+        $this->authorizeAgency($agency);
+
+        $data = $request->validate([
+            'website_url'              => ['nullable', 'url', 'max:255'],
+            'website_tagline'          => ['nullable', 'string', 'max:255'],
+            'website_about'            => ['nullable', 'string', 'max:5000'],
+            'website_social_facebook'  => ['nullable', 'string', 'max:255'],
+            'website_social_instagram' => ['nullable', 'string', 'max:255'],
+            'website_social_linkedin'  => ['nullable', 'string', 'max:255'],
+            'website_social_youtube'   => ['nullable', 'string', 'max:255'],
+            'website_contact_email'    => ['nullable', 'email', 'max:255'],
+            'website_contact_phone'    => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $data['website_show_agents']   = $request->boolean('website_show_agents');
+        $data['website_show_listings'] = $request->boolean('website_show_listings');
+
+        $agency->update($data);
+
+        return redirect()->route('admin.company-settings', ['agency' => $agency->id, 'tab' => 'website'])
+            ->with('success', 'Website settings updated.');
+    }
+
     private function authorizeAccess(): void
     {
         abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
