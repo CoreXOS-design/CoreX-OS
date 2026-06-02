@@ -89,8 +89,13 @@ final class SpatialViewSvgRenderer
             'hfc_listings'     => '#00d4aa',
         ];
 
-        // Label-collision avoidance: simple greedy placement at offsets that
-        // step away from the dot in the bearing direction.
+        // Label-collision avoidance — Build 8 wire-up. Each label's
+        // estimated bounding box is checked against $usedRects; on
+        // collision we step the label outward (radially from centre) by
+        // a fixed unit until clear, capped at 8 attempts. Connector
+        // line draws from the dot to the displaced label so the reader
+        // can match label-to-pin. Pre-fix the array existed but was
+        // never appended to — clustered comps overlapped illegibly.
         $usedRects = [];
 
         foreach ($points as $i => $p) {
@@ -111,11 +116,79 @@ final class SpatialViewSvgRenderer
             $label1 = $title;
             $label2 = trim($priceTxt . ($dateTxt ? ' · ' . $dateTxt : ''));
 
-            // Position label below the dot when above centre, above when below.
-            $labelY = $y > $cy ? $y + 16 : $y - 10;
-            $svg .= '<text x="' . round($x, 1) . '" y="' . round($labelY, 1) . '" text-anchor="middle" font-size="7" font-weight="600" fill="#1e293b">' . $label1 . '</text>';
+            // Estimate bounding box: 7px font ≈ 4px char width, two-line
+            // labels are ~18px tall.
+            $charPx       = 4.0;
+            $labelChars   = max(mb_strlen($p['title'] ?? '') > 24 ? 24 : mb_strlen($p['title'] ?? ''), mb_strlen($label2));
+            $labelWidth   = max(20, $labelChars * $charPx + 6);
+            $labelHeight  = $label2 !== '' ? 18 : 10;
+
+            // Direction to step the label when it collides — outward from
+            // centre, along the bearing. For a dot at the centre (no
+            // distance) step straight down so two centre-stacked pins
+            // don't infinite-collide.
+            if ($p['distance'] > 1) {
+                $stepX =  sin($p['bearing']);
+                $stepY = -cos($p['bearing']);
+            } else {
+                $stepX = 0;
+                $stepY = 1;
+            }
+            $stepUnit = 14;
+
+            // Initial label baseline: below the dot when in the upper
+            // half (so the label doesn't run off the top), above when
+            // in the lower half.
+            $labelX = $x;
+            $labelY = $y > $cy ? $y + 14 : $y - 10;
+
+            $rect = null;
+            for ($attempt = 0; $attempt < 8; $attempt++) {
+                $cand = [
+                    'x1' => $labelX - $labelWidth / 2,
+                    'y1' => $labelY - 6,
+                    'x2' => $labelX + $labelWidth / 2,
+                    'y2' => $labelY + $labelHeight,
+                ];
+                $collides = false;
+                foreach ($usedRects as $existing) {
+                    if ($cand['x1'] < $existing['x2'] && $cand['x2'] > $existing['x1']
+                        && $cand['y1'] < $existing['y2'] && $cand['y2'] > $existing['y1']) {
+                        $collides = true;
+                        break;
+                    }
+                }
+                if (!$collides) {
+                    $rect = $cand;
+                    break;
+                }
+                $labelX += $stepX * $stepUnit;
+                $labelY += $stepY * $stepUnit;
+            }
+            if ($rect === null) {
+                // Cap reached — accept the last candidate; minor overlap
+                // beats an infinite loop or a missing label.
+                $rect = [
+                    'x1' => $labelX - $labelWidth / 2,
+                    'y1' => $labelY - 6,
+                    'x2' => $labelX + $labelWidth / 2,
+                    'y2' => $labelY + $labelHeight,
+                ];
+            }
+            $usedRects[] = $rect;
+
+            // Draw a thin connector from the dot to the displaced label
+            // so the reader can still pair them up.
+            $displaced = abs($labelX - $x) > 1 || abs($labelY - ($y > $cy ? $y + 14 : $y - 10)) > 1;
+            if ($displaced) {
+                $svg .= '<line x1="' . round($x, 1) . '" y1="' . round($y, 1)
+                    . '" x2="' . round($labelX, 1) . '" y2="' . round($labelY - 4, 1)
+                    . '" stroke="' . $colour . '" stroke-width="0.5" opacity="0.55"/>';
+            }
+
+            $svg .= '<text x="' . round($labelX, 1) . '" y="' . round($labelY, 1) . '" text-anchor="middle" font-size="7" font-weight="600" fill="#1e293b">' . $label1 . '</text>';
             if ($label2 !== '') {
-                $svg .= '<text x="' . round($x, 1) . '" y="' . round($labelY + 8, 1) . '" text-anchor="middle" font-size="6.5" fill="#475569">' . $this->escape($label2) . '</text>';
+                $svg .= '<text x="' . round($labelX, 1) . '" y="' . round($labelY + 8, 1) . '" text-anchor="middle" font-size="6.5" fill="#475569">' . $this->escape($label2) . '</text>';
             }
         }
 

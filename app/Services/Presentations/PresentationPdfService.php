@@ -754,8 +754,28 @@ a:hover { text-decoration: underline; }
     width: 100%; border-radius: 3px 3px 0 0; min-height: 2px;
     transition: height 0.2s;
 }
-.bar-col .bar-label { font-size: 7px; color: var(--text-muted); margin-top: 3px; text-align: center; white-space: nowrap; }
-.bar-col .bar-count { font-size: 8px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.bar-col .bar-label { font-size: 11px; color: var(--text); font-weight: 600; margin-top: 6px; text-align: center; white-space: nowrap; line-height: 1.2; }
+.bar-col .bar-sub   { font-size: 9px; color: var(--text-muted); margin-top: 2px; text-align: center; white-space: nowrap; }
+.bar-col .bar-count { font-size: 12px; font-weight: 800; color: var(--brand); margin-bottom: 4px; }
+.bar-chart-wrap { position: relative; }
+.bar-chart-wrap .median-line {
+    position: absolute;
+    top: 0;
+    width: 0;
+    border-left: 1.5px dashed #dc2626;
+    pointer-events: none;
+}
+.bar-chart-wrap .median-line-label {
+    position: absolute;
+    top: -4px;
+    transform: translateX(-50%);
+    font-size: 10px;
+    font-weight: 700;
+    color: #dc2626;
+    background: var(--bg);
+    padding: 0 4px;
+    white-space: nowrap;
+}
 
 /* ── CHART: HORIZONTAL BRACKET BARS ──────────────────────────────────── */
 .hbar-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
@@ -1242,47 +1262,132 @@ a:hover { text-decoration: underline; }
 </div>
 <?php endif ?>
 
-<?php // CHART 3: Sale Price Timeline ?>
+<?php // CHART 3: Sale Prices Over Time — Build 8 rebuild as a real
+      // time-series. Pre-fix this was a dot cloud with two date labels
+      // and no trend; now an SVG plot with a least-squares regression
+      // trend line, monthly x-axis ticks, and the asking-price dashed
+      // reference. Reads as "where is the market heading" at a glance.
+?>
 <?php
     $chartSales = array_filter($topSales, fn($s) => !empty($s['sale_date']) && !empty($s['sale_price']) && $s['sale_price'] > 0);
     if (count($chartSales) >= 3):
         usort($chartSales, fn($a, $b) => strcmp($a['sale_date'], $b['sale_date']));
         $cPrices = array_column($chartSales, 'sale_price');
-        $cMinP = min($cPrices) * 0.85;
-        $cMaxP = max(max($cPrices), $askingPrice ?? 0) * 1.05;
-        $cRangeP = $cMaxP - $cMinP;
-        if ($cRangeP <= 0) $cRangeP = 1;
+        $cMinP = (int) (min($cPrices) * 0.92);
+        $cMaxP = (int) (max(max($cPrices), $askingPrice ?? 0) * 1.05);
+        $cRangeP = max(1, $cMaxP - $cMinP);
         $cDates = array_column($chartSales, 'sale_date');
         $cMinD = strtotime(min($cDates));
         $cMaxD = strtotime(max($cDates));
-        $cRangeD = $cMaxD - $cMinD;
-        if ($cRangeD <= 0) $cRangeD = 1;
+        $cRangeD = max(1, $cMaxD - $cMinD);
+
+        // Least-squares regression over (date_unix, sale_price). Computed
+        // on the raw unix timestamps; the slope is in ZAR per second,
+        // which we convert to a per-month figure for the human label.
+        $stN = count($chartSales);
+        $stSumX = 0.0; $stSumY = 0.0; $stSumXY = 0.0; $stSumX2 = 0.0;
+        foreach ($chartSales as $cs) {
+            $tx = (float) strtotime($cs['sale_date']);
+            $ty = (float) $cs['sale_price'];
+            $stSumX += $tx; $stSumY += $ty;
+            $stSumXY += $tx * $ty;
+            $stSumX2 += $tx * $tx;
+        }
+        $stDenom = ($stN * $stSumX2 - $stSumX * $stSumX);
+        $stSlope = $stDenom !== 0.0 ? ($stN * $stSumXY - $stSumX * $stSumY) / $stDenom : 0.0;
+        $stIntercept = ($stSumY - $stSlope * $stSumX) / $stN;
+        $stTrendStart = $stSlope * (float) $cMinD + $stIntercept;
+        $stTrendEnd   = $stSlope * (float) $cMaxD + $stIntercept;
+        // Clamp trend endpoints into the plotted band so the line stays
+        // on-canvas when the regression overshoots min/max.
+        $stTrendStart = max($cMinP, min($cMaxP, $stTrendStart));
+        $stTrendEnd   = max($cMinP, min($cMaxP, $stTrendEnd));
+        // Monthly change as % of the starting price — what the seller cares
+        // about. Falls back to flat when the date range is < 1 month or
+        // the start price is zero.
+        $stRangeMonths = max(0.001, ($cMaxD - $cMinD) / (30.4 * 86400));
+        $stStartPrice  = max(1.0, $stSlope * (float) $cMinD + $stIntercept);
+        $stMonthlyPct  = $stStartPrice > 0
+            ? (($stSlope * 30.4 * 86400) / $stStartPrice) * 100
+            : 0.0;
+
+        // SVG canvas geometry. Tight padL reserves room for the
+        // R-formatted Y-axis ticks (rendered right-aligned).
+        $stW = 620; $stH = 200;
+        $stPadL = 64; $stPadR = 16; $stPadT = 12; $stPadB = 32;
+        $stPlotW = $stW - $stPadL - $stPadR;
+        $stPlotH = $stH - $stPadT - $stPadB;
+
+        $stPx = function ($t) use ($cMinD, $cRangeD, $stPadL, $stPlotW) {
+            return $stPadL + (($t - $cMinD) / $cRangeD) * $stPlotW;
+        };
+        $stPy = function ($p) use ($cMinP, $cRangeP, $stPadT, $stPlotH) {
+            return $stPadT + (1 - (($p - $cMinP) / $cRangeP)) * $stPlotH;
+        };
+
+        // Monthly tick marks. We anchor to the first of each month inside
+        // the date range; when the range spans more than ~12 months, we
+        // thin to every Nth tick so the axis stays readable.
+        $stTicks = [];
+        $stCursor = strtotime(date('Y-m-01', $cMinD));
+        if ($stCursor < $cMinD) $stCursor = strtotime('+1 month', $stCursor);
+        $stGuard = 0;
+        while ($stCursor <= $cMaxD && $stGuard < 240) {
+            $stTicks[] = $stCursor;
+            $stCursor = strtotime('+1 month', $stCursor);
+            $stGuard++;
+        }
+        $stTickEvery = max(1, (int) ceil(count($stTicks) / 12));
+
+        $stTrendLabel = abs($stMonthlyPct) < 0.05
+            ? 'Trend: flat'
+            : sprintf('Trend: %s%.1f%%/mo', $stMonthlyPct >= 0 ? '+' : '', $stMonthlyPct);
 ?>
 <div class="avoid-break" style="margin-top:16px;">
-    <p style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Sale Prices Over Time</p>
-    <div class="sale-timeline">
-        <?php // Y-axis labels ?>
-        <div class="sale-timeline-yaxis" style="bottom:0;left:-4px;"><?= $zar((int) $cMinP) ?></div>
-        <div class="sale-timeline-yaxis" style="top:0;left:-4px;"><?= $zar((int) $cMaxP) ?></div>
-        <?php // Asking price reference line ?>
-        <?php if ($askingPrice && $askingPrice > 0): ?>
-        <?php $askY = 100 - round(($askingPrice - $cMinP) / $cRangeP * 100); ?>
-        <div class="sale-timeline-line" style="top:<?= max(2, min(98, $askY)) ?>%;"></div>
-        <div style="position:absolute;right:2px;top:<?= max(2, min(92, $askY)) ?>%;font-size:8px;color:var(--danger);font-weight:600;">Asking</div>
+    <p style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Sale Prices Over Time</p>
+    <svg viewBox="0 0 <?= $stW ?> <?= $stH ?>" style="width:100%;max-width:<?= $stW ?>px;height:auto;background:var(--bg);border:1px solid var(--border);border-radius:4px;">
+        <?php // Plot frame ?>
+        <line x1="<?= $stPadL ?>" y1="<?= $stPadT ?>" x2="<?= $stPadL ?>" y2="<?= $stH - $stPadB ?>" stroke="#cbd5e1" stroke-width="0.75"/>
+        <line x1="<?= $stPadL ?>" y1="<?= $stH - $stPadB ?>" x2="<?= $stW - $stPadR ?>" y2="<?= $stH - $stPadB ?>" stroke="#cbd5e1" stroke-width="0.75"/>
+
+        <?php // Y-axis labels — min, midpoint, max. ?>
+        <?php $stMidP = (int) (($cMinP + $cMaxP) / 2); ?>
+        <text x="<?= $stPadL - 6 ?>" y="<?= $stPadT + 4 ?>" text-anchor="end" font-size="10" fill="#64748b"><?= $zar($cMaxP) ?></text>
+        <text x="<?= $stPadL - 6 ?>" y="<?= $stPadT + $stPlotH / 2 + 3 ?>" text-anchor="end" font-size="10" fill="#94a3b8"><?= $zar($stMidP) ?></text>
+        <text x="<?= $stPadL - 6 ?>" y="<?= $stH - $stPadB + 3 ?>" text-anchor="end" font-size="10" fill="#64748b"><?= $zar($cMinP) ?></text>
+        <line x1="<?= $stPadL ?>" y1="<?= round($stPadT + $stPlotH / 2, 1) ?>" x2="<?= $stW - $stPadR ?>" y2="<?= round($stPadT + $stPlotH / 2, 1) ?>" stroke="#e2e8f0" stroke-width="0.5" stroke-dasharray="2,3"/>
+
+        <?php // Asking-price reference (dashed). Render in-band only — out-of-band asking
+              // would just sit on the frame edge and confuse the reader. ?>
+        <?php if ($askingPrice && $askingPrice >= $cMinP && $askingPrice <= $cMaxP): ?>
+        <?php $stAskY = round($stPy((float) $askingPrice), 1); ?>
+        <line x1="<?= $stPadL ?>" y1="<?= $stAskY ?>" x2="<?= $stW - $stPadR ?>" y2="<?= $stAskY ?>" stroke="#dc2626" stroke-width="1" stroke-dasharray="4,3" opacity="0.7"/>
+        <text x="<?= $stW - $stPadR - 4 ?>" y="<?= $stAskY - 4 ?>" text-anchor="end" font-size="10" fill="#dc2626" font-weight="700">Asking <?= $zar((int) $askingPrice) ?></text>
         <?php endif ?>
-        <?php // Data dots ?>
-        <?php foreach ($chartSales as $cs): ?>
-        <?php
-            $dotX = round((strtotime($cs['sale_date']) - $cMinD) / $cRangeD * 96) + 2;
-            $dotY = 100 - round(($cs['sale_price'] - $cMinP) / $cRangeP * 90) - 5;
+
+        <?php // Trend line (least-squares regression). ?>
+        <line x1="<?= round($stPx($cMinD), 1) ?>" y1="<?= round($stPy($stTrendStart), 1) ?>" x2="<?= round($stPx($cMaxD), 1) ?>" y2="<?= round($stPy($stTrendEnd), 1) ?>" stroke="#0b2a4a" stroke-width="1.75" opacity="0.85"/>
+
+        <?php // Monthly x-axis ticks. ?>
+        <?php foreach ($stTicks as $stI => $stTk):
+            if ($stI % $stTickEvery !== 0) continue;
+            $stTickX = round($stPx($stTk), 1);
         ?>
-        <div class="sale-timeline-dot" style="left:<?= $dotX ?>%;bottom:<?= max(2, min(92, 100 - $dotY)) ?>%;" title="<?= $esc($cs['sale_date'] ?? '') ?>: <?= $zar($cs['sale_price']) ?>"></div>
+        <line x1="<?= $stTickX ?>" y1="<?= $stH - $stPadB ?>" x2="<?= $stTickX ?>" y2="<?= $stH - $stPadB + 4 ?>" stroke="#94a3b8" stroke-width="0.75"/>
+        <text x="<?= $stTickX ?>" y="<?= $stH - $stPadB + 16 ?>" text-anchor="middle" font-size="9.5" fill="#64748b"><?= date('M y', $stTk) ?></text>
         <?php endforeach ?>
-    </div>
-    <div class="sale-timeline-axis">
-        <span><?= $esc(min($cDates)) ?></span>
-        <span><?= $esc(max($cDates)) ?></span>
-    </div>
+
+        <?php // Data points. ?>
+        <?php foreach ($chartSales as $cs):
+            $stDx = round($stPx(strtotime($cs['sale_date'])), 1);
+            $stDy = round($stPy((float) $cs['sale_price']), 1);
+        ?>
+        <circle cx="<?= $stDx ?>" cy="<?= $stDy ?>" r="3.5" fill="#0b2a4a" stroke="#fff" stroke-width="1.25"/>
+        <?php endforeach ?>
+
+        <?php // Trend tag — bottom-left of the plot area. ?>
+        <text x="<?= $stPadL + 6 ?>" y="<?= $stPadT + 14 ?>" font-size="10" font-weight="700" fill="#0b2a4a"><?= $esc($stTrendLabel) ?></text>
+    </svg>
 </div>
 <?php endif ?>
 
@@ -1399,12 +1504,17 @@ a:hover { text-decoration: underline; }
         }
     }
 
-    // PDF map provider selection. svg_radial (default, self-contained)
-    // OR static_image (Google Static Maps PNG, requires key). If the
-    // agency selected static_image but the key is missing, fall back
-    // to the radial silently — a misconfigured agency never gets a
-    // broken PDF.
-    $_mapProvider = $agency?->presentations_map_provider ?? 'svg_radial';
+    // PDF map provider selection. Build 8 — flipped the default so that
+    // a real Google Static Map is rendered whenever a Maps Static key is
+    // configured. Reads better for the seller (an actual map of their
+    // area beats the polar abstraction) and the renderer already exists.
+    // The radial SVG stays as the no-key FALLBACK so an agency without
+    // a Maps key still gets a usable spatial view. The agencies column
+    // (presentations_map_provider) becomes vestigial here — keep it on
+    // the model in case a future build wants per-agency opt-out, but
+    // the key presence is the live selector.
+    $_mapsKeyConfigured = (string) config('services.google.static_maps_api_key', '') !== '';
+    $_mapProvider = $_mapsKeyConfigured ? 'static_image' : 'svg_radial';
     $_staticMapDataUri = null;
     if ($_mapProvider === 'static_image' && $_subjLat !== null && $_subjLng !== null) {
         $_subjForStatic = ['lat' => (float) $_subjLat, 'lng' => (float) $_subjLng, 'title' => $address];
@@ -1563,14 +1673,19 @@ a:hover { text-decoration: underline; }
 </div>
 <?php endif ?>
 
-<?php // CHART 4: Comp Price Distribution Bar Chart ?>
+<?php // CHART 4: Comp Price Distribution histogram — Build 8 legibility
+      // pass. Bigger labels, explicit bucket ranges ("R 1.5M–R 1.7M"
+      // rather than "R1500k"), counts above each bar, and a red dashed
+      // median line over the grid. Asking-price bucket stays highlighted
+      // in blue. Math unchanged — the bucket-size heuristic continues to
+      // round to the nearest R50k that keeps the chart around 6 bars.
+?>
 <?php
     $allCompPrices = array_merge(
         array_filter(array_column($vicinitySales, 'sale_price'), fn($v) => $v > 0),
         array_filter(array_column($cmaComps, 'sale_price'), fn($v) => $v > 0)
     );
     if (count($allCompPrices) >= 3):
-        // Build brackets
         $cpMin = min($allCompPrices);
         $cpMax = max($allCompPrices);
         $cpRange = $cpMax - $cpMin;
@@ -1584,22 +1699,68 @@ a:hover { text-decoration: underline; }
         $cpMaxBkt = max(1, max($cpBuckets));
         $askBktIdx = ($askingPrice && $askingPrice > 0) ? (int) floor(($askingPrice - $cpStart) / $cpBktSize) : null;
         $cpNumBkts = max(array_keys($cpBuckets)) + 1;
+
+        // Median of the comparable sale prices. Used to render a red
+        // dashed reference line over the histogram so the seller sees
+        // the middle of the comp range — independent of the highlighted
+        // asking-price bucket.
+        $cpSorted = $allCompPrices;
+        sort($cpSorted);
+        $cpN = count($cpSorted);
+        $cpMedian = $cpN % 2 === 1
+            ? $cpSorted[(int) ($cpN / 2)]
+            : (int) (($cpSorted[$cpN / 2 - 1] + $cpSorted[$cpN / 2]) / 2);
+        // Position the median line as a percentage of the bar-chart width.
+        // Each bar occupies (100 / $cpNumBkts)% of the grid; the median's
+        // fractional bucket position gives a precise vertical line.
+        $cpMedianFrac = $cpBktSize > 0
+            ? ($cpMedian - $cpStart) / ($cpBktSize * $cpNumBkts)
+            : 0;
+        $cpMedianPct  = max(0, min(100, $cpMedianFrac * 100));
+
+        // Human-readable price formatter for axis labels. Keeps small
+        // figures in "k" and rolls into "M" with one decimal once we
+        // cross R1m — matches how SA estate agents quote prices.
+        $cpFmt = function (int $p): string {
+            if ($p >= 1_000_000) {
+                $m = $p / 1_000_000;
+                $s = rtrim(rtrim(number_format($m, 1, '.', ''), '0'), '.');
+                return 'R ' . $s . 'M';
+            }
+            return 'R ' . number_format($p / 1000, 0) . 'k';
+        };
 ?>
 <div class="avoid-break" style="margin-top:18px;">
-    <p style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Comparable Sales Price Distribution (<?= count($allCompPrices) ?> sales)</p>
-    <div class="bar-chart">
-        <?php for ($bi = 0; $bi < $cpNumBkts; $bi++): ?>
-        <?php $bCount = $cpBuckets[$bi] ?? 0; $bPct = round($bCount / $cpMaxBkt * 100); ?>
-        <div class="bar-col">
-            <?php if ($bCount > 0): ?><div class="bar-count"><?= $bCount ?></div><?php endif ?>
-            <div class="bar" style="height:<?= max(2, $bPct) ?>%;background:<?= $bi === $askBktIdx ? '#2563eb' : 'var(--brand)' ?>;<?= $bi === $askBktIdx ? 'box-shadow:0 0 0 2px #2563eb33;' : '' ?>"></div>
-            <div class="bar-label"><?= 'R' . number_format(($cpStart + $bi * $cpBktSize) / 1000, 0) . 'k' ?></div>
+    <p style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Comparable Sales Price Distribution (<?= count($allCompPrices) ?> sales)</p>
+    <div class="bar-chart-wrap">
+        <div class="bar-chart" style="height:140px;align-items:flex-end;">
+            <?php for ($bi = 0; $bi < $cpNumBkts; $bi++):
+                $bCount = $cpBuckets[$bi] ?? 0;
+                $bPct = round($bCount / $cpMaxBkt * 100);
+                $bLow  = $cpStart + $bi * $cpBktSize;
+                $bHigh = $bLow + $cpBktSize;
+                $isAsk = $bi === $askBktIdx;
+            ?>
+            <div class="bar-col">
+                <div class="bar-count" style="<?= $bCount === 0 ? 'opacity:0;' : '' ?>"><?= $bCount ?></div>
+                <div class="bar" style="height:<?= max(2, $bPct) ?>%;background:<?= $isAsk ? '#2563eb' : 'var(--brand)' ?>;<?= $isAsk ? 'box-shadow:0 0 0 2px #2563eb33;' : '' ?>"></div>
+                <div class="bar-label"><?= $cpFmt($bLow) ?>–<?= $cpFmt($bHigh) ?></div>
+            </div>
+            <?php endfor ?>
         </div>
-        <?php endfor ?>
+        <?php // Median reference line — runs over the bar grid only.
+              // The label sits just above the bars so it doesn't collide
+              // with the bucket range labels below. ?>
+        <div class="median-line" style="left:<?= number_format($cpMedianPct, 2) ?>%;height:108px;"></div>
+        <div class="median-line-label" style="left:<?= number_format($cpMedianPct, 2) ?>%;">Median <?= $cpFmt((int) $cpMedian) ?></div>
     </div>
-    <?php if ($askBktIdx !== null): ?>
-    <p style="font-size:8px;text-align:center;color:#2563eb;font-weight:600;margin-top:2px;">Blue bar = your asking price bracket</p>
-    <?php endif ?>
+    <p style="font-size:10px;text-align:center;color:var(--text-muted);margin-top:6px;">
+        <?php if ($askBktIdx !== null): ?>
+            <span style="color:#2563eb;font-weight:700;">■</span> Your asking-price bucket
+            &nbsp;·&nbsp;
+        <?php endif ?>
+        <span style="color:#dc2626;font-weight:700;">┊</span> Median of <?= count($allCompPrices) ?> comparable sales (<?= $cpFmt((int) $cpMedian) ?>)
+    </p>
 </div>
 <?php endif ?>
 
