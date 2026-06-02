@@ -48,6 +48,410 @@ class PresentationPdfService
     }
 
     /**
+     * B2 — Executive Summary payload.
+     *
+     * Pure-data builder for the Exec Summary + five-bullet primary page,
+     * per .ai/specs/seller-report-restructure.md. Resolves every {token}
+     * in spec §3 from canonical $data keys (B0a + B0b post-rewire), runs
+     * the §4c above_clause conditional, and computes a $sectionIndex map
+     * cover+summary-offset = 2 (cover p.1, exec summary p.2, beats start
+     * p.3). Beat-suppression rule per spec §7 recomputes downstream page
+     * refs so a no-comps subject (Bullet 2 + Beat 2 suppressed) leaves
+     * Bullets 3/4/5 pointing to the right pages.
+     *
+     * No HTML. Unit-testable in isolation — the render layer in
+     * buildHtml() consumes this payload.
+     *
+     * @param  Presentation         $presentation
+     * @param  PresentationVersion  $version
+     * @param  array<string, mixed> $data  Output of AnalysisDataService::compile
+     * @return array{
+     *   tone_text: ?string,
+     *   bullets: array<int, array{key: string, suppressed: bool, ref: string, html: string}>,
+     *   section_index: array<string, int>,
+     *   tokens: array<string, mixed>,
+     *   well_priced: bool,
+     * }
+     */
+    public function buildSummaryPayload(
+        \App\Models\Presentation $presentation,
+        \App\Models\PresentationVersion $version,
+        array $data,
+    ): array {
+        // ── Canonical data sources (post B0a + B0b) ─────────────────────
+        $subject       = $data['subject_property']   ?? [];
+        $cma           = $data['cma_valuation']      ?? [];
+        $cmaComputed   = $data['cma_computed']       ?? [];
+        $holdingCost   = $data['holding_cost']       ?? [];
+        $compStock     = $data['competitor_stock']   ?? [];
+        $comparable    = $data['comparable_sales']   ?? [];
+
+        $askingPrice   = isset($subject['asking_price'])
+            ? (int) $subject['asking_price']
+            : ($presentation->asking_price_inc !== null ? (int) $presentation->asking_price_inc : null);
+        $cmaMiddle     = $cma['cma_middle'] !== null ? (int) $cma['cma_middle'] : null;
+        $cmaUpper      = $cma['cma_upper']  !== null ? (int) $cma['cma_upper']  : null;
+        $monthlyTotal  = $holdingCost['monthly_total'] !== null ? (int) round((float) $holdingCost['monthly_total']) : 0;
+        $competingCount = (int) ($compStock['competing_count'] ?? 0);
+
+        // ── §3 Bullet 1 tokens — subject identity ───────────────────────
+        $beds       = $subject['bedrooms']     ?? null;
+        $baths      = $presentation->bathrooms ?? null;
+        $extent     = $subject['extent_m2']    ?? null;
+        $rawType    = $subject['property_type'] ?? null;
+        $type       = $rawType ? \Illuminate\Support\Str::humanType($rawType) : 'property';
+        $suburb     = $subject['suburb'] ?? $presentation->suburb ?? '';
+        $address    = $subject['address'] ?? $presentation->property_address ?? '';
+
+        // ── §3 Bullet 2 tokens — cleaned, size-matched sold pool (§4a) ──
+        // Bind to cma_computed.pool_stats min/max (post recency + IQR
+        // cleaning) so the seller sees the spread of REAL sales after
+        // outliers fall out, not the raw vicinity range.
+        $poolStats   = $cmaComputed['pool_stats'] ?? [];
+        $soldLow     = $poolStats['min']      ?? null;
+        $soldHigh    = $poolStats['max']      ?? null;
+        $soldCount   = (int) ($poolStats['n_after_outlier_cut'] ?? $poolStats['n_total'] ?? 0);
+
+        // Closest-match comp — smallest |Δsize| then most recent. Survives
+        // the same cleaning the pool went through (we read off
+        // comparable_sales which is the unsupressed pool; the cleaning
+        // only excludes from the percentile maths, not from the table).
+        [$matchDescriptor, $matchPrice] = $this->resolveClosestComp($comparable, $extent);
+
+        // ── §3 Bullet 3 tokens — competing stock ────────────────────────
+        $visible      = $compStock['visible'] ?? [];
+        $visiblePrices = array_values(array_filter(
+            array_map(static fn (array $r) => isset($r['price']) ? (int) $r['price'] : 0, $visible),
+            static fn (int $p) => $p > 0,
+        ));
+        $compLow      = $visiblePrices === [] ? null : min($visiblePrices);
+        $compHigh     = $visiblePrices === [] ? null : max($visiblePrices);
+        $domValues    = array_values(array_filter(
+            array_map(static fn (array $r) => isset($r['days_on_market']) ? (int) $r['days_on_market'] : null, $visible),
+            static fn (?int $v) => $v !== null && $v > 0,
+        ));
+        $longestDom   = $domValues === [] ? null : max($domValues);
+
+        // ── §3 Bullet 4 tokens — recommendation (§4b: condition-adjusted
+        // CMA middle). The conditional above_clause (§4c) tells the truth
+        // for a well-priced subject — no false "you're too high" pitch.
+        $recommendedPrice = $cmaMiddle;
+        $aboveClause      = $this->buildAboveClause($askingPrice, $cmaUpper, $soldHigh, $compHigh, $competingCount);
+        $wellPriced       = $aboveClause['well_priced'];
+
+        // ── §3 Bullet 5 — waiting cost from canonical (B0a) ─────────────
+        $holdingMonthly = $monthlyTotal;
+
+        // ── §5 sectionIndex — fixed beat order, cover+summary offset = 2 ──
+        // Beats 1-5 occupy sequential page positions when all present.
+        // Beat-suppression rule per spec §7: a beat with no data still
+        // renders the beat HEADER as a placeholder so navigation stays
+        // intact — but its bullet is suppressed AND the index recomputes
+        // to skip it so downstream refs stay correct.
+        $beatOrder = ['your_property', 'sold', 'competition', 'recommendation', 'waiting'];
+        $beatPresent = [
+            'your_property'  => true,                                   // always renders (subject identity)
+            'sold'           => $soldCount > 0 && $soldLow !== null,    // §7: no comps → Beat 2 suppressed
+            'competition'    => $competingCount > 0,                    // §7: empty visible → Beat 3 verdict suppressed
+            'recommendation' => $recommendedPrice !== null,             // §7: no CMA middle → Beat 4 suppressed
+            'waiting'        => $holdingMonthly > 0,                    // §7: zero monthly_total → Beat 5 suppressed
+        ];
+        $sectionIndex = [];
+        $pageCursor   = 3; // cover=1, exec summary=2, beats start at 3
+        foreach ($beatOrder as $beat) {
+            if ($beatPresent[$beat]) {
+                $sectionIndex[$beat] = $pageCursor++;
+            } else {
+                // Beat absent — still emit an entry pointing at the next
+                // surviving page so the bullet (if it slips through
+                // suppression) lands somewhere sensible. Suppressed
+                // bullets won't render at all in practice.
+                $sectionIndex[$beat] = $pageCursor;
+            }
+        }
+
+        // ── Bullets — locked copy from spec §3, token substitution + ref ──
+        $bullets = [];
+
+        // Bullet 1 — locked: identity. Always renders.
+        $bullets[] = [
+            'key'        => 'your_property',
+            'suppressed' => false,
+            'ref'        => 'p.' . $sectionIndex['your_property'],
+            'html'       => $this->bulletPropertyHtml($beds, $baths, $extent, $type, $suburb, $address),
+        ];
+
+        // Bullet 2 — sold band. Suppressed when no cleaned pool.
+        $bullets[] = [
+            'key'        => 'sold',
+            'suppressed' => !$beatPresent['sold'],
+            'ref'        => 'p.' . $sectionIndex['sold'],
+            'html'       => $this->bulletSoldHtml($soldLow, $soldHigh, $matchDescriptor, $matchPrice),
+        ];
+
+        // Bullet 3 — competing stock. Suppressed when empty visible.
+        $bullets[] = [
+            'key'        => 'competition',
+            'suppressed' => !$beatPresent['competition'],
+            'ref'        => 'p.' . $sectionIndex['competition'],
+            'html'       => $this->bulletCompetingHtml($competingCount, $compLow, $compHigh, $longestDom),
+        ];
+
+        // Bullet 4 — recommendation + conditional above-clause.
+        $bullets[] = [
+            'key'        => 'recommendation',
+            'suppressed' => !$beatPresent['recommendation'],
+            'ref'        => 'p.' . $sectionIndex['recommendation'],
+            'html'       => $this->bulletRecommendationHtml($recommendedPrice, $askingPrice, $aboveClause),
+        ];
+
+        // Bullet 5 — waiting cost. Softens when well-priced (no pressure).
+        $bullets[] = [
+            'key'        => 'waiting',
+            'suppressed' => !$beatPresent['waiting'],
+            'ref'        => 'p.' . $sectionIndex['waiting'],
+            'html'       => $this->bulletWaitingHtml($holdingMonthly, $wellPriced),
+        ];
+
+        // ── AI tone prose — figure-free per spec §2. Pass through
+        // verbatim; the AI prompt enforces the no-numbers contract.
+        // Legacy versions with hard figures in their stored text still
+        // render — the bullets carry the load and the prose reads as
+        // narrative context.
+        $toneText = $version->ai_summary_text ? (string) $version->ai_summary_text : null;
+
+        return [
+            'tone_text'     => $toneText,
+            'bullets'       => $bullets,
+            'section_index' => $sectionIndex,
+            'tokens'        => [
+                'beds'             => $beds,
+                'baths'            => $baths,
+                'extent_m2'        => $extent,
+                'type'             => $type,
+                'suburb'           => $suburb,
+                'address'          => $address,
+                'sold_low'         => $soldLow,
+                'sold_high'        => $soldHigh,
+                'sold_count'       => $soldCount,
+                'match_descriptor' => $matchDescriptor,
+                'match_price'      => $matchPrice,
+                'competing_count'  => $competingCount,
+                'comp_low'         => $compLow,
+                'comp_high'        => $compHigh,
+                'longest_dom'      => $longestDom,
+                'recommended_price'=> $recommendedPrice,
+                'asking_price'     => $askingPrice,
+                'above_clause'     => $aboveClause['text'],
+                'holding_monthly'  => $holdingMonthly,
+            ],
+            'well_priced'   => $wellPriced,
+        ];
+    }
+
+    /**
+     * Spec §4a — closest comp by smallest |Δsize| then most recent.
+     * Reads from comparable_sales.vicinity.rows (B0a-era shape; rows
+     * carry address / sale_price / sale_date / extent_m2). Returns
+     * [descriptor, price] or [null, null] when no usable comp exists.
+     */
+    private function resolveClosestComp(array $comparable, ?int $subjectExtent): array
+    {
+        $rows = $comparable['vicinity']['rows'] ?? [];
+        if ($rows === []) return [null, null];
+
+        $candidates = array_values(array_filter($rows, static function (array $r): bool {
+            return !empty($r['sale_price']) && (int) $r['sale_price'] > 0;
+        }));
+        if ($candidates === []) return [null, null];
+
+        usort($candidates, static function (array $a, array $b) use ($subjectExtent): int {
+            $aDiff = $subjectExtent !== null && !empty($a['extent_m2'])
+                ? abs((int) $a['extent_m2'] - $subjectExtent)
+                : PHP_INT_MAX;
+            $bDiff = $subjectExtent !== null && !empty($b['extent_m2'])
+                ? abs((int) $b['extent_m2'] - $subjectExtent)
+                : PHP_INT_MAX;
+            if ($aDiff !== $bDiff) return $aDiff <=> $bDiff;
+            // tiebreak: most recent date wins
+            return strcmp((string) ($b['sale_date'] ?? ''), (string) ($a['sale_date'] ?? ''));
+        });
+
+        $best = $candidates[0];
+        $extent = !empty($best['extent_m2']) ? (int) $best['extent_m2'] : null;
+        $descriptor = $extent !== null
+            ? "a {$extent} m² home, " . ($extent === $subjectExtent ? 'the same size as yours' : 'closest in size to yours')
+            : 'the closest match nearby';
+        return [$descriptor, (int) $best['sale_price']];
+    }
+
+    /**
+     * Spec §4c — conditional above_clause. Tells the truth for every
+     * pricing state including well-priced and under-priced; NEVER
+     * asserts a falsehood. Returns a small struct so the bullet
+     * renderer can flip to the well-priced branch entirely.
+     *
+     * @return array{text: string, well_priced: bool, above_competition: bool, above_sold: bool}
+     */
+    private function buildAboveClause(?int $askingPrice, ?int $cmaUpper, ?int $soldHigh, ?int $compHigh, int $competingCount): array
+    {
+        // Well-priced: asking ≤ band. Spec §4c — softens the close.
+        if ($askingPrice === null || $cmaUpper === null) {
+            return ['text' => '', 'well_priced' => false, 'above_competition' => false, 'above_sold' => false];
+        }
+        if ($askingPrice <= $cmaUpper) {
+            return [
+                'text'              => '',
+                'well_priced'       => true,
+                'above_competition' => false,
+                'above_sold'        => false,
+            ];
+        }
+
+        $aboveCompetition = $compHigh !== null && $askingPrice > $compHigh && $competingCount > 0;
+        $aboveSold        = $soldHigh !== null && $askingPrice > $soldHigh;
+
+        $parts = [];
+        if ($aboveCompetition) {
+            $parts[] = sprintf(
+                'all %d %s you\'re competing with',
+                $competingCount,
+                $competingCount === 1 ? 'home' : 'homes',
+            );
+        }
+        if ($aboveSold) {
+            $parts[] = 'everything similar that\'s sold';
+        }
+
+        if ($parts === []) {
+            // asking > cmaUpper but no competitor / sold ceiling to assert
+            // against — keep the truth narrow and just say "the
+            // recommended band".
+            return [
+                'text'              => 'the recommended band',
+                'well_priced'       => false,
+                'above_competition' => false,
+                'above_sold'        => false,
+            ];
+        }
+
+        return [
+            'text'              => implode(' and ', $parts),
+            'well_priced'       => false,
+            'above_competition' => $aboveCompetition,
+            'above_sold'        => $aboveSold,
+        ];
+    }
+
+    // ── Bullet HTML builders — copy frozen by spec §3 ───────────────────
+
+    private function bulletPropertyHtml(?int $beds, ?int $baths, ?int $extent, string $type, string $suburb, string $address): string
+    {
+        $esc = static fn (?string $s) => htmlspecialchars((string) ($s ?? ''), ENT_QUOTES, 'UTF-8');
+        $parts = [];
+        if ($beds   !== null && $beds   > 0) $parts[] = $beds   . '-bed';
+        if ($baths  !== null && $baths  > 0) $parts[] = $baths  . '-bath';
+        if ($extent !== null && $extent > 0) $parts[] = number_format($extent) . ' m²';
+        $descriptor = $parts === [] ? '' : '<strong>' . implode(', ', $parts) . '</strong> ';
+        $where = $suburb !== '' ? ' in ' . $esc($suburb) : '';
+        return $descriptor . $esc($type) . ($address !== '' ? ' — ' . $esc($address) : '') . $where . '.';
+    }
+
+    private function bulletSoldHtml(?int $low, ?int $high, ?string $matchDescriptor, ?int $matchPrice): string
+    {
+        if ($low === null || $high === null) {
+            return 'No comparable sales nearby have completed yet — your value reads from the live market only.';
+        }
+        $core = sprintf(
+            'Homes like yours sold for between <strong>%s</strong> and <strong>%s</strong>.',
+            $this->zarFormat($low),
+            $this->zarFormat($high),
+        );
+        if ($matchDescriptor !== null && $matchPrice !== null) {
+            $core .= sprintf(
+                ' The closest match — %s — sold for <strong>%s</strong>.',
+                htmlspecialchars($matchDescriptor, ENT_QUOTES, 'UTF-8'),
+                $this->zarFormat($matchPrice),
+            );
+        }
+        return $core;
+    }
+
+    private function bulletCompetingHtml(int $count, ?int $low, ?int $high, ?int $longestDom): string
+    {
+        if ($count === 0) {
+            return 'There are no scored competitors at your price level right now — you set the pace.';
+        }
+        $core = sprintf(
+            'There are <strong>%d similar %s</strong> for sale near you right now',
+            $count,
+            $count === 1 ? 'home' : 'homes',
+        );
+        if ($low !== null && $high !== null) {
+            $core .= sprintf(', from <strong>%s to %s</strong>', $this->zarFormat($low), $this->zarFormat($high));
+        }
+        if ($longestDom !== null && $longestDom > 0) {
+            $core .= sprintf(
+                ' — and one nearby has sat unsold for <strong>%d days</strong>',
+                $longestDom,
+            );
+        }
+        return $core . '.';
+    }
+
+    private function bulletRecommendationHtml(?int $recommended, ?int $asking, array $aboveClause): string
+    {
+        if ($recommended === null) {
+            return 'A recommended price requires a CMA — once your comps and condition land, we can pin a specific number.';
+        }
+        $core = sprintf(
+            'To <strong>sell</strong> — not just to list — your home fits best at <strong>%s</strong>.',
+            $this->zarFormat($recommended),
+        );
+        if ($asking === null) {
+            return $core;
+        }
+        if ($aboveClause['well_priced']) {
+            return $core . sprintf(
+                ' At <strong>%s</strong> you\'re priced right in the band buyers are paying.',
+                $this->zarFormat($asking),
+            );
+        }
+        $clause = $aboveClause['text'] !== '' ? $aboveClause['text'] : 'the recommended band';
+        return $core . sprintf(
+            ' At today\'s <strong>%s</strong> you\'re priced above %s.',
+            $this->zarFormat($asking),
+            htmlspecialchars($clause, ENT_QUOTES, 'UTF-8'),
+        );
+    }
+
+    private function bulletWaitingHtml(int $monthly, bool $wellPriced): string
+    {
+        if ($monthly <= 0) {
+            return 'Once your holding costs are captured we can show you what each month of waiting costs.';
+        }
+        $core = sprintf(
+            'Every month unsold costs about <strong>%s</strong>.',
+            $this->zarFormat($monthly),
+        );
+        // Spec §4c — softer close for well-priced subjects (no pressure).
+        if ($wellPriced) {
+            return $core . ' At today\'s pricing that\'s a working figure, not a warning.';
+        }
+        return $core . ' Pricing it right today usually means <strong>the same money — or more — in your pocket, sooner.</strong>';
+    }
+
+    /**
+     * Local helper — matches the rest of the file's $zar formatter so the
+     * Exec Summary numbers print identically to every other tile / table.
+     */
+    private function zarFormat(?int $val): string
+    {
+        if ($val === null || $val === 0) return '—';
+        return 'R ' . number_format($val, 0, '.', ' ');
+    }
+
+    /**
      * Build the full HTML document from the presentation + analysis data.
      */
     public function buildHtml(PresentationVersion $version): string
@@ -154,6 +558,13 @@ class PresentationPdfService
         $sectionEnabled = function (string $key) use ($version): bool {
             return $version->isSectionEnabled($key);
         };
+
+        // B2 — Executive Summary payload. Resolves spec §3 tokens once,
+        // up front, so the §1 heredoc just iterates bullets. Sectional
+        // index is pre-computed (cover=p.1, exec summary=p.2, beats
+        // start p.3) so bullets carry → p.{N} refs that line up with
+        // the printed beat numbers.
+        $summary = $this->buildSummaryPayload($presentation, $version, $data);
 
         $subject     = $data['subject_property']   ?? [];
         $suburb      = $data['suburb_overview']     ?? [];
@@ -345,6 +756,23 @@ h3 { font-size: 14px; font-weight: 600; }
     padding-bottom: 10px;
     border-bottom: 2px solid var(--brand);
     page-break-inside: avoid;
+    page-break-after: avoid;
+}
+/* B2 — beat eyebrow above section headers so the seller can match
+   bullets-to-beats by number. The eyebrow renders ABOVE the section
+   number circle, page-break-after:avoid so it never orphans from its
+   section. */
+.beat-eyebrow {
+    display: inline-block;
+    padding: 3px 10px;
+    margin-bottom: 6px;
+    background: var(--brand);
+    color: #fff;
+    border-radius: 3px;
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
     page-break-after: avoid;
 }
 .section-header h2 { color: var(--brand); }
@@ -951,170 +1379,46 @@ a:hover { text-decoration: underline; }
 <?php // ══════════════════════════════════════════════════════════════════════
       // PAGE 2 — EXECUTIVE SUMMARY
       // ══════════════════════════════════════════════════════════════════════ ?>
+<?php // B2 — Executive Summary primary page (spec
+      // .ai/specs/seller-report-restructure.md).
+      // Pure prose + five token-templated bullets. The CMA tiles +
+      // price-position chart + recommended-band callout that used to
+      // live here have moved to Beat 4 (Pricing Strategy section)
+      // where they belong as proof, not summary. The bullets each
+      // carry their canonical figures + a → p.{N} cross-reference
+      // computed in buildSummaryPayload(). ?>
 <div class="page-break"></div>
 <div class="section-header">
     <span class="section-number">1</span>
     <h2>Executive Summary</h2>
 </div>
 
-<?php // Phase 3 — AI-generated executive summary lives on the version snapshot.
-      // Falls back to the static blurb when no AI summary present (legacy versions). ?>
-<?php if (!empty($version->ai_summary_text)): ?>
-    <div style="font-size:12px;line-height:1.6;color:var(--text-primary);margin-bottom:16px;white-space:pre-wrap;"><?= e($version->ai_summary_text) ?></div>
-<?php else: ?>
-<p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">
-    A data-driven overview of your property's market position. This summary draws on
-    <?= count($vicinitySales) + count($cmaComps) + count($streetSales) ?> comparable sales,
-    <?= $competingCount ?> competing listing<?= $competingCount !== 1 ? 's' : '' ?>,
-    and current suburb statistics.
-</p>
+<?php // AI tone prose — figure-free per spec §2. Frozen on the
+      // version snapshot. If a legacy version has hard figures in its
+      // stored text, the bullets below carry the load and the prose
+      // reads as warm context. ?>
+<?php if (!empty($summary['tone_text'])): ?>
+    <div style="font-size:12px;line-height:1.65;color:var(--text-primary);margin-bottom:18px;white-space:pre-wrap;"><?= e($summary['tone_text']) ?></div>
 <?php endif ?>
 
-<?php // PROPERTY VALUE — CMA Band ?>
-<?php if ($cmaLower || $cmaMiddle || $cmaUpper): ?>
-<div class="avoid-break" style="margin-bottom:18px;">
-    <h3 style="margin-bottom:8px;color:var(--brand);">Property Valuation (CMA)</h3>
-    <div class="val-bar-container">
-        <div class="val-bar">
-            <div class="segment seg-lower"><?= $zar($cmaLower) ?></div>
-            <div class="segment seg-middle"><?= $zar($cmaMiddle) ?></div>
-            <div class="segment seg-upper"><?= $zar($cmaUpper) ?></div>
-        </div>
-        <div class="val-bar-labels">
-            <span>Lower Range</span>
-            <span>CMA Valuation</span>
-            <span>Upper Range</span>
-        </div>
-    </div>
-</div>
-<?php endif ?>
-
-<?php // CHART 1: Price Position Number Line ?>
-<?php if ($cmaLower && $askingPrice && $askingPrice > 0): ?>
-<?php
-    // Build markers for the number line
-    $lineMarkers = [];
-    if ($cmaLower)    $lineMarkers[] = ['val' => $cmaLower,    'label' => 'CMA Low',    'color' => '#64748b'];
-    if ($cmaMiddle)   $lineMarkers[] = ['val' => $cmaMiddle,   'label' => 'CMA Mid',    'color' => 'var(--brand)'];
-    if ($cmaUpper)    $lineMarkers[] = ['val' => $cmaUpper,    'label' => 'CMA High',   'color' => 'var(--brand-light)'];
-    if ($suburbMedian) $lineMarkers[] = ['val' => $suburbMedian, 'label' => 'Suburb Med', 'color' => '#6366f1'];
-    $lineMarkers[] = ['val' => $askingPrice, 'label' => 'Asking', 'color' => ($askVsCmaPct !== null && $askVsCmaPct > 10) ? 'var(--danger)' : 'var(--success)'];
-
-    $lineMin = min(array_column($lineMarkers, 'val')) * 0.9;
-    $lineMax = max(array_column($lineMarkers, 'val')) * 1.05;
-    $lineRange = $lineMax - $lineMin;
-    if ($lineRange <= 0) $lineRange = 1;
-    $pctOf = function($v) use ($lineMin, $lineRange) { return max(2, min(98, round(($v - $lineMin) / $lineRange * 100))); };
-
-    // CMA green zone
-    $cmaZoneLeft = $pctOf($cmaLower);
-    $cmaZoneWidth = $pctOf($cmaUpper ?? $cmaLower) - $cmaZoneLeft;
-?>
-<div class="avoid-break" style="margin-bottom:14px;">
-    <p style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Price Position Overview</p>
-    <div class="price-line">
-        <div class="price-line-track" style="background:#f1f5f9;">
-            <div class="price-line-zone" style="left:<?= $cmaZoneLeft ?>%;width:<?= max(1,$cmaZoneWidth) ?>%;background:rgba(5,150,105,0.15);"></div>
-            <?php if ($cmaUpper && $askingPrice > $cmaUpper): ?>
-            <div class="price-line-zone" style="left:<?= $pctOf($cmaUpper) ?>%;width:<?= $pctOf($askingPrice) - $pctOf($cmaUpper) ?>%;background:rgba(220,38,38,0.1);"></div>
-            <?php endif ?>
-        </div>
-        <?php foreach ($lineMarkers as $mk): ?>
-        <div class="price-line-marker" style="left:<?= $pctOf($mk['val']) ?>%;">
-            <div class="dot" style="background:<?= $mk['color'] ?>;"></div>
-            <div class="marker-label" style="color:<?= $mk['color'] ?>;"><?= $mk['label'] ?></div>
-            <div class="marker-value"><?= $zar($mk['val']) ?></div>
-        </div>
-        <?php endforeach ?>
-    </div>
-</div>
-<?php endif ?>
-
-<?php // ASKING PRICE vs CMA ?>
-<?php if ($askingPrice): ?>
-<div class="avoid-break metric-grid" style="grid-template-columns: 1fr 1fr;">
-    <div class="metric-card <?= $askVsCmaPct !== null && $askVsCmaPct > 10 ? 'danger' : ($askVsCmaPct !== null && $askVsCmaPct > 5 ? 'warning' : 'success') ?>">
-        <div class="label">Your Asking Price</div>
-        <div class="value"><?= $zar($askingPrice) ?></div>
-        <?php if ($askVsCmaPct !== null): ?>
-        <div class="sub"><?= $pct($askVsCmaPct) ?> vs CMA evaluation</div>
-        <?php endif ?>
-    </div>
-    <div class="metric-card highlight">
-        <div class="label">CMA Evaluation (<?= $esc(ucfirst($cma['selected_range'] ?? 'middle')) ?>)</div>
-        <div class="value"><?= $zar($cma['selected_value'] ?? $cmaMiddle) ?></div>
-        <?php if (!empty($cma['condition_applied'])): ?>
-            <?php // Build 3 — defensibility footer. The seller sees that the
-                 // headline number is condition-adjusted, not opaque. ?>
-            <div class="sub">
-                Reflects <?= $esc((string) ($cma['condition_label'] ?? '')) ?> condition
-                (<?= ((float)$cma['condition_pct'] >= 0 ? '+' : '') . (float) $cma['condition_pct'] ?>%).
-                Baseline: <?= $zar($cma['cma_middle_baseline'] ?? null) ?>.
+<?php // Five bullets — locked copy from spec §3, tokens resolved in
+      // buildSummaryPayload. Suppressed bullets are skipped per spec
+      // §7 degraded-state matrix; the sectionIndex page refs already
+      // account for the recompute. ?>
+<ol style="list-style:none;padding:0;margin:0;counter-reset:execbullet;">
+    <?php foreach ($summary['bullets'] as $b): ?>
+        <?php if (!empty($b['suppressed'])) continue; ?>
+        <li style="display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--border);counter-increment:execbullet;">
+            <div style="flex-shrink:0;width:28px;height:28px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">
+                <?= array_search($b, $summary['bullets'], true) + 1 ?>
             </div>
-        <?php else: ?>
-            <div class="sub">Independent market assessment</div>
-        <?php endif ?>
-    </div>
-</div>
-<?php endif ?>
-
-<?php // KEY METRICS ROW ?>
-<div class="metric-grid" style="margin-top:14px;grid-template-columns:repeat(4,1fr);">
-    <div class="metric-card">
-        <div class="label">Suburb Median</div>
-        <div class="value"><?= $zar($suburbMedian) ?></div>
-        <div class="sub"><?= (int) $suburbSales ?> sales in <?= $esc((string) $suburbYear) ?></div>
-    </div>
-    <div class="metric-card">
-        <div class="label">Active Competition</div>
-        <div class="value"><?= $competingCount ?></div>
-        <div class="sub">competing listing<?= $competingCount !== 1 ? 's' : '' ?></div>
-    </div>
-    <?php if (!empty($pricePosition['has_data'])): ?>
-    <div class="metric-card <?= ($pricePosition['position_color'] ?? '') === 'red' ? 'danger' : (($pricePosition['position_color'] ?? '') === 'orange' ? 'warning' : '') ?>">
-        <div class="label">Price Rank</div>
-        <div class="value">#<?= $pricePosition['price_rank'] ?> <span style="font-size:13px;font-weight:400;">of <?= $pricePosition['total_listings'] ?></span></div>
-        <div class="sub"><?= $pricePosition['price_percentile'] ?>th percentile</div>
-    </div>
-    <?php else: ?>
-    <div class="metric-card">
-        <div class="label">Price Rank</div>
-        <div class="value">—</div>
-        <div class="sub">Needs price data</div>
-    </div>
-    <?php endif ?>
-    <div class="metric-card <?= $monthlyTotal > 20000 ? 'danger' : ($monthlyTotal > 10000 ? 'warning' : '') ?>">
-        <div class="label">Monthly Holding Cost</div>
-        <div class="value"><?= $zarFloat($monthlyTotal) ?></div>
-        <div class="sub">12-month: <?= $zarFloat($projected12m) ?></div>
-    </div>
-</div>
-
-<?php // ABSORPTION RATE ?>
-<?php if ($monthsOfSupply !== null): ?>
-<?php
-    $absCalloutClass = match($absorptionColor) {
-        'green' => 'callout-success', 'amber' => 'callout-warning',
-        'orange' => 'callout-warning', 'red' => 'callout-danger',
-        default => 'callout-info',
-    };
-?>
-<div class="callout <?= $absCalloutClass ?>" style="margin-top:14px;">
-    <strong>Market Absorption:</strong>
-    <?= (int) ($stock['annual_sales'] ?? 0) ?> sales/year
-    (<?= $absorptionRate ?>/month)
-    | <strong><?= $monthsOfSupply ?> months of supply</strong>
-    — <?= $absorptionLabel ?>
-</div>
-<?php endif ?>
-
-<?php // RECOMMENDATION PREVIEW ?>
-<?php if ($cmaMiddle && $cmaUpper): ?>
-<div class="callout callout-info" style="margin-top:10px;">
-    <strong>Recommended Price Band:</strong> <?= $zar($cmaMiddle) ?> — <?= $zar($cmaUpper) ?>
-    <br>Based on CMA valuation, recent sales data, and current market conditions.
-</div>
-<?php endif ?>
+            <div style="flex:1;font-size:12.5px;line-height:1.65;color:var(--text);">
+                <?= $b['html'] ?>
+                <span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:3px;background:var(--bg-alt);font-size:10.5px;font-weight:600;color:var(--text-muted);">→ <?= $b['ref'] ?></span>
+            </div>
+        </li>
+    <?php endforeach ?>
+</ol>
 
 <?php // ══════════════════════════════════════════════════════════════════════
       // PAGE 3 — MARKET OVERVIEW  (Build 4 toggleable)

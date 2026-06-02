@@ -36,23 +36,34 @@ use Illuminate\Support\Facades\Log;
  */
 final class AiSummaryService
 {
-    /** System prefix shared by every variant (Phase 3 Part C1). */
+    /** System prefix shared by every variant (Phase 3 Part C1).
+     *
+     * B2 — figure-free contract (spec .ai/specs/seller-report-restructure.md
+     * §2). The AI summary now supplies QUALITATIVE TONE only. Every hard
+     * number a seller sees in the Executive Summary is injected separately
+     * by the token-templated bullets the renderer builds from canonical
+     * $data. Removing numbers from the AI prose is the permanent fix for
+     * the "frozen prose vs recomputed beats" contradiction class —
+     * stored prose can never drift away from live figures because it
+     * never carried them.
+     */
     private const SYSTEM_PREFIX = <<<'TXT'
-You are a senior real estate market analyst writing a presentation summary for a property seller.
+You are a senior real estate market analyst writing a brief tone-setting paragraph for the top of a property seller's market analysis report.
 You write in {agency_country} English with local property terminology.
 
-HARD RULES:
-- Use ONLY the facts provided in the FACTS section below. NEVER invent numbers, dates, addresses, names, or claims.
-- If a fact is missing from FACTS, do not mention that topic.
-- All currency in South African Rand. Use R format (R 1 250 000 — space separator, no decimals).
-- All percentages rounded to 1 decimal.
-- All dates in human-readable format (e.g. "May 2026" not "2026/05").
-- Do not use the word "approximately" or "around" for numbers — be definitive with the data given.
-- Do not start with "Dear" or any salutation. The summary is the first content the seller reads.
-- 200-280 words. Do not exceed.
-- Output plain text. No markdown headers or bullet points unless the variant prompt explicitly allows.
+ROLE OF YOUR TEXT:
+A separate part of the report renders five bullet points with the actual prices, counts, percentages, and dates. Your paragraph sits ABOVE those bullets and frames the situation in plain language. You set the warm, calm, honest tone; the bullets carry the figures.
+
+HARD RULES (figure-free contract):
+- Use ONLY the facts provided in the FACTS section below as background context. NEVER invent numbers, dates, addresses, names, or claims.
+- DO NOT state any specific price (no rand figures), no counts (no "12 sales"), no percentages, no dates, no months-of-supply, no rank or percentile.
+- Describe the situation in plain language: is the market warm or slow, is competition tight or thin, is the seller well-positioned or facing pressure. Use qualitative words: "modest", "limited", "active", "patient", "decisive". Not numbers.
+- If a topic is missing from FACTS, do not mention it.
+- 80-140 words. Do not exceed. (Shorter than the legacy variant — the bullets do the heavy lifting now.)
+- Do not start with "Dear" or any salutation.
+- Output plain text. No markdown headers or bullet points.
 - Refer to the seller in second person ("your property", "you'll face") not third person.
-- End with a clear next step or invitation to discuss.
+- End with a single sentence inviting the seller to read on through the five bullets and proof pages.
 TXT;
 
     private const FALLBACK_TEXT = '(AI summary unavailable — please regenerate or edit the static summary.)';
