@@ -42,11 +42,65 @@ class WebsiteSyndicationController extends Controller
         $nowEnabled = !($current && $current->enabled);
         $row = $this->service->setEnabled($property, $apiKey, $nowEnabled);
 
+        return $this->state($apiKey, $row);
+    }
+
+    /** Submit / activate this listing on the website (enable). */
+    public function activate(Request $request, Property $property, AgencyApiKey $apiKey): JsonResponse
+    {
+        $this->authorizeProperty($property);
+        $this->ensureBelongs($apiKey, $property);
+
+        $row = $this->service->setEnabled($property, $apiKey, true);
+
+        return $this->state($apiKey, $row);
+    }
+
+    /** Deactivate this listing on the website (disable). */
+    public function deactivate(Request $request, Property $property, AgencyApiKey $apiKey): JsonResponse
+    {
+        $this->authorizeProperty($property);
+        $this->ensureBelongs($apiKey, $property);
+
+        $row = $this->service->setEnabled($property, $apiKey, false);
+
+        return $this->state($apiKey, $row);
+    }
+
+    /** Refresh — re-send the listing so the website re-pulls the latest. */
+    public function refresh(Request $request, Property $property, AgencyApiKey $apiKey): JsonResponse
+    {
+        $this->authorizeProperty($property);
+        $this->ensureBelongs($apiKey, $property);
+
+        $row = $this->service->resend($property, $apiKey);
+        if (!$row) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Activate the listing on this website before refreshing.',
+            ], 422);
+        }
+
+        return $this->state($apiKey, $row, 'Update sent to ' . $apiKey->name . '.');
+    }
+
+    private function ensureBelongs(AgencyApiKey $apiKey, Property $property): void
+    {
+        if ((int) $apiKey->agency_id !== (int) $property->agency_id) {
+            abort(404);
+        }
+    }
+
+    private function state(AgencyApiKey $apiKey, PropertyWebsiteSyndication $row, ?string $message = null): JsonResponse
+    {
         return response()->json([
-            'success'  => true,
-            'website'  => $apiKey->name,
-            'enabled'  => $row->enabled,
-            'status'   => $row->status,
+            'success'     => true,
+            'website'     => $apiKey->name,
+            'enabled'     => (bool) $row->enabled,
+            'status'      => $row->status,
+            'last_synced' => optional($row->last_synced_at)->diffForHumans(),
+            'activated'   => optional($row->activated_at)->format('d M Y H:i'),
+            'message'     => $message,
         ]);
     }
 

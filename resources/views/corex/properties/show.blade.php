@@ -66,7 +66,7 @@
             ->orderBy('name')->get();
         $websiteState = $isNew ? collect() : \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
             ->where('property_id', $property->id)
-            ->pluck('enabled', 'agency_api_key_id');
+            ->get()->keyBy('agency_api_key_id');
         @endphp
 
         {{-- Collapsed rail --}}
@@ -583,7 +583,7 @@
                 @php
                     $portals = [];
                     foreach ($websiteKeys as $wk) {
-                        $portals[] = [$wk->name, (bool) ($websiteState[$wk->id] ?? false), []];
+                        $portals[] = [$wk->name, (bool) (optional($websiteState[$wk->id] ?? null)->enabled), []];
                     }
                     if ($sbPpEnabled) {
                         $portals[] = ['Private Property', ($property->pp_syndication_status ?? '') === 'active', $ppMissingFields ?? []];
@@ -807,47 +807,75 @@
                 <div x-show="synStep === 'main'" class="p-4 space-y-4">
 
                     @if($websiteKeys->isNotEmpty())
-                    {{-- Website portals — one toggle per agency website (API key). Spec §6.5.2 --}}
-                    <div @click.stop class="space-y-2">
+                    {{-- Website portals — one panel per agency website (API key). Submit / Refresh / Deactivate. Spec §6.5.2 --}}
+                    <div class="space-y-3">
                         <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Websites</p>
                         @foreach($websiteKeys as $wk)
-                        <div x-data="{
-                                enabled: {{ ($websiteState[$wk->id] ?? false) ? 'true' : 'false' }},
+                        @php $wState = $websiteState[$wk->id] ?? null; @endphp
+                        <div @click.stop class="space-y-2 px-3 py-2 rounded-md"
+                             x-data="{
+                                enabled: {{ optional($wState)->enabled ? 'true' : 'false' }},
+                                lastSynced: @js(optional(optional($wState)->last_synced_at)->diffForHumans()),
                                 loading: false,
+                                errorMsg: '',
+                                flash: '',
                                 csrf: '{{ csrf_token() }}',
-                                url: '{{ route('corex.properties.website-syndication.toggle', [$property, $wk]) }}',
-                                async toggle() {
+                                urls: {
+                                    activate: '{{ route('corex.properties.website-syndication.activate', [$property, $wk]) }}',
+                                    deactivate: '{{ route('corex.properties.website-syndication.deactivate', [$property, $wk]) }}',
+                                    refresh: '{{ route('corex.properties.website-syndication.refresh', [$property, $wk]) }}',
+                                },
+                                async post(url) {
                                     if (this.loading) return;
-                                    this.loading = true;
+                                    this.loading = true; this.errorMsg = ''; this.flash = '';
                                     const fd = new FormData(); fd.append('_token', this.csrf);
                                     try {
-                                        const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
-                                        const j = await r.json();
-                                        if (r.ok && j.success) { this.enabled = j.enabled; }
-                                    } catch (e) {}
+                                        const r = await fetch(url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                                        const j = await r.json().catch(() => ({}));
+                                        if (r.ok && j.success) {
+                                            this.enabled = j.enabled; this.lastSynced = j.last_synced || this.lastSynced; this.flash = j.message || '';
+                                        } else {
+                                            this.errorMsg = j.message || ('Request failed (HTTP ' + r.status + ')');
+                                        }
+                                    } catch (e) { this.errorMsg = e.message || 'Network error'; }
                                     this.loading = false;
-                                }
+                                },
                              }"
-                             @click.stop="toggle()"
-                             class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
                              :style="enabled ? 'background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.25);' : 'background:var(--surface-2); border:1px solid var(--border);'">
-                            <div class="flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--ds-green)' : 'color:var(--text-muted)'">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
-                                </svg>
-                                <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $wk->name }}</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
-                                     :style="enabled ? 'background:var(--ds-green)' : 'background:var(--surface-3)'"
-                                     role="switch" :aria-checked="enabled">
-                                    <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                          style="background:#fff; margin-top:2px;"
-                                          :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--ds-green)' : 'color:var(--text-muted)'">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
+                                    </svg>
+                                    <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $wk->name }}</span>
                                 </div>
                                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
                                       :style="enabled ? 'background:rgba(34,197,94,0.15); color:var(--ds-green);' : 'background:var(--surface-3); color:var(--text-muted);'"
-                                      x-text="enabled ? 'On' : 'Off'"></span>
+                                      x-text="enabled ? 'Live' : 'Off'"></span>
+                            </div>
+
+                            <div x-show="errorMsg" x-cloak class="rounded-md px-2 py-1.5 text-[0.6875rem]" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);" x-text="errorMsg"></div>
+                            <div x-show="flash" x-cloak class="text-[0.6875rem]" style="color:var(--ds-green);" x-text="flash"></div>
+
+                            <div class="flex flex-wrap items-center gap-2">
+                                {{-- Submit to website (when off) --}}
+                                <button type="button" x-show="!enabled" @click.stop="post(urls.activate)" :disabled="loading"
+                                        class="px-3 py-1.5 rounded-md text-xs font-semibold transition-opacity hover:opacity-85"
+                                        style="background:var(--ds-green); color:#fff;">
+                                    <span x-text="loading ? 'Submitting…' : 'Submit to website'"></span>
+                                </button>
+                                {{-- Refresh + Deactivate (when live) --}}
+                                <button type="button" x-show="enabled" @click.stop="post(urls.refresh)" :disabled="loading"
+                                        class="px-3 py-1.5 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(34,197,94,0.10); color:var(--ds-green); border:1px solid rgba(34,197,94,0.25);">
+                                    <span x-text="loading ? 'Sending…' : 'Refresh'"></span>
+                                </button>
+                                <button type="button" x-show="enabled" @click.stop="post(urls.deactivate)" :disabled="loading"
+                                        class="px-3 py-1.5 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">
+                                    Deactivate
+                                </button>
+                                <span x-show="enabled && lastSynced" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">Synced <span x-text="lastSynced"></span></span>
                             </div>
                         </div>
                         @endforeach

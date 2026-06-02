@@ -57,6 +57,31 @@ class WebsiteSyndicationService
     }
 
     /**
+     * Re-send the current listing to a website it's already live on (the
+     * "Refresh" action) — fires a listing.updated webhook so the site re-pulls,
+     * and stamps last_synced_at. Returns null if the listing isn't enabled on
+     * that website.
+     */
+    public function resend(Property $property, AgencyApiKey $key): ?PropertyWebsiteSyndication
+    {
+        $row = PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
+            ->where('property_id', $property->id)
+            ->where('agency_api_key_id', $key->id)
+            ->where('enabled', true)
+            ->first();
+
+        if (!$row) {
+            return null;
+        }
+
+        $row->forceFill(['last_synced_at' => Carbon::now()])->save();
+
+        event(new \App\Events\Website\ListingSyndicationChanged($property->loadMissing('agent'), 'updated', $key->id));
+
+        return $row;
+    }
+
+    /**
      * "Add all Active listings" — enable the website for every property with
      * status = 'active' in the key's agency. Idempotent (already-enabled rows
      * are skipped). Returns a summary; no silent caps.
