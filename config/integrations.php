@@ -15,4 +15,14 @@ return [
     // Public-facing URL for the website (used for "View on HFC Premium" link).
     // Listing detail pattern: {website_public_url}/listings/{external_id}
     'website_public_url'   => env('WEBSITE_PUBLIC_URL', env('WEBSITE_SYNC_URL', '')),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Agency Public API — auth debug
+    |--------------------------------------------------------------------------
+    | When true, AgencyApiKeyResolver logs the exact reason a website-API bearer
+    | token is rejected (prefix + reason; never the secret). Temporary diagnostic
+    | for 401s — turn off after use. Spec: .ai/specs/agency-public-api.md §3.4.
+    */
+    'website_api_auth_debug' => (bool) env('COREX_WEBSITE_API_AUTH_DEBUG', false),
 ];
