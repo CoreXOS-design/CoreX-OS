@@ -1689,22 +1689,19 @@
                 <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div class="mb-3">
                         <div class="text-sm font-semibold" style="color:var(--text-primary);">Syndication Portals</div>
-                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Choose which portals appear in the Syndication panel on each property. Disabled portals are hidden everywhere.</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Choose which portals appear in the Syndication panel on each property. Disabled portals are hidden everywhere. Agency websites are managed per-key in Admin → Agencies → API Access.</div>
                     </div>
                     <form method="POST" action="{{ route('corex.settings.syndication-portals') }}" class="space-y-2"
                           x-data="{
-                            web: {{ $syndicationWebsiteEnabled ? 'true' : 'false' }},
                             pp:  {{ $syndicationPpEnabled      ? 'true' : 'false' }},
                             p24: {{ $syndicationP24Enabled     ? 'true' : 'false' }},
                             submit() { this.$refs.frm.submit(); }
                           }" x-ref="frm">
                         @csrf
-                        <input type="hidden" name="syndication_website_enabled" :value="web ? 1 : 0">
                         <input type="hidden" name="syndication_pp_enabled"      :value="pp  ? 1 : 0">
                         <input type="hidden" name="syndication_p24_enabled"     :value="p24 ? 1 : 0">
 
                         @foreach([
-                            ['key' => 'web', 'label' => 'HFC Premium',      'desc' => 'Publish to the agency website (HFC Premium)'],
                             ['key' => 'pp',  'label' => 'Private Property', 'desc' => 'Submit listings to Private Property'],
                             ['key' => 'p24', 'label' => 'Property24',       'desc' => 'Submit listings to Property24'],
                         ] as $row)

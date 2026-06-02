@@ -380,5 +380,24 @@ class AppServiceProvider extends ServiceProvider
         Blade::if('permission', function (string $permissionKey) {
             return auth()->check() && auth()->user()->hasPermission($permissionKey);
         });
+
+        // ─────────────────────────────────────────────────────────────────
+        // Agency Public API (website API). The `agency-api` guard resolves a
+        // per-website Bearer token to its AgencyApiKey via AgencyApiKeyResolver.
+        // The resolved key becomes the request principal; AgencyScope then
+        // filters every query to its agency. Per-key rate limiting keys off the
+        // resolved key's rate_limit_per_min. Spec: .ai/specs/agency-public-api.md §4.
+        // ─────────────────────────────────────────────────────────────────
+        \Illuminate\Support\Facades\Auth::viaRequest('agency-api', function (\Illuminate\Http\Request $request) {
+            return app(\App\Services\AgencyApi\AgencyApiKeyResolver::class)->resolveFromRequest($request);
+        });
+
+        \Illuminate\Support\Facades\RateLimiter::for('website-api', function (\Illuminate\Http\Request $request) {
+            $key = $request->user();
+            $perMinute = ($key instanceof \App\Models\AgencyApiKey) ? max(1, (int) $key->rate_limit_per_min) : 120;
+            $by = ($key instanceof \App\Models\AgencyApiKey) ? ('key:' . $key->getKey()) : ('ip:' . $request->ip());
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute($perMinute)->by($by);
+        });
     }
 }

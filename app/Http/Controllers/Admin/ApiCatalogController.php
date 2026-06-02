@@ -59,6 +59,11 @@ class ApiCatalogController extends Controller
             $version = $segments[1] ?? 'misc';
             $resource = $segments[2] ?? 'root';
             if (in_array($version, ['v1', 'v2', 'v3'], true)) {
+                // Agency Public API: all /api/v1/website/* endpoints group under a
+                // single dedicated "Website" section. Spec: agency-public-api.md §5.
+                if ($resource === 'website') {
+                    return 'Website';
+                }
                 return "API {$version} — " . ucfirst($resource);
             }
             return 'API — ' . ucfirst($version);

@@ -39,6 +39,7 @@
         $tabs = ['company' => 'Company', 'branding' => 'Branding'];
         if ($agency) { $tabs['branches'] = 'Branches'; }
         $tabs['syndication'] = 'Syndication';
+        if ($agency && auth()->user()?->hasPermission('agency_api.view')) { $tabs['api-access'] = 'API Access'; }
         if (!$agency) { $tabs['admin'] = 'First Admin'; }
     @endphp
     <div class="flex gap-1 rounded-md p-1 flex-wrap" style="background: var(--surface); border:1px solid var(--border);">
@@ -567,6 +568,136 @@
         </div>
         @endif
     </form>
+
+    {{-- ============================================================
+         API ACCESS TAB (edit mode only — website API keys + master switch)
+         Spec: .ai/specs/agency-public-api.md §7.1
+         ============================================================ --}}
+    @if($agency && auth()->user()?->hasPermission('agency_api.view'))
+    <div x-show="activeTab === 'api-access'" x-cloak id="api-access" class="space-y-6">
+
+        {{-- One-time secret reveal (after create / regenerate) --}}
+        @if(session('new_api_key'))
+            <div class="ds-status-card p-4 space-y-2" style="border-color: var(--brand-button, #0ea5e9);">
+                <h3 class="ds-section-header">Copy your API key now</h3>
+                <p class="text-xs" style="color:var(--ds-crimson);">This secret is shown only once. Store it in “{{ session('new_api_key')['name'] }}”’s environment config — you will not be able to see it again.</p>
+                <div class="flex items-center gap-2">
+                    <input type="text" readonly value="{{ session('new_api_key')['plaintext'] }}" id="new-key-secret"
+                           class="flex-1 rounded-md px-3 py-2 text-sm font-mono"
+                           style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
+                    <button type="button" class="corex-btn-outline text-xs"
+                            onclick="navigator.clipboard.writeText(document.getElementById('new-key-secret').value); this.innerText='Copied ✓'; setTimeout(()=>this.innerText='Copy',1500);">Copy</button>
+                </div>
+            </div>
+        @endif
+
+        {{-- Master "website is live" switch --}}
+        <div class="ds-status-card p-4 space-y-3">
+            <h3 class="ds-section-header">Website</h3>
+            <p class="text-xs" style="color:var(--text-muted);">Master switch for this agency's website integration. When off, no website receives data and no webhooks fire — even with valid, active keys.</p>
+            @if(auth()->user()?->hasPermission('agency_api.manage'))
+            <form method="POST" action="{{ route('agencies.website.toggle', $agency) }}" class="flex items-center gap-3">
+                @csrf
+                <input type="hidden" name="website_enabled" value="{{ $agency->website_enabled ? 0 : 1 }}">
+                <button type="submit" class="corex-btn-{{ $agency->website_enabled ? 'outline' : 'primary' }} text-sm">
+                    {{ $agency->website_enabled ? 'Take website offline' : 'Make website live' }}
+                </button>
+                <span class="text-xs font-semibold px-2 py-1 rounded-md"
+                      style="background: var(--surface-2); color: {{ $agency->website_enabled ? 'var(--ds-emerald, #10b981)' : 'var(--text-muted)' }};">
+                    {{ $agency->website_enabled ? 'LIVE' : 'OFFLINE' }}
+                </span>
+            </form>
+            @else
+                <span class="text-xs font-semibold">{{ $agency->website_enabled ? 'LIVE' : 'OFFLINE' }}</span>
+            @endif
+        </div>
+
+        {{-- Existing keys --}}
+        <div class="ds-status-card p-4 space-y-4">
+            <h3 class="ds-section-header">Websites / API keys</h3>
+            <p class="text-xs" style="color:var(--text-muted);">Each website gets its own key. The key's name is the label shown as its Syndication Portal on every property.</p>
+
+            @forelse($agency->apiKeys as $key)
+                <div class="rounded-md p-3 space-y-2" style="background: var(--surface); border:1px solid var(--border);">
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                        <div>
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $key->name }}</div>
+                            <div class="text-xs font-mono" style="color:var(--text-muted);">{{ $key->key_prefix }}…</div>
+                        </div>
+                        <span class="text-xs font-semibold px-2 py-1 rounded-md" style="background: var(--surface-2);
+                              color: {{ $key->statusLabel() === 'active' ? 'var(--ds-emerald,#10b981)' : 'var(--ds-crimson)' }};">
+                            {{ strtoupper($key->statusLabel()) }}
+                        </span>
+                    </div>
+                    <div class="text-xs" style="color:var(--text-muted);">
+                        Scopes: {{ count($key->scopes ?? []) ? implode(', ', $key->scopes) : '—' }}
+                        · Last used: {{ $key->last_used_at ? $key->last_used_at->diffForHumans() : 'never' }}
+                        @if($key->webhook_url) · Webhook: {{ \Illuminate\Support\Str::limit($key->webhook_url, 40) }} @endif
+                    </div>
+                    @if(auth()->user()?->hasPermission('agency_api.manage'))
+                    <div class="flex gap-2 flex-wrap pt-1">
+                        <form method="POST" action="{{ route('agencies.api-keys.regenerate', [$agency, $key]) }}" onsubmit="return confirm('Regenerate the secret? The old secret stops working immediately.');">
+                            @csrf
+                            <button class="corex-btn-outline text-xs">Regenerate secret</button>
+                        </form>
+                        @if(!$key->isRevoked())
+                        <form method="POST" action="{{ route('agencies.api-keys.revoke', [$agency, $key]) }}" onsubmit="return confirm('Revoke this key? The website will stop receiving data until you regenerate.');">
+                            @csrf
+                            <button class="corex-btn-outline text-xs" style="color:var(--ds-crimson);">Revoke</button>
+                        </form>
+                        @endif
+                        <form method="POST" action="{{ route('agencies.api-keys.destroy', [$agency, $key]) }}" onsubmit="return confirm('Delete this key? It is archived (soft-deleted) and recoverable by an admin.');">
+                            @csrf @method('DELETE')
+                            <button class="corex-btn-outline text-xs" style="color:var(--ds-crimson);">Delete</button>
+                        </form>
+                    </div>
+                    @endif
+                </div>
+            @empty
+                <p class="text-xs" style="color:var(--text-muted);">No API keys yet. Generate one below to connect a website.</p>
+            @endforelse
+        </div>
+
+        {{-- Generate a new key --}}
+        @if(auth()->user()?->hasPermission('agency_api.manage'))
+        <div class="ds-status-card p-4 space-y-4">
+            <h3 class="ds-section-header">Generate API key</h3>
+            <form method="POST" action="{{ route('agencies.api-keys.store', $agency) }}" class="space-y-4">
+                @csrf
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What is this website called? <span style="color:var(--ds-crimson);">*</span></label>
+                    <input type="text" name="name" required maxlength="100" value="{{ old('name') }}"
+                           class="rounded-md px-3 py-2 text-sm w-full max-w-md"
+                           style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);"
+                           placeholder="e.g. Home Finders Coastal">
+                    @error('name')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Scopes</label>
+                    <div class="flex flex-col gap-1">
+                        @foreach(\App\Models\AgencyApiKey::SCOPES as $scopeKey => $scopeLabel)
+                            <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                <input type="checkbox" name="scopes[]" value="{{ $scopeKey }}"
+                                       {{ collect(old('scopes', ['listings:read','agency:read']))->contains($scopeKey) ? 'checked' : '' }}>
+                                {{ $scopeLabel }} <span class="text-xs font-mono" style="color:var(--text-muted);">{{ $scopeKey }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Webhook URL (optional)</label>
+                    <input type="url" name="webhook_url" value="{{ old('webhook_url') }}"
+                           class="rounded-md px-3 py-2 text-sm w-full max-w-md"
+                           style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);"
+                           placeholder="https://your-site.co.za/api/corex-webhook">
+                    @error('webhook_url')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
+                </div>
+                <button type="submit" class="corex-btn-primary text-sm">Generate API Key</button>
+            </form>
+        </div>
+        @endif
+    </div>
+    @endif
 
     {{-- ============================================================
          BRANCHES TAB (edit mode only — separate forms per branch)

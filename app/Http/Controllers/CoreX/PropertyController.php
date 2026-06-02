@@ -561,10 +561,8 @@ class PropertyController extends Controller
 
         $property->saveQuietly();
 
-        // Re-sync with images if published (first create had no images yet)
-        if ($property->isPublished()) {
-            \App\Jobs\SyncPropertyToWebsite::dispatchSync($property->fresh(['agent', 'branch', 'agency']), 'upsert');
-        }
+        // (Legacy website push-sync removed with the Agency Public API — websites
+        // now pull via /api/v1/website/* + webhooks. See the audit note.)
 
         // Initial note (written from create form)
         if ($request->filled('initial_note')) {

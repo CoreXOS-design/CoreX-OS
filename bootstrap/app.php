@@ -39,6 +39,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,
                 'branch.required' => \App\Http\Middleware\RequiresBranchAssignment::class,
                 'client.ability' => \App\Http\Middleware\EnsureClientAbility::class,
+                // Agency Public API (website API)
+                'website.live' => \App\Http\Middleware\EnsureAgencyWebsiteLive::class,
+                'website.scope' => \App\Http\Middleware\EnsureWebsiteApiScope::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

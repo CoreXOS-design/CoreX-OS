@@ -287,6 +287,11 @@ return [
         ['key' => 'client_app.remove_access',    'label' => 'Remove Client App Access',    'section' => 'contacts',         'type' => 'action',  'module' => 'client_app',       'sort_order' => 53],
         ['key' => 'client_app.view_logs',        'label' => 'View Client App Activity',    'section' => 'admin',            'type' => 'access',  'module' => 'client_app',       'sort_order' => 54],
 
+        // ── Agency Public API (website API) ──
+        // Spec: .ai/specs/agency-public-api.md §8
+        ['key' => 'agency_api.view',             'label' => 'View Website API Keys',       'section' => 'admin',            'type' => 'access',  'module' => 'agency_api',       'sort_order' => 60],
+        ['key' => 'agency_api.manage',           'label' => 'Manage Website API Keys',     'section' => 'admin',            'type' => 'action',  'module' => 'agency_api',       'sort_order' => 61],
+
         // ── Calculators / Tools ──
         ['key' => 'access_calculators',          'label' => 'Access Calculators & Tools',  'section' => 'calculators',      'type' => 'access',  'module' => 'calculators',      'sort_order' => 1],
 
@@ -488,6 +493,8 @@ return [
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
                 'mic.restore_reports',
+                // Agency Public API — admins manage their agency's website keys
+                'agency_api.view', 'agency_api.manage',
             ],
         ],
 

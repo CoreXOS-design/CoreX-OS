@@ -4,7 +4,6 @@ namespace App\Observers;
 
 use App\Jobs\MatchPropertyJob;
 use App\Jobs\SubmitListingToProperty24;
-use App\Jobs\SyncPropertyToWebsite;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\CommandCenter\AutoEventService;
@@ -213,21 +212,21 @@ class PropertyObserver
                     $auditSvc->logComplianceSnapshot($property, snapshotData: $property->compliance_snapshot_data);
                 }
                 if (isset($changes['published_at']) && $changes['published_at'] !== null && ($pre['published_at'] ?? null) === null) {
-                    $auditSvc->log($property, 'syndication', 'website_published', humanSummary: 'Published to HFC website');
+                    $auditSvc->log($property, 'syndication', 'website_published', humanSummary: 'Listing published');
                 }
                 if (isset($changes['published_at']) && $changes['published_at'] === null && ($pre['published_at'] ?? null) !== null) {
-                    $auditSvc->log($property, 'syndication', 'website_unpublished', humanSummary: 'Unpublished from HFC website');
+                    $auditSvc->log($property, 'syndication', 'website_unpublished', humanSummary: 'Listing unpublished');
                 }
             } catch (\Throwable $e) {
                 Log::warning("Audit log failed on property save #{$property->id}: {$e->getMessage()}");
             }
         }
-        if ($property->isPublished()) {
-            SyncPropertyToWebsite::dispatchSync($property, 'upsert');
-        } elseif ($property->wasChanged('published_at') && $property->getOriginal('published_at')) {
-            // Was published, just got unpublished → tell the website to hard-delete the row
-            SyncPropertyToWebsite::dispatchSync($property, 'delete');
-        }
+
+        // NOTE: the legacy single-site push-sync (SyncPropertyToWebsite, driven by
+        // published_at → themandatecompany.co.za) was retired with the Agency
+        // Public API. Websites now PULL via /api/v1/website/* and receive webhooks;
+        // per-property visibility is the property_website_syndication pivot, not
+        // published_at. See .ai/audits/legacy-web-portal-published-at-2026-06-02.md.
 
         // Core Matches — fire on create or on any criteria-affecting change.
         // Re-saves with no relevant change won't trigger duplicate notifications
@@ -323,9 +322,8 @@ class PropertyObserver
             Log::warning("Audit log failed on property delete #{$property->id}: {$e->getMessage()}");
         }
 
-        if ($property->isPublished()) {
-            SyncPropertyToWebsite::dispatchSync($property, 'delete');
-        }
+        // Legacy push-sync removed with the Agency Public API — see the note in
+        // saved() and .ai/audits/legacy-web-portal-published-at-2026-06-02.md.
 
         // Withdraw from P24 if syndicated
         if ($property->p24_syndication_enabled && $property->p24_ref) {

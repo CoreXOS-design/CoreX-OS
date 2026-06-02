@@ -1842,6 +1842,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{agency}/p24/test',    [\App\Http\Controllers\Admin\AgencyController::class, 'testP24Connection'])->name('p24.test');
         Route::post('/{agency}/p24/refresh', [\App\Http\Controllers\Admin\AgencyController::class, 'refreshP24Locations'])->name('p24.refresh');
         Route::post('/{agency}/pp/test',     [\App\Http\Controllers\Admin\AgencyController::class, 'testPpConnection'])->name('pp.test');
+
+        // Agency Public API — website API key management + master live switch.
+        // Spec: .ai/specs/agency-public-api.md §7.1, §8.
+        Route::middleware('permission:agency_api.manage')->group(function () {
+            Route::post('/{agency}/website-toggle', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'toggleWebsite'])->name('website.toggle');
+            Route::post('/{agency}/api-keys',                  [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'store'])->name('api-keys.store');
+            Route::put('/{agency}/api-keys/{apiKey}',          [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'update'])->name('api-keys.update');
+            Route::post('/{agency}/api-keys/{apiKey}/regenerate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'regenerate'])->name('api-keys.regenerate');
+            Route::post('/{agency}/api-keys/{apiKey}/revoke',  [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'revoke'])->name('api-keys.revoke');
+            Route::post('/{agency}/api-keys/{apiKey}/bulk-activate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'bulkActivate'])->name('api-keys.bulk-activate');
+            Route::delete('/{agency}/api-keys/{apiKey}',       [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'destroy'])->name('api-keys.destroy');
+        });
     });
 
     // Company Settings (standalone admin page — separate from tabbed settings)
@@ -2037,6 +2049,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/p24-syndication/reactivate', [\App\Http\Controllers\Property24\P24SyndicationController::class, 'reactivate'])->name('p24-syndication.reactivate');
         Route::get('/{property}/p24-syndication/status',      [\App\Http\Controllers\Property24\P24SyndicationController::class, 'status'])->name('p24-syndication.status');
         Route::get('/{property}/p24-syndication/readiness',   [\App\Http\Controllers\Property24\P24SyndicationController::class, 'readiness'])->name('p24-syndication.readiness');
+        // Website syndication — per-(property × website key) toggle. Spec: agency-public-api.md §6.5.2
+        Route::post('/{property}/website-syndication/{apiKey}/toggle', [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'toggle'])->name('website-syndication.toggle');
     });
 
     // Phase 3g — Map module (standalone page + JSON pin + detail endpoints).
