@@ -434,7 +434,10 @@
                                                     @dragstart.stop="rescheduleStartDrag({{ $evt->id }}, '{{ $dateStr }}')"
                                                     @dragend="rescheduleDragOver = null"
                                                     @click.stop="openEventPanel({{ $evt->id }})"
-                                                    class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing {{ $evt->status === 'completed' ? 'line-through opacity-70' : '' }}"
+                                                    {{-- CAL-8 Part 1 — dismissed events get the same line-through+opacity treatment as completed.
+                                                         Belt-and-suspenders: getEventsForRange now excludes dismissed by default, but if a user
+                                                         opts into ?status=dismissed (or ?status=*) the chip must read visually as "inactive". --}}
+                                                    class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
                                                     style="{{ $chipStyle }}"
                                                     title="{{ $evt->title }}{{ $isTentative ? ' (Tentative)' : '' }}{{ $isPending ? ' (Pending — accept to confirm)' : '' }}">
                                                 <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>@if($isPending)<span class="text-[9px] font-bold uppercase mr-0.5" style="opacity:0.7;">PENDING</span> @endif{{ $evt->all_day ? '' : $evt->event_date->format('H:i') . ' ' }}{{ \Illuminate\Support\Str::limit($evt->title, $isPending ? 14 : 20) }}

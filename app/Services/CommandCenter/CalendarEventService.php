@@ -72,8 +72,44 @@ class CalendarEventService
             $query->ofType($filters['event_type']);
         }
 
+        // CAL-8 Part 1 — status filtering.
+        //
+        // The calendar spec (.ai/specs/spec-calendar-module.md L162)
+        // treats `status` as a filterable enum (pending / completed /
+        // overdue / dismissed). The implicit contract — confirmed by
+        // ConflictDetectionService::checkUserConflicts (excludes
+        // ['completed', 'dismissed']) and CalendarThresholdResolver
+        // (short-circuits colour resolution on the same pair) — is that
+        // "dismissed" means "inactive, do not surface on the active
+        // grid by default." Prior to CAL-8 this exclusion was missing
+        // here, so dismissing an event from the panel left it visible
+        // on the grid with no visual cue.
+        //
+        // Behaviour:
+        //   - filters['status'] = "*"            -> no filter (admin view)
+        //   - filters['status'] = "dismissed"    -> show ONLY dismissed
+        //                                            (or any other single
+        //                                            value the user picks)
+        //   - filters['status'] empty / not set  -> exclude dismissed by
+        //                                            default. Completed
+        //                                            events are kept on
+        //                                            the grid (they're
+        //                                            visually distinct
+        //                                            via line-through —
+        //                                            users want to see
+        //                                            what they finished).
         if (!empty($filters['status'])) {
-            $query->where('status', $filters['status']);
+            // Explicit status filter — operator opted in. '*' means
+            // "no status filter at all" (admin "show everything" mode);
+            // any other value matches exactly.
+            if ($filters['status'] !== '*') {
+                $query->where('status', $filters['status']);
+            }
+        } else {
+            // No filter passed → exclude dismissed by default. Completed
+            // events stay on the grid (visually distinct via line-through
+            // at index.blade.php — users want to see what they finished).
+            $query->where('status', '!=', 'dismissed');
         }
 
         if (!empty($filters['property_id'])) {
