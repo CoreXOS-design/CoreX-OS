@@ -329,6 +329,11 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Website\ListingSyndicationChanged::class,
             \App\Listeners\Webhooks\DispatchAgencyWebhooks::class,
         );
+        Event::listen(
+            \App\Events\Website\AgentVisibilityChanged::class,
+            \App\Listeners\Webhooks\DispatchAgentWebhooks::class,
+        );
+        \App\Models\User::observe(\App\Observers\UserObserver::class);
 
         // Phase 8 — auto-record outcome=won_sale when a Deal flips to registered
         // and a linked presentation has no outcome yet. Observer is failure-

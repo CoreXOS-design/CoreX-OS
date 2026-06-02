@@ -696,6 +696,41 @@
             </form>
         </div>
         @endif
+
+        {{-- Connecting a website — setup & operations note --}}
+        <div class="ds-status-card p-4 space-y-3" x-data="{ open: false }">
+            <button type="button" @click="open = !open" class="flex items-center justify-between w-full text-left">
+                <h3 class="ds-section-header" style="margin:0;">Connecting a website — setup &amp; operations</h3>
+                <span class="text-xs" style="color:var(--text-muted);" x-text="open ? 'Hide' : 'Show'"></span>
+            </button>
+            <div x-show="open" x-cloak class="space-y-3 text-xs" style="color:var(--text-secondary);">
+                <div>
+                    <p class="font-semibold" style="color:var(--text-primary);">1. On the website you're building (per site)</p>
+                    <ul class="list-disc pl-4 space-y-0.5 mt-1">
+                        <li>Put the key in <span class="font-mono">that site's</span> environment — <span class="font-mono">CONFIG/.env</span> of the website, never in CoreX:
+                            <div class="mt-1 font-mono rounded-md p-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                COREX_API_BASE={{ rtrim(config('app.url'), '/') }}/api/v1/website<br>
+                                COREX_API_KEY=cx_live_…&lt;the secret shown once&gt;<br>
+                                COREX_WEBHOOK_SECRET=&lt;shown when you set a webhook URL&gt;
+                            </div>
+                        </li>
+                        <li>Call the API with header <span class="font-mono">Authorization: Bearer &lt;COREX_API_KEY&gt;</span>.</li>
+                        <li>Verify webhooks with <span class="font-mono">X-CoreX-Signature</span> = HMAC-SHA256(raw body, COREX_WEBHOOK_SECRET).</li>
+                    </ul>
+                </div>
+                <div>
+                    <p class="font-semibold" style="color:var(--text-primary);">2. On the CoreX server (one-time, whole platform — already running here)</p>
+                    <ul class="list-disc pl-4 space-y-0.5 mt-1">
+                        <li><span class="font-mono">.env</span>: <span class="font-mono">QUEUE_CONNECTION=database</span> (so webhooks queue instead of blocking requests). No per-website keys go in CoreX's .env.</li>
+                        <li>Scheduler cron (drives webhook retries):<br>
+                            <span class="font-mono">* * * * * cd /hfc &amp;&amp; php artisan schedule:run &gt;&gt; /dev/null 2&gt;&amp;1</span></li>
+                        <li>A queue worker delivers the webhooks (systemd/supervisor):<br>
+                            <span class="font-mono">php artisan queue:work --queue=default --tries=1</span></li>
+                    </ul>
+                    <p class="mt-1" style="color:var(--text-muted);">The master switch above must be ON, and a key needs the “Receive webhook events” scope + a webhook URL, for pushes to fire.</p>
+                </div>
+            </div>
+        </div>
     </div>
     @endif
 

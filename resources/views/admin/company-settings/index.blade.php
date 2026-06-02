@@ -46,6 +46,7 @@
                 'company'     => 'Company',
                 'branding'    => 'Branding',
                 'branches'    => 'Branches',
+                'website'     => 'Website',
                 'performance' => 'Performance',
             ] as $key => $label)
                 <button type="button" @click="activeTab = '{{ $key }}'"
@@ -714,6 +715,81 @@
                 </form>
             </div>
             @endif
+        </div>
+
+        {{-- ============================================================
+             WEBSITE TAB — public website settings (Agency Public API §3.7)
+             ============================================================ --}}
+        <div x-show="activeTab === 'website'" x-cloak>
+            <form method="POST" action="{{ route('admin.company-settings.website.update', $agency) }}"
+                  class="ds-status-card p-4 space-y-5">
+                @csrf @method('PUT')
+                <div>
+                    <h3 class="ds-section-header">Website</h3>
+                    <p class="text-xs" style="color:var(--text-muted);">Public details your agency website pulls via the API. Manage API keys + the live switch in <span class="font-semibold">Admin → Agencies → API Access</span>.</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Website URL</label>
+                        <input type="url" name="website_url" value="{{ old('website_url', $agency->website_url) }}" placeholder="https://www.youragency.co.za"
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        @error('website_url')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Tagline</label>
+                        <input type="text" name="website_tagline" value="{{ old('website_tagline', $agency->website_tagline) }}" maxlength="255"
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">About</label>
+                    <textarea name="website_about" rows="4" maxlength="5000"
+                              class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('website_about', $agency->website_about) }}</textarea>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Public contact email</label>
+                        <input type="email" name="website_contact_email" value="{{ old('website_contact_email', $agency->website_contact_email) }}"
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        @error('website_contact_email')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Public contact phone</label>
+                        <input type="text" name="website_contact_phone" value="{{ old('website_contact_phone', $agency->website_contact_phone) }}"
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    @foreach(['facebook' => 'Facebook', 'instagram' => 'Instagram', 'linkedin' => 'LinkedIn', 'youtube' => 'YouTube'] as $net => $label)
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">{{ $label }}</label>
+                        <input type="text" name="website_social_{{ $net }}" value="{{ old('website_social_'.$net, $agency->{'website_social_'.$net}) }}" placeholder="handle or URL"
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    @endforeach
+                </div>
+
+                <div class="flex flex-wrap gap-5 pt-2" style="border-top:1px solid var(--border);">
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                        <input type="hidden" name="website_show_agents" value="0">
+                        <input type="checkbox" name="website_show_agents" value="1" class="rounded" style="accent-color:var(--brand-icon, #0ea5e9);"
+                               {{ old('website_show_agents', (int)($agency->website_show_agents ?? 1)) ? 'checked' : '' }}>
+                        Show agents on website
+                    </label>
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                        <input type="hidden" name="website_show_listings" value="0">
+                        <input type="checkbox" name="website_show_listings" value="1" class="rounded" style="accent-color:var(--brand-icon, #0ea5e9);"
+                               {{ old('website_show_listings', (int)($agency->website_show_listings ?? 1)) ? 'checked' : '' }}>
+                        Show listings on website
+                    </label>
+                </div>
+
+                <button type="submit" class="corex-btn-primary">Save Website Settings</button>
+            </form>
         </div>
 
         {{-- ============================================================

@@ -67,7 +67,14 @@
       "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; if \\(-not \\(Test-Path $php\\)\\) { $php = \\(Get-Command php\\).Source }; & $php -l \"app\\\\Http\\\\Controllers\\\\Tools\\\\PdfSuiteController.php\"; & $php -l \"config\\\\pdf-suite.php\"; & $php -l \"routes\\\\web.php\")",
       "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; if \\(-not \\(Test-Path $php\\)\\) { $php = \\(Get-Command php\\).Source }; & $php artisan view:clear; & $php artisan route:clear; & $php artisan config:clear; & $php artisan route:list --name=pdf_suite.enhance)",
       "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; if \\(-not \\(Test-Path $php\\)\\) { $php = \\(Get-Command php\\).Source }; & $php -r \"echo 'imagick loaded: '.\\(extension_loaded\\('imagick'\\) ? 'YES' : 'NO'\\).PHP_EOL; if\\(extension_loaded\\('imagick'\\)\\){ \\\\$im=new Imagick\\(\\); echo 'autoOrientImage: '.\\(method_exists\\(\\\\$im,'autoOrientImage'\\)?'Y':'N'\\).' brightnessContrastImage: '.\\(method_exists\\(\\\\$im,'brightnessContrastImage'\\)?'Y':'N'\\).' unsharpMaskImage: '.\\(method_exists\\(\\\\$im,'unsharpMaskImage'\\)?'Y':'N'\\).' enhanceImage: '.\\(method_exists\\(\\\\$im,'enhanceImage'\\)?'Y':'N'\\).PHP_EOL; }\")",
-      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; if \\(-not \\(Test-Path $php\\)\\) { $php = \\(Get-Command php\\).Source }; & $php \"storage\\\\enhance_probe.php\")"
+      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; if \\(-not \\(Test-Path $php\\)\\) { $php = \\(Get-Command php\\).Source }; & $php \"storage\\\\enhance_probe.php\")",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" 2>&1 | Select-Object -Last 45)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-Object -Last 50)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; git switch --detach 1b24e9e5 2>&1 | Select-Object -Last 2; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|Duration:|FAILED ===|DEV CHECK OK\" | Select-Object -Last 5)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" 2>&1 | Select-Object -Last 16)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|DEV CHECK\" | Select-Object -Last 4)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|DEV CHECK|FAILED  Tests\" | Select-Object -Last 8)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|DEV CHECK OK|DEV CHECK FAILED\" | Select-Object -Last 3)"
     ]
   }
 }

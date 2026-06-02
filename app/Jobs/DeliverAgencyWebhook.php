@@ -91,8 +91,9 @@ class DeliverAgencyWebhook implements ShouldQueue
                 'last_error' => $e->getMessage(),
             ]);
             $this->scheduleRetryOrFail($delivery);
-            // Re-throw so the queue applies backoff() and retries up to $tries.
-            throw $e;
+            // Do NOT re-throw: retries are driven by next_retry_at + the
+            // scheduled webhooks:retry-due sweep, not queue-native backoff, so a
+            // failed POST never marks the queue job as failed or floods logs.
         }
     }
 

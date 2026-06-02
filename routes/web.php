@@ -1865,6 +1865,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         [\App\Http\Controllers\Admin\CompanySettingsController::class, 'update'])
         ->middleware('permission:manage_performance_settings')
         ->name('admin.company-settings.update');
+    // Agency Public API — Website tab (own form/route). Spec: agency-public-api.md §7.4.
+    Route::put('/admin/company-settings/{agency}/website',
+        [\App\Http\Controllers\Admin\CompanySettingsController::class, 'updateWebsite'])
+        ->middleware('permission:manage_performance_settings')
+        ->name('admin.company-settings.website.update');
 
 
     // Module 6 (M6.2) — Activity Points → Calendar class mappings.

@@ -59,6 +59,10 @@ Schedule::job(new \App\Jobs\PurgeOldSnapshotViewsJob())->dailyAt('03:15')->witho
 // Phase 9d — RCR deadline reminder cadence (weekly → 3-daily → daily → critical).
 Schedule::job(new \App\Jobs\RcrDeadlineReminderJob())->dailyAt('07:00')->withoutOverlapping();
 
+// Agency Public API — re-dispatch due agency-website webhook retries.
+// Spec: .ai/specs/agency-public-api.md §6.2.
+Schedule::command('webhooks:retry-due')->everyMinute()->withoutOverlapping();
+
 // Prospecting claim maintenance — runs hourly
 Schedule::command('prospecting:maintain-claims')->hourly();
 

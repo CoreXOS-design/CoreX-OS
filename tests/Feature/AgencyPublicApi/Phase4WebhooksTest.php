@@ -141,6 +141,28 @@ class Phase4WebhooksTest extends TestCase
         ]);
     }
 
+    public function test_due_retry_is_redispatched_and_can_succeed(): void
+    {
+        Http::fake(['*' => Http::response('', 200)]);
+        $key = $this->keyWithWebhook();
+
+        // A delivery left pending-retry by an earlier failed attempt.
+        $delivery = \App\Models\AgencyWebhookDelivery::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'agency_api_key_id' => $key->id,
+            'event_name' => 'listing.published', 'payload' => ['id' => 1, 'reference' => 'CX1'],
+            'attempts' => 1, 'last_error' => 'HTTP 500', 'next_retry_at' => now()->subMinute(),
+        ]);
+
+        // The scheduled sweep claims it and re-dispatches → healthy endpoint → delivered.
+        $this->artisan('webhooks:retry-due')->assertExitCode(0);
+
+        $delivery->refresh();
+        $this->assertNotNull($delivery->delivered_at);
+        $this->assertSame(200, $delivery->response_status);
+        $this->assertSame(2, $delivery->attempts);
+        $this->assertNull($delivery->next_retry_at);
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private function keyWithWebhook(): AgencyApiKey
