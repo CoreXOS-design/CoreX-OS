@@ -614,6 +614,17 @@
             @else
                 <span class="text-xs font-semibold">{{ $agency->website_enabled ? 'LIVE' : 'OFFLINE' }}</span>
             @endif
+
+            @if(auth()->user()?->hasPermission('agency_api.manage'))
+            <div class="pt-3" style="border-top:1px solid var(--border);">
+                <p class="text-xs mb-2" style="color:var(--text-muted);">Show all active agents on the website(s). Applies agency-wide (agents appear on every site). Refine individual agents with the “Show on website” toggle on each user.</p>
+                <form method="POST" action="{{ route('agencies.agents.publish-all', $agency) }}"
+                      onsubmit="return confirm('Show all active agents on the website? You can hide individual agents afterwards.');">
+                    @csrf
+                    <button type="submit" class="corex-btn-outline text-sm">Show all agents on website</button>
+                </form>
+            </div>
+            @endif
         </div>
 
         {{-- Existing keys --}}

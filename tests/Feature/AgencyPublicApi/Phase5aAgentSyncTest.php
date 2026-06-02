@@ -93,6 +93,37 @@ class Phase5aAgentSyncTest extends TestCase
         $this->assertSame(0, AgencyWebhookDelivery::withoutGlobalScope(AgencyScope::class)->count());
     }
 
+    public function test_publish_all_agents_shows_active_agents_only(): void
+    {
+        Http::fake(['*' => Http::response('', 200)]);
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+
+        $a = $this->agent(false);                          // active, hidden
+        $b = $this->agent(false);                          // active, hidden
+        $inactive = User::factory()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'role' => 'agent', 'is_active' => false, 'show_on_website' => false,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('agencies.agents.publish-all', $this->agency))
+            ->assertRedirect();
+
+        $this->assertTrue((bool) $a->fresh()->show_on_website);
+        $this->assertTrue((bool) $b->fresh()->show_on_website);
+        $this->assertFalse((bool) $inactive->fresh()->show_on_website); // inactive untouched
+
+        // Now visible in the website API.
+        $minted = AgencyApiKey::mintSecret();
+        AgencyApiKey::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'name' => 'Site', 'key_prefix' => $minted['prefix'],
+            'secret_hash' => $minted['hash'], 'scopes' => [AgencyApiKey::SCOPE_AGENTS_READ],
+        ]);
+        $names = collect($this->withToken($minted['plaintext'])->getJson('/api/v1/website/agents')->json('data'))->pluck('id');
+        $this->assertTrue($names->contains($a->id));
+        $this->assertFalse($names->contains($inactive->id));
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private function keyWithWebhook(): AgencyApiKey

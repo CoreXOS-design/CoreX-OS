@@ -1847,6 +1847,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Spec: .ai/specs/agency-public-api.md §7.1, §8.
         Route::middleware('permission:agency_api.manage')->group(function () {
             Route::post('/{agency}/website-toggle', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'toggleWebsite'])->name('website.toggle');
+            Route::post('/{agency}/agents/publish-all', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'publishAllAgents'])->name('agents.publish-all');
             Route::post('/{agency}/api-keys',                  [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'store'])->name('api-keys.store');
             Route::put('/{agency}/api-keys/{apiKey}',          [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'update'])->name('api-keys.update');
             Route::post('/{agency}/api-keys/{apiKey}/regenerate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'regenerate'])->name('api-keys.regenerate');

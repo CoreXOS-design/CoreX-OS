@@ -126,6 +126,36 @@ class AgencyApiKeyController extends Controller
         );
     }
 
+    /**
+     * "Show all agents on website" — set show_on_website=true for every active,
+     * non-owner staff member in the agency. Agency-wide (agents aren't per-site),
+     * so they appear on every website. Saving each fires the UserObserver →
+     * agent.published webhook for the newly-shown agents.
+     */
+    public function publishAllAgents(Request $request, Agency $agency): RedirectResponse
+    {
+        $agents = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->where('agency_id', $agency->id)
+            ->where('is_active', true)
+            ->agencyMembers()
+            ->where('show_on_website', false)
+            ->get();
+
+        foreach ($agents as $agent) {
+            $agent->update(['show_on_website' => true]); // fires UserObserver → agent.published
+        }
+
+        $already = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->where('agency_id', $agency->id)->where('is_active', true)->agencyMembers()
+            ->where('show_on_website', true)->count();
+
+        return $this->backToPanel($agency)->with(
+            'success',
+            "{$agents->count()} agent(s) now shown on the website" .
+            ($agents->count() === 0 && $already > 0 ? " (all {$already} were already shown)" : '') . '.'
+        );
+    }
+
     /** Master "website is live" switch for the agency (visibility layer 1). */
     public function toggleWebsite(Request $request, Agency $agency): RedirectResponse
     {
