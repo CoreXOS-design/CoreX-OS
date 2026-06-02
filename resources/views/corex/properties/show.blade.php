@@ -56,9 +56,17 @@
         ];
         $sc = $statusColors[$property->status] ?? 'var(--text-muted)';
         $scBadge = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';
-        $sbWebsiteEnabled = (bool) \App\Models\PerformanceSetting::get('syndication_website_enabled', 1);
         $sbPpEnabled      = (bool) \App\Models\PerformanceSetting::get('syndication_pp_enabled', 1);
         $sbP24Enabled     = (bool) \App\Models\PerformanceSetting::get('syndication_p24_enabled', 1);
+        // Agency Public API — per-(property × website) portals (used by the sidebar
+        // summary AND the syndication modal). Spec: agency-public-api.md §6.5.2.
+        $websiteKeys = $isNew ? collect() : \App\Models\AgencyApiKey::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->where('agency_id', $property->agency_id)
+            ->whereNull('revoked_at')
+            ->orderBy('name')->get();
+        $websiteState = $isNew ? collect() : \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->where('property_id', $property->id)
+            ->pluck('enabled', 'agency_api_key_id');
         @endphp
 
         {{-- Collapsed rail --}}
@@ -574,8 +582,8 @@
 
                 @php
                     $portals = [];
-                    if ($sbWebsiteEnabled) {
-                        $portals[] = ['HFC Premium', $property->isPublished(), $hfcMissingFields ?? []];
+                    foreach ($websiteKeys as $wk) {
+                        $portals[] = [$wk->name, (bool) ($websiteState[$wk->id] ?? false), []];
                     }
                     if ($sbPpEnabled) {
                         $portals[] = ['Private Property', ($property->pp_syndication_status ?? '') === 'active', $ppMissingFields ?? []];
@@ -759,10 +767,9 @@
     @if(!$isNew)
             {{-- Centered modal --}}
             @php
-                $synWebsiteEnabled = (bool) \App\Models\PerformanceSetting::get('syndication_website_enabled', 1);
                 $synPpEnabled      = (bool) \App\Models\PerformanceSetting::get('syndication_pp_enabled', 1);
                 $synP24Enabled     = (bool) \App\Models\PerformanceSetting::get('syndication_p24_enabled', 1);
-                $isPublished       = $property->isPublished();
+                // $websiteKeys / $websiteState computed in the sidebar @php block above.
             @endphp
             <template x-teleport="body">
             <div x-show="synOpen" x-cloak
@@ -799,62 +806,36 @@
                 {{-- Step: main --}}
                 <div x-show="synStep === 'main'" class="p-4 space-y-4">
 
-                    @if($synWebsiteEnabled)
-                    {{-- HFC Premium publish — mirrors P24 toggle/publish/refresh/unpublish pattern --}}
-                    @php $hfcMissing = $hfcMissingFields ?? []; @endphp
-                    <div x-data="{
-                            isPublished: {{ $isPublished ? 'true' : 'false' }},
-                            enabled:     {{ $isPublished ? 'true' : 'false' }},
-                            loading:     false,
-                            missingFields: {{ \Illuminate\Support\Js::from($hfcMissing) }},
-                            csrf:        '{{ csrf_token() }}',
-                            url:         '{{ route('corex.properties.publish-toggle', $property) }}',
-                            previewUrl:  '{{ rtrim(config('integrations.website_public_url', ''), '/') ? rtrim(config('integrations.website_public_url'), '/') . '/listings/' . $property->external_id : route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title)]) }}',
-                            toggleEnabled() {
-                                if (this.loading) return;
-                                if (this.isPublished) {
-                                    this.unpublish();
-                                } else {
-                                    this.enabled = !this.enabled;
+                    @if($websiteKeys->isNotEmpty())
+                    {{-- Website portals — one toggle per agency website (API key). Spec §6.5.2 --}}
+                    <div @click.stop class="space-y-2">
+                        <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Websites</p>
+                        @foreach($websiteKeys as $wk)
+                        <div x-data="{
+                                enabled: {{ ($websiteState[$wk->id] ?? false) ? 'true' : 'false' }},
+                                loading: false,
+                                csrf: '{{ csrf_token() }}',
+                                url: '{{ route('corex.properties.website-syndication.toggle', [$property, $wk]) }}',
+                                async toggle() {
+                                    if (this.loading) return;
+                                    this.loading = true;
+                                    const fd = new FormData(); fd.append('_token', this.csrf);
+                                    try {
+                                        const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                                        const j = await r.json();
+                                        if (r.ok && j.success) { this.enabled = j.enabled; }
+                                    } catch (e) {}
+                                    this.loading = false;
                                 }
-                            },
-                            errorMsg: '',
-                            async post(action) {
-                                this.loading = true;
-                                this.errorMsg = '';
-                                const fd = new FormData();
-                                fd.append('_token', this.csrf);
-                                fd.append('action', action);
-                                let ok = false;
-                                try {
-                                    const resp = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
-                                    ok = resp.ok;
-                                    if (!ok) {
-                                        try { const j = await resp.json(); this.errorMsg = j.error || j.message || ('HTTP ' + resp.status); }
-                                        catch(_) { this.errorMsg = 'HTTP ' + resp.status; }
-                                    }
-                                } catch(e) { this.errorMsg = e.message || 'Network error'; }
-                                this.loading = false;
-                                if (!ok) return;
-                                if (action === 'publish' || action === 'refresh') { this.isPublished = true; this.enabled = true; }
-                                if (action === 'unpublish') { this.isPublished = false; this.enabled = false; }
-                            },
-                            publish()   { this.post('publish'); },
-                            refresh()   { this.post('refresh'); },
-                            unpublish() { this.post('unpublish'); },
-                         }"
-                         @click.stop class="space-y-3">
-                        <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Publish to HFC Premium</p>
-
-                        {{-- HFC Premium toggle row --}}
-                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
-                             @click="toggleEnabled()"
+                             }"
+                             @click.stop="toggle()"
+                             class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
                              :style="enabled ? 'background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.25);' : 'background:var(--surface-2); border:1px solid var(--border);'">
                             <div class="flex items-center gap-2">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--ds-green)' : 'color:var(--text-muted)'">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
                                 </svg>
-                                <span class="text-xs font-semibold" style="color:var(--text-primary);">HFC Premium</span>
+                                <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $wk->name }}</span>
                             </div>
                             <div class="flex items-center gap-2">
                                 <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
@@ -865,63 +846,11 @@
                                           :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                 </div>
                                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
-                                      :style="isPublished ? 'background:rgba(34,197,94,0.15); color:var(--ds-green);' : (enabled ? 'background:rgba(245,158,11,0.15); color:var(--ds-amber);' : 'background:var(--surface-3); color:var(--text-muted);')"
-                                      x-text="isPublished ? 'Live' : (enabled ? 'Pending' : 'Off')"></span>
+                                      :style="enabled ? 'background:rgba(34,197,94,0.15); color:var(--ds-green);' : 'background:var(--surface-3); color:var(--text-muted);'"
+                                      x-text="enabled ? 'On' : 'Off'"></span>
                             </div>
                         </div>
-
-                        {{-- Server error after a failed publish attempt --}}
-                        <div x-show="errorMsg" x-cloak
-                             class="rounded-md px-3 py-2.5 text-xs font-medium"
-                             style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
-                             x-text="errorMsg"></div>
-
-                        {{-- Missing fields warning — blocks publish until resolved --}}
-                        <div x-show="missingFields.length > 0" x-cloak
-                             class="rounded-md px-3 py-2.5 space-y-1.5"
-                             style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
-                            <p class="text-xs font-semibold" style="color:var(--ds-amber);">Cannot publish to HFC Premium — missing required fields:</p>
-                            <ul class="space-y-0.5 m-0 pl-3" style="list-style:disc;">
-                                <template x-for="(f, idx) in missingFields" :key="idx">
-                                    <li class="text-xs" style="color:var(--ds-amber);" x-text="f.label"></li>
-                                </template>
-                            </ul>
-                        </div>
-
-                        {{-- Publish button — shown when enabled but not yet published --}}
-                        <div x-show="enabled && !isPublished" x-cloak class="flex flex-wrap gap-2">
-                            <button type="button" @click.stop="missingFields.length === 0 && publish()"
-                                    :disabled="loading || missingFields.length > 0"
-                                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                    :style="missingFields.length > 0 ? 'background:#374151; color:#6b7280; cursor:not-allowed;' : 'background:var(--ds-green); color:#fff;'"
-                                    :class="missingFields.length === 0 ? 'hover:opacity-85' : ''">
-                                <svg x-show="!loading" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-                                <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                                <span x-text="loading ? 'Publishing...' : 'Publish to HFC Premium'"></span>
-                            </button>
-                        </div>
-
-                        {{-- Live actions: View · Refresh · Unpublish --}}
-                        <div x-show="isPublished" x-cloak class="flex flex-wrap gap-2">
-                            <a :href="previewUrl" target="_blank"
-                               class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
-                               style="background:var(--ds-green); color:#fff;">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                                View on HFC Premium
-                            </a>
-                            <button type="button" @click.stop="refresh()" :disabled="loading"
-                                    class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                    style="background:rgba(34,197,94,0.10); color:var(--ds-green); border:1px solid rgba(34,197,94,0.25);"
-                                    onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-                                <span x-text="loading ? 'Syncing...' : 'Refresh'"></span>
-                            </button>
-                            <button type="button" @click.stop="unpublish()" :disabled="loading"
-                                    class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                    style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
-                                    onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-                                Unpublish
-                            </button>
-                        </div>
+                        @endforeach
                     </div>
                     @endif
 

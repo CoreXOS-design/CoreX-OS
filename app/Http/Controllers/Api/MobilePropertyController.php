@@ -944,18 +944,24 @@ class MobilePropertyController extends Controller
     {
         $out = [];
 
-        // ── HFC Premium (own website) ─────────────────────────────
-        $websiteEnabled = (bool) \App\Models\PerformanceSetting::get('syndication_website_enabled', 1);
-        if ($websiteEnabled && $property->isPublished()) {
-            $base = rtrim((string) config('integrations.website_public_url', ''), '/');
-            $url  = $base
-                ? $base . '/listings/' . ($property->external_id ?: $property->id)
-                : route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title ?: 'property')]);
+        // ── Agency websites (Agency Public API) ───────────────────
+        // One placement per website (API key) the listing is enabled on, from
+        // the property_website_syndication pivot. Replaces the legacy single-site
+        // "HFC Premium" published_at placement. Spec: agency-public-api.md §6.5.
+        $websiteRows = \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->with('apiKey')
+            ->where('property_id', $property->id)
+            ->where('enabled', true)
+            ->get();
+        foreach ($websiteRows as $row) {
+            if (!$row->apiKey) {
+                continue;
+            }
             $out[] = [
-                'portal' => 'hfc_premium',
-                'label'  => 'HFC Premium',
+                'portal' => 'website:' . $row->agency_api_key_id,
+                'label'  => $row->apiKey->name ?: 'Website',
                 'status' => 'live',
-                'url'    => $url,
+                'url'    => null,
                 'ref'    => $property->external_id,
             ];
         }
