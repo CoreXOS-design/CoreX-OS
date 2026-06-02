@@ -244,6 +244,31 @@ class PropertyObserver
             }
         }
 
+        // Agency Public API — when a listing that's live on one or more agency
+        // websites changes a marketing-relevant field, fan a listing.updated
+        // webhook out to those sites. Guarded (only syndicated listings) and
+        // failure-isolated. Spec: .ai/specs/agency-public-api.md §6.1.
+        $websiteSignals = [
+            'price', 'price_on_application', 'status', 'title', 'headline', 'description',
+            'beds', 'baths', 'garages', 'size_m2', 'erf_size_m2', 'suburb', 'city',
+            'province', 'address', 'features_json', 'images_json', 'gallery_images_json',
+            'property_type', 'listing_type', 'agent_id',
+        ];
+        // No wasRecentlyCreated guard: a brand-new property has no enabled
+        // syndication rows yet, so the isSyndicated check below already excludes
+        // the create case — and wasRecentlyCreated lingers on a reused instance.
+        if (array_intersect(array_keys($property->getChanges()), $websiteSignals)) {
+            try {
+                $isSyndicated = \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                    ->where('property_id', $property->id)->where('enabled', true)->exists();
+                if ($isSyndicated) {
+                    event(new \App\Events\Website\ListingSyndicationChanged($property, 'updated'));
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Website listing.updated dispatch failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // Prospecting stock match — find prospects that match this property
         $stockMatchFields = ['address', 'suburb', 'street_name', 'street_number'];
         if ($property->wasRecentlyCreated || array_intersect(array_keys($property->getChanges()), $stockMatchFields)) {

@@ -322,6 +322,14 @@ class AppServiceProvider extends ServiceProvider
             \App\Listeners\Presentation\PropagateCmaToProperty::class,
         );
 
+        // Agency Public API — fan a listing's syndication change out to per-website
+        // webhooks. The wildcard RecordDomainEvent also audits it automatically.
+        // Spec: .ai/specs/agency-public-api.md §6.
+        Event::listen(
+            \App\Events\Website\ListingSyndicationChanged::class,
+            \App\Listeners\Webhooks\DispatchAgencyWebhooks::class,
+        );
+
         // Phase 8 — auto-record outcome=won_sale when a Deal flips to registered
         // and a linked presentation has no outcome yet. Observer is failure-
         // isolated so outcome auto-capture never breaks a deal save.

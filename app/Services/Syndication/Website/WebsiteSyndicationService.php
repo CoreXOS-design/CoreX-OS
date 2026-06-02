@@ -47,7 +47,11 @@ class WebsiteSyndicationService
         }
         $row->save();
 
-        // Phase 4 hook: event(new ListingWebsiteSyndicationChanged($row, $enabled));
+        event(new \App\Events\Website\ListingSyndicationChanged(
+            $property,
+            $enabled ? 'published' : 'removed',
+            $key->id,
+        ));
 
         return $row;
     }
@@ -68,7 +72,7 @@ class WebsiteSyndicationService
         Property::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $key->agency_id)
             ->where('status', 'active')
-            ->select('id')
+            ->with('agent')
             ->chunkById(200, function ($properties) use ($key, &$enabled, &$alreadyLive, &$scanned) {
                 foreach ($properties as $property) {
                     $scanned++;
@@ -89,7 +93,11 @@ class WebsiteSyndicationService
                     $row->save();
                     $enabled++;
 
-                    // Phase 4 hook: event(new ListingWebsiteSyndicationChanged($row, true));
+                    event(new \App\Events\Website\ListingSyndicationChanged(
+                        $property->loadMissing('agent'),
+                        'published',
+                        $key->id,
+                    ));
                 }
             });
 
