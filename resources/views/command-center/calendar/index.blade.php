@@ -1871,6 +1871,30 @@
                     <option value="{{ $cls->event_class }}" data-multi-property="{{ $cls->allow_multiple_properties ? '1' : '0' }}">{{ $cls->label }}</option>
                 @endforeach
             </select>
+            {{-- CAL-3 — class config map for the LIVE create form. Mirrors
+                 the version inside the deprecated DEAD form below (which
+                 sits inside @if(false) and so never renders). Without this
+                 the Alpine helpers propertySearch.getClassConfig() (L~3303)
+                 and contactSearch.add() (L~3372) read null from the DOM
+                 and fall back to {actor_role:'both', multi:true} for every
+                 class — which silently breaks class-aware behaviour:
+                  - Single-property event classes allow multi-property pick.
+                  - autoPopulateOwners runs for buyer-action events that
+                    shouldn't pre-fill the seller as an attendee.
+                  - Manually added attendees default to role 'attendee'
+                    instead of 'buyer_contact'/'seller_contact', so the
+                    backend can't disambiguate on save.
+                 The script tag is a JSON island read by document.
+                 getElementById — placement inside the form is fine
+                 (DOM-lookup, not Alpine scope). --}}
+            @php
+                $classConfigMap = $manualCreatableClasses->mapWithKeys(fn($c) => [$c->event_class => [
+                    'multi'      => (bool) $c->allow_multiple_properties,
+                    'actor_role' => $c->actor_role ?? 'neither',
+                    'completion' => $c->completion_behaviour ?? 'freeform',
+                ]])->toArray();
+            @endphp
+            <script type="application/json" id="classConfigMap">{!! json_encode($classConfigMap) !!}</script>
         </div>
 
         {{-- All day toggle --}}

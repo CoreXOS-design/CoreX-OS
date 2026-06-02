@@ -834,7 +834,7 @@ class CalendarController extends Controller
                 'created_by_id' => $user->id,
                 'agency_id'     => $user->agency_id ?: 1,
                 'branch_id'     => $user->branch_id,
-                'property_id'   => $data['property_id'] ?: null,
+                'property_id'   => $data['property_id'] ?? null,
                 'contact_id'    => ($data['contact_ids'] ?? [])[0] ?? null,
             ]);
 
@@ -1323,6 +1323,18 @@ class CalendarController extends Controller
 
         $links = [];
         $now = now();
+        // CAL-3 — every calendar_event_links row carries the parent event's
+        // agency_id. The column is NOT NULL (migration
+        // 2026_05_23_080300_add_agency_id_to_calendar_event_links_table)
+        // and DB::table()->insert() bypasses BelongsToAgency's creating
+        // hook, so we source it explicitly. The event's agency_id is the
+        // canonical link — a link row cannot meaningfully belong to a
+        // different agency than the event it points at. Falls back to the
+        // creating user's effective agency only in the (impossible-by-
+        // schema) case where the event row arrives with NULL agency_id;
+        // the fallback exists so a malformed input still produces a
+        // user-clear validation failure rather than another raw 500.
+        $agencyId = (int) ($event->agency_id ?? $user->effectiveAgencyId() ?? 0);
 
         // Multi-property support: use property_ids[] if available, else single property_id
         $propertyIds = $data['_resolved_property_ids'] ?? ($data['property_ids'] ?? []);
@@ -1331,6 +1343,7 @@ class CalendarController extends Controller
         }
         foreach ($propertyIds as $pid) {
             $links[] = [
+                'agency_id'          => $agencyId,
                 'calendar_event_id'  => $event->id,
                 'linkable_type'      => Property::class,
                 'linkable_id'        => (int) $pid,
@@ -1365,6 +1378,7 @@ class CalendarController extends Controller
                 $role = $defaultRole;
             }
             $links[] = [
+                'agency_id'          => $agencyId,
                 'calendar_event_id'  => $event->id,
                 'linkable_type'      => $type,
                 'linkable_id'        => $id,
@@ -1377,6 +1391,7 @@ class CalendarController extends Controller
 
         if (!empty($data['deal_id'])) {
             $links[] = [
+                'agency_id'          => $agencyId,
                 'calendar_event_id'  => $event->id,
                 'linkable_type'      => \App\Models\DealV2\DealV2::class,
                 'linkable_id'        => $data['deal_id'],

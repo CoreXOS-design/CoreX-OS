@@ -1911,6 +1911,11 @@ class DemoDataSeeder extends Seeder
 
         // Links: 1 buyer_contact + N subject_property (string class names
         // exactly as the read services match on).
+        // CAL-3 — calendar_event_links.agency_id is NOT NULL (migration
+        // 2026_05_23_080300). updateOrInsert with raw DB::table bypasses
+        // BelongsToAgency's creating hook, so agency_id must be supplied
+        // in the value array (sibling-class fix per BUILD_STANDARD §6 —
+        // the runtime instance was CalendarController::syncEventLinks).
         DB::table('calendar_event_links')->updateOrInsert(
             [
                 'calendar_event_id' => $eventId,
@@ -1918,7 +1923,12 @@ class DemoDataSeeder extends Seeder
                 'linkable_id'       => $buyer->id,
                 'role'              => 'buyer_contact',
             ],
-            ['created_by_user_id' => $agentId, 'created_at' => now(), 'updated_at' => now()]
+            [
+                'agency_id'          => self::AGENCY_ID,
+                'created_by_user_id' => $agentId,
+                'created_at'         => now(),
+                'updated_at'         => now(),
+            ]
         );
         foreach ($props as $pid) {
             DB::table('calendar_event_links')->updateOrInsert(
@@ -1928,7 +1938,12 @@ class DemoDataSeeder extends Seeder
                     'linkable_id'       => $pid,
                     'role'              => 'subject_property',
                 ],
-                ['created_by_user_id' => $agentId, 'created_at' => now(), 'updated_at' => now()]
+                [
+                    'agency_id'          => self::AGENCY_ID,
+                    'created_by_user_id' => $agentId,
+                    'created_at'         => now(),
+                    'updated_at'         => now(),
+                ]
             );
         }
 
