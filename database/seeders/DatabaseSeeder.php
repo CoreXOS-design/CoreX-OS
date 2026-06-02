@@ -30,18 +30,17 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        // Sync permissions from config/corex-permissions.php (with defaults for fresh install)
+        // Sync permissions from config/corex-permissions.php (with defaults for fresh install).
+        // Permission scaffolding is pure reference data — safe everywhere.
         Artisan::call('corex:sync-permissions', ['--seed-defaults' => true]);
 
-        // Re-enable demo mode after every reseed — the wipe empties dev_settings,
-        // and DemoLoginController::isEnabled() defaults to false without this row.
-        DevSetting::set('demo_mode_enabled', '1');
-
-        // Call all other seeders
+        // ── REFERENCE SEEDERS ───────────────────────────────────────────
+        // Idempotent default-data seeders. Safe to run on every
+        // environment — local, demo, staging, production. Each is keyed
+        // by updateOrCreate / updateOrInsert on a stable natural key so
+        // re-runs never duplicate rows. New reference seeders go HERE.
+        // ────────────────────────────────────────────────────────────────
         $this->call([
-            MultiDemoSeeder::class,
-            DemoSeeder::class,
-            RichDemoSeeder::class,
             DepositTrustInterestSeeder::class,
             DealPipelineTemplateSeeder::class,
             AgencyDocumentTypeConfigSeeder::class,
@@ -76,5 +75,39 @@ class DatabaseSeeder extends Seeder
             BuyerMatchTiersSeeder::class,
             AgencyFeedbackOptionsSeeder::class,
         ]);
+
+        // ════════════════════════════════════════════════════════════════
+        // DEMO ONLY — creates/modifies sample tenant data and flips
+        // demo_mode. MUST NOT run on staging/production. Gated by
+        // environment. See incident 2026-06-02.
+        //
+        // INCIDENT: `php artisan db:seed` on staging ran the demo
+        // seeders, which created demo agencies/branches/users/deals,
+        // reassigned a real user's branch_id AND role to demo values,
+        // and flipped the demo_mode_enabled DevSetting on — taking down
+        // the staging login and hiding real data.
+        //
+        // Any future seeder that creates sample agencies/branches/users/
+        // deals OR sets demo_mode_enabled MUST be added INSIDE this
+        // gate, never to the reference list above. The environment
+        // check is the only structural barrier between this codepath
+        // and a production wipe.
+        // ════════════════════════════════════════════════════════════════
+        if (app()->environment('local', 'demo')) {
+            // Re-enable demo mode after every reseed — the wipe empties
+            // dev_settings, and DemoLoginController::isEnabled() defaults
+            // to false without this row. NEVER flip on staging/production
+            // — that would route real users through the demo login flow,
+            // which is exactly what the 2026-06-02 incident did. This
+            // DevSetting::set was the trigger; gating it here is the
+            // root-cause fix.
+            DevSetting::set('demo_mode_enabled', '1');
+
+            $this->call([
+                MultiDemoSeeder::class,
+                DemoSeeder::class,
+                RichDemoSeeder::class,
+            ]);
+        }
     }
 }
