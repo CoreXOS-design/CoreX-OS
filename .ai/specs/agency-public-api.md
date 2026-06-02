@@ -1,7 +1,7 @@
 # Agency Public API — Spec (DRAFT)
 
-> Status: **DRAFT — awaiting review** (Johan + Andre alignment required before any code)
-> Author: Andre (drafted with Claude) · 2026-06-01
+> Status: **BUILT (Phases 1–5) on `Staging`** — 54 feature tests, 0 new suite failures. Pending Johan review/merge.
+> Author: Andre (drafted with Claude) · 2026-06-01 · built 2026-06-02
 > Module owner: Platform / Integrations
 > Related specs: [`multi-tenancy.md`](multi-tenancy.md), [`corex-domain-events-spec.md`](corex-domain-events-spec.md), [`listings.md`](listings.md), [`client-auth.md`](client-auth.md)
 
