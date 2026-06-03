@@ -220,6 +220,39 @@ class AppServiceProvider extends ServiceProvider
             Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
         }
 
+        // ─────────────────────────────────────────────────────────────────
+        // SPINE-2 — Activity Points instant-credit listener. Wires the
+        // Phase-1 high-value existing-dispatch domain events into
+        // InstantPointService::credit / revoke. One listener class with
+        // per-event handler methods; the [Class, 'method'] tuple binds
+        // each event to its matching slug-credit translation.
+        //
+        // Governing principle (Johan, locked): SCORE THE ACTION, NOT THE
+        // OUTCOME. Outcomes (lost/declined/rejected) do NOT revoke; only
+        // genuine reversals do (deal un-registered handled here via
+        // DealStatusChanged R→other; deal soft-delete handled in
+        // DealObserver::deleted so the Eloquent model event drives it).
+        //
+        // Every handler is failure-isolated inside the listener (see
+        // CreditInstantActionListener::safeCredit/safeRevoke). The
+        // InstantPointService also wraps internally — defence-in-depth.
+        // ─────────────────────────────────────────────────────────────────
+        $spineCredits = [
+            \App\Events\Contact\ContactCreated::class                       => 'handleContactCreated',
+            \App\Events\Deal\DealCreated::class                             => 'handleDealCreated',
+            \App\Events\Deal\DealStageAdvanced::class                       => 'handleDealStageAdvanced',
+            \App\Events\Deal\DealClosed::class                              => 'handleDealClosed',
+            \App\Events\Deal\DealStatusChanged::class                       => 'handleDealStatusChanged',
+            \App\Events\PresentationGenerated::class                        => 'handlePresentationGenerated',
+            \App\Events\Presentation\PresentationOutcomeRecorded::class     => 'handlePresentationOutcomeRecorded',
+            \App\Events\SellerOutreach\PitchSent::class                     => 'handlePitchSent',
+            \App\Events\Prospecting\TrackedPropertyPromotedToStock::class   => 'handleTrackedPropertyPromotedToStock',
+            \App\Events\Compliance\RcrSubmissionSubmitted::class            => 'handleRcrSubmissionSubmitted',
+        ];
+        foreach ($spineCredits as $event => $method) {
+            Event::listen($event, [\App\Listeners\Activity\CreditInstantActionListener::class, $method]);
+        }
+
         // MIC Phase B2 — narrative cache invalidation on upstream input changes.
         // Each listener is failure-isolated (try/catch + log) so a cache-cleanup
         // hiccup never breaks the originating domain event. Spec §4.8.

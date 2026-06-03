@@ -78,4 +78,37 @@ class DealObserver
     {
         Artisan::call('deals:recalc-money-lines');
     }
+
+    /**
+     * SPINE-2 — deal soft-delete is a genuine reversal (per Johan's V1
+     * rule). Revoke every instant credit tied to this deal subject:
+     * deal.created, deal.stage_advanced, deal.registered.
+     *
+     * Lives here (not in CreditInstantActionListener) because there is no
+     * domain event for "deal soft-deleted" — the Eloquent `deleted` model
+     * event is the most reliable signal. Failure-isolated try/catch so
+     * the soft-delete itself NEVER breaks if the points layer crashes.
+     */
+    public function deleted(Deal $deal): void
+    {
+        try {
+            $svc = app(\App\Services\Activity\InstantPointService::class);
+            foreach (['deal.created', 'deal.stage_advanced', 'deal.registered'] as $slug) {
+                try {
+                    $svc->revoke($slug, $deal, 'deal_archived');
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('SPINE-2 deal soft-delete revoke failed (swallowed)', [
+                        'slug'    => $slug,
+                        'deal_id' => $deal->id,
+                        'message' => $e->getMessage(),
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('SPINE-2 deal soft-delete revoke setup failed (swallowed)', [
+                'deal_id' => $deal->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
 }
