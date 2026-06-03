@@ -63,6 +63,7 @@
                 {{ $label }} <span class="text-red-500">*</span>
             </label>
             <input type="text"
+                   data-loc-field="{{ $level }}"
                    x-model="queries.{{ $level }}"
                    @focus="openDropdown('{{ $level }}')"
                    @input="onType('{{ $level }}')"

@@ -548,6 +548,25 @@
             }
         });
 
+        // Province / City / Suburb come from the P24 location picker, whose
+        // values land in hidden inputs (no [required] attribute), so the sweep
+        // above can't see them. Validate them here so a missing suburb pops the
+        // same modal as every other required field, rather than failing
+        // server-side and surfacing in the error banner after the round-trip.
+        [
+            { name: 'province', label: 'Province' },
+            { name: 'city',     label: 'City / Town' },
+            { name: 'suburb',   label: 'Suburb' },
+        ].forEach(function(loc) {
+            var hidden = form.querySelector('input[type="hidden"][name="' + loc.name + '"]');
+            if (!hidden) return;
+            if (!(hidden.value || '').trim()) {
+                // Focus the visible typeahead, never the hidden input.
+                var visible = form.querySelector('[data-loc-field="' + loc.name + '"]') || hidden;
+                missing.push({ el: visible, label: loc.label });
+            }
+        });
+
         if (missing.length) {
             e.preventDefault();
             showModal(missing);
