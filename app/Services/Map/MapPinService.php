@@ -67,22 +67,26 @@ final class MapPinService
         $layerCounts  = [];
         $totals       = [];
         $cappedLayers = [];
+        $layerLimits  = []; // MAP-CAP — populated per layer below
         $allRecords   = [];
 
+        // MAP-CAP — closures now take the per-layer limit as a parameter so
+        // the foreach below can capture it for both (a) the actual fetch
+        // and (b) the cap-detection comparison further down.
         $sources = [
-            'hfc_listings'       => fn () => $this->hfcListings($req, $req->perLayerLimitFor('hfc_listings', $layerCount)),
-            'sold_comps'         => fn () => $this->soldComps($req, $req->perLayerLimitFor('sold_comps', $layerCount)),
-            'active_listings'    => fn () => $this->activeListings($req, $req->perLayerLimitFor('active_listings', $layerCount)),
-            'mic_subjects'       => fn () => $this->micSubjects($req, $req->perLayerLimitFor('mic_subjects', $layerCount)),
+            'hfc_listings'       => fn (int $lim) => $this->hfcListings($req, $lim),
+            'sold_comps'         => fn (int $lim) => $this->soldComps($req, $lim),
+            'active_listings'    => fn (int $lim) => $this->activeListings($req, $lim),
+            'mic_subjects'       => fn (int $lim) => $this->micSubjects($req, $lim),
             // A.2.3 Item 3 — Sectional schemes now appear in Seller View too,
             // but with owner identity redacted at the toRecord boundary below.
             // (Pre-A.2.3 the whole layer was suppressed in Seller View — that
             // was over-cautious and hid useful scheme metadata.)
-            'scheme_owners'      => fn () => $this->schemeOwners($req, $req->perLayerLimitFor('scheme_owners', $layerCount)),
+            'scheme_owners'      => fn (int $lim) => $this->schemeOwners($req, $lim),
             // T layer — prospecting candidates with geocoded GPS. Sensitive:
             // suppressed entirely from Seller View (see the dispatch guard
             // below). Wired post-2026-05-27 Google geocoding backfill.
-            'tracked_properties' => fn () => $this->trackedProperties($req, $req->perLayerLimitFor('tracked_properties', $layerCount)),
+            'tracked_properties' => fn (int $lim) => $this->trackedProperties($req, $lim),
         ];
 
         foreach ($sources as $key => $fetch) {
@@ -95,13 +99,25 @@ final class MapPinService
                 $totals[$key]      = 0;
                 continue;
             }
+            $limit = $req->perLayerLimitFor($key, $layerCount);
+            $layerLimits[$key] = $limit;
             /** @var array{0: array, 1: int} $result */
-            $result = $fetch();
+            $result = $fetch($limit);
             [$pins, $total] = $result;
 
             $layerCounts[$key] = count($pins);
             $totals[$key]      = $total;
-            if ($total > count($pins)) {
+            // MAP-CAP — cap detection covers two layer-fetcher patterns:
+            //   1) Layers that compute a real total via a separate COUNT(*)
+            //      (e.g. mic_subjects) — `$total > count($pins)` already
+            //      signals that the LIMIT dropped rows.
+            //   2) Layers whose internal dedup map doubles as the total
+            //      (most layers — `return [$pins, count($combined)]`) —
+            //      `$total === count($pins)` always, so the only honest
+            //      truncation signal is "count(pins) >= limit". This is
+            //      the cheaper-than-COUNT(*) path the MAP-CAP prompt
+            //      explicitly preferred.
+            if ($total > count($pins) || count($pins) >= $limit) {
                 $cappedLayers[] = $key;
             }
 
@@ -129,6 +145,11 @@ final class MapPinService
             'layer_counts'  => $layerCounts,
             'totals'        => $totals,
             'capped_layers' => $cappedLayers,
+            // MAP-CAP — per-layer limit so the UI badge can render
+            // "{limit}+" when a layer's result was truncated. Without
+            // this the client would have to mirror perLayerLimitFor
+            // heuristics, which we don't want duplicated.
+            'layer_limits'  => $layerLimits,
         ];
     }
 
@@ -699,7 +720,15 @@ final class MapPinService
         $this->applyRangeFilter($q, $req->buildingMin,  $req->buildingMax,  'pl.property_size_m2');
         $this->applySearchFilter($q, $req, ['pl.address', 'pl.suburb']);
 
-        foreach ($q->limit($limit)->get() as $r) {
+        // MAP-CAP — capture the raw row count BEFORE the dedup foreach so
+        // we can detect "the SQL LIMIT clipped results" honestly. Otherwise
+        // cross-portal dedup shrinks count($pins) below $limit and the cap
+        // check `count($pins) >= $limit` in getPinsInBounds silently
+        // under-reports truncation.
+        $rawRows = $q->limit($limit)->get();
+        $rawCount = $rawRows->count();
+
+        foreach ($rawRows as $r) {
             // Cross-portal dedup uses the existing normalized_address column
             // (populated by ProspectingListing::normalizeAddress at write time
             // — same p24 + pp address ALREADY collapse there). Fallback to a
@@ -728,7 +757,19 @@ final class MapPinService
 
         $pins = array_slice(array_values($combined), 0, $limit);
         $pins = $this->applyRadiusFilter($pins, $req);
-        return [$pins, count($combined)];
+
+        // MAP-CAP — emit a $total that flags truncation through the
+        // existing `$total > count($pins)` check in getPinsInBounds. When
+        // the raw SQL query hit the LIMIT, set $total to one past the
+        // post-dedup count so the cap is detected even after dedup
+        // shrinkage. When the raw query did not hit the LIMIT, $total
+        // stays at count($combined) (== count($pins) when nothing was
+        // truncated), preserving the under-cap "no plus sign" behaviour.
+        $total = $rawCount >= $limit
+            ? max(count($combined), $limit) + 1
+            : count($combined);
+
+        return [$pins, $total];
     }
 
     /** @return array{0: array, 1: int} */

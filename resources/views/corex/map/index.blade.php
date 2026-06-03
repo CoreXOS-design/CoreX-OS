@@ -2163,10 +2163,23 @@ document.addEventListener('DOMContentLoaded', function () {
         clearAllPins();
 
         // Update left-rail counts from layer_counts (post-filter, pre-grouping).
+        // MAP-CAP — when a layer was truncated by its per-layer cap, the badge
+        // shows the LIMIT followed by "+" (e.g. "1000+") rather than the
+        // exact post-dedup count — an honest density signal that reads as
+        // "this is at least the cap, and more exists beyond it". When not
+        // truncated, the badge shows the exact count as before.
         const counts = payload.layer_counts || {};
+        const cappedSet = new Set(payload.capped_layers || []);
+        const layerLimits = payload.layer_limits || {};
         Object.keys(LAYER_COLOURS).forEach(key => {
             const badge = document.querySelector('[data-layer-count="' + key + '"]');
-            if (badge) badge.textContent = String(counts[key] ?? 0);
+            if (badge) {
+                if (cappedSet.has(key) && layerLimits[key]) {
+                    badge.textContent = String(layerLimits[key]) + '+';
+                } else {
+                    badge.textContent = String(counts[key] ?? 0);
+                }
+            }
         });
 
         // Apply layer toggles client-side (re-derives composite flags).

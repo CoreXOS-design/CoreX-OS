@@ -125,21 +125,32 @@ final class MapBoundsRequest
     }
 
     /**
-     * Per-key cap override on top of zoomAwarePerLayerLimit(). Most layers
-     * use the zoom-aware base verbatim. tracked_properties gets a bump
-     * because it's the most numerous layer post-2026-05-27 Google
-     * geocoding backfill (~2100 rows on staging, mostly clustered in the
-     * KZN South + North Coast bands). At suburb zoom (span < 0.05°) the
-     * base = effectiveLimit / layerCount = 2000/6 = 333, which truncates
-     * dense areas like Ballito or Margate. Tripling gets us 1000 pins
-     * with a floor at 1000 (so region-zoom queries still get useful
-     * coverage) and a ceiling at 1500 (so country-zoom queries don't
-     * balloon into thousands of pins the user can't even render).
+     * Per-key cap override on top of zoomAwarePerLayerLimit().
+     *
+     * Two layers get the same dense-zoom bump (floor 1000, ceiling 1500):
+     *
+     *   - tracked_properties — Bumped originally after the 2026-05-27 Google
+     *     geocoding backfill made this the most numerous layer. The base
+     *     (effectiveLimit / layerCount = 2000/6 = 333) was truncating dense
+     *     coast bands like Ballito / Margate; tripling fixes that.
+     *
+     *   - active_listings (MAP-CAP, post-MAP-FIX) — Now reads
+     *     prospecting_listings GPS directly. Live has ~5,912 geocoded
+     *     prospecting_listings; the un-bumped zoom-aware cap (200 at region
+     *     zoom, 500 at district zoom) was returning ~tens of pins and the
+     *     UI badge read as "this agency has few properties". Bumping to
+     *     the same 1000-floor / 1500-ceiling profile gives an honest
+     *     density signal at every zoom level without ballooning beyond
+     *     what Leaflet can cluster smoothly.
+     *
+     * Other layers (hfc_listings, sold_comps, mic_subjects, scheme_owners)
+     * use the zoom-aware base verbatim — none has the row-count profile
+     * that warrants a bump in V1.
      */
     public function perLayerLimitFor(string $key, int $layerCount): int
     {
         $base = $this->zoomAwarePerLayerLimit($layerCount);
-        if ($key === 'tracked_properties') {
+        if (in_array($key, ['tracked_properties', 'active_listings'], true)) {
             return min(max($base * 3, 1000), 1500);
         }
         return $base;

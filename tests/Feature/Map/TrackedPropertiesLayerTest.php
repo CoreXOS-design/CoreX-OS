@@ -266,11 +266,12 @@ final class TrackedPropertiesLayerTest extends TestCase
             'cap must not exceed 1500 ceiling');
     }
 
-    public function test_other_layers_unchanged_by_per_layer_override(): void
+    public function test_un_bumped_layers_unchanged_by_per_layer_override(): void
     {
-        // Sanity — perLayerLimitFor() leaves non-tracked layers alone at the
-        // zoom-aware base. This guards against accidentally bumping
-        // hfc_listings or any other layer.
+        // Sanity — perLayerLimitFor() leaves the un-bumped layers
+        // (hfc_listings, sold_comps, mic_subjects, scheme_owners) at the
+        // zoom-aware base. tracked_properties AND active_listings (post-
+        // MAP-CAP) both bump to the 1000-1500 envelope.
         $req = new MapBoundsRequest(
             north: -30.4, south: -31.0, east: 30.9, west: 30.0,
             layers: ['hfc_listings', 'sold_comps', 'active_listings', 'mic_subjects', 'scheme_owners', 'tracked_properties'],
@@ -283,11 +284,13 @@ final class TrackedPropertiesLayerTest extends TestCase
         $baseZoom = $req->zoomAwarePerLayerLimit(6);
         $this->assertSame($baseZoom, $req->perLayerLimitFor('hfc_listings', 6));
         $this->assertSame($baseZoom, $req->perLayerLimitFor('sold_comps', 6));
-        $this->assertSame($baseZoom, $req->perLayerLimitFor('active_listings', 6));
         $this->assertSame($baseZoom, $req->perLayerLimitFor('mic_subjects', 6));
         $this->assertSame($baseZoom, $req->perLayerLimitFor('scheme_owners', 6));
+        // Both bumped layers in the 1000-1500 envelope.
         $this->assertGreaterThanOrEqual(1000, $req->perLayerLimitFor('tracked_properties', 6));
         $this->assertLessThanOrEqual(1500, $req->perLayerLimitFor('tracked_properties', 6));
+        $this->assertGreaterThanOrEqual(1000, $req->perLayerLimitFor('active_listings', 6));
+        $this->assertLessThanOrEqual(1500, $req->perLayerLimitFor('active_listings', 6));
     }
 
     public function test_search_filter_narrows_by_street_name(): void

@@ -10,23 +10,41 @@ use Tests\TestCase;
 /**
  * Per-layer cap behaviour of MapBoundsRequest::perLayerLimitFor().
  *
- * tracked_properties gets a 3x bump on top of the zoom-aware base, floored
- * at 1000 / ceilinged at 1500. Other layers use the zoom-aware base
- * untouched.
+ * tracked_properties AND active_listings (post-MAP-CAP) both get a 3x bump
+ * on top of the zoom-aware base, floored at 1000 / ceilinged at 1500.
+ * Other layers use the zoom-aware base untouched.
  */
 final class MapBoundsRequestTest extends TestCase
 {
-    public function test_non_tracked_layers_use_zoom_aware_base(): void
+    public function test_un_bumped_layers_use_zoom_aware_base(): void
     {
         $req = $this->bounds(north: -30.5, south: -30.6, east: 30.4, west: 30.3); // ~0.1° suburb zoom
         $layerCount = 6;
         $base = $req->zoomAwarePerLayerLimit($layerCount);
 
+        // hfc_listings, sold_comps, mic_subjects, scheme_owners remain
+        // at the zoom-aware base. active_listings + tracked_properties
+        // both bump (see test_active_listings_at_*_zoom_*_floor below).
         $this->assertSame($base, $req->perLayerLimitFor('hfc_listings', $layerCount));
         $this->assertSame($base, $req->perLayerLimitFor('sold_comps', $layerCount));
-        $this->assertSame($base, $req->perLayerLimitFor('active_listings', $layerCount));
         $this->assertSame($base, $req->perLayerLimitFor('mic_subjects', $layerCount));
         $this->assertSame($base, $req->perLayerLimitFor('scheme_owners', $layerCount));
+    }
+
+    public function test_active_listings_at_suburb_zoom_returns_1000_floor(): void
+    {
+        // MAP-CAP — active_listings now reads prospecting_listings GPS
+        // directly. Live has ~5,912 geocoded rows; without the bump the
+        // suburb-zoom cap (333) was hiding the market. Same shape as
+        // tracked_properties.
+        $req = $this->bounds(north: -30.50, south: -30.52, east: 30.40, west: 30.38);
+        $this->assertSame(1000, $req->perLayerLimitFor('active_listings', 6));
+    }
+
+    public function test_active_listings_at_country_zoom_still_returns_1000_floor(): void
+    {
+        $req = $this->bounds(north: -27.0, south: -32.0, east: 33.0, west: 28.0); // ~5° country zoom
+        $this->assertSame(1000, $req->perLayerLimitFor('active_listings', 6));
     }
 
     public function test_tracked_properties_at_suburb_zoom_returns_1000_floor(): void
