@@ -959,12 +959,20 @@ document.addEventListener('DOMContentLoaded', function () {
     // ── Themed cluster icon (spec §5) ───────────────────────────────────
 
     function clusterIcon(cluster) {
+        // MAP-CLUSTER — each child marker carries an `aggregateCount`
+        // option (default 1) representing how many underlying listings
+        // it stands for. At wide zoom the server returns aggregate-bucket
+        // pins where aggregateCount = COUNT(*) for the tile; summing
+        // these gives the TRUE cluster total instead of a capped sample
+        // count. At suburb zoom every marker has aggregateCount=1 and
+        // this sums to the pin count, preserving the previous behaviour.
         const counts = { COMPANY: 0, PORTAL: 0, CMA: 0, TRACKED: 0 };
         let total = 0;
         cluster.getAllChildMarkers().forEach(m => {
             const b = (m.options && m.options.bucket) || 'CMA';
-            counts[b] = (counts[b] || 0) + 1;
-            total++;
+            const w = (m.options && m.options.aggregateCount) || 1;
+            counts[b] = (counts[b] || 0) + w;
+            total += w;
         });
         const sorted = Object.entries(counts).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
         let dominant = sorted.length ? sorted[0][0] : 'CMA';
@@ -2227,12 +2235,20 @@ document.addEventListener('DOMContentLoaded', function () {
             const _primaryCat = (loc.display_as === 'scheme')
                 ? 'scheme_owners'
                 : (((loc.records || [])[0] || {}).category || 'unknown');
+            // MAP-CLUSTER — sum the aggregate_count across this location's
+            // records (default 1 each) so the cluster icon sums TRUE
+            // underlying-listing totals at wide zoom. For per-pin locations
+            // this is just records.length (each record contributes 1).
+            const _aggregateCount = (loc.records || []).reduce(
+                (s, r) => s + ((r && r.aggregate_count) || 1), 0
+            );
             const m = L.marker([loc.latitude, loc.longitude], {
                 icon:   locationIcon(loc, loc.location_key === selectedLocationKey),
                 // Stamp the bucket so the themed cluster iconCreateFunction
                 // can tally child markers per bucket without re-deriving.
                 bucket: _bucket,
                 primaryCategory: _primaryCat,
+                aggregateCount:  _aggregateCount,
             });
             // Project the bucket + category onto the rendered icon element
             // as soon as Leaflet mounts it, so dev-tools can query directly

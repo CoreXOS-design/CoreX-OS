@@ -105,7 +105,17 @@ final class MapPinService
             $result = $fetch($limit);
             [$pins, $total] = $result;
 
-            $layerCounts[$key] = count($pins);
+            // MAP-CLUSTER — layer_counts reflects items REPRESENTED, not
+            // markers on the map. For per-pin layers each pin = 1 item
+            // (no aggregate_count → defaults to 1, sum == pin count). For
+            // wide-zoom aggregate layers, each bucket carries
+            // aggregate_count = COUNT(*) for its tile, so the sum is the
+            // true total of underlying listings. The badge therefore
+            // shows the honest number at every zoom.
+            $layerCounts[$key] = (int) array_sum(array_map(
+                fn ($p) => (int) ($p['aggregate_count'] ?? 1),
+                $pins
+            ));
             $totals[$key]      = $total;
             // MAP-CAP — cap detection covers two layer-fetcher patterns:
             //   1) Layers that compute a real total via a separate COUNT(*)
@@ -224,6 +234,12 @@ final class MapPinService
             // elsewhere.
             'report_type_key'      => $pin['report_type_key']      ?? null,
             'report_type_name'     => $pin['report_type_name']     ?? null,
+            // MAP-CLUSTER — per-pin "how many underlying listings does this
+            // pin represent". 1 for individual pins; N for aggregate-bucket
+            // pins at wide zoom. The frontend cluster icon sums this across
+            // children so cluster bubbles read the TRUE total, not the
+            // capped sample count.
+            'aggregate_count'      => $pin['aggregate_count']      ?? null,
         ];
     }
 
@@ -690,7 +706,23 @@ final class MapPinService
      */
     private function activeListings(MapBoundsRequest $req, int $limit): array
     {
-        $combined = [];
+        // MAP-CLUSTER — at wide zoom (span ≥ 0.5°, same threshold the
+        // zoomAwarePerLayerLimit uses to cap to 200/layer), the per-pin
+        // path was sending the client a CAPPED sample (now 1000 after
+        // MAP-CAP). Leaflet markercluster counted those, so cluster
+        // bubbles read e.g. "204" when the true count in that area was
+        // many times higher. Johan called these "fictitious values".
+        //
+        // Fix: at wide zoom, swap the per-pin path for a server-aggregated
+        // bucket path — one synthetic pin per 0.1° geo-tile carrying
+        // aggregate_count = COUNT(*) for that tile. The frontend cluster
+        // icon (clusterIcon, ~line 961) sums each marker's aggregateCount
+        // (default 1) so the displayed cluster total = true total.
+        //
+        // Per-pin path still runs at suburb / district zoom where the user
+        // wants to see and click individual listings.
+        $span = max(abs($req->north - $req->south), abs($req->east - $req->west));
+        $isWideZoom = $span >= 0.5;
 
         $q = DB::table('prospecting_listings as pl')
             ->whereNull('pl.deleted_at')
@@ -700,18 +732,7 @@ final class MapPinService
             ->whereNotNull('pl.longitude')
             ->whereBetween('pl.latitude',  [$req->south, $req->north])
             ->whereBetween('pl.longitude', [$req->west,  $req->east])
-            ->select([
-                'pl.id', 'pl.portal_source', 'pl.portal_url', 'pl.portal_ref',
-                'pl.address', 'pl.suburb', 'pl.normalized_address',
-                'pl.price', 'pl.bedrooms', 'pl.bathrooms', 'pl.property_type',
-                'pl.first_seen_at',
-                'pl.latitude as latitude', 'pl.longitude as longitude',
-                'pl.tracked_property_id as tracked_property_id',
-            ]);
-        // pl.agency_id is required (NOT NULL on the table); explicit agency
-        // scoping replaces the my/agency/all axis since prospecting rows
-        // belong to ONE agency only.
-        $q->where('pl.agency_id', $req->agencyId);
+            ->where('pl.agency_id', $req->agencyId);
         $this->applyPriceFilter($q, $req, 'pl.price');
         $this->applyTypeFilter($q, $req, 'pl.property_type');
         $this->applyRangeFilter($q, $req->bedroomsMin,  $req->bedroomsMax,  'pl.bedrooms');
@@ -719,6 +740,68 @@ final class MapPinService
         $this->applyRangeFilter($q, $req->standMin,     $req->standMax,     'pl.erf_size_m2');
         $this->applyRangeFilter($q, $req->buildingMin,  $req->buildingMax,  'pl.property_size_m2');
         $this->applySearchFilter($q, $req, ['pl.address', 'pl.suburb']);
+
+        if ($isWideZoom) {
+            // ── Wide-zoom: aggregate path ────────────────────────────
+            // ROUND(latitude*10)/10 buckets at 0.1° (~11 km tiles). The
+            // (latitude, longitude) bounds filter is already index-friendly
+            // in MySQL; GROUP BY on derived columns is the only extra cost
+            // and is bounded by tile count (a 5° province ⇒ at most 2,500
+            // tiles, in practice far fewer once concentrated to coast/town).
+            $buckets = (clone $q)
+                ->selectRaw('ROUND(pl.latitude * 10) / 10 as bucket_lat, ROUND(pl.longitude * 10) / 10 as bucket_lng, COUNT(*) as bucket_count')
+                ->groupBy('bucket_lat', 'bucket_lng')
+                ->orderByDesc('bucket_count')
+                ->limit($limit) // limit on TILES, not on rows — each tile carries its own count
+                ->get();
+
+            $pins = [];
+            foreach ($buckets as $b) {
+                $count = (int) $b->bucket_count;
+                $pins[] = [
+                    'id'                  => 'bucket:' . $b->bucket_lat . ':' . $b->bucket_lng,
+                    'layer'               => 'active_listings',
+                    'lat'                 => (float) $b->bucket_lat,
+                    'lng'                 => (float) $b->bucket_lng,
+                    'title'               => $count . ' listing' . ($count === 1 ? '' : 's') . ' here',
+                    'suburb'              => null,
+                    'subtitle'            => null,
+                    'price'               => null,
+                    'date'                => null,
+                    'detail_url'          => null,
+                    'preferred_public_url' => null,
+                    'sensitive'           => false,
+                    'tracked_property_id' => null,
+                    // MAP-CLUSTER — read by the frontend cluster icon to
+                    // sum into a TRUE per-cluster total at wide zoom.
+                    'aggregate_count'     => $count,
+                ];
+            }
+
+            $pins = $this->applyRadiusFilter($pins, $req);
+            // For getPinsInBounds: return $total = count($pins) so the
+            // existing cap-detection ($total > count($pins)) does NOT
+            // misfire in aggregate mode (each bucket carries N>1 listings;
+            // the SUM would always be > count(pins) and falsely flag
+            // capping). The TRUE total is conveyed per-pin via
+            // `aggregate_count` and re-summed in getPinsInBounds's
+            // layer_counts computation. Cap detection then only fires
+            // when count($pins) >= $limit — i.e. we hit the BUCKET cap,
+            // which legitimately means the wide-zoom view is showing
+            // fewer than the true number of tiles.
+            return [$pins, count($pins)];
+        }
+
+        // ── Suburb / district zoom: per-pin path (unchanged from MAP-CAP) ──
+        $combined = [];
+        $q = $q->select([
+            'pl.id', 'pl.portal_source', 'pl.portal_url', 'pl.portal_ref',
+            'pl.address', 'pl.suburb', 'pl.normalized_address',
+            'pl.price', 'pl.bedrooms', 'pl.bathrooms', 'pl.property_type',
+            'pl.first_seen_at',
+            'pl.latitude as latitude', 'pl.longitude as longitude',
+            'pl.tracked_property_id as tracked_property_id',
+        ]);
 
         // MAP-CAP — capture the raw row count BEFORE the dedup foreach so
         // we can detect "the SQL LIMIT clipped results" honestly. Otherwise
