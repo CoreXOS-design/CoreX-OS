@@ -104,17 +104,35 @@
 
 <script>
 function spineSettings(config) {
-    const initial = {!! json_encode(
-        collect($catalogue)->flatMap(fn ($rows) => collect($rows)->mapWithKeys(fn ($r) => [
-            (int) $r['id'] => [
-                'value_per_event' => (int) $r['value_per_event'],
-                'is_active'       => (bool) $r['is_active'],
-                'savingValue'     => false,
-                'savedValueAt'    => null,
-                'savingActive'    => false,
-            ],
-        ]))
-    ) !!};
+    // SPINE-SETTINGS-FIX: build a flat id-keyed associative array in PHP,
+    // then JSON encode with JSON_FORCE_OBJECT.
+    //
+    // The earlier flatMap+mapWithKeys path produced a JSON ARRAY because
+    // Laravel's Collection::flatMap calls Arr::collapse -> array_merge,
+    // and array_merge REINDEXES integer keys 0,1,2,... -- so the JS
+    // received `[{...}, {...}, ...]` instead of `{ "31": {...}, ... }`.
+    // Result: rowState[31] returned undefined for every row whose true
+    // id wasn't a small array index, and every binding crashed with
+    // "Cannot read properties of undefined". Low-id calendar rows
+    // accidentally aligned to early array indices and SEEMED to work
+    // (often showing the wrong row's data); instant-action rows with
+    // ids > catalogue size failed outright. Inline PHP build + force-
+    // object on encode is the fix that preserves the id-keyed map.
+    @php
+        $rowStateInit = [];
+        foreach ($catalogue as $rows) {
+            foreach ($rows as $r) {
+                $rowStateInit[(int) $r['id']] = [
+                    'value_per_event' => (int) $r['value_per_event'],
+                    'is_active'       => (bool) $r['is_active'],
+                    'savingValue'     => false,
+                    'savedValueAt'    => null,
+                    'savingActive'    => false,
+                ];
+            }
+        }
+    @endphp
+    const initial = {!! json_encode($rowStateInit, JSON_FORCE_OBJECT) !!};
 
     return {
         rowState: initial,
