@@ -18,10 +18,12 @@ use App\Models\User;
  * the $state slice from ProspectingListingStateEnricher output and the
  * $tiers slice from BuyerMatchTierService output before invoking.
  *
- * Rules R1 → R9 are evaluated top-down; the first match wins and returns
+ * Rules R1 → R10 are evaluated top-down; the first match wins and returns
  * immediately. Manager-only rules (R1, R8) are skipped when !$isManager.
  * Owner-only rules (R2, R3, R4) require the viewer to match the claim
- * owner / pitch sender. Tooltips are server-rendered with real values.
+ * owner / pitch sender. R10 is the always-on Pitch Now fallback so every
+ * actionable listing presents a labelled CTA at row level regardless of
+ * buyer-match data. Tooltips are server-rendered with real values.
  */
 final class SuggestedActionResolver
 {
@@ -127,6 +129,30 @@ final class SuggestedActionResolver
             && $midCount >= $thresholds->investigate_mid_min
         ) {
             return $this->buildR9($listing, $midCount);
+        }
+
+        // R10 — always-on Pitch Now fallback (PRODUCT RULE: Pitch Now is
+        // available on EVERY actionable listing regardless of buyer-match
+        // data). Buyer matches ENRICH R5/R6 above; they do NOT gate the
+        // pitch affordance. Without this rule, listings with zero buyer
+        // data — fresh agencies, new agents — render an inert "—" and the
+        // agent can't pitch from the list. That breaks the cold-start
+        // case (can't get buyers without stock; can't pitch stock without
+        // buyers).
+        //
+        // Gates: permission, active listing, not claimed by someone else,
+        // no recent pitch (avoids double-pitch races, R3 owns that path).
+        // In-stock listings route to the property entry; others route to
+        // the prospecting listing entry — same split R6/R7 use.
+        $viewerCanPitch = $viewer
+            && method_exists($viewer, 'hasPermission')
+            && $viewer->hasPermission('outreach.compose');
+
+        $notClaimedByOther = $claim === null
+            || ($viewerId !== null && (int) ($claim['user_id'] ?? 0) === $viewerId);
+
+        if ($viewerCanPitch && $listingActive && $notClaimedByOther && ! $hasRecentPitch) {
+            return $this->buildR10($listing);
         }
 
         return null;
@@ -317,6 +343,44 @@ final class SuggestedActionResolver
             tooltipHtml: $tooltip,
             clickType:   'alpine',
             alpineCall:  "openBuyerPanel({$listing->id})",
+        );
+    }
+
+    /**
+     * R10 — Always-on Pitch Now fallback. Routes to seller-outreach via
+     * the same endpoints R5/R6/R7 use, so the in-stock vs not-in-stock
+     * split is consistent across all pitch chips. Label stays plain
+     * "PITCH NOW" — when buyer signal exists, R5 ("PITCH NOW · HIGH") or
+     * R6 ("PITCH NOW" + buyer-count tooltip) wins above.
+     */
+    private function buildR10(ProspectingListing $listing): SuggestedAction
+    {
+        $inStock = $listing->matched_property_id !== null;
+
+        if ($inStock) {
+            $tooltip = $this->tooltip(
+                'In agency stock — pitch this seller. Buyer matches will surface here as they come in.'
+            );
+            $href = route('seller-outreach.entry.from-property', [
+                'property' => (int) $listing->matched_property_id,
+            ]);
+        } else {
+            $tooltip = $this->tooltip(
+                'Pitch this seller. Buyer matches will surface here as they come in.'
+            );
+            $href = route('seller-outreach.entry.from-prospecting', [
+                'prospectingListingId' => $listing->id,
+            ]);
+        }
+
+        return new SuggestedAction(
+            rank:        'R10',
+            label:       'PITCH NOW',
+            tier:        'action',
+            icon:        'target',
+            tooltipHtml: $tooltip,
+            clickType:   'anchor',
+            href:        $href,
         );
     }
 

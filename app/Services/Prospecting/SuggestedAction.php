@@ -21,7 +21,7 @@ namespace App\Services\Prospecting;
 final class SuggestedAction
 {
     public function __construct(
-        public readonly string  $rank,        // 'R1'..'R9'
+        public readonly string  $rank,        // 'R1'..'R10' (R10 = always-on Pitch Now fallback)
         public readonly string  $label,       // 'PITCH NOW · HIGH'
         public readonly string  $tier,        // 'critical'|'action'|'await'|'info'
         public readonly string  $icon,        // 'alarm-clock'|'target'|'clock'|'info'
