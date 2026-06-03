@@ -81,6 +81,11 @@ class DatabaseSeeder extends Seeder
             // pattern as the three above: reference data lives in
             // idempotent seeders, not one-time migrations.
             ActivityCalendarMappingSeeder::class,
+            // SPINE-1 — system-default catalogue of instant-action slugs.
+            // Same table as M6.2's calendar mappings, discriminated by
+            // trigger_kind='instant'. Per-agency rows; agencies inherit
+            // the catalogue + can override value_per_event / is_active.
+            ActivityInstantActionsSeeder::class,
         ]);
 
         // ════════════════════════════════════════════════════════════════

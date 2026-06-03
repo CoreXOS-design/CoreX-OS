@@ -370,6 +370,9 @@ REF_SEEDERS=(
     # M6.2-FIX — HFC activity-calendar mappings. See seeder docblock for the
     # incident that drove moving this out of a one-time migration.
     'Database\Seeders\ActivityCalendarMappingSeeder'
+    # SPINE-1 — system-default catalogue of instant-action slugs (same
+    # table as M6.2 mappings, discriminated by trigger_kind='instant').
+    'Database\Seeders\ActivityInstantActionsSeeder'
 )
 for seeder in "${REF_SEEDERS[@]}"; do
     log "  ⋯ Seeding: $seeder"

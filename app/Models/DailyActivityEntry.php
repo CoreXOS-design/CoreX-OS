@@ -37,6 +37,7 @@ final class DailyActivityEntry extends Model
 
     public const SOURCE_MANUAL        = 'manual';
     public const SOURCE_AUTO_CALENDAR = 'auto_calendar';
+    public const SOURCE_AUTO_INSTANT  = 'auto_instant';   // SPINE-1
     public const SOURCE_AUTO_OTHER    = 'auto_other';
 
     protected $table = 'daily_activity_entries';
@@ -52,6 +53,8 @@ final class DailyActivityEntry extends Model
         'point_state',
         'source',
         'calendar_event_id',
+        'subject_type',     // SPINE-1
+        'subject_id',       // SPINE-1
         'confirmed_at',
         'revoked_at',
         'revoke_reason',
@@ -121,7 +124,11 @@ final class DailyActivityEntry extends Model
 
     public function scopeAutoCredited(Builder $q): Builder
     {
-        return $q->whereIn('source', [self::SOURCE_AUTO_CALENDAR, self::SOURCE_AUTO_OTHER]);
+        return $q->whereIn('source', [
+            self::SOURCE_AUTO_CALENDAR,
+            self::SOURCE_AUTO_INSTANT,
+            self::SOURCE_AUTO_OTHER,
+        ]);
     }
 
     public function scopeManual(Builder $q): Builder
