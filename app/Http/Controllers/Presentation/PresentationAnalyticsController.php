@@ -84,12 +84,16 @@ final class PresentationAnalyticsController extends Controller
 
         $byAgent = collect();
         if ($isManager && $generatedCount > 0) {
+            // `generated` is a reserved word in MySQL 8 (generated columns) — alias as
+            // `generated_count` so the SELECT + ORDER BY parse cleanly. The PHP array
+            // key below stays `'generated'` because the view (analytics/index.blade.php)
+            // consumes `$a['generated']` directly.
             $byAgent = Presentation::query()
-                ->selectRaw('created_by_user_id, COUNT(*) AS generated')
+                ->selectRaw('created_by_user_id, COUNT(*) AS generated_count')
                 ->where('agency_id', $effective)
                 ->whereBetween('created_at', [$from, $to])
                 ->groupBy('created_by_user_id')
-                ->orderByDesc('generated')
+                ->orderByDesc('generated_count')
                 ->get()
                 ->map(function ($row) use ($effective, $from, $to) {
                     $ids = Presentation::query()
@@ -103,7 +107,7 @@ final class PresentationAnalyticsController extends Controller
                     return [
                         'user_id'   => $row->created_by_user_id,
                         'name'      => User::find($row->created_by_user_id)?->name ?? 'Former agent',
-                        'generated' => (int) $row->generated,
+                        'generated' => (int) $row->generated_count,
                         'recorded'  => $recorded,
                         'won'       => $won,
                         'win_rate'  => $recorded > 0 ? round($won / $recorded * 100, 1) : null,
