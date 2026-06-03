@@ -24,10 +24,25 @@ $kernel->bootstrap();
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-// Every reference table the deploy is required to leave non-empty.
+// Every reference table the deploy is required to leave seeded.
 // One entry per seeder (PayrollSeeder is represented by payroll_tax_tables
 // — if PayrollSeeder runs cleanly it populates all four Payroll* tables,
 // so one canary is enough).
+//
+// Two entry formats:
+//   - string                         → table must have >= 1 row (default).
+//   - 'table' => int (minRowCount)   → table must have >= minRowCount rows.
+//                                      Use the per-seeder count to catch a
+//                                      PARTIAL seed (DEPLOY-FIX 2026-06-04
+//                                      — staging dropped to 1 row in
+//                                      market_report_types because only the
+//                                      one-time migration's row survived
+//                                      the DB copy; the simple `>= 1`
+//                                      check passed and the deploy let it
+//                                      ship. Threshold check catches it.)
+//
+// Per-table thresholds reflect the seeder's canonical row count at write
+// time. Bump these when the seeder changes its target.
 $tables = [
     'calendar_event_class_settings',
     'buyer_match_tiers',
@@ -35,7 +50,10 @@ $tables = [
     'public_holidays',
     'leave_types',
     'deal_pipeline_templates',
-    'market_report_types',
+    // DEPLOY-FIX 2026-06-04 — threshold check: 13 rows per
+    // MarketReportTypesSeeder. Catches the partial-seed state that
+    // broke CMA imports today.
+    'market_report_types' => 13,
     'deposit_trust_interest',
     'suggested_action_thresholds',
     'payroll_tax_tables',
@@ -48,7 +66,18 @@ $tables = [
 $failures = [];
 fwrite(STDOUT, "Reference-table row counts:\n");
 
-foreach ($tables as $table) {
+foreach ($tables as $tableKey => $tableSpec) {
+    // Normalise both entry formats into (table, minCount):
+    //   numeric key, string value     → ($value, 1)
+    //   string key, int value         → ($key, $value)
+    if (is_int($tableKey)) {
+        $table = $tableSpec;
+        $minCount = 1;
+    } else {
+        $table = $tableKey;
+        $minCount = (int) $tableSpec;
+    }
+
     if (!Schema::hasTable($table)) {
         $failures[] = "$table (TABLE MISSING)";
         fwrite(STDOUT, sprintf("  %-40s  MISSING\n", $table));
@@ -61,16 +90,18 @@ foreach ($tables as $table) {
         fwrite(STDOUT, sprintf("  %-40s  ERROR: %s\n", $table, $e->getMessage()));
         continue;
     }
-    fwrite(STDOUT, sprintf("  %-40s  %d\n", $table, $count));
-    if ($count < 1) {
-        $failures[] = "$table (0 rows)";
+    $minLabel = $minCount > 1 ? sprintf(' (min %d)', $minCount) : '';
+    fwrite(STDOUT, sprintf("  %-40s  %d%s\n", $table, $count, $minLabel));
+    if ($count < $minCount) {
+        $failures[] = "$table ({$count} rows, expected >= {$minCount})";
     }
 }
 
 if (!empty($failures)) {
     fwrite(STDERR, "\nVERIFY_FAIL: " . implode('; ', $failures) . "\n");
-    fwrite(STDERR, "One or more reference tables are empty. Per DEPLOY-1 decision 5,\n");
-    fwrite(STDERR, "this aborts the deploy. Rolling back from the pre-deploy backup.\n");
+    fwrite(STDERR, "One or more reference tables are empty or partially seeded.\n");
+    fwrite(STDERR, "Per DEPLOY-1 decision 5, this aborts the deploy. Rolling back\n");
+    fwrite(STDERR, "from the pre-deploy backup.\n");
     exit(1);
 }
 
