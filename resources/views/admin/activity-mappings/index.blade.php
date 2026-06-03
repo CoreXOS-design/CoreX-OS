@@ -1,11 +1,28 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
+{{-- SPINE-UI-FIX: the JS URL builders previously used `url('admin/
+     activity-mappings')` to build the toggle/update endpoints. That
+     drops the outer `corex/` route prefix the admin route group lives
+     under -- generating `/admin/activity-mappings/{id}/toggle-active`
+     instead of the actual `/corex/admin/activity-mappings/{id}/toggle-
+     active`. Real browsers hit a 404 (no log line; no controller
+     execution; just framework not-found), the JS fetch rejected with
+     "HTTP 404", and rowState surfaced the canned "Could not toggle"
+     flash. Tinker testing hadn't caught this because tinker called
+     the controller method directly, bypassing routing.
+     The fix is to use the NAMED ROUTE helper with a numeric sentinel
+     (0) and substitute the real id client-side. This is prefix-
+     independent and survives any future route refactor. --}}
+@php
+    $updateUrlTpl  = route('admin.activity-mappings.update',         ['id' => 0]);
+    $toggleUrlTpl  = route('admin.activity-mappings.toggle-active',  ['id' => 0]);
+@endphp
 <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5"
      x-data="spineSettings({
         csrf: '{{ csrf_token() }}',
-        updateUrlFor: (id) => '{{ url('admin/activity-mappings') }}/' + id,
-        toggleUrlFor: (id) => '{{ url('admin/activity-mappings') }}/' + id + '/toggle-active',
+        updateUrlTpl: '{{ $updateUrlTpl }}',
+        toggleUrlTpl: '{{ $toggleUrlTpl }}',
      })">
 
     {{-- Header --}}
@@ -152,7 +169,9 @@ function spineSettings(config) {
             row.savingValue  = true;
             row.savedValueAt = null;
             try {
-                const r = await fetch(config.updateUrlFor(id), {
+                // SPINE-UI-FIX: substitute the sentinel id (0) at click time.
+                const url = config.updateUrlTpl.replace(/\/0(\?|$)/, '/' + id + '$1');
+                const r = await fetch(url, {
                     method: 'PUT',
                     headers: {
                         'Accept': 'application/json',
@@ -178,7 +197,11 @@ function spineSettings(config) {
             row.savingActive = true;
             const next = !row.is_active;
             try {
-                const r = await fetch(config.toggleUrlFor(id), {
+                // SPINE-UI-FIX: substitute the sentinel id (0) at click time.
+                // The toggle URL template has /0/toggle-active at the tail, so
+                // we replace /0/ before the trailing segment.
+                const url = config.toggleUrlTpl.replace('/0/toggle-active', '/' + id + '/toggle-active');
+                const r = await fetch(url, {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
