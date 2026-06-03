@@ -278,6 +278,13 @@ class AppServiceProvider extends ServiceProvider
         \App\Models\ProspectingClaim::observe(\App\Observers\ProspectingClaimObserver::class);
         \App\Models\PropertyMarketingPost::observe(\App\Observers\PropertyMarketingPostObserver::class);
 
+        // SPINE-2.5 — credit attendees added to a calendar event AFTER
+        // its initial create. Pre-attached attendees (same transaction
+        // as event create) are handled by ProvisionalPointService::
+        // creditPreAttachedAttendees called from CalendarEventObserver::
+        // created. This observer covers the late-add path only.
+        \App\Models\CommandCenter\CalendarEventInvitation::observe(\App\Observers\CalendarEventInvitationObserver::class);
+
         // MIC Phase B2 — narrative cache invalidation on upstream input changes.
         // Each listener is failure-isolated (try/catch + log) so a cache-cleanup
         // hiccup never breaks the originating domain event. Spec §4.8.

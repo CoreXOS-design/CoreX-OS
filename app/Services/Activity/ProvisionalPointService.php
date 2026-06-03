@@ -144,11 +144,19 @@ final class ProvisionalPointService
             }
         }
 
-        // Idempotency: never double-credit for the same event regardless
-        // of point_state. If a row already exists by calendar_event_id,
-        // bail out silently — the observer may fire more than once across
-        // updates, and re-credit is not the right answer here.
-        if (DailyActivityEntry::where('calendar_event_id', $event->id)->exists()) {
+        // SPINE-2.5 — per-participant idempotency.
+        //
+        // Before SPINE-2.5 this was a per-event check ("any row at all
+        // for this calendar_event_id"). That gated correctly when only
+        // the organiser earned a row, but now attendees ALSO earn rows
+        // (one each) so the gate has to narrow to per-(event, user).
+        // Re-credit for the same (event, organiser) is still blocked;
+        // attendee credits are gated by their own per-attendee check
+        // inside creditAttendee().
+        if (DailyActivityEntry::where('calendar_event_id', $event->id)
+            ->where('user_id', $event->user_id)
+            ->exists()
+        ) {
             return;
         }
 
@@ -167,6 +175,117 @@ final class ProvisionalPointService
                 'created_by'             => $event->created_by_id ?? $event->user_id,
             ]);
         });
+
+        // SPINE-2.5 — also credit any attendees that were attached at
+        // event-create time (the late-add case is handled separately by
+        // the CalendarEventInvitationObserver). Per-attendee row writes
+        // re-use this service's mapping + gates via creditAttendee().
+        $this->creditPreAttachedAttendees($event, $mapping);
+    }
+
+    /**
+     * SPINE-2.5 — credit a single attendee for a calendar event. Same
+     * mapping (= same activity_definition, same weight, same daily cap
+     * scope) as the organiser. Per-(event, user) idempotency means
+     * re-firing the invitation insert never double-credits.
+     *
+     * Failure-isolated: any throw is logged and swallowed so the
+     * underlying invitation save always completes.
+     *
+     * Skipped attendee statuses: 'declined', 'cancelled' — the agent
+     * either won't attend or the invite was withdrawn. Pending, accepted,
+     * tentative all credit (the work of organising AND of showing up is
+     * scored on the action, not the outcome — see Johan V1 rule).
+     */
+    public function creditAttendee(CalendarEvent $event, int $inviteeUserId, string $status = 'pending'): void
+    {
+        try {
+            // Don't double-write the organiser as both organiser + attendee.
+            if ((int) $event->user_id === $inviteeUserId) {
+                return;
+            }
+
+            // Outcome-style filter for declined/cancelled. Action-not-outcome
+            // means "did the work of attending" — declined never attended.
+            if (in_array($status, ['declined', 'cancelled'], true)) {
+                return;
+            }
+
+            $mapping = ActivityDefinitionCalendarClass::resolveForEvent($event);
+            if ($mapping === null || ! $mapping->is_active) {
+                return;
+            }
+
+            // Per-(event, user) idempotency.
+            $alreadyExists = DailyActivityEntry::where('calendar_event_id', $event->id)
+                ->where('user_id', $inviteeUserId)
+                ->exists();
+            if ($alreadyExists) {
+                return;
+            }
+
+            // Resolve the invitee's agency/branch — they may belong to a
+            // different agency than the organiser (cross-agency invitees
+            // shouldn't earn points in the organiser's agency).
+            $invitee = \App\Models\User::find($inviteeUserId);
+            if ($invitee === null) {
+                return;
+            }
+            $agencyId = (int) ($invitee->agency_id ?? 0);
+            if ($agencyId !== (int) $event->agency_id) {
+                // Cross-agency attendee — don't credit. Per-agency point
+                // ledgers stay clean.
+                return;
+            }
+
+            DB::transaction(function () use ($event, $mapping, $invitee) {
+                DailyActivityEntry::create([
+                    'activity_date'          => $event->event_date->toDateString(),
+                    'period'                 => $event->event_date->format('Y-m'),
+                    'user_id'                => $invitee->id,
+                    'agency_id'              => $invitee->agency_id,
+                    'branch_id'              => $invitee->branch_id,
+                    'activity_definition_id' => $mapping->activity_definition_id,
+                    'value'                  => (int) $mapping->value_per_event,
+                    'point_state'            => DailyActivityEntry::STATE_PROVISIONAL,
+                    'source'                 => DailyActivityEntry::SOURCE_AUTO_CALENDAR,
+                    'calendar_event_id'      => $event->id,
+                    'created_by'             => $event->created_by_id ?? $event->user_id,
+                ]);
+            });
+        } catch (\Throwable $e) {
+            Log::warning('SPINE-2.5 creditAttendee swallowed exception', [
+                'event_id'         => $event->id ?? null,
+                'invitee_user_id'  => $inviteeUserId,
+                'message'          => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * SPINE-2.5 — when an event is created with attendees pre-attached
+     * (single transaction), the invitation rows already exist by the
+     * time CalendarEventObserver::created fires. Loop them here so we
+     * don't depend on the late-add observer for the common pre-attached
+     * case.
+     */
+    private function creditPreAttachedAttendees(CalendarEvent $event, ActivityDefinitionCalendarClass $mapping): void
+    {
+        try {
+            $invitations = DB::table('calendar_event_invitations')
+                ->where('event_id', $event->id)
+                ->whereNotIn('status', ['declined', 'cancelled'])
+                ->get(['invitee_user_id', 'status']);
+
+            foreach ($invitations as $inv) {
+                $this->creditAttendee($event, (int) $inv->invitee_user_id, (string) $inv->status);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('SPINE-2.5 creditPreAttachedAttendees swallowed exception', [
+                'event_id' => $event->id ?? null,
+                'message'  => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

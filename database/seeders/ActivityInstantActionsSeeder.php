@@ -180,6 +180,40 @@ final class ActivityInstantActionsSeeder extends Seeder
             'subject_type' => \App\Models\PropertyMarketingPost::class,
             'daily_cap' => null, 'sort_order' => 800,
         ],
+
+        // ── SPINE-2.5 — multi-actor deal role slugs
+        // Every deal-family scoreable action credits ALL participants by
+        // role. Creator is still scored under the existing single-actor
+        // slugs (deal.created / deal.registered / etc.); these role-side
+        // slugs credit each pivot agent (deal_user.side='listing' on V1,
+        // deal_v2_agents.role='listing_agent' on V2) and the selling
+        // equivalent. One row PER participant — agency tunes per-role
+        // weight via value_per_event in admin (settings UI lands next).
+        //
+        // Per-event role slugs (instead of a single shared deal.listing_side):
+        //   - keeps the (slug, subject_id, user, date) dedup key
+        //     unambiguous when DealCreated and DealRegistered fire on the
+        //     same deal on the same day,
+        //   - lets agency weight the win moment differently from the
+        //     capture moment ("doing the deal" vs "starting the deal"),
+        //   - matches Johan's "per-side" instruction in SPINE-2.5 prompt
+        //     for the win event explicitly.
+        'deal.listing_side' => [
+            'label' => 'Deal captured — listing-side participation', 'is_active' => true,
+            'subject_type' => \App\Models\Deal::class, 'daily_cap' => null, 'sort_order' => 612,
+        ],
+        'deal.selling_side' => [
+            'label' => 'Deal captured — selling-side participation', 'is_active' => true,
+            'subject_type' => \App\Models\Deal::class, 'daily_cap' => null, 'sort_order' => 614,
+        ],
+        'deal.registered.listing_side' => [
+            'label' => 'Deal registered — listing-side participation', 'is_active' => true,
+            'subject_type' => \App\Models\Deal::class, 'daily_cap' => null, 'sort_order' => 632,
+        ],
+        'deal.registered.selling_side' => [
+            'label' => 'Deal registered — selling-side participation', 'is_active' => true,
+            'subject_type' => \App\Models\Deal::class, 'daily_cap' => null, 'sort_order' => 634,
+        ],
     ];
 
     public function run(): void

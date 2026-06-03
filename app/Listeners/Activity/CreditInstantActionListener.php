@@ -32,6 +32,7 @@ use App\Models\ProspectingClaim;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\User;
 use App\Services\Activity\InstantPointService;
+use App\Services\Activity\ParticipantResolver;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -86,6 +87,7 @@ final class CreditInstantActionListener
 {
     public function __construct(
         private readonly InstantPointService $svc,
+        private readonly ParticipantResolver $resolver,
     ) {}
 
     // ───────────────────────────────────────────────────────────────────
@@ -99,7 +101,14 @@ final class CreditInstantActionListener
 
     public function handleDealCreated(DealCreated $event): void
     {
-        $this->safeCredit('deal.created', $this->user($event->actorUserId), $event->deal);
+        // SPINE-2.5 — multi-actor: creator + listing-side agents +
+        // selling-side agents. Each participant scores independently
+        // through safeCredit, so one participant's failure (NULL user,
+        // missing agency, mapping miss) never blocks the others.
+        $this->creditParticipants(
+            $this->resolver->resolveForDealCreated($event->deal, $event->actorUserId),
+            $event->deal,
+        );
     }
 
     public function handleDealStageAdvanced(DealStageAdvanced $event): void
@@ -121,17 +130,29 @@ final class CreditInstantActionListener
         if ($event->outcome !== 'won') {
             return;
         }
-        $this->safeCredit('deal.registered', $this->user($event->actorUserId), $event->deal);
+        // SPINE-2.5 — multi-actor: creator + each listing-side agent +
+        // each selling-side agent each get their own registration credit
+        // under per-role slugs. Per-side weights are agency-configurable
+        // via the role-slug mapping rows.
+        $this->creditParticipants(
+            $this->resolver->resolveForDealRegistered($event->deal, $event->actorUserId),
+            $event->deal,
+        );
     }
 
     public function handleDealStatusChanged(DealStatusChanged $event): void
     {
         // REVERSAL: accepted_status flipping FROM 'R' to anything else
-        // means the deal was un-registered. Revoke ONLY deal.registered.
-        // deal.created / deal.stage_advanced stay credited — those
-        // represent earlier work the agent did, not the registration.
+        // means the deal was un-registered. Revoke ALL three registration
+        // slugs (creator + both sides) — per Johan: "un-register revokes
+        // deal.registered for credited sides; capture stays." Each
+        // safeRevoke is independent — one slug failing never stops the
+        // others. deal.created / deal.listing_side / deal.selling_side
+        // stay credited (those are the capture moment, not the win).
         if ((string) $event->fromStatus === 'R' && (string) $event->toStatus !== 'R') {
-            $this->safeRevoke('deal.registered', $event->deal, 'deal_unregistered');
+            $this->safeRevoke('deal.registered',               $event->deal, 'deal_unregistered');
+            $this->safeRevoke('deal.registered.listing_side',  $event->deal, 'deal_unregistered');
+            $this->safeRevoke('deal.registered.selling_side',  $event->deal, 'deal_unregistered');
         }
     }
 
@@ -288,6 +309,22 @@ final class CreditInstantActionListener
             return null;
         }
         return User::find($id);
+    }
+
+    /**
+     * SPINE-2.5 — loops a participant set from ParticipantResolver and
+     * calls safeCredit() per (user, slug) pair. Each call is wrapped
+     * independently by safeCredit so a failure on one participant does
+     * NOT skip the rest. NULL user_id in a pair short-circuits inside
+     * safeCredit -> InstantPointService::credit (guard 1).
+     *
+     * @param  list<array{user_id:int,slug:string}>  $pairs
+     */
+    private function creditParticipants(array $pairs, ?Model $subject): void
+    {
+        foreach ($pairs as $pair) {
+            $this->safeCredit($pair['slug'], $this->user($pair['user_id']), $subject);
+        }
     }
 
     private function safeCredit(string $slug, ?User $agent, ?Model $subject): void
