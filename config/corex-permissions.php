@@ -495,6 +495,11 @@ return [
                 'mic.restore_reports',
                 // Agency Public API — admins manage their agency's website keys
                 'agency_api.view', 'agency_api.manage',
+                // Module 6 Activity Points — admin manages the calendar-class →
+                // activity-definition mappings that drive auto-credit.
+                // (super_admin gets it via the '*' wildcard above; branch_manager
+                // already has it in its own include list below.)
+                'manage_activity_mappings',
             ],
         ],
 
