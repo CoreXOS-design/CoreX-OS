@@ -367,6 +367,9 @@ REF_SEEDERS=(
     'Database\Seeders\ProspectingSetupSeeder'
     'Database\Seeders\SellerOutreachTemplatesSeeder'
     'Database\Seeders\DepositTrustInterestSeeder'
+    # M6.2-FIX — HFC activity-calendar mappings. See seeder docblock for the
+    # incident that drove moving this out of a one-time migration.
+    'Database\Seeders\ActivityCalendarMappingSeeder'
 )
 for seeder in "${REF_SEEDERS[@]}"; do
     log "  ⋯ Seeding: $seeder"

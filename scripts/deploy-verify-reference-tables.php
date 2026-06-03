@@ -39,6 +39,10 @@ $tables = [
     'deposit_trust_interest',
     'suggested_action_thresholds',
     'payroll_tax_tables',
+    // M6.2-FIX — HFC activity-calendar mappings. Hard-fail on empty so a
+    // future DB reload that lost these rows aborts the deploy instead of
+    // silently disabling the Module 6 auto-points engine.
+    'activity_definition_calendar_classes',
 ];
 
 $failures = [];

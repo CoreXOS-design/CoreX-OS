@@ -74,6 +74,13 @@ class DatabaseSeeder extends Seeder
             CalendarEventClassSeeder::class,
             BuyerMatchTiersSeeder::class,
             AgencyFeedbackOptionsSeeder::class,
+            // M6.2-FIX — HFC activity-calendar mappings. Was a one-time
+            // migration (2026_06_20_120000) until staging copied from live
+            // showed the migration marked "ran" + the rows absent, so the
+            // auto-points engine silently never fired. Same fix-the-class
+            // pattern as the three above: reference data lives in
+            // idempotent seeders, not one-time migrations.
+            ActivityCalendarMappingSeeder::class,
         ]);
 
         // ════════════════════════════════════════════════════════════════
