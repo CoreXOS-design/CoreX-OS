@@ -4,11 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\DownloadListingThumbnail;
+use App\Jobs\Prospecting\GeocodeTrackedPropertyAddressesJob;
 use App\Models\ProspectingListing;
 use App\Models\ProspectingPriceHistory;
 use App\Models\ProspectingSearch;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ProspectingApiController extends Controller
 {
@@ -74,6 +77,11 @@ class ProspectingApiController extends Controller
         $imported = 0;
         $updated = 0;
 
+        // GEO-SCRAPE — collect TP ids touched by this batch so we can dispatch
+        // ONE async geocode job at the end (not N jobs). Filtering down to
+        // "needs GPS" happens inside the job to keep this hot path query-free.
+        $touchedTrackedPropertyIds = [];
+
         foreach ($validated['listings'] as $data) {
             if (empty($data['portal_ref'])) {
                 \Log::debug('Skipped listing with no portal_ref', ['data' => $data]);
@@ -124,7 +132,10 @@ class ProspectingApiController extends Controller
 
                 $existing->save();
                 $this->assignPropertyGroup($existing, $agencyId);
-                $this->linkToTrackedProperty($existing, $agencyId, $user->id);
+                $tpId = $this->linkToTrackedProperty($existing, $agencyId, $user->id);
+                if ($tpId !== null) {
+                    $touchedTrackedPropertyIds[$tpId] = true;
+                }
                 $updated++;
             } else {
                 $listing = ProspectingListing::create([
@@ -151,7 +162,10 @@ class ProspectingApiController extends Controller
                 ]);
 
                 $this->assignPropertyGroup($listing, $agencyId);
-                $this->linkToTrackedProperty($listing, $agencyId, $user->id);
+                $tpId = $this->linkToTrackedProperty($listing, $agencyId, $user->id);
+                if ($tpId !== null) {
+                    $touchedTrackedPropertyIds[$tpId] = true;
+                }
 
                 if (!empty($data['thumbnail_url'])) {
                     DownloadListingThumbnail::dispatch($listing, $data['thumbnail_url']);
@@ -164,6 +178,26 @@ class ProspectingApiController extends Controller
         $search->update([
             'listing_count' => $search->listing_count + $imported + $updated,
         ]);
+
+        // GEO-SCRAPE — dispatch ONE async geocode job for the batch. The job
+        // filters down to TPs that actually need GPS, then resolves up to the
+        // daily cap. Always wrapped in try/catch: a queue-dispatch hiccup
+        // MUST NOT break the scrape ingestion response. Worst case, no job
+        // gets queued and the next scrape (or the nightly backfill) picks
+        // up the unresolved rows.
+        try {
+            if (!empty($touchedTrackedPropertyIds)) {
+                GeocodeTrackedPropertyAddressesJob::dispatch(
+                    array_keys($touchedTrackedPropertyIds),
+                    (string) Str::uuid(),
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::warning('GeocodeTrackedPropertyAddressesJob dispatch failed (swallowed)', [
+                'tracked_property_count' => count($touchedTrackedPropertyIds),
+                'message' => $e->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'success'  => true,
@@ -214,9 +248,13 @@ class ProspectingApiController extends Controller
      * captured) contributes to the Tracked Property universe. Failure-isolated so a
      * TP write blip never breaks the listing ingest.
      *
+     * Returns the resolved TrackedProperty id (or null if matching failed) so the
+     * import() loop can collect the batch's TP ids for a single async geocode
+     * dispatch (GEO-SCRAPE).
+     *
      * Spec: CLAUDE.md HARD RULE #10 (Universal Match-or-Create Rule, 2026-05-14).
      */
-    private function linkToTrackedProperty(ProspectingListing $listing, int $agencyId, ?int $actorUserId): void
+    private function linkToTrackedProperty(ProspectingListing $listing, int $agencyId, ?int $actorUserId): ?int
     {
         try {
             $service = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
@@ -260,11 +298,14 @@ class ProspectingApiController extends Controller
                 $listing->tracked_property_id = $tp->id;
                 $listing->save();
             }
+
+            return $tp ? (int) $tp->id : null;
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('TrackedProperty link from prospecting ingest failed', [
                 'prospecting_listing_id' => $listing->id,
                 'error' => $e->getMessage(),
             ]);
+            return null;
         }
     }
 
