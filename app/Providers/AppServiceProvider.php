@@ -238,6 +238,7 @@ class AppServiceProvider extends ServiceProvider
         // InstantPointService also wraps internally — defence-in-depth.
         // ─────────────────────────────────────────────────────────────────
         $spineCredits = [
+            // SPINE-2 — Phase-1 high-value existing dispatches
             \App\Events\Contact\ContactCreated::class                       => 'handleContactCreated',
             \App\Events\Deal\DealCreated::class                             => 'handleDealCreated',
             \App\Events\Deal\DealStageAdvanced::class                       => 'handleDealStageAdvanced',
@@ -248,10 +249,34 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\SellerOutreach\PitchSent::class                     => 'handlePitchSent',
             \App\Events\Prospecting\TrackedPropertyPromotedToStock::class   => 'handleTrackedPropertyPromotedToStock',
             \App\Events\Compliance\RcrSubmissionSubmitted::class            => 'handleRcrSubmissionSubmitted',
+            // SPINE-3 — FICA (outcome-independent reviewer credit + agent
+            // submitter credit), MIC claim (created + manual-release
+            // revoke), property lifecycle (captured/published/compliance),
+            // marketing (post first goes live). Two events route into
+            // fica.reviewed: approved + rejected, per Johan's V1 rule
+            // (the review work is the score, the decision doesn't matter).
+            \App\Events\Fica\FicaSubmitted::class                           => 'handleFicaSubmitted',
+            \App\Events\Fica\FicaApproved::class                            => 'handleFicaApprovedReview',
+            \App\Events\Fica\FicaRejected::class                            => 'handleFicaRejectedReview',
+            \App\Events\Prospecting\ClaimCreated::class                     => 'handleClaimCreated',
+            \App\Events\Prospecting\ClaimReleased::class                    => 'handleClaimReleased',
+            \App\Events\Property\PropertyCaptured::class                    => 'handlePropertyCaptured',
+            \App\Events\Property\PropertyPublished::class                   => 'handlePropertyPublished',
+            \App\Events\Property\PropertyCompliancePassed::class            => 'handlePropertyCompliancePassed',
+            \App\Events\Marketing\MarketingPostPublished::class             => 'handleMarketingPostPublished',
         ];
         foreach ($spineCredits as $event => $method) {
             Event::listen($event, [\App\Listeners\Activity\CreditInstantActionListener::class, $method]);
         }
+
+        // SPINE-3 — model observers that dispatch the missing domain events
+        // (ProspectingClaim::created → ClaimCreated; updated released_at
+        // NULL→set → ClaimReleased; PropertyMarketingPost::updated
+        // status→published → MarketingPostPublished). Other domains
+        // (Property, Fica) already had the observer/dispatch in place;
+        // these two are the gap-fillers.
+        \App\Models\ProspectingClaim::observe(\App\Observers\ProspectingClaimObserver::class);
+        \App\Models\PropertyMarketingPost::observe(\App\Observers\PropertyMarketingPostObserver::class);
 
         // MIC Phase B2 — narrative cache invalidation on upstream input changes.
         // Each listener is failure-isolated (try/catch + log) so a cache-cleanup

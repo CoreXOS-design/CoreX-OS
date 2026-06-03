@@ -10,13 +10,25 @@ use App\Events\Deal\DealCreated;
 use App\Events\Deal\DealStageAdvanced;
 use App\Events\Deal\DealStatusChanged;
 use App\Events\Compliance\RcrSubmissionSubmitted;
+use App\Events\Fica\FicaApproved;
+use App\Events\Fica\FicaRejected;
+use App\Events\Fica\FicaSubmitted;
+use App\Events\Marketing\MarketingPostPublished;
 use App\Events\PresentationGenerated;
 use App\Events\Presentation\PresentationOutcomeRecorded;
+use App\Events\Property\PropertyCaptured;
+use App\Events\Property\PropertyCompliancePassed;
+use App\Events\Property\PropertyPublished;
+use App\Events\Prospecting\ClaimCreated;
+use App\Events\Prospecting\ClaimReleased;
 use App\Events\Prospecting\TrackedPropertyPromotedToStock;
 use App\Events\SellerOutreach\PitchSent;
 use App\Models\Compliance\Rcr\RcrSubmission;
 use App\Models\Presentation;
 use App\Models\PresentationOutcome;
+use App\Models\Property;
+use App\Models\PropertyMarketingPost;
+use App\Models\ProspectingClaim;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\User;
 use App\Services\Activity\InstantPointService;
@@ -161,6 +173,109 @@ final class CreditInstantActionListener
     {
         $subject = RcrSubmission::find($event->submissionId);
         $this->safeCredit('rcr.submitted', $this->user($event->actorUserIdValue), $subject);
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // SPINE-3 — compliance / FICA
+    //
+    // Johan's V1 rule: action-not-outcome. fica.submitted credits the
+    // agent for sending the package; fica.reviewed credits the
+    // compliance officer for doing the review work, regardless of
+    // whether they approved OR rejected. Same handler subscribes to
+    // BOTH FicaApproved and FicaRejected so the credit fires either
+    // way. No revoke on rejection — the review work was real.
+    // ───────────────────────────────────────────────────────────────────
+
+    public function handleFicaSubmitted(FicaSubmitted $event): void
+    {
+        $this->safeCredit('fica.submitted', $this->user($event->actorUserId), $event->package);
+    }
+
+    public function handleFicaApprovedReview(FicaApproved $event): void
+    {
+        $this->safeCredit('fica.reviewed', $this->user($event->approvedByUserId), $event->package);
+    }
+
+    public function handleFicaRejectedReview(FicaRejected $event): void
+    {
+        // Same slug as approved — the action that scores is "a CO did
+        // the review", regardless of decision. The agent does NOT lose
+        // their fica.submitted points either; only revoke happens on
+        // genuine reversal.
+        $this->safeCredit('fica.reviewed', $this->user($event->actorUserId), $event->package);
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // SPINE-3 — MIC claim (with pitch-now nuance)
+    //
+    // mic.claim_taken credits the claiming agent for EVERY new
+    // ProspectingClaim row, including those created via the pitch-now
+    // upgrade path (ProspectingClaimService::consumeLockAsPermanentClaim).
+    //
+    // mic.claim_taken is REVOKED only when a claim is deliberately
+    // released — the ClaimReleased event fires from
+    // ProspectingClaimObserver::updated solely on a NULL→set transition
+    // of released_at, which is structurally only ever set by
+    // ProspectingClaimService::releaseClaim() (the manual release path).
+    // The pitch-now flow releases the pitch LOCK (a different row in
+    // prospecting_pitch_locks), NOT the claim, so a pitch-now-derived
+    // claim can never trigger this revoke path. Johan's "never auto-
+    // release pitch-now work" rule is therefore enforced structurally,
+    // not by a runtime gate.
+    // ───────────────────────────────────────────────────────────────────
+
+    public function handleClaimCreated(ClaimCreated $event): void
+    {
+        $this->safeCredit('mic.claim_taken', $this->user($event->claim->user_id), $event->claim);
+    }
+
+    public function handleClaimReleased(ClaimReleased $event): void
+    {
+        // Revoke the mic.claim_taken credit tied to THIS claim subject.
+        // InstantPointService::revoke looks up the row by
+        // (slug, subject_type, subject_id) — finds the credit minted at
+        // ClaimCreated time and flips it to revoked. Reason carried for
+        // audit.
+        $reason = 'manual_release' . ($event->reason ? (': ' . $event->reason) : '');
+        $this->safeRevoke('mic.claim_taken', $event->claim, $reason);
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // SPINE-3 — property lifecycle
+    //
+    // All three credit the listing agent ($property->agent_id) at the
+    // moment of the canonical action. Null actor (system-imported
+    // property) → InstantPointService skips silently.
+    // ───────────────────────────────────────────────────────────────────
+
+    public function handlePropertyCaptured(PropertyCaptured $event): void
+    {
+        $this->safeCredit('property.captured', $this->user($event->actorUserId), $event->property);
+    }
+
+    public function handlePropertyPublished(PropertyPublished $event): void
+    {
+        $this->safeCredit('property.published', $this->user($event->actorUserId), $event->property);
+    }
+
+    public function handlePropertyCompliancePassed(PropertyCompliancePassed $event): void
+    {
+        $this->safeCredit('property.compliance_passed', $this->user($event->actorUserId), $event->property);
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // SPINE-3 — marketing
+    //
+    // Credit fires only on the FIRST status→'published' transition (the
+    // observer enforces this). A draft post that's never published, or
+    // one whose publish call fails (status stays 'failed'/'draft'),
+    // never credits.
+    // ───────────────────────────────────────────────────────────────────
+
+    public function handleMarketingPostPublished(MarketingPostPublished $event): void
+    {
+        $actor = $event->post->user_id !== null ? $this->user((int) $event->post->user_id) : null;
+        $this->safeCredit('marketing.published', $actor, $event->post);
     }
 
     // ───────────────────────────────────────────────────────────────────

@@ -158,9 +158,27 @@ final class ActivityInstantActionsSeeder extends Seeder
             'label' => 'FICA approved', 'is_active' => true,
             'subject_type' => null, 'daily_cap' => null, 'sort_order' => 710,
         ],
+        // SPINE-3 — outcome-independent reviewer credit (Johan's V1 rule).
+        // Fires for BOTH FicaApproved and FicaRejected — the review work
+        // scores either way. The agent's fica.submitted credit is
+        // unaffected; rejection does NOT revoke. Replaces the more-
+        // specific fica.approved in practice (fica.approved is kept
+        // active for backward compat — agencies that prefer the
+        // approve-only model can deactivate fica.reviewed via admin).
+        'fica.reviewed' => [
+            'label' => 'FICA reviewed (any outcome)', 'is_active' => true,
+            'subject_type' => null, 'daily_cap' => null, 'sort_order' => 715,
+        ],
         'rcr.submitted' => [
             'label' => 'RCR submission submitted', 'is_active' => true,
             'subject_type' => null, 'daily_cap' => null, 'sort_order' => 720,
+        ],
+
+        // SPINE-3 — Marketing
+        'marketing.published' => [
+            'label' => 'Marketing post published', 'is_active' => true,
+            'subject_type' => \App\Models\PropertyMarketingPost::class,
+            'daily_cap' => null, 'sort_order' => 800,
         ],
     ];
 

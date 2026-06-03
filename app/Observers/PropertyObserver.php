@@ -139,6 +139,19 @@ class PropertyObserver
         } catch (\Throwable $e) {
             Log::warning("Audit log failed on property create #{$property->id}: {$e->getMessage()}");
         }
+
+        // SPINE-3 — domain event for activity-points crediting. Actor is
+        // the listing agent (set by creating() above). If no agent_id
+        // resolves, actor = null and InstantPointService skips the
+        // credit silently (covers system/import-created rows).
+        try {
+            event(new \App\Events\Property\PropertyCaptured(
+                property: $property,
+                actorUserId: $property->agent_id !== null ? (int) $property->agent_id : null,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning("SPINE-3 PropertyCaptured dispatch failed on property #{$property->id}: {$e->getMessage()}");
+        }
     }
 
     /**
@@ -210,9 +223,33 @@ class PropertyObserver
                 }
                 if (isset($changes['compliance_snapshot_at']) && $changes['compliance_snapshot_at'] !== null && ($pre['compliance_snapshot_at'] ?? null) === null) {
                     $auditSvc->logComplianceSnapshot($property, snapshotData: $property->compliance_snapshot_data);
+                    // SPINE-3 — first-time compliance snapshot is a
+                    // genuine agent achievement; credit it. Per-property
+                    // idempotency in InstantPointService prevents
+                    // re-credit on subsequent snapshot refreshes.
+                    try {
+                        event(new \App\Events\Property\PropertyCompliancePassed(
+                            property: $property,
+                            actorUserId: $property->agent_id !== null ? (int) $property->agent_id : null,
+                        ));
+                    } catch (\Throwable $e) {
+                        Log::warning("SPINE-3 PropertyCompliancePassed dispatch failed on property #{$property->id}: {$e->getMessage()}");
+                    }
                 }
                 if (isset($changes['published_at']) && $changes['published_at'] !== null && ($pre['published_at'] ?? null) === null) {
                     $auditSvc->log($property, 'syndication', 'website_published', humanSummary: 'Listing published');
+                    // SPINE-3 — listing went live (first time or
+                    // re-published after takedown). Same per-property
+                    // idempotency rule prevents double-credit on
+                    // same-day publish/unpublish toggling.
+                    try {
+                        event(new \App\Events\Property\PropertyPublished(
+                            property: $property,
+                            actorUserId: $property->agent_id !== null ? (int) $property->agent_id : null,
+                        ));
+                    } catch (\Throwable $e) {
+                        Log::warning("SPINE-3 PropertyPublished dispatch failed on property #{$property->id}: {$e->getMessage()}");
+                    }
                 }
                 if (isset($changes['published_at']) && $changes['published_at'] === null && ($pre['published_at'] ?? null) !== null) {
                     $auditSvc->log($property, 'syndication', 'website_unpublished', humanSummary: 'Listing unpublished');
