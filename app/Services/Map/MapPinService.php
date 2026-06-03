@@ -618,27 +618,52 @@ final class MapPinService
     /**
      * Active listings — the P (Portal Stock) layer.
      *
-     * Q4/D4 taxonomy ruling (post-map-pin-taxonomy investigation):
-     *   The P layer is PROSPECTING-ONLY now. Sources:
-     *     - prospecting_listings WHERE is_active AND tracked_property_id IS NOT NULL
-     *       (Chrome-extension captures from P24 + PP, both portal_source values
-     *        flow through this single query; cross-portal address dedup is
-     *        handled at write time via prospecting_listings.normalized_address,
-     *        cross-bucket (P vs H vs S) dedup happens in LocationGrouper via
-     *        PropertyAddressKey).
+     * MAP-FIX (post-GEO-SCRAPE backfill): portal stock renders from
+     * prospecting_listings' OWN coordinates (pl.latitude / pl.longitude),
+     * not via a join to tracked_properties. The earlier model gated render
+     * on `tracked_property_id IS NOT NULL` and read GPS from tp.lat/lng
+     * because prospecting rows had no GPS path of their own; the
+     * geocoding backfill + GEO-SCRAPE job changed that. Today the vast
+     * majority of geocoded prospecting_listings have NO geocoded TP
+     * partner (live: ~5,912 pl with GPS vs ~79 tp with GPS), so the old
+     * gate silently hid the market.
+     *
+     * Taxonomy (Johan, authoritative):
+     *   - prospecting_listings = PORTAL/PROSPECTING STOCK (the market).
+     *     Its own visible map layer; renders on pl.latitude/pl.longitude.
+     *   - tracked_properties  = stock an agent has CLAIMED (a subset /
+     *     promotion). NOT where portal stock lives or sources its GPS.
+     *   The tracked_property_id stays in the output (claimed-state
+     *   indicator for the chip) but is ENRICHMENT only — never a render
+     *   gate.
      *
      *   What we DELIBERATELY do NOT read:
-     *     - market_report_comp_rows (row_type='listing') — CMA-derived listings
-     *       are information, not prospecting peers. They remain accessible via
-     *       the CMA report show page; they STOP rendering as map pins.
+     *     - market_report_comp_rows (row_type='listing') — CMA-derived
+     *       listings are information, not prospecting peers. They remain
+     *       accessible via the CMA report show page; they STOP rendering
+     *       as map pins.
      *     - presentation_active_listings — same reasoning.
-     *     - p24_listings — every row lacks an address by schema, so none can be
-     *       pin-able. They flow through the "P24 alerts — awaiting address" list
-     *       at `corex.market-intelligence.portal-alerts`.
+     *     - p24_listings — every row lacks an address by schema, so none
+     *       can be pin-able. They flow through the "P24 alerts —
+     *       awaiting address" list at
+     *       `corex.market-intelligence.portal-alerts`.
      *
-     *   prospecting_listings rows with NULL tracked_property_id have no GPS path
-     *   and are silently skipped here — they ALSO surface in the awaiting-
-     *   address list so the agent can find them. Never a broken pin.
+     *   prospecting_listings without their own GPS (no scrape geocode yet)
+     *   are silently skipped here and ALSO surface in the awaiting-
+     *   address list. The GEO-SCRAPE async job (dispatched per scrape
+     *   batch) backfills GPS in the background; pins appear next render.
+     *
+     * Scope: portal stock is AGENCY-scoped (pl.agency_id explicit), NOT
+     * user-scoped — the My/Agency/All axis intentionally does NOT apply
+     * here (the comment block above the original applyScopeFilter calls
+     * spells this out: prospecting rows belong to one agency only). The
+     * "My" toggle therefore cannot hide portal stock.
+     *
+     * Seller-view PII: prospecting_listings has no owner_name /
+     * owner_phone / owner_email / owner_id_number columns. The fields
+     * surfaced — address, suburb, price, portal_url, portal_ref, listing
+     * agent_name/agency_name — are all already publicly displayed on the
+     * portal itself. No PII leak.
      *
      * @return array{0: array, 1: int}
      */
@@ -647,23 +672,20 @@ final class MapPinService
         $combined = [];
 
         $q = DB::table('prospecting_listings as pl')
-            ->join('tracked_properties as tp', 'tp.id', '=', 'pl.tracked_property_id')
             ->whereNull('pl.deleted_at')
-            ->whereNull('tp.deleted_at')
             ->where('pl.is_active', true)
-            ->whereNotNull('pl.tracked_property_id')
-            ->whereNotNull('tp.latitude')
-            ->whereNotNull('tp.longitude')
             ->whereIn('pl.portal_source', ['p24', 'pp'])
-            ->whereBetween('tp.latitude',  [$req->south, $req->north])
-            ->whereBetween('tp.longitude', [$req->west,  $req->east])
+            ->whereNotNull('pl.latitude')
+            ->whereNotNull('pl.longitude')
+            ->whereBetween('pl.latitude',  [$req->south, $req->north])
+            ->whereBetween('pl.longitude', [$req->west,  $req->east])
             ->select([
                 'pl.id', 'pl.portal_source', 'pl.portal_url', 'pl.portal_ref',
                 'pl.address', 'pl.suburb', 'pl.normalized_address',
                 'pl.price', 'pl.bedrooms', 'pl.bathrooms', 'pl.property_type',
                 'pl.first_seen_at',
-                'tp.latitude as latitude', 'tp.longitude as longitude',
-                'tp.id as tracked_property_id',
+                'pl.latitude as latitude', 'pl.longitude as longitude',
+                'pl.tracked_property_id as tracked_property_id',
             ]);
         // pl.agency_id is required (NOT NULL on the table); explicit agency
         // scoping replaces the my/agency/all axis since prospecting rows
@@ -700,7 +722,7 @@ final class MapPinService
                 'detail_url'           => null,                    // future: a portal-listing detail card
                 'preferred_public_url' => $r->portal_url,
                 'sensitive'            => false,
-                'tracked_property_id'  => (int) $r->tracked_property_id,
+                'tracked_property_id'  => $r->tracked_property_id !== null ? (int) $r->tracked_property_id : null,
             ];
         }
 
