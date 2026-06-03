@@ -66,12 +66,15 @@ class AgentScorecardCalculator
 
         // Activity points (from existing system)
         $period       = now()->format('Y-m');
+        // M6.5 — achievement-total filter.
         $activityPoints = (int) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.user_id', $user->id)
             ->where('e.period', $period)
             ->where('d.is_enabled', 1)
             ->where('d.scope', 'system')
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(DB::raw('e.value * d.weight'));
 
         // Average response time (hours from task created to started)

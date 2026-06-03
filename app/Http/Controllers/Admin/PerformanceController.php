@@ -67,11 +67,14 @@ class PerformanceController extends Controller
         }
 
         // Today points (company): sum(e.value * d.weight) for enabled definitions (global + any branch definitions).
+        // M6.5 — achievement-total filter.
         $todayPoints = (float) \DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.period', $period)
             ->where('e.activity_date', $today->toDateString())
             ->where('d.is_enabled', 1)
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(\DB::raw('e.value * d.weight'));
 
         $rollup['points'] = [

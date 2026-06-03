@@ -40,6 +40,42 @@ final class DailyActivityEntry extends Model
     public const SOURCE_AUTO_INSTANT  = 'auto_instant';   // SPINE-1
     public const SOURCE_AUTO_OTHER    = 'auto_other';
 
+    /**
+     * M6.5 — the locked set of point_state values that contribute to an
+     * agent's achievement total / target progress / any BM-snapshot
+     * judgement. Confirmed + overridden are real points; provisional
+     * is pending evidence + revoked is reversed work — neither counts.
+     *
+     * The MUST-USE-EVERYWHERE rule (Johan's standing integrity guard
+     * for the points engine): every controller, service, calculator,
+     * scorecard or dashboard query that turns rows into a total MUST
+     * apply this set as a whereIn('point_state', ...) clause AND
+     * apply ACHIEVEMENT_TOTAL_SOURCES below. Missing either filter on
+     * any site is a gaming hole.
+     *
+     * Raw DB::table() callers cannot reach scopeIncludedInAchievementTotal()
+     * (it's an Eloquent scope), so these constants exist as the inline
+     * whereIn() values to keep every callsite aligned. PR reviewers
+     * grep for both constants to verify M6.5 compliance.
+     */
+    public const ACHIEVEMENT_TOTAL_STATES = [
+        self::STATE_CONFIRMED,
+        self::STATE_OVERRIDDEN,
+    ];
+
+    /**
+     * M6.5 — the locked set of source values that contribute to an
+     * agent's achievement total. Manual + the two auto pipelines
+     * (calendar M6.3, instant SPINE-1+). 'auto_other' is reserved for
+     * future imports that haven't been validated as score-eligible
+     * yet — it is DELIBERATELY excluded from the total.
+     */
+    public const ACHIEVEMENT_TOTAL_SOURCES = [
+        self::SOURCE_MANUAL,
+        self::SOURCE_AUTO_CALENDAR,
+        self::SOURCE_AUTO_INSTANT,
+    ];
+
     protected $table = 'daily_activity_entries';
 
     protected $fillable = [
@@ -140,10 +176,32 @@ final class DailyActivityEntry extends Model
      * Rows that count toward an agent's running total. Confirmed and
      * overridden are real points; provisional + revoked are NOT.
      * Used by daily/period summary aggregations.
+     *
+     * M6.5 PRE-EXISTING SHAPE: state filter only — kept as-is so the
+     * existing ActivityDefinitionScopeTest assertion continues to hold
+     * exactly as written.
      */
     public function scopeCountedTowardTotal(Builder $q): Builder
     {
         return $q->whereIn('point_state', [self::STATE_CONFIRMED, self::STATE_OVERRIDDEN]);
+    }
+
+    /**
+     * M6.5 — the FULL achievement-total filter (state + source). Every
+     * total-computation site that uses Eloquent should chain this scope;
+     * raw DB::table() sites should apply the two ACHIEVEMENT_TOTAL_*
+     * constants inline. Same locked set in both forms.
+     *
+     * Provisional points are visible on dashboards / daily screens but
+     * NOT included here — they need feedback to convert. Revoked
+     * points stay in the table for audit but never count. auto_other
+     * is reserved + excluded.
+     */
+    public function scopeIncludedInAchievementTotal(Builder $q): Builder
+    {
+        return $q
+            ->whereIn('point_state', self::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('source', self::ACHIEVEMENT_TOTAL_SOURCES);
     }
 
     // ── Convenience predicates ──

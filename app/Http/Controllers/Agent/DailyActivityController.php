@@ -100,29 +100,113 @@ class DailyActivityController extends Controller
 
         $defIds = collect($definitions)->pluck('id')->map(fn($v) => (int)$v)->all();
 
+        // M6.5 — achievement total: confirmed/overridden + manual/auto_calendar/
+        // auto_instant only. Provisional + revoked + auto_other excluded
+        // (anti-gaming: a provisional viewing cannot inflate the target).
+        //
+        // The defIds filter (enabled definitions visible to this branch) is
+        // deliberately DROPPED here: spine auto-credits write to "[Auto] *"
+        // definitions seeded with is_enabled=false to hide them from the
+        // manual-capture picker. Restricting to defIds would exclude every
+        // auto credit from the achievement total. The state + source filter
+        // already guarantees the row is a valid scoreable credit.
         $mtdPoints = (int) \DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.user_id', $user->id)
             ->where('e.period', $period)
-            ->whereIn('e.activity_definition_id', $defIds)
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(\DB::raw('e.value * d.weight'));
 
         $remainingPoints = max($monthlyTarget - $mtdPoints, 0);
 
-        $entries = \DB::table('daily_activity_entries')
+        // Today's MANUAL entries (legacy bookkeeping — same shape as before,
+        // but explicitly scoped to source='manual' so auto rows for the
+        // same activity_definition + day don't shadow the manual cell).
+        $manualEntries = \DB::table('daily_activity_entries')
             ->where('user_id', $user->id)
             ->where('activity_date', $date)
+            ->where('source', \App\Models\DailyActivityEntry::SOURCE_MANUAL)
             ->get()
             ->keyBy('activity_definition_id');
 
         $values = [];
-        $totalPoints = 0;
+        $totalPoints = 0;  // manual points for THIS day (display only — MTD is separate)
 
         foreach ($definitions as $def) {
-            $val = (int)($entries[$def->id]->value ?? 0);
+            $val = (int)($manualEntries[$def->id]->value ?? 0);
             $values[$def->id] = $val;
             $totalPoints += $val * (int)$def->weight;
         }
+
+        // M6.5 — Today's AUTO entries (calendar + instant). Each row is
+        // surfaced individually with its human-readable label, a points
+        // figure, and its point_state so the view can group into
+        // Acquired (counts) vs Provisional (does not count).
+        $autoEntries = \DB::table('daily_activity_entries as e')
+            ->leftJoin('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
+            ->leftJoin('activity_definition_calendar_classes as m', function ($j) use ($user) {
+                $j->on('m.activity_definition_id', '=', 'e.activity_definition_id')
+                  ->where('m.agency_id', $user->agency_id);
+            })
+            ->leftJoin('calendar_events as ce', 'ce.id', '=', 'e.calendar_event_id')
+            ->where('e.user_id', $user->id)
+            ->where('e.activity_date', $date)
+            ->whereIn('e.source', [
+                \App\Models\DailyActivityEntry::SOURCE_AUTO_CALENDAR,
+                \App\Models\DailyActivityEntry::SOURCE_AUTO_INSTANT,
+                \App\Models\DailyActivityEntry::SOURCE_AUTO_OTHER,
+            ])
+            ->select(
+                'e.id',
+                'e.value',
+                'e.point_state',
+                'e.source',
+                'e.calendar_event_id',
+                'e.subject_type',
+                'e.subject_id',
+                'd.name as def_name',
+                'd.weight',
+                'm.slug as instant_slug',
+                'ce.category as calendar_event_class',
+                'ce.title as calendar_title'
+            )
+            ->orderBy('e.point_state')   // confirmed first, provisional next, revoked last
+            ->orderBy('e.id')
+            ->get();
+
+        // Decorate each row with its human-readable label + computed
+        // points (value * weight). The view consumes this flat list.
+        $todayAutoAcquired = [];
+        $todayAutoProvisional = [];
+        $todayAcquiredPoints = 0;
+        $todayProvisionalPoints = 0;
+        foreach ($autoEntries as $e) {
+            $label = $e->source === \App\Models\DailyActivityEntry::SOURCE_AUTO_CALENDAR
+                ? \App\Support\Activity\ActivityLabelResolver::forEventClass($e->calendar_event_class)
+                : \App\Support\Activity\ActivityLabelResolver::forSlug($e->instant_slug);
+            $points = (int) $e->value * (int) ($e->weight ?? 0);
+            $row = [
+                'id'         => (int) $e->id,
+                'label'      => $label,
+                'source'     => $e->source,
+                'state'      => $e->point_state,
+                'points'     => $points,
+                'context'    => $e->calendar_title ?: null,
+            ];
+            // M6.5 — revoked rows are hidden by default on the daily
+            // screen (audit lives on summary); confirmed/overridden go
+            // into Acquired (count), provisional into Provisional (don't).
+            if (in_array($e->point_state, \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES, true)) {
+                $todayAutoAcquired[] = $row;
+                $todayAcquiredPoints += $points;
+            } elseif ($e->point_state === \App\Models\DailyActivityEntry::STATE_PROVISIONAL) {
+                $todayAutoProvisional[] = $row;
+                $todayProvisionalPoints += $points;
+            }
+        }
+
+        $todayAchievementTotal = $totalPoints + $todayAcquiredPoints;
 
         return view('agent.daily-v2', [
             'definitions'  => $definitions,
@@ -133,6 +217,12 @@ class DailyActivityController extends Controller
             'monthlyTarget'=> $monthlyTarget,
             'mtdPoints'    => $mtdPoints,
             'remainingPoints' => $remainingPoints,
+            // M6.5 — auto display + integrity totals
+            'todayAutoAcquired'      => $todayAutoAcquired,
+            'todayAutoProvisional'   => $todayAutoProvisional,
+            'todayAcquiredPoints'    => $todayAcquiredPoints,
+            'todayProvisionalPoints' => $todayProvisionalPoints,
+            'todayAchievementTotal'  => $todayAchievementTotal,
         ]);
 
     }
@@ -174,11 +264,22 @@ class DailyActivityController extends Controller
 
         $defIds = collect($definitions)->pluck('id')->map(fn($v) => (int)$v)->all();
 
+        // M6.5 — achievement total: confirmed/overridden + manual/auto_calendar/
+        // auto_instant only. Provisional + revoked + auto_other excluded
+        // (anti-gaming: a provisional viewing cannot inflate the target).
+        //
+        // The defIds filter (enabled definitions visible to this branch) is
+        // deliberately DROPPED here: spine auto-credits write to "[Auto] *"
+        // definitions seeded with is_enabled=false to hide them from the
+        // manual-capture picker. Restricting to defIds would exclude every
+        // auto credit from the achievement total. The state + source filter
+        // already guarantees the row is a valid scoreable credit.
         $mtdPoints = (int) \DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.user_id', $user->id)
             ->where('e.period', $period)
-            ->whereIn('e.activity_definition_id', $defIds)
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(\DB::raw('e.value * d.weight'));
 
         $remainingPoints = max($monthlyTarget - $mtdPoints, 0);

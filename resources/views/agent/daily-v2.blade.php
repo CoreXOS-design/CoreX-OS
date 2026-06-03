@@ -86,6 +86,81 @@
         </button>
     </div>
 
+    {{-- M6.5 — Today's achievement headline + auto sections.
+         Provisional points display as a SEPARATE figure that does NOT roll
+         into the headline. Anti-gaming: a ghost calendar appointment booked
+         to hit a target shows as Pending, never inflates the total. --}}
+    @php
+        $autoAcquired      = collect($todayAutoAcquired ?? []);
+        $autoProvisional   = collect($todayAutoProvisional ?? []);
+        $todayManualPoints = (int)($totalPoints ?? 0);
+        $todayAcq          = (int)($todayAcquiredPoints ?? 0);
+        $todayProv         = (int)($todayProvisionalPoints ?? 0);
+        $todayHeadline     = (int)($todayAchievementTotal ?? ($todayManualPoints + $todayAcq));
+    @endphp
+
+    <div class="rounded-md mt-4 flex-shrink-0" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="px-4 py-3 flex flex-wrap items-baseline gap-x-6 gap-y-2"
+             style="border-bottom:1px solid var(--border); background:var(--surface-2);">
+            <div>
+                <div class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Today's achievement</div>
+                <div class="text-lg font-bold" style="color:var(--brand-icon, #0ea5e9);">{{ number_format($todayHeadline) }} pts</div>
+                <div class="text-[11px]" style="color:var(--text-muted);">manual {{ number_format($todayManualPoints) }} &middot; auto acquired {{ number_format($todayAcq) }}</div>
+            </div>
+            @if($todayProv > 0)
+                <div>
+                    <div class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Pending (not counted)</div>
+                    <div class="text-lg font-bold" style="color: var(--ds-amber, #d97706);">{{ number_format($todayProv) }} pts</div>
+                    <div class="text-[11px]" style="color:var(--text-muted);">waiting on feedback</div>
+                </div>
+            @endif
+        </div>
+
+        @if($autoAcquired->isNotEmpty() || $autoProvisional->isNotEmpty())
+            <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x" style="border-color:var(--border);">
+                {{-- Auto — Acquired --}}
+                <div class="px-4 py-3">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">
+                        Auto · Acquired ({{ $autoAcquired->count() }})
+                    </div>
+                    @forelse($autoAcquired as $r)
+                        <div class="flex items-center justify-between py-1 text-sm">
+                            <div class="min-w-0">
+                                <div class="font-medium truncate" style="color:var(--text-primary);">{{ $r['label'] }}</div>
+                                @if(!empty($r['context']))
+                                    <div class="text-[11px] truncate" style="color:var(--text-muted);">{{ $r['context'] }}</div>
+                                @endif
+                            </div>
+                            <div class="font-semibold ml-3" style="color:var(--brand-icon, #0ea5e9);">{{ number_format($r['points']) }}</div>
+                        </div>
+                    @empty
+                        <div class="text-xs py-2" style="color:var(--text-muted);">No auto points credited today yet.</div>
+                    @endforelse
+                </div>
+
+                {{-- Auto — Provisional --}}
+                <div class="px-4 py-3" style="background: color-mix(in srgb, var(--ds-amber) 4%, transparent);">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">
+                        Auto · Pending ({{ $autoProvisional->count() }}) — not counted
+                    </div>
+                    @forelse($autoProvisional as $r)
+                        <div class="flex items-center justify-between py-1 text-sm opacity-80">
+                            <div class="min-w-0">
+                                <div class="font-medium truncate" style="color:var(--text-primary);">{{ $r['label'] }}</div>
+                                <div class="text-[11px] truncate" style="color:var(--text-muted);">
+                                    @if(!empty($r['context'])){{ $r['context'] }} &middot; @endif waiting on feedback
+                                </div>
+                            </div>
+                            <div class="font-semibold ml-3" style="color: var(--ds-amber, #d97706);">{{ number_format($r['points']) }}</div>
+                        </div>
+                    @empty
+                        <div class="text-xs py-2" style="color:var(--text-muted);">Nothing pending.</div>
+                    @endforelse
+                </div>
+            </div>
+        @endif
+    </div>
+
     {{-- Capture activity form — fills remaining space --}}
     <div class="rounded-md overflow-hidden mt-4 flex-1 flex flex-col min-h-0" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="POST" action="{{ route('agent.daily') }}" class="flex flex-col flex-1 min-h-0">
@@ -146,7 +221,7 @@
             {{-- Footer: total + save — always visible --}}
             <div class="px-4 py-3 flex items-center justify-between flex-shrink-0" style="border-top: 1px solid var(--border);">
                 <div>
-                    <span class="text-sm font-medium" style="color: var(--text-primary);">Today:</span>
+                    <span class="text-sm font-medium" style="color: var(--text-primary);">Today (manual):</span>
                     <span class="text-sm font-bold ml-1" style="color: var(--brand-icon, #0ea5e9);">{{ number_format((int)$totalPoints) }} pts</span>
                 </div>
                 <button type="submit" class="corex-btn-primary">Save</button>

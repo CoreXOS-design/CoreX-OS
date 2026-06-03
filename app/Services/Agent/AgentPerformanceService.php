@@ -168,6 +168,7 @@ class AgentPerformanceService
 
         // --- Points (weighted activity scoring) (V2) ---
         // Sum(value * weight) for enabled definitions visible to this user's branch.
+        // M6.5 — achievement-total filter.
         $pointsActual = (float) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.user_id', $user->id)
@@ -182,6 +183,8 @@ class AgentPerformanceService
                     });
                 }
             })
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(DB::raw('e.value * d.weight'));
 
         // Points target comes from targets.points_target (V2)
@@ -193,6 +196,7 @@ class AgentPerformanceService
         $pointsPct = $pointsTarget > 0 ? round(($pointsActual / $pointsTarget) * 100, 1) : null;
 
         // --- Points by date (V2) for Momentum strip ---
+        // M6.5 — achievement-total filter.
         $pointsByDate = DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.user_id', $user->id)
@@ -207,6 +211,8 @@ class AgentPerformanceService
                     });
                 }
             })
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->groupBy('e.activity_date')
             ->selectRaw("e.activity_date as d, SUM(e.value * d.weight) as pts")
             ->pluck('pts', 'd')

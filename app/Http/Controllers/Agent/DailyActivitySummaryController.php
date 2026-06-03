@@ -66,12 +66,15 @@ class DailyActivitySummaryController extends Controller
 
         $defIds = $defs->pluck('id')->map(fn($v)=>(int)$v)->all();
 
-        // Aggregate counts per activity for this user + range
+        // M6.5 — achievement total: confirmed/overridden + manual/auto_calendar/
+        // auto_instant only. Provisional + revoked + auto_other excluded.
         $rows = DB::table('daily_activity_entries as e')
             ->selectRaw('e.activity_definition_id as def_id, SUM(e.value) as total_count')
             ->where('e.user_id', $u->id)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.activity_definition_id', $defIds)
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->groupBy('e.activity_definition_id')
             ->get()
             ->keyBy('def_id');

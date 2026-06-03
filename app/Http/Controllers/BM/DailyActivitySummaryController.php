@@ -66,11 +66,14 @@ class DailyActivitySummaryController extends Controller
 
         $defIds = $defs->pluck('id')->map(fn($v)=>(int)$v)->all();
 
+        // M6.5 — achievement-total filter (confirmed/overridden + manual/auto_*).
         $agg = DB::table('daily_activity_entries as e')
             ->selectRaw('e.activity_definition_id as def_id, SUM(e.value) as total_count')
             ->where('e.branch_id', $branchId)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.activity_definition_id', $defIds)
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->groupBy('e.activity_definition_id')
             ->get()
             ->keyBy('def_id');
@@ -131,12 +134,15 @@ class DailyActivitySummaryController extends Controller
         abort_unless($def, 404);
 
         // Agent totals for this activity in this branch + range
+        // M6.5 — achievement-total filter.
         $rows = DB::table('daily_activity_entries as e')
             ->join('users as u', 'u.id', '=', 'e.user_id')
             ->selectRaw('e.user_id, u.name, SUM(e.value) as total_count')
             ->where('e.branch_id', $branchId)
             ->where('e.activity_definition_id', (int)$def->id)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->groupBy('e.user_id', 'u.name')
             ->orderByRaw('SUM(e.value) DESC')
             ->get();

@@ -110,11 +110,14 @@ return [
                   AND dae.activity_date = daily_activities.activity_date
                   AND ad.is_enabled = 1
             )";
+        // M6.5 — achievement-total filter.
         $daily = DB::table('daily_activity_entries as dae')
             ->join('activity_definitions as ad', 'ad.id', '=', 'dae.activity_definition_id')
             ->whereIn('dae.user_id', $agentIds)
             ->where('dae.period', $period)
             ->where('ad.is_enabled', 1)
+            ->whereIn('dae.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('dae.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->groupBy('dae.user_id')
             ->selectRaw("dae.user_id as user_id, COUNT(*) as rows_count, COALESCE(SUM(dae.value * ad.weight),0) as points_sum")
             ->get()
@@ -584,6 +587,7 @@ foreach ($rows as &$r) {
         /* BM_V2_POINTS_PATCH */
         // BM points must match Agent dashboard (V2): sum(value * weight) from daily_activity_entries joined to activity_definitions,
         // filtered by: period, user branch membership, enabled definitions, and scope visibility (global + branch-specific for this branch).
+        // M6.5 — achievement-total filter.
         $pointsActual = (float) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->join('users as u', 'u.id', '=', 'e.user_id')
@@ -597,6 +601,8 @@ foreach ($rows as &$r) {
                       $q2->where('d.scope', 'branch')->where('d.branch_id', (int)$branchId);
                   });
             })
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(DB::raw('e.value * d.weight'));
 
         $pointsTarget = (float) DB::table('targets')
@@ -624,6 +630,7 @@ foreach ($rows as &$r) {
             else $pointsStatus = 'Behind';
         }
 
+        // M6.5 — achievement-total filter.
         $todayPoints = (float) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->join('users as u', 'u.id', '=', 'e.user_id')
@@ -638,6 +645,8 @@ foreach ($rows as &$r) {
                       $q2->where('d.scope', 'branch')->where('d.branch_id', (int)$branchId);
                   });
             })
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(DB::raw('e.value * d.weight'));
         /* BM_V2_POINTS_PATCH_END */
 
@@ -757,6 +766,7 @@ foreach ($rows as &$r) {
 
         $m = [];
         if (!empty($agentIds)) {
+            // M6.5 — achievement-total filter.
             $m = DB::table('daily_activity_entries as e')
                   ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
                   ->whereIn('e.user_id', $agentIds)
@@ -768,6 +778,8 @@ foreach ($rows as &$r) {
                             $q2->where('d.scope', 'branch')->where('d.branch_id', (int)$branchId);
                         });
                   })
+                  ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+                  ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
                   ->groupBy(DB::raw('date(e.activity_date)'))
                   ->orderBy(DB::raw('date(e.activity_date)'))
                   ->selectRaw('date(e.activity_date) as d, COALESCE(SUM(e.value * d.weight),0) as pts')
@@ -847,7 +859,7 @@ foreach ($rows as &$r) {
             else $pointsStatus = 'Behind';
         }
 
-        // Today points (company-wide, V2 truth)
+        // Today points (company-wide, V2 truth) — M6.5 achievement-total filter.
         $todayPoints = (float) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->join('users as u', 'u.id', '=', 'e.user_id')
@@ -856,6 +868,8 @@ foreach ($rows as &$r) {
             ->where('u.is_active', 1)
             ->whereIn('u.role', ['agent','branch_manager','admin'])
             ->where('d.is_enabled', 1)
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(DB::raw('e.value * d.weight'));
 
         $rollup['points'] = [

@@ -62,11 +62,14 @@ class DashboardController extends Controller
             ->where('scope', 'system')
             ->pluck('id');
 
+        // M6.5 — achievement-total filter.
         $mtdPoints = (int) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.user_id', $user->id)
             ->where('e.period', $period)
             ->whereIn('e.activity_definition_id', $defIds)
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(DB::raw('e.value * d.weight'));
 
         $monthlyTarget = (int) (DB::table('targets')
@@ -192,11 +195,14 @@ class DashboardController extends Controller
             ->where('scope', 'system')
             ->pluck('id');
 
+        // M6.5 — achievement-total filter.
         $mtdPoints = (int) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.user_id', $user->id)
             ->where('e.period', $period)
             ->whereIn('e.activity_definition_id', $defIds)
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->sum(DB::raw('e.value * d.weight'));
 
         $monthlyTarget = (int) (DB::table('targets')
