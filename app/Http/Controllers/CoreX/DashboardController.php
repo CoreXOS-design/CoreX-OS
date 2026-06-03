@@ -18,7 +18,7 @@ class DashboardController extends Controller
         // MTD points: sum(value * weight) for enabled global definitions
         $defIds = DB::table('activity_definitions')
             ->where('is_enabled', 1)
-            ->where('scope', 'global')
+            ->where('scope', 'system')
             ->pluck('id');
 
         $mtdPoints = (int) DB::table('daily_activity_entries as e')

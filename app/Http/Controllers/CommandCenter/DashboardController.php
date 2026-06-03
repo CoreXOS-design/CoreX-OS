@@ -59,7 +59,7 @@ class DashboardController extends Controller
         // ── Activity Points (for footer strip) ──
         $defIds = DB::table('activity_definitions')
             ->where('is_enabled', 1)
-            ->where('scope', 'global')
+            ->where('scope', 'system')
             ->pluck('id');
 
         $mtdPoints = (int) DB::table('daily_activity_entries as e')
@@ -189,7 +189,7 @@ class DashboardController extends Controller
         // Activity points + target
         $defIds = DB::table('activity_definitions')
             ->where('is_enabled', 1)
-            ->where('scope', 'global')
+            ->where('scope', 'system')
             ->pluck('id');
 
         $mtdPoints = (int) DB::table('daily_activity_entries as e')

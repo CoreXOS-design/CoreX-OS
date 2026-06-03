@@ -50,7 +50,7 @@ class CommandCenterApiController extends Controller
 
         // Activity points
         $defIds = DB::table('activity_definitions')
-            ->where('is_enabled', 1)->where('scope', 'global')->pluck('id');
+            ->where('is_enabled', 1)->where('scope', 'system')->pluck('id');
 
         $mtdPoints = (int) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')

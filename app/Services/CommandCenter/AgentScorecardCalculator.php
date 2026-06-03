@@ -71,7 +71,7 @@ class AgentScorecardCalculator
             ->where('e.user_id', $user->id)
             ->where('e.period', $period)
             ->where('d.is_enabled', 1)
-            ->where('d.scope', 'global')
+            ->where('d.scope', 'system')
             ->sum(DB::raw('e.value * d.weight'));
 
         // Average response time (hours from task created to started)

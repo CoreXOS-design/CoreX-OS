@@ -174,7 +174,7 @@ class AgentPerformanceService
             ->where('e.period', $period)
             ->where('d.is_enabled', 1)
             ->where(function($q) use ($user) {
-                $q->where('d.scope', 'global');
+                $q->where('d.scope', 'system');
                 if ($user->branch_id) {
                     $q->orWhere(function($q2) use ($user) {
                         $q2->where('d.scope', 'branch')
@@ -199,7 +199,7 @@ class AgentPerformanceService
             ->where('e.period', $period)
             ->where('d.is_enabled', 1)
             ->where(function ($q) use ($user) {
-                $q->where('d.scope', 'global');
+                $q->where('d.scope', 'system');
                 if ($user->branch_id) {
                     $q->orWhere(function ($q2) use ($user) {
                         $q2->where('d.scope', 'branch')

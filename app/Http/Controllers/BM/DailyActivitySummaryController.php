@@ -56,7 +56,7 @@ class DailyActivitySummaryController extends Controller
         $defs = DB::table('activity_definitions')
             ->where('is_enabled', 1)
             ->where(function ($q) use ($branchId) {
-                $q->where('scope', 'global')
+                $q->where('scope', 'system')
                   ->orWhere(function ($qq) use ($branchId) {
                       $qq->where('scope', 'branch')->where('branch_id', $branchId);
                   });
@@ -121,7 +121,7 @@ class DailyActivitySummaryController extends Controller
             ->where('id', $definition)
             ->where('is_enabled', 1)
             ->where(function ($q) use ($branchId) {
-                $q->where('scope', 'global')
+                $q->where('scope', 'system')
                   ->orWhere(function ($qq) use ($branchId) {
                       $qq->where('scope', 'branch')->where('branch_id', $branchId);
                   });
@@ -184,7 +184,7 @@ class DailyActivitySummaryController extends Controller
             ->where('id', $definition)
             ->where('is_enabled', 1)
             ->where(function ($q) use ($branchId) {
-                $q->where('scope', 'global')
+                $q->where('scope', 'system')
                   ->orWhere(function ($qq) use ($branchId) {
                       $qq->where('scope', 'branch')->where('branch_id', $branchId);
                   });

@@ -592,7 +592,7 @@ foreach ($rows as &$r) {
               ->where('u.counts_for_branch_split', 1)
             ->where('d.is_enabled', 1)
             ->where(function ($q) use ($branchId) {
-                $q->where('d.scope', 'global')
+                $q->where('d.scope', 'system')
                   ->orWhere(function ($q2) use ($branchId) {
                       $q2->where('d.scope', 'branch')->where('d.branch_id', (int)$branchId);
                   });
@@ -633,7 +633,7 @@ foreach ($rows as &$r) {
             ->where('e.activity_date', $today->toDateString())
             ->where('d.is_enabled', 1)
             ->where(function ($q) use ($branchId) {
-                $q->where('d.scope', 'global')
+                $q->where('d.scope', 'system')
                   ->orWhere(function ($q2) use ($branchId) {
                       $q2->where('d.scope', 'branch')->where('d.branch_id', (int)$branchId);
                   });
@@ -763,7 +763,7 @@ foreach ($rows as &$r) {
                   ->whereBetween('e.activity_date', [$from, $to])
                   ->where('d.is_enabled', 1)
                   ->where(function ($q) use ($branchId) {
-                      $q->where('d.scope', 'global')
+                      $q->where('d.scope', 'system')
                         ->orWhere(function ($q2) use ($branchId) {
                             $q2->where('d.scope', 'branch')->where('d.branch_id', (int)$branchId);
                         });

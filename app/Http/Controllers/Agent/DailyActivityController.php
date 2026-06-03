@@ -92,7 +92,7 @@ class DailyActivityController extends Controller
 
         $definitions = \DB::table('activity_definitions')
             ->where('is_enabled', 1)
-            ->where('scope', 'global')
+            ->where('scope', 'system')
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
@@ -167,7 +167,7 @@ class DailyActivityController extends Controller
         // Definitions (EXACT same query as index)
         $definitions = \DB::table('activity_definitions')
             ->where('is_enabled', 1)
-            ->where('scope', 'global')
+            ->where('scope', 'system')
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
@@ -246,7 +246,7 @@ class DailyActivityController extends Controller
         $definitions = \DB::table('activity_definitions')
             ->where('is_enabled', 1)
             ->where(function ($q) use ($branchId) {
-                $q->where('scope', 'global');
+                $q->where('scope', 'system');
                 if ($branchId) {
                     $q->orWhere(function ($qq) use ($branchId) {
                         $qq->where('scope', 'branch')

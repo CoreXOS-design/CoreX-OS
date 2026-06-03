@@ -721,12 +721,12 @@ class TargetController extends Controller
         $definitions = DB::table('activity_definitions')
             ->when($branchId !== null, function ($q) use ($branchId) {
                 $q->where(function ($qq) use ($branchId) {
-                    $qq->where('scope', 'global')
+                    $qq->where('scope', 'system')
                        ->orWhere('scope', (string)$branchId);
                 });
             }, function ($q) {
                 // Admin (default): global only for now
-                $q->where('scope', 'global');
+                $q->where('scope', 'system');
             })
             ->orderBy('sort_order')
             ->orderBy('name')
@@ -791,7 +791,8 @@ class TargetController extends Controller
                 ->update($payload);
         } else {
             DB::table('activity_definitions')->insert(array_merge($payload, [
-                'scope' => 'global',
+                'scope' => 'system',
+                'agency_id' => null,
                 'branch_id' => null,
                 'created_at' => now(),
             ]));
