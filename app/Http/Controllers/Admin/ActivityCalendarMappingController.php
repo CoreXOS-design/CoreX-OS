@@ -30,12 +30,22 @@ final class ActivityCalendarMappingController extends Controller
             ->get()
             ->groupBy('event_class');
 
-        // Pickers: every event_class slug this agency has configured, plus
+        // Pickers: every event_class slug available to this agency
+        // (agency-specific overrides + NULL-agency system defaults), plus
         // every activity_definition this agency may use.
+        //
+        // Coalesce pattern: same as CalendarEventFeedbackObserver.php:26-30.
+        // MySQL evaluates `agency_id IS NULL` as 0 for agency rows, 1 for
+        // system rows, so ASC puts the agency-specific row FIRST. We then
+        // dedupe by event_class in PHP, keeping the first occurrence — i.e.
+        // the agency override wins, falling back to the system default.
         $eventClasses = DB::table('calendar_event_class_settings')
-            ->where('agency_id', $agencyId)
+            ->where(fn ($q) => $q->where('agency_id', $agencyId)->orWhereNull('agency_id'))
             ->orderBy('event_class')
-            ->get(['event_class', 'label', 'is_active', 'event_nature']);
+            ->orderByRaw('agency_id IS NULL')
+            ->get(['event_class', 'label', 'is_active', 'event_nature', 'agency_id'])
+            ->unique('event_class')
+            ->values();
 
         $activityDefinitions = ActivityDefinition::query()
             ->availableTo($agencyId)
