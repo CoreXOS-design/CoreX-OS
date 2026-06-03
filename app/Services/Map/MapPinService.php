@@ -240,6 +240,20 @@ final class MapPinService
             // children so cluster bubbles read the TRUE total, not the
             // capped sample count.
             'aggregate_count'      => $pin['aggregate_count']      ?? null,
+            // MAP-CARD-FIX — fields the portal-listing inline card needs.
+            // Only populated for active_listings per-pin payloads; null for
+            // other layers. The card renders directly from these without a
+            // follow-up fetch (mirrors the tracked_properties pattern).
+            'portal_source'        => $pin['portal_source']        ?? null,
+            'portal_url'           => $pin['portal_url']           ?? null,
+            'bedrooms'             => $pin['bedrooms']             ?? null,
+            'bathrooms'            => $pin['bathrooms']            ?? null,
+            'garages'              => $pin['garages']              ?? null,
+            'property_type'        => $pin['property_type']        ?? null,
+            'property_size_m2'     => $pin['property_size_m2']     ?? null,
+            'erf_size_m2'          => $pin['erf_size_m2']          ?? null,
+            'thumbnail_url'        => $pin['thumbnail_url']        ?? null,
+            'first_seen_at'        => $pin['first_seen_at']        ?? null,
         ];
     }
 
@@ -794,10 +808,17 @@ final class MapPinService
 
         // ── Suburb / district zoom: per-pin path (unchanged from MAP-CAP) ──
         $combined = [];
+        // MAP-CARD-FIX — pull every column the detail card needs so the
+        // frontend can render inline without a follow-up fetch.
+        // thumbnail_path becomes a server-resolved URL via
+        // route('market-intelligence.thumbnail', $listing) at pin-build
+        // time below — the frontend just does <img src="...">.
         $q = $q->select([
             'pl.id', 'pl.portal_source', 'pl.portal_url', 'pl.portal_ref',
             'pl.address', 'pl.suburb', 'pl.normalized_address',
-            'pl.price', 'pl.bedrooms', 'pl.bathrooms', 'pl.property_type',
+            'pl.price', 'pl.bedrooms', 'pl.bathrooms', 'pl.garages',
+            'pl.property_type', 'pl.property_size_m2', 'pl.erf_size_m2',
+            'pl.thumbnail_path',
             'pl.first_seen_at',
             'pl.latitude as latitude', 'pl.longitude as longitude',
             'pl.tracked_property_id as tracked_property_id',
@@ -821,6 +842,15 @@ final class MapPinService
 
             $price = OutlierGuard::price($r->price);
             $title = $r->address ?: 'Listing #' . $r->id;
+            // MAP-CARD-FIX — pre-resolve the thumbnail URL server-side.
+            // route() needs the model; we have the bare id, so build a
+            // shallow stub. Only emit a URL when thumbnail_path is set
+            // (the download job is async; new captures may have no image
+            // yet → frontend renders a placeholder).
+            $thumbnailUrl = null;
+            if (!empty($r->thumbnail_path)) {
+                $thumbnailUrl = route('market-intelligence.thumbnail', ['listing' => (int) $r->id]);
+            }
             $combined[$key] = [
                 'id'                  => (int) $r->id,           // integer → prospect_launched handler treats as native prospecting_listing
                 'layer'                => 'active_listings',
@@ -831,10 +861,22 @@ final class MapPinService
                 'subtitle'             => $this->formatActiveSubtitle($price, null),
                 'price'                => $price,
                 'date'                 => null,
-                'detail_url'           => null,                    // future: a portal-listing detail card
+                'detail_url'           => null,                    // intentionally null — MAP-CARD-FIX renders inline from the carried fields below
                 'preferred_public_url' => $r->portal_url,
                 'sensitive'            => false,
                 'tracked_property_id'  => $r->tracked_property_id !== null ? (int) $r->tracked_property_id : null,
+                // MAP-CARD-FIX — fields the detail card renders inline
+                'portal_source'        => $r->portal_source,
+                'portal_url'           => $r->portal_url,
+                'bedrooms'             => $r->bedrooms !== null ? (int) $r->bedrooms : null,
+                'bathrooms'            => $r->bathrooms !== null ? (int) $r->bathrooms : null,
+                'garages'              => $r->garages !== null ? (int) $r->garages : null,
+                'property_type'        => $r->property_type,
+                'property_size_m2'     => $r->property_size_m2 !== null ? (float) $r->property_size_m2 : null,
+                'erf_size_m2'          => $r->erf_size_m2 !== null ? (float) $r->erf_size_m2 : null,
+                'thumbnail_url'        => $thumbnailUrl,
+                'address'              => $r->address,
+                'first_seen_at'        => $r->first_seen_at,
             ];
         }
 

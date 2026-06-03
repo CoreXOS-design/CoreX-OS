@@ -2851,6 +2851,19 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        // MAP-CARD-FIX — portal/prospecting stock renders inline from the
+        // record fields the server already shipped (address, price, beds,
+        // baths, type, sizes, portal_source, portal_url, thumbnail_url).
+        // No follow-up fetch — the bounds payload IS the card data. Wide-
+        // zoom aggregate buckets carry a string id like "bucket:lat:lng"
+        // and have no per-listing detail to show; for those, render a
+        // bucket-summary card instead of the inline path.
+        if (record.category === 'active_listings') {
+            renderActiveListingInline(record);
+            renderSingleDetailCtas(record, locationKey, null);
+            return;
+        }
+
         const url = record.deep_link || record.detail_url;
         if (url) {
             try {
@@ -3149,6 +3162,114 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Tracked properties have no sensitive_facts and no relationships
         // (the MIC opportunities surface is the canonical detail page).
+        document.getElementById('detail-sensitive').style.display = 'none';
+        document.getElementById('detail-relationships').innerHTML = '';
+    }
+
+    /**
+     * MAP-CARD-FIX — render the portal/prospecting detail card directly
+     * from the record fields shipped by MapPinService::activeListings.
+     * Mirrors renderTrackedPropertyInline: no follow-up fetch; the
+     * bounds payload IS the card data. Vacant-land rows have null
+     * bedrooms/bathrooms and simply omit those lines (never "no detail").
+     *
+     * Seller-view safe: prospecting_listings has no owner_name /
+     * owner_phone / owner_email columns at all, so nothing rendered here
+     * can leak PII (verified in MAP-FIX).
+     */
+    function renderActiveListingInline(record) {
+        // Bucket summary at wide zoom — record.id is "bucket:lat:lng" and
+        // there's no single listing to detail. Show the bucket's
+        // aggregate count and prompt to zoom in.
+        if (typeof record.id === 'string' && record.id.indexOf('bucket:') === 0) {
+            document.getElementById('detail-facts').innerHTML =
+                '<div style="font-size:0.875rem;color:var(--text-primary);">'
+                + (record.aggregate_count || 0) + ' listings in this area</div>'
+                + '<div style="margin-top:8px;font-size:0.75rem;color:var(--text-muted);">Zoom in to see individual listings.</div>';
+            document.getElementById('detail-sensitive').style.display = 'none';
+            document.getElementById('detail-relationships').innerHTML = '';
+            return;
+        }
+
+        const addrEl = document.getElementById('detail-address');
+        if (record.title) {
+            addrEl.textContent = record.title + (record.suburb ? ', ' + record.suburb : '');
+            addrEl.style.display = 'block';
+        }
+
+        // Image / placeholder
+        let imageHtml = '';
+        if (record.thumbnail_url) {
+            imageHtml =
+                '<div style="margin:8px 0 12px;">'
+                + '<img src="' + escapeAttr(record.thumbnail_url) + '" '
+                + 'alt="" '
+                + 'onerror="this.parentElement.innerHTML=\'<div style=&quot;height:160px;display:flex;align-items:center;justify-content:center;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:0.75rem;&quot;>Image unavailable</div>\';" '
+                + 'style="width:100%;max-height:200px;object-fit:cover;border-radius:4px;border:1px solid var(--border);display:block;" />'
+                + '</div>';
+        } else {
+            imageHtml =
+                '<div style="margin:8px 0 12px;height:160px;display:flex;align-items:center;justify-content:center;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:0.75rem;">'
+                + 'No image scraped yet</div>';
+        }
+
+        // Facts (each one optional — only show populated lines)
+        const facts = [];
+        if (record.property_type) {
+            facts.push({ label: 'Property type', value: record.property_type });
+        }
+        // bedrooms/bathrooms: null = vacant land or schema-missing → omit
+        // entirely. 0 is a real value and should display.
+        if (record.bedrooms !== null && record.bedrooms !== undefined) {
+            facts.push({ label: 'Bedrooms', value: String(record.bedrooms) });
+        }
+        if (record.bathrooms !== null && record.bathrooms !== undefined) {
+            facts.push({ label: 'Bathrooms', value: String(record.bathrooms) });
+        }
+        if (record.garages) {
+            facts.push({ label: 'Garages', value: String(record.garages) });
+        }
+        if (record.property_size_m2) {
+            facts.push({ label: 'Floor size', value: Math.round(record.property_size_m2) + ' m²' });
+        }
+        if (record.erf_size_m2) {
+            facts.push({ label: 'Erf size', value: Math.round(record.erf_size_m2) + ' m²' });
+        }
+        if (record.price) {
+            facts.push({ label: 'Price', value: 'R ' + Number(record.price).toLocaleString('en-ZA') });
+        }
+        if (record.portal_source) {
+            facts.push({ label: 'Portal', value: String(record.portal_source).toUpperCase() });
+        }
+        if (record.first_seen_at) {
+            const raw = String(record.first_seen_at);
+            facts.push({ label: 'First seen', value: raw.slice(0, 10) });
+        }
+
+        const factsHtml = facts.map(f =>
+            '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:0.8125rem;">'
+            + '<span style="color:var(--text-muted);">' + escapeHtml(f.label) + '</span>'
+            + '<span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(String(f.value)) + '</span>'
+            + '</div>'
+        ).join('');
+
+        // Portal link as a separate row at the bottom of facts (always
+        // shown — it's the canonical agent action while we wait for a
+        // proper detail surface).
+        let portalLinkHtml = '';
+        if (record.portal_url) {
+            portalLinkHtml =
+                '<div style="margin-top:10px;">'
+                + '<a href="' + escapeAttr(record.portal_url) + '" target="_blank" rel="noopener" '
+                + 'style="display:inline-block;font-size:0.8125rem;color:var(--brand-accent,#00d4aa);text-decoration:none;">'
+                + 'View on ' + escapeHtml(String(record.portal_source || 'portal').toUpperCase()) + ' →</a>'
+                + '</div>';
+        }
+
+        document.getElementById('detail-facts').innerHTML = imageHtml + factsHtml + portalLinkHtml;
+
+        // Portal listings have no sensitive_facts (no PII columns on
+        // prospecting_listings) and no relationship list.
         document.getElementById('detail-sensitive').style.display = 'none';
         document.getElementById('detail-relationships').innerHTML = '';
     }
