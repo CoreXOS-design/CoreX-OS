@@ -1,6 +1,6 @@
 # CoreX OS — Chat Starter
 > Auto-maintained by VS Code per CLAUDE.md rule. Paste into a new Claude chat to load context.
-> Last updated: 2026-05-27 by E-sign walk-fixes (post-save 404 + Step 5 loop + flag-blocks-signing)
+> Last updated: 2026-06-03 by AT-5 (agent edit page tabbed + PP External-Ref management moved to PP → Agents tab)
 
 <!-- ============================================================ -->
 <!-- STABLE SECTION — rarely changes                              -->
@@ -106,6 +106,7 @@ See CLAUDE.md "CoreX Operating Principle" section for the full version.
 
 ## 4. Recent decisions log (last 15, newest top)
 
+- **2026-06-03** — **Agent edit page tabbed + PP External-Ref management relocated (AT-5).** `admin/users/{user}/edit` (`create-edit.blade.php`) was a cluttered two-column card stack; rebuilt as an Alpine tabbed page matching the agency edit page — **Profile / Role & Access / Finance / Compliance / Actions** (form gets `novalidate` so required fields on hidden tabs don't break submit; mojibake em-dashes fixed). The per-agent **Private Property** card was removed from that page and reborn as a new **Agents** tab in the PP admin area. PP admin is now a three-tab link-based page (`admin/pp/_tabs.blade.php`): **Agents** (default, `admin.pp.agent-mapping` — every agency agent + per-row External Ref / Sync / Deactivate editor, reusing the existing per-user endpoints, pure DB so no SOAP on load), **PP Branch Profiles** (`admin.pp.agents`, the `GetAllAgentsForBranch` SOAP list — fires only when opened), **Mapping Email**. Sidebar "PP Agents" repointed to the new default. New controller method `AgentPpController@agentMapping`; spec updated (`private-property.md` §8b + routes table).
 - **2026-05-27** — **E-sign walk-fixes shipped (4 browser bugs killed in 3 sequential commits).** Browser walk after the e-sign reset surfaced 4 real failures despite 70 tests passing — the systemic gap from Q5 surfaced one level deeper: tests asserted attribute strings appear in `$response->getContent()` but didn't verify the rendered DOM has separate visual blocks per recipient. The fixes:
   - **FIX 3 (commit 791c624)** — post-save redirect lands on the builder via `templates.edit` instead of `templates.index`. Walk-test: edit template → save → keep editing in the builder, no 404. New regression test `CdsBuilderRedirectTest` walks the full redirect chain.
   - **FIX 1 + FIX 2 (commit aa4a359)** — wizard Step 5 now renders N inputs per N recipients with per-instance contact pre-fill. `ESignWizardController::expandWizardFieldsPerRecipient()` walks the wizard field list and emits `{field_id}__r{n}` copies for each multi-recipient role with `instance_label` chips ("Seller 2: Steve Jobs"); `templatePages` runs `RoleBlockExpansionService::expandWithLooping` on the wizard preview so the right-pane document shows N seller blocks; the wizard Blade Step 5 reads `expandedWizardFields` first, falling back to `allWizardFields` for non-multi sessions. The concatenation bug in `resolveFieldValue` line 2810 (" and "-joined contact values) is now OVERRIDDEN per-instance.
