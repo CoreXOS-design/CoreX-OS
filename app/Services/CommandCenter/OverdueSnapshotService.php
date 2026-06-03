@@ -8,6 +8,7 @@ use App\Models\Contact;
 use App\Models\Deal;
 use App\Models\Property;
 use App\Models\User;
+use App\Support\Notifications\AgeFormatter;
 use Illuminate\Support\Facades\Schema;
 
 class OverdueSnapshotService
@@ -36,16 +37,21 @@ class OverdueSnapshotService
             foreach ($props as $p) {
                 $hasAny = $hasDocs ? \DB::table('property_documents')->where('property_id', $p->id)->exists() : false;
                 if ($hasAny) continue;
-                $age = $p->created_at?->diffInHours(now()) ?? 0;
+                $age      = AgeFormatter::wholeHours($p->created_at);
+                $ageHuman = AgeFormatter::ago($p->created_at);
+                $label    = trim((string) ($p->address ?? '')) ?: "Property #{$p->id}";
                 $items[] = [
                     'event_key' => 'property.documents_missing',
                     'pillar'    => 'property',
-                    'subject'   => ['type' => 'property', 'id' => $p->id, 'label' => $p->address ?? "Property #{$p->id}"],
+                    'subject'   => ['type' => 'property', 'id' => $p->id, 'label' => $label],
                     'age_hours' => $age,
+                    'age_human' => $ageHuman,
                     'severity'  => $age > $threshold * 2 ? 'overdue' : 'warning',
                     'action_url'=> "/properties/{$p->id}",
-                    'title'     => ($p->address ?? 'Property') . ' — documents missing',
-                    'body'      => "Listed {$age}h ago, no documents on file.",
+                    'title'     => "{$label} — documents missing",
+                    'body'      => $ageHuman
+                        ? "Listed {$ageHuman}, no documents on file."
+                        : 'No documents on file.',
                     'threshold_hit_at' => $p->created_at?->copy()->addHours($threshold)?->toIso8601String(),
                 ];
             }
@@ -62,17 +68,21 @@ class OverdueSnapshotService
                 $hasFica = false;
                 try { $hasFica = $c->isFicaCompliant(); } catch (\Throwable $e) {}
                 if ($hasFica) continue;
-                $name = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id);
-                $age = $c->created_at?->diffInHours(now()) ?? 0;
+                $name     = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id);
+                $age      = AgeFormatter::wholeHours($c->created_at);
+                $ageHuman = AgeFormatter::ago($c->created_at);
                 $items[] = [
                     'event_key' => 'contact.fica_missing',
                     'pillar'    => 'contact',
                     'subject'   => ['type' => 'contact', 'id' => $c->id, 'label' => $name],
                     'age_hours' => $age,
+                    'age_human' => $ageHuman,
                     'severity'  => 'warning',
                     'action_url'=> "/contacts/{$c->id}",
                     'title'     => "$name — FICA missing",
-                    'body'      => "Created {$age}h ago without FICA documents.",
+                    'body'      => $ageHuman
+                        ? "Created {$ageHuman} without FICA documents."
+                        : 'No FICA documents on file.',
                     'threshold_hit_at' => $c->created_at?->copy()->addHours($threshold)?->toIso8601String(),
                 ];
             }
@@ -89,7 +99,7 @@ class OverdueSnapshotService
                 'event_key' => 'agent.task_due',
                 'pillar'    => 'agent',
                 'subject'   => ['type' => 'task', 'id' => $t->id, 'label' => $t->title ?? "Task #{$t->id}"],
-                'age_hours' => $t->due_at?->diffInHours(now()) ?? 0,
+                'age_hours' => AgeFormatter::wholeHours($t->due_at),
                 'severity'  => 'overdue',
                 'action_url'=> "/corex#task-{$t->id}",
                 'title'     => "Task overdue — " . ($t->title ?? "Task #{$t->id}"),
@@ -108,7 +118,7 @@ class OverdueSnapshotService
                 'event_key' => 'agent.event_due',
                 'pillar'    => 'agent',
                 'subject'   => ['type' => 'event', 'id' => $e->id, 'label' => $e->title ?? "Event #{$e->id}"],
-                'age_hours' => $e->starts_at?->diffInHours(now()) ?? 0,
+                'age_hours' => AgeFormatter::wholeHours($e->starts_at),
                 'severity'  => 'overdue',
                 'action_url'=> "/corex/command-center/calendar?event={$e->id}",
                 'title'     => "Event overdue — " . ($e->title ?? "Event #{$e->id}"),
