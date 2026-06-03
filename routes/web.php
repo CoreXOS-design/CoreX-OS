@@ -1876,13 +1876,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('admin.company-settings.website.update');
 
 
-    // Module 6 (M6.2) — Activity Points → Calendar class mappings.
+    // SPINE-SETTINGS — Activity scoring (full catalogue: calendar +
+    // every SPINE-1/2/3/2.5 instant slug). Replaces the M6.2 calendar-
+    // only screen. store/destroy routes are intentionally dropped —
+    // catalogue rows are now seeded; the screen edits per-agency
+    // weight + active state only.
     Route::prefix('admin/activity-mappings')->name('admin.activity-mappings.')->group(function () {
         Route::get('/',                       [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'index'])->name('index');
-        Route::post('/',                      [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'store'])->name('store');
         Route::put('/{id}',                   [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'update'])->whereNumber('id')->name('update');
         Route::post('/{id}/toggle-active',    [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'toggleActive'])->whereNumber('id')->name('toggle-active');
-        Route::delete('/{id}',                [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'destroy'])->whereNumber('id')->name('destroy');
     });
 
     // Properties — listing sync to website

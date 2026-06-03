@@ -1,119 +1,184 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5"
+     x-data="spineSettings({
+        csrf: '{{ csrf_token() }}',
+        updateUrlFor: (id) => '{{ url('admin/activity-mappings') }}/' + id,
+        toggleUrlFor: (id) => '{{ url('admin/activity-mappings') }}/' + id + '/toggle-active',
+     })">
 
+    {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <h1 class="text-xl font-bold text-white leading-tight">Activity Points → Calendar Mappings</h1>
-        <p class="text-sm text-white/60 mt-1">Map each actionable calendar event class to the activity definition it should auto-credit. M6.3's observer reads this table when an event is created and credits a provisional point to the event's agent.</p>
-    </div>
-
-    @if(session('success'))
-    <div class="rounded-md px-4 py-3 text-sm font-medium" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
-    @endif
-    @if($errors->any())
-    <div class="rounded-md px-4 py-3 text-sm font-medium" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
-        @foreach($errors->all() as $err) <div>{{ $err }}</div> @endforeach
-    </div>
-    @endif
-
-    {{-- Existing mappings grouped by event class --}}
-    <div class="rounded-md" style="background:var(--surface); border:1px solid var(--border);">
-        <div class="px-4 py-3" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
-            <div class="text-sm font-semibold" style="color:var(--text-primary);">Current mappings ({{ $mappings->flatten()->count() }})</div>
-        </div>
-
-        @forelse($mappings as $eventClass => $rows)
-        <div class="px-4 py-3" style="border-bottom:1px solid var(--border);">
-            <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">{{ $eventClass }}</div>
-            @foreach($rows as $m)
-            <div class="flex items-center gap-3 py-2" style="border-top:1px solid var(--border);">
-                <div class="flex-1 min-w-0">
-                    <div class="text-sm font-semibold" style="color:var(--text-primary);">
-                        {{ $m->activityDefinition?->name ?? '(definition deleted)' }}
-                    </div>
-                    <div class="text-xs mt-0.5" style="color:var(--text-muted);">
-                        {{ $m->value_per_event }} per event ·
-                        {{ $m->requires_feedback ? 'requires feedback' : 'instant confirm' }} ·
-                        @if($m->daily_cap) cap {{ $m->daily_cap }}/day · @endif
-                        revoke after {{ $m->auto_revoke_after_hours ?? '—' }}h ·
-                        back-date limit {{ $m->back_date_limit_hours }}h
-                    </div>
-                </div>
-                <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded"
-                      style="background: {{ $m->is_active ? 'color-mix(in srgb, var(--ds-green) 15%, transparent)' : 'color-mix(in srgb, var(--ds-amber) 15%, transparent)' }}; color: {{ $m->is_active ? 'var(--ds-green)' : 'var(--ds-amber)' }};">
-                    {{ $m->is_active ? 'Active' : 'Inactive' }}
-                </span>
-                <form method="POST" action="{{ route('admin.activity-mappings.toggle-active', $m->id) }}" class="inline">
-                    @csrf
-                    <button type="submit" class="corex-btn-outline text-xs">{{ $m->is_active ? 'Deactivate' : 'Activate' }}</button>
-                </form>
-                <form method="POST" action="{{ route('admin.activity-mappings.destroy', $m->id) }}" class="inline" onsubmit="return confirm('Archive this mapping?')">
-                    @csrf @method('DELETE')
-                    <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">×</button>
-                </form>
+        <div class="flex items-start justify-between gap-4">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Activity Scoring</h1>
+                <p class="text-sm text-white/60 mt-1">
+                    Configure how much each agent action is worth, and switch actions on or off for your agency. Changes here only affect <span class="font-semibold">{{ $agencyName ?? 'your agency' }}</span> — system defaults are preserved.
+                </p>
             </div>
+            <div class="text-right shrink-0">
+                <div class="text-2xl font-bold text-white">{{ $totalActions }}</div>
+                <div class="text-xs uppercase tracking-wider text-white/60">configurable actions</div>
+            </div>
+        </div>
+    </div>
+
+    {{-- Inline status bar (saving / saved / error) --}}
+    <div x-cloak x-show="status.message"
+         class="rounded-md px-4 py-2 text-sm font-medium transition-opacity"
+         :style="status.kind === 'error'
+            ? 'background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);'
+            : 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--ds-green);'"
+         x-text="status.message"></div>
+
+    {{-- Groups --}}
+    @foreach($catalogue as $groupName => $rows)
+        <div class="rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+            <div class="px-4 py-3 flex items-baseline justify-between"
+                 style="border-bottom:1px solid var(--border); background:var(--surface-2);">
+                <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $groupName }}</div>
+                <div class="text-xs" style="color:var(--text-muted);">{{ count($rows) }} {{ count($rows) === 1 ? 'action' : 'actions' }}</div>
+            </div>
+
+            @foreach($rows as $row)
+                <div class="px-4 py-3 flex flex-wrap items-center gap-3"
+                     style="border-top:1px solid var(--border);"
+                     :class="!rowState[{{ $row['id'] }}].is_active ? 'opacity-60' : ''">
+                    {{-- Left: label + meta --}}
+                    <div class="flex-1 min-w-[260px]">
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $row['label'] }}</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-muted);">
+                            @if($row['kind'] === 'calendar')
+                                Calendar event ·
+                                {{ $row['requires_feedback'] ? 'requires feedback' : 'instant confirm' }}
+                                @if($row['daily_cap']) · cap {{ $row['daily_cap'] }}/day @endif
+                                @if($row['back_date_limit_hours'] !== null) · back-date {{ $row['back_date_limit_hours'] }}h @endif
+                            @else
+                                Instant action
+                                @if($row['daily_cap']) · cap {{ $row['daily_cap'] }}/day @endif
+                                @if($row['subject_type'])
+                                    · {{ class_basename($row['subject_type']) }}
+                                @endif
+                            @endif
+                        </div>
+                    </div>
+
+                    {{-- Weight input --}}
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs font-semibold" style="color:var(--text-secondary);">Points</label>
+                        <input
+                            type="number"
+                            min="0"
+                            max="10000"
+                            step="1"
+                            x-model.number="rowState[{{ $row['id'] }}].value_per_event"
+                            @change="saveValue({{ $row['id'] }})"
+                            class="w-24 px-2 py-1 text-sm rounded text-right"
+                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                        >
+                        <span x-cloak x-show="rowState[{{ $row['id'] }}].savingValue" class="text-xs" style="color:var(--text-muted);">saving…</span>
+                        <span x-cloak x-show="rowState[{{ $row['id'] }}].savedValueAt" class="text-xs" style="color:var(--ds-green);">saved</span>
+                    </div>
+
+                    {{-- Active toggle --}}
+                    <button
+                        type="button"
+                        @click="toggleActive({{ $row['id'] }})"
+                        class="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded transition-colors"
+                        :style="rowState[{{ $row['id'] }}].is_active
+                            ? 'background: color-mix(in srgb, var(--ds-green) 15%, transparent); color: var(--ds-green); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);'
+                            : 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);'"
+                        x-text="rowState[{{ $row['id'] }}].is_active ? 'Active' : 'Inactive'"
+                    ></button>
+                </div>
             @endforeach
         </div>
-        @empty
-        <div class="px-4 py-6 text-sm text-center" style="color:var(--text-muted);">
-            No mappings — calendar events won't auto-credit points until you map classes to activities.
-        </div>
-        @endforelse
-    </div>
+    @endforeach
 
-    {{-- Create new mapping --}}
-    <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
-        <div class="text-sm font-semibold mb-3" style="color:var(--text-primary);">Add mapping</div>
-        <form method="POST" action="{{ route('admin.activity-mappings.store') }}" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            @csrf
-            <div>
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Calendar event class *</label>
-                <select name="event_class" required class="w-full px-3 py-2 text-sm rounded" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                    <option value="">— pick —</option>
-                    @foreach($eventClasses as $ec)
-                        <option value="{{ $ec->event_class }}">{{ $ec->label ?: $ec->event_class }} ({{ $ec->event_class }})</option>
-                    @endforeach
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Activity definition *</label>
-                <select name="activity_definition_id" required class="w-full px-3 py-2 text-sm rounded" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                    <option value="">— pick —</option>
-                    @foreach($activityDefinitions as $ad)
-                        <option value="{{ $ad->id }}">{{ $ad->name }} ({{ $ad->weight }} pts)</option>
-                    @endforeach
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Value per event *</label>
-                <input type="number" name="value_per_event" value="1" min="1" max="1000" required class="w-full px-3 py-2 text-sm rounded" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-            </div>
-            <div>
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Back-date limit (hours) *</label>
-                <input type="number" name="back_date_limit_hours" value="48" min="0" max="8760" required class="w-full px-3 py-2 text-sm rounded" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-            </div>
-            <div>
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Auto-revoke after (hours)</label>
-                <input type="number" name="auto_revoke_after_hours" value="24" min="1" max="8760" class="w-full px-3 py-2 text-sm rounded" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="blank = never">
-            </div>
-            <div>
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Daily cap per agent</label>
-                <input type="number" name="daily_cap" min="1" max="1000" class="w-full px-3 py-2 text-sm rounded" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="blank = no cap">
-            </div>
-            <div class="flex items-center gap-4 md:col-span-2">
-                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-primary);">
-                    <input type="hidden" name="requires_feedback" value="0">
-                    <input type="checkbox" name="requires_feedback" value="1" checked> Requires feedback to confirm
-                </label>
-                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-primary);">
-                    <input type="hidden" name="is_active" value="0">
-                    <input type="checkbox" name="is_active" value="1" checked> Active
-                </label>
-                <div class="ml-auto"><button type="submit" class="corex-btn-primary text-sm">Add mapping</button></div>
-            </div>
-        </form>
+    {{-- Footer note --}}
+    <div class="text-xs px-1" style="color:var(--text-muted);">
+        Edits save automatically. Points are awarded the moment an action happens — outcomes (won/lost, approved/rejected) never change a point that's already been earned. Reversals (an un-registered deal, a deleted record) reverse the matching credit.
     </div>
-
 </div>
+
+<script>
+function spineSettings(config) {
+    const initial = {!! json_encode(
+        collect($catalogue)->flatMap(fn ($rows) => collect($rows)->mapWithKeys(fn ($r) => [
+            (int) $r['id'] => [
+                'value_per_event' => (int) $r['value_per_event'],
+                'is_active'       => (bool) $r['is_active'],
+                'savingValue'     => false,
+                'savedValueAt'    => null,
+                'savingActive'    => false,
+            ],
+        ]))
+    ) !!};
+
+    return {
+        rowState: initial,
+        status: { kind: 'ok', message: '' },
+        flash(kind, msg, ms = 2200) {
+            this.status = { kind, message: msg };
+            clearTimeout(this._flashT);
+            this._flashT = setTimeout(() => { this.status = { kind: 'ok', message: '' }; }, ms);
+        },
+        async saveValue(id) {
+            const row = this.rowState[id];
+            const v   = Number.isInteger(row.value_per_event) ? row.value_per_event : parseInt(row.value_per_event, 10);
+            if (!Number.isFinite(v) || v < 0 || v > 10000) {
+                this.flash('error', 'Points must be 0–10000.');
+                return;
+            }
+            row.savingValue  = true;
+            row.savedValueAt = null;
+            try {
+                const r = await fetch(config.updateUrlFor(id), {
+                    method: 'PUT',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': config.csrf,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify({ value_per_event: v, is_active: row.is_active ? 1 : 0 }),
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                row.savedValueAt = Date.now();
+                this.flash('ok', 'Saved.');
+                setTimeout(() => { if (row.savedValueAt && (Date.now() - row.savedValueAt) >= 1800) row.savedValueAt = null; }, 2000);
+            } catch (e) {
+                this.flash('error', 'Save failed — try again.');
+            } finally {
+                row.savingValue = false;
+            }
+        },
+        async toggleActive(id) {
+            const row = this.rowState[id];
+            if (row.savingActive) return;
+            row.savingActive = true;
+            const next = !row.is_active;
+            try {
+                const r = await fetch(config.toggleUrlFor(id), {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': config.csrf,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const data = await r.json();
+                row.is_active = !! data.is_active;
+                this.flash('ok', row.is_active ? 'Activated.' : 'Deactivated.');
+            } catch (e) {
+                this.flash('error', 'Could not toggle — try again.');
+            } finally {
+                row.savingActive = false;
+            }
+        },
+    };
+}
+</script>
 @endsection
