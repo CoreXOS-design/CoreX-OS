@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use App\Models\Agency;
+use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventFeedback;
 use App\Models\CommandCenter\CommandTask;
 use App\Models\Contact;
@@ -33,6 +34,7 @@ use App\Listeners\Audit\RecordDomainEvent;
 use App\Listeners\Prospecting\InvalidateProspectingConfigurationCache;
 use App\Observers\AgencyObserver;
 use App\Observers\CalendarEventFeedbackObserver;
+use App\Observers\CalendarEventObserver;
 use App\Observers\CommandTaskObserver;
 use App\Observers\ContactAccessLogObserver;
 use App\Observers\ContactConsentRecordObserver;
@@ -96,6 +98,7 @@ class AppServiceProvider extends ServiceProvider
 
         Agency::observe(AgencyObserver::class);
         CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
+        CalendarEvent::observe(CalendarEventObserver::class);
         Contact::observe(ContactObserver::class);
         ContactAccessLog::observe(ContactAccessLogObserver::class);
         ContactConsentRecord::observe(ContactConsentRecordObserver::class);

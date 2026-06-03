@@ -45,6 +45,7 @@ final class DailyActivityEntry extends Model
         'activity_date',
         'period',
         'user_id',
+        'agency_id',
         'branch_id',
         'activity_definition_id',
         'value',
