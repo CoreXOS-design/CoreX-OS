@@ -382,8 +382,26 @@ done
 ok "All ${#REF_SEEDERS[@]} reference seeders applied"
 
 # Permissions sync (idempotent — config/corex-permissions.php is the source).
-php artisan corex:sync-permissions --seed-defaults >> "$LOG_FILE" 2>&1
-ok "Permission keys synced"
+#
+# DEPLOY-PERM-SAFE 2026-06-04 — switched from --seed-defaults to
+# --merge-defaults. The previous flag forceDelete()'d every row in
+# role_permissions and re-inserted from the config defaults, which
+# OVERWROTE agency customisations made via the Role Manager. Live
+# incident: a user whose role was customised lost her sidebar access
+# on deploy because her role's grants reset to defaults.
+#
+# --merge-defaults (SyncPermissions::mergeRoleDefaults) is additive
+# only: for each role it diffs the config-expected key set against
+# what's already in role_permissions and INSERTS only the missing
+# keys. Existing rows (including customisations) are never touched,
+# never updated, never deleted. New permissions added to the catalog
+# DO reach roles per config defaults — but customised roles keep
+# their customisations.
+#
+# Use --seed-defaults ONLY for first-time bootstrap or a deliberate
+# reset, never for routine deploys.
+php artisan corex:sync-permissions --merge-defaults >> "$LOG_FILE" 2>&1
+ok "Permission keys synced (additive — customisations preserved)"
 
 # =============================================================================
 # STEP 7 — FRONTEND BUILD
