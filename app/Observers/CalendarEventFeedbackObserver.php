@@ -7,12 +7,39 @@ use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventClassSetting;
 use App\Models\CommandCenter\CalendarEventFeedback;
 use App\Models\Contact;
+use App\Models\DailyActivityEntry;
+use App\Services\Activity\PointStateService;
 use App\Services\BuyerStateService;
+use Illuminate\Support\Facades\Log;
 
 class CalendarEventFeedbackObserver
 {
     public function saved(CalendarEventFeedback $feedback): void
     {
+        // M6.4 — confirm provisional auto_calendar points rows for this
+        // calendar event. Runs BEFORE the existing buyer_facing early-return
+        // because the M6.2 mapping table is the source of truth for "this
+        // event earns points" — the buyer_facing flag below gates only the
+        // unrelated buyer-state logic. SAFETY: any exception is caught,
+        // logged, and SWALLOWED so the feedback save always completes.
+        if ($feedback->calendar_event_id && $feedback->captured_at !== null) {
+            try {
+                $entries = DailyActivityEntry::where('calendar_event_id', $feedback->calendar_event_id)
+                    ->where('source', DailyActivityEntry::SOURCE_AUTO_CALENDAR)
+                    ->where('point_state', DailyActivityEntry::STATE_PROVISIONAL)
+                    ->get();
+                foreach ($entries as $entry) {
+                    app(PointStateService::class)->confirm($entry, $feedback->captured_at);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('M6.4 confirm hook caught exception, feedback save proceeds', [
+                    'feedback_id' => $feedback->id ?? null,
+                    'event_id'    => $feedback->calendar_event_id,
+                    'message'     => $e->getMessage(),
+                ]);
+            }
+        }
+
         if (!$feedback->contact_id || !$feedback->calendar_event_id) {
             return;
         }

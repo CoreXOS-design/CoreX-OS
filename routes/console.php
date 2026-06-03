@@ -66,6 +66,11 @@ Schedule::command('webhooks:retry-due')->everyMinute()->withoutOverlapping();
 // Prospecting claim maintenance — runs hourly
 Schedule::command('prospecting:maintain-claims')->hourly();
 
+// Module 6 (M6.4) — auto-revoke stale provisional auto_calendar points
+// rows whose feedback never arrived inside the mapping's
+// auto_revoke_after_hours window. Idempotent; safe to run hourly.
+Schedule::command('activity-points:auto-revoke-stale')->hourly()->withoutOverlapping();
+
 // Carry forward targets from previous month — runs on the 1st at 00:05
 Schedule::command('targets:carry-forward')->monthlyOn(1, '00:05')->withoutOverlapping();
 
