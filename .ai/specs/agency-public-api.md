@@ -210,7 +210,7 @@ Retries are driven by `next_retry_at` + a scheduled sweep, NOT queue-native back
 **CoreX server (one-time, platform-wide — already provisioned on prod):**
 - `.env`: `QUEUE_CONNECTION=database` (webhooks queue instead of blocking requests).
   No per-website keys live in CoreX's `.env`.
-- Scheduler cron: `* * * * * cd /hfc && php artisan schedule:run >> /dev/null 2>&1`
+- Scheduler cron: `* * * * * cd /corex && php artisan schedule:run >> /dev/null 2>&1`
   (drives `webhooks:retry-due` + all other CoreX schedules).
 - A queue worker (systemd/supervisor): `php artisan queue:work --queue=default --tries=1`
   (delivers the webhooks).

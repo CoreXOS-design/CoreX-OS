@@ -37,7 +37,7 @@ I am **Johan Reichel**, CEO. I am non-technical. I do not write code.
 
 **CoreX OS** (formerly Nexus OS / HFC Dash) — Laravel + Blade + Alpine.js real estate operating system.
 
-- **Server:** Ubuntu at `91.99.130.85`, codebase at `/hfc`, domain `corex.hfcoastal.co.za`
+- **Server:** Ubuntu at `91.99.130.85`, codebase at `/corex`, domain `corex.hfcoastal.co.za`
 - **Repo:** `johan7610/hfc-dash`
 - **Branches:** `main` = production | `HFC2402` = Johan dev | `andre` = Andre dev
 - **Database:** MySQL (local via Laragon, production on server)

@@ -181,7 +181,7 @@ Full spec and verification checklist: `.ai/specs/multi-tenancy.md`.
 | Item | Value |
 |------|-------|
 | Server | Ubuntu at `91.99.130.85` |
-| Codebase | `/hfc` |
+| Codebase | `/corex` |
 | Domain | `corex.hfcoastal.co.za` |
 | GitHub repo | `johan7610/hfc-dash` |
 | Branch: production | `main` |

@@ -184,7 +184,7 @@ not use `withoutGlobalScope(AgencyScope::class)` in request code.
 | Framework | Laravel (PHP 8.x) + Blade + Alpine.js |
 | Build | Vite — `npm run dev` (local), `npm run build` (production) |
 | Database | MySQL via Laragon (local), MySQL on server (production) |
-| Server | Ubuntu at 91.99.130.85, codebase at /hfc |
+| Server | Ubuntu at 91.99.130.85, codebase at /corex |
 | Domain | corex.hfcoastal.co.za |
 | Repo | johan7610/hfc-dash |
 | Python AI | /opt/hf-ai/app.py on port 3100 (hf-ai.service) |

@@ -10,7 +10,7 @@
 
 **Who:** Johan Reichel (CEO, HFC). Andre Roets (full-stack dev). Two-person team building CoreX OS — real estate operating system. HFC (Home Finders Coastal) is the first live agency. Long-term vision: SA's leading real estate OS, replacing PropCon / Sage / Property24 layers across the industry.
 
-**Stack:** Laravel 12 / Blade / Alpine.js. MySQL prod (`hfc_corex`, `hfc_staging`). SQLite local. Vite. Ubuntu on Hetzner `91.99.130.85`. Code at `/hfc` (live) and `/hfc-staging`. Python AI service `/opt/hf-ai/app.py` port 3100 (not in git).
+**Stack:** Laravel 12 / Blade / Alpine.js. MySQL prod (`hfc_corex`, `hfc_staging`). SQLite local. Vite. Ubuntu on Hetzner `91.99.130.85`. Code at `/corex` (live) and `/corex-staging`. Python AI service `/opt/hf-ai/app.py` port 3100 (not in git).
 
 **Domain:** `corex.hfcoastal.co.za` live. Staging on port 8084.
 

@@ -24,7 +24,7 @@
 ## REPOSITORY STRUCTURE
 
 ```
-/hfc
+/corex
 ├── .ai/
 │   ├── CLAUDE.md               ← Master instructions for VS Code Claude
 │   ├── STANDARDS.md            ← UX Standards (dark theme, sticky headers, etc.)
@@ -616,7 +616,7 @@ agencies — added: dashboard_settings_mode (string, default 'user')
 | Environment | DB | Server | Codebase |
 |-------------|-----|--------|----------|
 | Local (Johan) | MySQL 8.4.3 via Laragon, DB: nexus_os | 127.0.0.1:8000 | HFC2402 branch |
-| Staging | MySQL, DB: hfc_staging | 91.99.130.85 /hfc-staging | Staging branch |
-| Production | MySQL, DB: nexus_os | 91.99.130.85 /hfc | main branch |
+| Staging | MySQL, DB: hfc_staging | 91.99.130.85 /corex-staging | Staging branch |
+| Production | MySQL, DB: nexus_os | 91.99.130.85 /corex | main branch |
 
 **Python AI Service:** `/opt/hf-ai/app.py` on port 3100. Not git-tracked. Manual restart.

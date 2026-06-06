@@ -68,7 +68,7 @@ git push origin main
 
 ```bash
 ssh root@91.99.130.85
-cd /hfc
+cd /corex
 ```
 
 ---

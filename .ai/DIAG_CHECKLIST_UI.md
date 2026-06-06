@@ -10,7 +10,7 @@ When something is broken or behaving unexpectedly, work through this checklist b
 2. **Identify the layer** — is it PHP, Blade, Alpine.js, MySQL, or the Python AI service?
 3. **Check the logs**
    ```bash
-   tail -f /hfc/storage/logs/laravel.log
+   tail -f /corex/storage/logs/laravel.log
    ```
 4. **Check if it's a migration issue** — new column missing?
    ```bash
@@ -35,7 +35,7 @@ When something is broken or behaving unexpectedly, work through this checklist b
 
 ## Ellie-Specific Diagnostics
 
-- **Zero results from KB:** Check `OPENAI_API_KEY` in `/hfc/.env` — missing key = zero embeddings
+- **Zero results from KB:** Check `OPENAI_API_KEY` in `/corex/.env` — missing key = zero embeddings
 - **Web search for KB questions:** Check `needs_web()` routing logic in AI service — KB questions should not hit web search
 - **Embeddings not updating:** Python AI service at `/opt/hf-ai/app.py` may need restart
 - **Slow responses:** Check OpenAI API quota and token usage

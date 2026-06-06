@@ -3,8 +3,8 @@
 > One safe, repeatable deploy. Read this end-to-end ONCE; refer back when
 > you're about to push code. Designed so a non-programmer can run it.
 >
-> Single entry point: **`/hfc/scripts/deploy.sh staging`** or
-> **`/hfc/scripts/deploy.sh production`**. Everything else in this file
+> Single entry point: **`/corex/scripts/deploy.sh staging`** or
+> **`/corex/scripts/deploy.sh production`**. Everything else in this file
 > exists to make that one command safe.
 
 ---
@@ -13,8 +13,8 @@
 
 | Target | Command | When |
 |---|---|---|
-| Staging | `/hfc-staging/scripts/deploy.sh staging` | After any merge into the `Staging` branch. Test before promoting. |
-| Live (production) | `/hfc/scripts/deploy.sh production` | Only after staging has been green for ≥ 24 hours, with Johan available, and **never on Friday after 14:00 SAST** (no time to roll back before the weekend). |
+| Staging | `/corex-staging/scripts/deploy.sh staging` | After any merge into the `Staging` branch. Test before promoting. |
+| Live (production) | `/corex/scripts/deploy.sh production` | Only after staging has been green for ≥ 24 hours, with Johan available, and **never on Friday after 14:00 SAST** (no time to roll back before the weekend). |
 
 A deploy takes ~2–5 minutes. The site is briefly in maintenance mode
 (503 page) during steps 3–11 — typically ~60 seconds. The deploy script
@@ -171,7 +171,7 @@ Paste (replace `johan` with the actual deploy user):
 
 ```sudoers
 # /etc/sudoers.d/hfc-deploy
-# DEPLOY-1 — narrow sudo grants for /hfc/scripts/deploy.sh
+# DEPLOY-1 — narrow sudo grants for /corex/scripts/deploy.sh
 johan ALL=(root) NOPASSWD: /bin/systemctl reload php8.2-fpm
 johan ALL=(root) NOPASSWD: /bin/systemctl reload nginx
 # Queue-worker restart (auto-detected at deploy time — grant whichever
@@ -238,10 +238,10 @@ SSH into the server, then:
 
 ```bash
 # STAGING:
-/hfc-staging/scripts/deploy.sh staging
+/corex-staging/scripts/deploy.sh staging
 
 # LIVE (production):
-/hfc/scripts/deploy.sh production
+/corex/scripts/deploy.sh production
 ```
 
 The script prints a numbered step list as it runs. **Watch for
@@ -279,12 +279,12 @@ After `✅ DEPLOY OK`:
    contact pops into Attendees (CAL-4/CAL-5 smoke). Save → no 500.
 4. Tail the Laravel log for 60 seconds:
    ```bash
-   tail -f /hfc/storage/logs/laravel-$(date +%Y-%m-%d).log
+   tail -f /corex/storage/logs/laravel-$(date +%Y-%m-%d).log
    ```
    Expect zero new exceptions.
 5. Confirm the git tag exists:
    ```bash
-   cd /hfc && git tag --list "deploy-production-*" | tail -3
+   cd /corex && git tag --list "deploy-production-*" | tail -3
    ```
 
 ---
@@ -299,7 +299,7 @@ which is what we want.
 ### 6a. Code-only rollback (NO destructive migrations in this deploy)
 
 ```bash
-cd /hfc                                  # or /hfc-staging
+cd /corex                                  # or /corex-staging
 PREV_SHA=$(cat /var/log/hfc-deploys.log | tail -1 | awk '{print $3}')
 # Confirm before running:
 echo "Rolling back to: $PREV_SHA"
@@ -315,7 +315,7 @@ php artisan up
 ### 6b. Full rollback (destructive migrations were applied)
 
 ```bash
-cd /hfc                                  # or /hfc-staging
+cd /corex                                  # or /corex-staging
 
 # 1. Stay in maintenance.
 php artisan down --render="errors::503" --secret="rollback-$(date +%s | sha256sum | head -c 32)"
@@ -329,10 +329,10 @@ LATEST=/var/backups/hfc/<db>-pre-deploy-LATEST.sql.gz
 source /etc/hfc-deploy.env
 # Restore as the SAME user the dump was created with. Priority:
 #   MYSQL_BACKUP_USER from /etc/hfc-deploy.env (if set)
-#   else DB_USERNAME from /hfc/.env (e.g. 'nexus')
-DUMP_USER="${MYSQL_BACKUP_USER:-$(grep -E '^DB_USERNAME=' /hfc/.env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")}"
-DUMP_PW="${MYSQL_BACKUP_PASSWORD:-$(grep -E '^DB_PASSWORD=' /hfc/.env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")}"
-DUMP_DB=$(grep -E '^DB_DATABASE=' /hfc/.env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+#   else DB_USERNAME from /corex/.env (e.g. 'nexus')
+DUMP_USER="${MYSQL_BACKUP_USER:-$(grep -E '^DB_USERNAME=' /corex/.env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")}"
+DUMP_PW="${MYSQL_BACKUP_PASSWORD:-$(grep -E '^DB_PASSWORD=' /corex/.env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")}"
+DUMP_DB=$(grep -E '^DB_DATABASE=' /corex/.env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
 MYSQL_PWD="$DUMP_PW" gunzip -c "$LATEST" | mysql --user="$DUMP_USER" "$DUMP_DB"
 # (If the dump user lacks DROP/CREATE privs to restore, fall back to a
 # privileged admin user — but the standard nexus/app user typically
@@ -402,8 +402,8 @@ deploy from the staging shell" mistakes).
 
 - **Zero-downtime deploys (symlink-swap pattern).** Today's deploy takes
   the site offline for ~60 seconds during steps 3–11. A symlink-swap
-  pattern (deploy into `/hfc/releases/<sha>` and atomically flip the
-  `/hfc/current` symlink) would eliminate the maintenance window
+  pattern (deploy into `/corex/releases/<sha>` and atomically flip the
+  `/corex/current` symlink) would eliminate the maintenance window
   entirely. Not built in v1 — accepted per DEPLOY-1 decision 4. Add
   when downtime becomes a customer-visible complaint.
 - **Daily cron backup.** The deploy-time backup is excellent for

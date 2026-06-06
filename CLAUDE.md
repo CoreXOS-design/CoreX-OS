@@ -171,7 +171,7 @@ This replaces all separate "sync prompts" — there is no scenario where work be
 The snapshot is committed to the repo — it travels with the migrations it represents. Production migrations are unaffected: Laravel only uses the snapshot when no migrations have run yet (i.e. fresh test DB / `migrate:fresh`).
 
 ### 12. Demo is always a working copy.
-The demo environment (`demo1.corexos.co.za`, `/mnt/HC_Volume_103099143/hfc-demo` on the production host, tracking `HFC2402`) is not a snapshot — it is a living working copy. Every dev cycle that touches the database, schema, or any seeder MUST end with the demo migrated, seeded, and verified to match local. The demo's `nexus_os_demo` database is the proving ground: if it can be regenerated end-to-end from `php artisan migrate:fresh --database=demo --force && php artisan demo:seed`, the work is complete; if not, it isn't.
+The demo environment (`demo1.corexos.co.za`, `/mnt/HC_Volume_103099143/corex-demo` on the production host, tracking `HFC2402`) is not a snapshot — it is a living working copy. Every dev cycle that touches the database, schema, or any seeder MUST end with the demo migrated, seeded, and verified to match local. The demo's `nexus_os_demo` database is the proving ground: if it can be regenerated end-to-end from `php artisan migrate:fresh --database=demo --force && php artisan demo:seed`, the work is complete; if not, it isn't.
 
 The reason: a stale demo is a dead demo. Walkthroughs that hit empty tables, missing columns, or pre-fix bugs cost trust with every customer interaction. The demo must always be exactly one fetch+migrate behind local — never more.
 
@@ -325,7 +325,7 @@ before returning. Returning content only in the reply is not sufficient."
 | Framework | Laravel (PHP 8.x) + Blade + Alpine.js |
 | Build | Vite — `npm run dev` (local), `npm run build` (production) |
 | Database | MySQL via Laragon (local), MySQL on server (production) |
-| Server | Ubuntu at 91.99.130.85, codebase at /hfc |
+| Server | Ubuntu at 91.99.130.85, codebase at /corex |
 | Domain | corex.hfcoastal.co.za |
 | Repo | johan7610/hfc-dash |
 | Python AI | /opt/hf-ai/app.py on port 3100 (hf-ai.service) |
