@@ -161,6 +161,8 @@ Reuse the constant-time-compare + HMAC discipline already proven in `PpWebhookCo
 
 Responses use dedicated **public API Resources** (`app/Http/Resources/WebsiteApi/*`) so the external contract is decoupled from internal model shape — we can refactor models without breaking agency sites. PII not meant for the public web (owner contact, internal notes) is **never** included.
 
+**AgentResource public fields:** `id`, `name`, `designation` (the agent's role/title, e.g. "Principal Property Practitioner" / "Candidate Property Practitioner" — a public "meet the team" field), `email`, `phone`, `cell`, `photo_url`. The compliance **FFC number is NOT exposed** (§13 Q7).
+
 **ListingResource is P24-parity** — it carries the same rich marketing field set CoreX syndicates to Property24: location detail (complex/unit/floor/stand + street parts), `costs` (rates/levy/special levy), a `rental` block (lease period, deposit, rental amount, gross/net, per-period rates) populated only for rentals, `mandate_type`, `pet_friendly`, `spaces`, `features`, a categorised `gallery`, `video` (YouTube/Matterport/virtual tour), and upcoming `show_days` — alongside the core price/beds/baths/size/images/agent. Numeric fields are coerced to int/float for a clean contract.
 
 ---
@@ -398,6 +400,6 @@ These are deferred *by design with an upgrade path*, not "good enough for now" c
 4. **Exact Website-tab settings** — confirm the final `website_*` field list (the §3.7 set is a starter). What does the website actually need to render from CoreX vs hold itself?
 5. **Listing identity in the public API** — expose by internal id, a stable public `ref`, or slug? (Affects URL stability for the websites.)
 6. **Media/images** — serve via signed CoreX URLs, or include CDN/public URLs in the payload? (P24 sync logic may already have an answer to reuse.)
-7. **Which agent fields are "public"** — confirm with compliance what's safe to expose (FFC number? direct cell?).
+7. **Which agent fields are "public"** — confirm with compliance what's safe to expose (FFC number? direct cell?). **Current shape (built):** `id`, `name`, `designation`, `email`, `phone`, `cell`, `photo_url`. FFC number stays hidden. `designation` added 2026-06-06 so websites can render the agent's title on the team card.
 8. **Webhook retry ceiling + dead-letter** — how many attempts before we surface a "your endpoint is down" alert in the Agencies UI?
 9. Do we want a **sandbox key type** (`cx_test_…`) for the web devs to build against before go-live, mirroring the PP `pp_sandbox` flag?

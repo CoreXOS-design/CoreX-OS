@@ -47,6 +47,7 @@ class Phase2WebsiteApiTest extends TestCase
         $this->agent = User::factory()->create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
             'role' => 'agent', 'name' => 'Thandi Mbeki', 'show_on_website' => true,
+            'designation' => 'Principal Property Practitioner',
         ]);
         // Hidden agent — must never surface.
         User::factory()->create([
@@ -135,6 +136,22 @@ class Phase2WebsiteApiTest extends TestCase
         $this->assertFalse($names->contains('Hidden Harry'));
         // Agent card excludes the FFC number (compliance).
         $this->assertArrayNotHasKey('ffc_number', $resp->json('data.0'));
+    }
+
+    public function test_agent_card_includes_designation(): void
+    {
+        // Designation is a public "meet the team" field (e.g. Principal /
+        // Candidate Property Practitioner) — surfaced on the agent card,
+        // distinct from the compliance FFC number which stays hidden.
+        $resp = $this->withToken($this->token)->getJson('/api/v1/website/agents')->assertOk();
+
+        $thandi = collect($resp->json('data'))->firstWhere('name', 'Thandi Mbeki');
+        $this->assertSame('Principal Property Practitioner', $thandi['designation']);
+
+        // And on the detail endpoint.
+        $this->withToken($this->token)->getJson("/api/v1/website/agents/{$this->agent->id}")
+            ->assertOk()
+            ->assertJsonPath('data.designation', 'Principal Property Practitioner');
     }
 
     public function test_cross_agency_isolation(): void

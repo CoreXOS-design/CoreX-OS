@@ -19,12 +19,13 @@ class AgentResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id'        => $this->id,
-            'name'      => $this->name,
-            'email'     => $this->email,
-            'phone'     => $this->phone,
-            'cell'      => $this->cell,
-            'photo_url' => $this->agent_photo_path
+            'id'          => $this->id,
+            'name'        => $this->name,
+            'designation' => $this->designation,
+            'email'       => $this->email,
+            'phone'       => $this->phone,
+            'cell'        => $this->cell,
+            'photo_url'   => $this->agent_photo_path
                 ? Storage::disk('public')->url(ltrim($this->agent_photo_path, '/'))
                 : null,
         ];
