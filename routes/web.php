@@ -1234,6 +1234,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
 
+    // Live preview of an agent's public website page (self, or any agent in the
+    // agency for managers/owner). Authorization handled in the controller.
+    // Spec: .ai/specs/testimonials.md (agent linkage).
+    Route::get('/agents/{user}/preview/{slug?}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'show'])
+        ->middleware('permission:access_my_portal')->name('corex.agents.preview');
+
+    // Agent articles (self-service, My Portal → Profile).
+    Route::middleware('permission:edit_own_profile')->group(function () {
+        Route::post('/my-portal/articles',                          [\App\Http\Controllers\Agent\AgentArticleController::class, 'store'])->name('agent.portal.articles.store');
+        Route::put('/my-portal/articles/{article}',                 [\App\Http\Controllers\Agent\AgentArticleController::class, 'update'])->name('agent.portal.articles.update');
+        Route::patch('/my-portal/articles/{article}/publish',       [\App\Http\Controllers\Agent\AgentArticleController::class, 'togglePublish'])->name('agent.portal.articles.publish');
+        Route::delete('/my-portal/articles/{article}',              [\App\Http\Controllers\Agent\AgentArticleController::class, 'destroy'])->name('agent.portal.articles.destroy');
+    });
+
     // ── My Payslips (self-service) ──
     Route::get('/my-portal/payslips', [\App\Http\Controllers\Agent\AgentPortalController::class, 'myPayslips'])
         ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips');

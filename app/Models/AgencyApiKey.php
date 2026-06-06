@@ -40,6 +40,7 @@ class AgencyApiKey extends Model implements Authenticatable
     public const SCOPE_AGENTS_READ     = 'agents:read';
     public const SCOPE_AGENCY_READ     = 'agency:read';
     public const SCOPE_TESTIMONIALS_READ = 'testimonials:read';
+    public const SCOPE_ARTICLES_READ     = 'articles:read';
     public const SCOPE_WEBHOOKS_RECEIVE = 'webhooks:receive';
 
     public const SCOPES = [
@@ -47,6 +48,7 @@ class AgencyApiKey extends Model implements Authenticatable
         self::SCOPE_AGENTS_READ        => 'Read agent profiles',
         self::SCOPE_AGENCY_READ        => 'Read agency branding & settings',
         self::SCOPE_TESTIMONIALS_READ  => 'Read published testimonials',
+        self::SCOPE_ARTICLES_READ      => 'Read published agent articles',
         self::SCOPE_WEBHOOKS_RECEIVE   => 'Receive webhook events',
     ];
 

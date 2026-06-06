@@ -72,6 +72,7 @@
                 $portalTabs = [
                     'overview' => 'Overview',
                     'profile' => 'Profile',
+                    'tools' => 'Tools',
                     'documents' => 'Documents',
                     'compliance' => 'Compliance',
                     'training' => 'Training',
@@ -306,6 +307,17 @@
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'profile'" x-cloak>
 
+        {{-- Live preview of the public agent page --}}
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 24px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+            <div>
+                <div class="text-sm font-bold" style="color:var(--text-primary);">Your public agent page</div>
+                <div class="text-xs mt-0.5" style="color:var(--text-muted);">See exactly how your profile, listings &amp; testimonials look on the agency website.</div>
+            </div>
+            <a href="{{ route('corex.agents.preview', auth()->user()) }}" target="_blank" class="corex-btn-primary text-sm" style="white-space:nowrap;">
+                Preview my agent page ↗
+            </a>
+        </div>
+
         {{-- Profile photo upload --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-bottom:20px;">
             <div class="text-sm font-bold mb-1" style="color:var(--text-primary);">Profile Photo</div>
@@ -399,6 +411,36 @@
                     </div>
                 </div>
 
+                {{-- Public website profile — About me + personal social links.
+                     Shown on the agent's public website page (distinct from the
+                     ad/OAuth accounts under the Tools tab). --}}
+                <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
+                    <div class="flex items-center gap-2 mb-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 0a8.949 8.949 0 0 0 4.951-1.488A3.987 3.987 0 0 0 13 16h-2a3.987 3.987 0 0 0-3.951 3.512A8.949 8.949 0 0 0 12 21Zm3-11a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                        <span style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Public Website Profile</span>
+                    </div>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px;">Shown on your public agent page. <a href="{{ route('corex.agents.preview', auth()->user()) }}" target="_blank" style="color:var(--brand-icon); text-decoration:underline;">Preview ↗</a></p>
+                    <div style="max-width:560px;">
+                        <div style="margin-bottom:16px;">
+                            <label for="about_me" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">About me</label>
+                            <textarea id="about_me" name="about_me" rows="4" placeholder="A short bio shown on your website profile…"
+                                      style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; resize:vertical;">{{ old('about_me', $user->about_me) }}</textarea>
+                            @error('about_me') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                            @foreach(['facebook' => 'Facebook', 'instagram' => 'Instagram', 'linkedin' => 'LinkedIn', 'youtube' => 'YouTube'] as $net => $label)
+                            <div>
+                                <label for="website_social_{{ $net }}" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">{{ $label }}</label>
+                                <input id="website_social_{{ $net }}" name="website_social_{{ $net }}" type="text"
+                                       value="{{ old('website_social_'.$net, $user->{'website_social_'.$net}) }}" placeholder="Profile URL"
+                                       style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;">
+                                @error('website_social_'.$net) <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
+                            </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+
                 {{-- Read-only admin fields --}}
                 <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
                     <div class="flex items-center gap-2 mb-3">
@@ -443,6 +485,72 @@
                 </div>
             </form>
         </div>
+
+        {{-- Articles — agent-authored content for the public website profile --}}
+        @php $inputStyle = 'width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;'; @endphp
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 4px;">Articles</h3>
+            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Write articles for your public website profile. Tick <strong>Publish</strong> to make one live; untick to hide it.</p>
+
+            {{-- Add article --}}
+            <form method="POST" action="{{ route('agent.portal.articles.store') }}" style="margin-bottom:18px; display:flex; flex-direction:column; gap:8px;">
+                @csrf
+                <input name="title" required maxlength="200" placeholder="Article title" style="{{ $inputStyle }}">
+                <input name="excerpt" maxlength="500" placeholder="Short summary (optional)" style="{{ $inputStyle }}">
+                <textarea name="body" rows="4" placeholder="Article content…" style="{{ $inputStyle }} resize:vertical;"></textarea>
+                <div style="display:flex; justify-content:flex-end;"><button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Add Article</button></div>
+            </form>
+
+            @forelse($articles as $article)
+                <div x-data="{ editing:false }" style="border:1px solid var(--border); border-radius:6px; padding:14px 16px; margin-bottom:10px; background:var(--surface-2);">
+                    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+                        <div style="min-width:0;">
+                            <div style="font-weight:600; color:var(--text-primary);">{{ $article->title }}
+                                @if($article->is_published)
+                                    <span class="ds-badge ds-badge-success" style="margin-left:6px;">Published</span>
+                                @else
+                                    <span class="ds-badge ds-badge-default" style="margin-left:6px;">Draft</span>
+                                @endif
+                            </div>
+                            @if($article->excerpt)<div style="font-size:0.8125rem; color:var(--text-secondary); margin-top:2px;">{{ $article->excerpt }}</div>@endif
+                        </div>
+                        <div style="display:flex; align-items:center; gap:14px; flex-shrink:0;">
+                            <form method="POST" action="{{ route('agent.portal.articles.publish', $article) }}">
+                                @csrf @method('PATCH')
+                                <input type="hidden" name="is_published" value="0">
+                                <label style="display:flex; align-items:center; gap:6px; font-size:0.6875rem; color:var(--text-secondary); cursor:pointer; white-space:nowrap;">
+                                    <input type="checkbox" name="is_published" value="1" onchange="this.form.submit()" {{ $article->is_published ? 'checked' : '' }} style="accent-color:var(--brand-button);">
+                                    Publish
+                                </label>
+                            </form>
+                            <button type="button" @click="editing=!editing" style="font-size:0.6875rem; font-weight:600; color:var(--brand-icon); background:none; border:none; cursor:pointer;">Edit</button>
+                            <form method="POST" action="{{ route('agent.portal.articles.destroy', $article) }}" onsubmit="return confirm('Delete this article?');">
+                                @csrf @method('DELETE')
+                                <button type="submit" style="font-size:0.6875rem; font-weight:600; color:var(--ds-crimson); background:none; border:none; cursor:pointer;">Delete</button>
+                            </form>
+                        </div>
+                    </div>
+                    <form x-show="editing" x-cloak method="POST" action="{{ route('agent.portal.articles.update', $article) }}" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+                        @csrf @method('PUT')
+                        <input name="title" required maxlength="200" value="{{ $article->title }}" style="{{ $inputStyle }} background:var(--surface);">
+                        <input name="excerpt" maxlength="500" value="{{ $article->excerpt }}" placeholder="Short summary" style="{{ $inputStyle }} background:var(--surface);">
+                        <textarea name="body" rows="4" style="{{ $inputStyle }} background:var(--surface); resize:vertical;">{{ $article->body }}</textarea>
+                        <div style="display:flex; justify-content:flex-end; gap:8px;">
+                            <button type="button" @click="editing=false" style="font-size:0.8125rem; padding:6px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); cursor:pointer;">Cancel</button>
+                            <button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Save</button>
+                        </div>
+                    </form>
+                </div>
+            @empty
+                <p style="font-size:0.8125rem; color:var(--text-muted);">No articles yet. Add one above.</p>
+            @endforelse
+        </div>
+    </div>{{-- /tab: profile --}}
+
+    {{-- ═══════════════════════════════════════════
+         TAB: TOOLS — utilities moved out of Profile
+         ═══════════════════════════════════════════ --}}
+    <div x-show="tab === 'tools'" x-cloak>
 
         {{-- Theme Preference --}}
         <div class="rounded-md p-5 mt-5" style="background:var(--surface); border:1px solid var(--border);"

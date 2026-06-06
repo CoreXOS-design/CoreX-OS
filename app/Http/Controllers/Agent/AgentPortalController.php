@@ -192,9 +192,13 @@ class AgentPortalController extends Controller
             \Log::warning('agent_portal.stats_failed', ['error' => $e->getMessage()]);
         }
 
+        // Agent-authored articles for the public website profile (Profile tab).
+        $articles = $user->articles()->latest()->get();
+
         return view('agent.portal', compact(
             'user',
             'documents',
+            'articles',
             'profileFields',
             'profilePercent',
             'complianceStatus',

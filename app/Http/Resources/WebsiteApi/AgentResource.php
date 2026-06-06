@@ -28,6 +28,15 @@ class AgentResource extends JsonResource
             'photo_url'   => $this->agent_photo_path
                 ? Storage::disk('public')->url(ltrim($this->agent_photo_path, '/'))
                 : null,
+
+            // Public agent profile (My Portal → Profile).
+            'about'   => $this->about_me,
+            'socials' => array_filter([
+                'facebook'  => $this->website_social_facebook,
+                'instagram' => $this->website_social_instagram,
+                'linkedin'  => $this->website_social_linkedin,
+                'youtube'   => $this->website_social_youtube,
+            ]),
         ];
     }
 }

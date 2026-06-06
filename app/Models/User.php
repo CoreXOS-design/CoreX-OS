@@ -67,6 +67,12 @@ class User extends Authenticatable
         'pi_insurance_expiry',
         'tax_clearance_expiry',
         'website',
+        // Public agent profile (My Portal → Profile, shown on agency websites).
+        'about_me',
+        'website_social_facebook',
+        'website_social_instagram',
+        'website_social_linkedin',
+        'website_social_youtube',
         'theme',
         'last_presentation_send_channel',
         'last_presentation_send_mode',
@@ -208,6 +214,12 @@ class User extends Authenticatable
     public function documents(): HasMany
     {
         return $this->hasMany(UserDocument::class);
+    }
+
+    /** Articles the agent has authored for their public website profile. */
+    public function articles(): HasMany
+    {
+        return $this->hasMany(AgentArticle::class, 'user_id');
     }
 
     public function verifiedDocuments(): HasMany

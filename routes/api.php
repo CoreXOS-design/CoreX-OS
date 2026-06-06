@@ -182,6 +182,11 @@ Route::prefix('v1/website')
             Route::get('/testimonials',      [\App\Http\Controllers\Api\V1\Website\TestimonialsController::class, 'index'])->name('v1.website.testimonials.index');
             Route::get('/testimonials/{id}', [\App\Http\Controllers\Api\V1\Website\TestimonialsController::class, 'show'])->name('v1.website.testimonials.show');
         });
+
+        Route::middleware('website.scope:articles:read')->group(function () {
+            Route::get('/articles',      [\App\Http\Controllers\Api\V1\Website\ArticlesController::class, 'index'])->name('v1.website.articles.index');
+            Route::get('/articles/{id}', [\App\Http\Controllers\Api\V1\Website\ArticlesController::class, 'show'])->name('v1.website.articles.show');
+        });
     });
 
 // ════════════════════════════════════════════════════════════════
