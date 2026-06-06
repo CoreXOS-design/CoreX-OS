@@ -460,6 +460,9 @@ return [
         ['key' => 'sidebar.section.branch_manager',  'label' => 'Show Branch Manager Section',   'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 2],
         ['key' => 'sidebar.section.tools',           'label' => 'Show Tools Section',            'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 3],
         ['key' => 'sidebar.section.admin',           'label' => 'Show Admin Section',            'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 5],
+
+        // ── Soft Deletes Register ──
+        ['key' => 'access_soft_deletes',             'label' => 'Access Soft Deletes Register',  'section' => 'admin',           'type' => 'access',  'module' => 'soft_deletes',     'sort_order' => 1],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -483,6 +486,8 @@ return [
                 // Sidebar sections — admin sees all
                 'sidebar.section.agents', 'sidebar.section.branch_manager',
                 'sidebar.section.tools', 'sidebar.section.admin',
+                // Soft Deletes Register
+                'access_soft_deletes',
                 // Whistleblower
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',

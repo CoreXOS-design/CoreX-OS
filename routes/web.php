@@ -190,6 +190,21 @@ Route::middleware('auth')->group(function () {
         ->middleware('permission:manage_users')
         ->name('admin.api.catalog');
 
+    // ── Admin: Soft Deletes Register (restore archived records) ──
+    // Spec: .ai/specs/soft-deletes-admin.md
+    Route::get('/admin/soft-deletes', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'index'])
+        ->middleware('permission:access_soft_deletes')
+        ->name('admin.soft-deletes.index');
+    Route::get('/admin/soft-deletes/{key}', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'show'])
+        ->middleware('permission:access_soft_deletes')
+        ->where('key', '[A-Za-z0-9.]+')
+        ->name('admin.soft-deletes.show');
+    Route::post('/admin/soft-deletes/{key}/{id}/restore', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'restore'])
+        ->middleware('permission:access_soft_deletes')
+        ->where('key', '[A-Za-z0-9.]+')
+        ->where('id', '[0-9]+')
+        ->name('admin.soft-deletes.restore');
+
     // ── Admin: AI usage / cost dashboard (MIC Phase B2) ──
     Route::get('/admin/ai-usage', [\App\Http\Controllers\Admin\AiUsageController::class, 'index'])
         ->name('admin.ai-usage.index');
