@@ -17,13 +17,18 @@ class ArticleResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id'       => $this->id,
-            'agent_id' => (int) $this->user_id,
-            'title'    => $this->title,
-            'slug'     => $this->slug,
-            'excerpt'  => $this->excerpt,
-            'body'     => $this->body,
-            'date'     => $this->published_at?->toDateString(),
+            'id'            => $this->id,
+            'agent_id'      => (int) $this->user_id,
+            'title'         => $this->title,
+            'slug'          => $this->slug,
+            'excerpt'       => $this->excerpt,
+            'cover_image_url' => $this->coverImageUrl(),
+            'body'          => $this->body,
+            'link_url'      => $this->link_url,
+            'tags'          => $this->tagList(),
+            'read_minutes'  => $this->readMinutes(),
+            'word_count'    => $this->wordCount(),
+            'date'          => $this->published_at?->toDateString(),
         ];
     }
 }

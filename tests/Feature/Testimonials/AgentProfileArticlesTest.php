@@ -138,6 +138,78 @@ class AgentProfileArticlesTest extends TestCase
             ->assertDontSee('Hidden draft');
     }
 
+    public function test_article_store_persists_link_tags_and_computes_readtime(): void
+    {
+        $this->actingAs($this->agent)->post(route('agent.portal.articles.store'), [
+            'title'    => 'Bond approval explained',
+            'body'     => str_repeat('word ', 400),
+            'link_url' => 'https://hfcoastal.co.za/bonds',
+            'tags'     => 'BondApproval, HomeBuying',
+        ])->assertRedirect();
+
+        $a = AgentArticle::withoutGlobalScope(AgencyScope::class)->first();
+        $this->assertSame('https://hfcoastal.co.za/bonds', $a->link_url);
+        $this->assertSame(['BondApproval', 'HomeBuying'], $a->tagList());
+        $this->assertSame(400, $a->wordCount());
+        $this->assertSame(2, $a->readMinutes()); // 400 / 200 wpm
+    }
+
+    public function test_article_cover_image_upload(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+
+        $this->actingAs($this->agent)->post(route('agent.portal.articles.store'), [
+            'title'       => 'With cover',
+            'cover_image' => \Illuminate\Http\UploadedFile::fake()->image('cover.jpg', 800, 600),
+        ])->assertRedirect();
+
+        $a = AgentArticle::withoutGlobalScope(AgencyScope::class)->first();
+        $this->assertNotNull($a->cover_image_path);
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($a->cover_image_path);
+    }
+
+    public function test_public_api_article_exposes_advanced_fields(): void
+    {
+        AgentArticle::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'user_id' => $this->agent->id, 'title' => 'T',
+            'body' => str_repeat('word ', 250), 'link_url' => 'https://x.co', 'tags' => 'A, B',
+            'is_published' => true, 'published_at' => now(),
+        ]);
+        $token = $this->keyToken([AgencyApiKey::SCOPE_ARTICLES_READ]);
+
+        $this->withToken($token)->getJson('/api/v1/website/articles')->assertOk()
+            ->assertJsonPath('data.0.read_minutes', 2)
+            ->assertJsonPath('data.0.word_count', 250)
+            ->assertJsonPath('data.0.link_url', 'https://x.co')
+            ->assertJsonPath('data.0.tags', ['A', 'B']);
+    }
+
+    public function test_article_preview_page_renders(): void
+    {
+        $a = AgentArticle::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'user_id' => $this->agent->id,
+            'title' => 'Bond approval explained', 'body' => 'Some body content here.',
+            'tags' => 'BondApproval', 'is_published' => true, 'published_at' => now(),
+        ]);
+
+        $this->actingAs($this->agent)
+            ->get(route('corex.agents.article.preview', [$this->agent, $a, $a->previewSlug()]))
+            ->assertOk()
+            ->assertSee('Bond approval explained')
+            ->assertSee('Thandi Mbeki')
+            ->assertSee('#BondApproval')
+            ->assertSee('View My Profile');
+    }
+
+    public function test_preview_shows_social_icon_link(): void
+    {
+        $this->agent->update(['website_social_facebook' => 'https://facebook.com/thandi']);
+
+        $this->actingAs($this->agent)->get(route('corex.agents.preview', $this->agent))
+            ->assertOk()
+            ->assertSee('https://facebook.com/thandi');
+    }
+
     private function keyToken(array $scopes): string
     {
         $minted = AgencyApiKey::mintSecret();

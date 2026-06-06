@@ -493,11 +493,20 @@
             <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Write articles for your public website profile. Tick <strong>Publish</strong> to make one live; untick to hide it.</p>
 
             {{-- Add article --}}
-            <form method="POST" action="{{ route('agent.portal.articles.store') }}" style="margin-bottom:18px; display:flex; flex-direction:column; gap:8px;">
+            <form method="POST" action="{{ route('agent.portal.articles.store') }}" enctype="multipart/form-data" style="margin-bottom:18px; display:flex; flex-direction:column; gap:8px;">
                 @csrf
                 <input name="title" required maxlength="200" placeholder="Article title" style="{{ $inputStyle }}">
                 <input name="excerpt" maxlength="500" placeholder="Short summary (optional)" style="{{ $inputStyle }}">
-                <textarea name="body" rows="4" placeholder="Article content…" style="{{ $inputStyle }} resize:vertical;"></textarea>
+                <textarea name="body" rows="5" placeholder="Article content…" style="{{ $inputStyle }} resize:vertical;"></textarea>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                    <input name="link_url" type="url" maxlength="500" placeholder="Connecting link (optional, e.g. https://…)" style="{{ $inputStyle }}">
+                    <input name="tags" maxlength="500" placeholder="Tags, comma separated (e.g. BondApproval, HomeBuying)" style="{{ $inputStyle }}">
+                </div>
+                <label style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Cover image (optional)
+                    <input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp" style="display:block; margin-top:4px; font-size:0.8125rem; color:var(--text-secondary);">
+                </label>
+                @error('cover_image') <p style="font-size:0.6875rem; color:var(--ds-crimson);">{{ $message }}</p> @enderror
+                @error('link_url') <p style="font-size:0.6875rem; color:var(--ds-crimson);">{{ $message }}</p> @enderror
                 <div style="display:flex; justify-content:flex-end;"><button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Add Article</button></div>
             </form>
 
@@ -513,6 +522,10 @@
                                 @endif
                             </div>
                             @if($article->excerpt)<div style="font-size:0.8125rem; color:var(--text-secondary); margin-top:2px;">{{ $article->excerpt }}</div>@endif
+                            <div style="font-size:0.6875rem; color:var(--text-muted); margin-top:4px;">
+                                {{ $article->readMinutes() }} MIN • {{ number_format($article->wordCount()) }} Words
+                                · <a href="{{ route('corex.agents.article.preview', [auth()->user(), $article, $article->previewSlug()]) }}" target="_blank" style="color:var(--brand-icon); text-decoration:underline;">Preview ↗</a>
+                            </div>
                         </div>
                         <div style="display:flex; align-items:center; gap:14px; flex-shrink:0;">
                             <form method="POST" action="{{ route('agent.portal.articles.publish', $article) }}">
@@ -530,11 +543,24 @@
                             </form>
                         </div>
                     </div>
-                    <form x-show="editing" x-cloak method="POST" action="{{ route('agent.portal.articles.update', $article) }}" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+                    <form x-show="editing" x-cloak method="POST" action="{{ route('agent.portal.articles.update', $article) }}" enctype="multipart/form-data" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
                         @csrf @method('PUT')
                         <input name="title" required maxlength="200" value="{{ $article->title }}" style="{{ $inputStyle }} background:var(--surface);">
                         <input name="excerpt" maxlength="500" value="{{ $article->excerpt }}" placeholder="Short summary" style="{{ $inputStyle }} background:var(--surface);">
-                        <textarea name="body" rows="4" style="{{ $inputStyle }} background:var(--surface); resize:vertical;">{{ $article->body }}</textarea>
+                        <textarea name="body" rows="5" style="{{ $inputStyle }} background:var(--surface); resize:vertical;">{{ $article->body }}</textarea>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <input name="link_url" type="url" maxlength="500" value="{{ $article->link_url }}" placeholder="Connecting link (optional)" style="{{ $inputStyle }} background:var(--surface);">
+                            <input name="tags" maxlength="500" value="{{ $article->tags }}" placeholder="Tags, comma separated" style="{{ $inputStyle }} background:var(--surface);">
+                        </div>
+                        @if($article->coverImageUrl())
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <img src="{{ $article->coverImageUrl() }}" alt="cover" style="width:60px; height:45px; object-fit:cover; border-radius:4px; border:1px solid var(--border);">
+                                <label style="font-size:0.6875rem; color:var(--text-secondary); display:flex; align-items:center; gap:5px; cursor:pointer;"><input type="checkbox" name="remove_cover" value="1" style="accent-color:var(--ds-crimson);"> Remove cover image</label>
+                            </div>
+                        @endif
+                        <label style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">{{ $article->coverImageUrl() ? 'Replace' : 'Add' }} cover image
+                            <input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp" style="display:block; margin-top:4px; font-size:0.8125rem; color:var(--text-secondary);">
+                        </label>
                         <div style="display:flex; justify-content:flex-end; gap:8px;">
                             <button type="button" @click="editing=false" style="font-size:0.8125rem; padding:6px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); cursor:pointer;">Cancel</button>
                             <button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Save</button>

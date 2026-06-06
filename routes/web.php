@@ -1239,6 +1239,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Spec: .ai/specs/testimonials.md (agent linkage).
     Route::get('/agents/{user}/preview/{slug?}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'show'])
         ->middleware('permission:access_my_portal')->name('corex.agents.preview');
+    Route::get('/agents/{user}/articles/{article}/preview/{slug?}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'article'])
+        ->middleware('permission:access_my_portal')->name('corex.agents.article.preview');
 
     // Agent articles (self-service, My Portal → Profile).
     Route::middleware('permission:edit_own_profile')->group(function () {

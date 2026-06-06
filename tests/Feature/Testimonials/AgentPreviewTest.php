@@ -58,7 +58,9 @@ class AgentPreviewTest extends TestCase
             ->assertSee('Thandi Mbeki')
             ->assertSee('Principal Property Practitioner')
             ->assertSee('CoreX live preview')
-            ->assertSee('Sea-view stunner')
+            ->assertSee('For Sale')        // status badge on the listing card
+            ->assertSee('Uvongo')          // listing suburb
+            ->assertSee('House')           // listing property type
             ->assertSee('Sold our home in a week — superb service.', false)
             ->assertSee('Andre R.');
     }
@@ -74,7 +76,8 @@ class AgentPreviewTest extends TestCase
         $this->actingAs($agent)
             ->get(route('corex.agents.preview', $agent))
             ->assertOk()
-            ->assertSee('No active listings yet.')
-            ->assertSee('No published testimonials yet.');
+            ->assertSee('New Agent')
+            ->assertSee('No listings yet.')
+            ->assertSee('How Can I Help?');
     }
 }

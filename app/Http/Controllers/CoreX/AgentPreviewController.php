@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\AgentArticle;
 use App\Models\ContactTestimonial;
 use App\Models\Property;
 use App\Models\User;
@@ -36,13 +37,14 @@ class AgentPreviewController extends Controller
 
         $user->load(['branch', 'agency']);
 
-        // The agent's listings, exactly as a website would show them (active
-        // stock, newest first). Each links through to its own live preview.
+        // The agent's listings as a website shows them: For Sale first, then
+        // Under Offer, then Sold (social proof). Each links to its live preview.
         $listings = Property::query()
             ->where('agent_id', $user->id)
-            ->where('status', 'active')
+            ->whereIn('status', ['active', 'pending', 'under_offer', 'sold'])
+            ->orderByRaw("FIELD(status, 'active', 'pending', 'under_offer', 'sold')")
             ->latest('published_at')
-            ->limit(24)
+            ->limit(60)
             ->get();
 
         // Published testimonials tagged to this agent (the website set).
@@ -65,6 +67,30 @@ class AgentPreviewController extends Controller
             'testimonials' => $testimonials,
             'articles'     => $articles,
             'isSelf'       => $user->id === $viewer->id,
+        ]);
+    }
+
+    /** Full preview of a single article (the "click to read" view). */
+    public function article(Request $request, User $user, AgentArticle $article)
+    {
+        $viewer = auth()->user();
+        abort_unless($viewer !== null, 403);
+        abort_unless((int) $article->user_id === (int) $user->id, 404);
+
+        $sameAgency    = (int) $user->agency_id === (int) $viewer->effectiveAgencyId();
+        $canViewOthers = $viewer->isOwnerRole() || $viewer->hasPermission('manage_users');
+        abort_unless(
+            $user->id === $viewer->id || $viewer->isOwnerRole() || ($sameAgency && $canViewOthers),
+            403,
+            'You can only preview your own articles.'
+        );
+
+        $user->load(['branch', 'agency']);
+
+        return view('corex.agents.article-preview', [
+            'agent'   => $user,
+            'agency'  => $user->agency,
+            'article' => $article,
         ]);
     }
 }
