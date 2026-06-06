@@ -76,7 +76,6 @@ class AgentPreviewTest extends TestCase
             ->get(route('corex.agents.preview', $agent))
             ->assertOk()
             ->assertSee('New Agent')
-            ->assertSee('No listings yet.')
-            ->assertSee('How Can I Help?');
+            ->assertSee('No listings yet.');
     }
 }

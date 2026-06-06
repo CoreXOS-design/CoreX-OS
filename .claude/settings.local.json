@@ -81,7 +81,8 @@
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 -Full 2>&1 | Select-Object -Last 25)",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 14)",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 16)",
-      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 12)"
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 12)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 11)"
     ]
   }
 }

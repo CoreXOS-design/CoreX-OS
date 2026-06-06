@@ -488,7 +488,7 @@
 
         {{-- Articles — agent-authored content for the public website profile --}}
         @php $inputStyle = 'width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;'; @endphp
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+        <div x-data="{ editingId: null }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 4px;">Articles</h3>
             <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Write articles for your public website profile. Tick <strong>Publish</strong> to make one live; untick to hide it.</p>
 
@@ -510,47 +510,53 @@
                 <div style="display:flex; justify-content:flex-end;"><button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Add Article</button></div>
             </form>
 
-            @forelse($articles as $article)
-                <div x-data="{ editing:false }" style="border:1px solid var(--border); border-radius:6px; padding:14px 16px; margin-bottom:10px; background:var(--surface-2);">
-                    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
-                        <div style="min-width:0;">
-                            <div style="font-weight:600; color:var(--text-primary);">{{ $article->title }}
-                                @if($article->is_published)
-                                    <span class="ds-badge ds-badge-success" style="margin-left:6px;">Published</span>
-                                @else
-                                    <span class="ds-badge ds-badge-default" style="margin-left:6px;">Draft</span>
+            @if($articles->isEmpty())
+                <p style="font-size:0.8125rem; color:var(--text-muted);">No articles yet. Add one above.</p>
+            @else
+                {{-- Carousel of square article cards (cover image, or blank if none) --}}
+                <div style="display:flex; gap:14px; overflow-x:auto; padding-bottom:10px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch;">
+                    @foreach($articles as $article)
+                        <div style="flex:0 0 200px; scroll-snap-align:start;">
+                            <div style="position:relative; width:200px; height:200px; border-radius:10px; overflow:hidden; border:1px solid var(--border); background:var(--surface-2);">
+                                @if($article->coverImageUrl())
+                                    <img src="{{ $article->coverImageUrl() }}" alt="{{ $article->title }}" style="width:100%; height:100%; object-fit:cover;">
                                 @endif
+                                <span class="ds-badge {{ $article->is_published ? 'ds-badge-success' : 'ds-badge-default' }}" style="position:absolute; top:8px; left:8px;">{{ $article->is_published ? 'Published' : 'Draft' }}</span>
+                                <div style="position:absolute; left:0; right:0; bottom:0; padding:26px 10px 10px; background:linear-gradient(to top, rgba(0,0,0,.72), transparent); color:#fff; font-weight:700; font-size:0.8125rem; line-height:1.25;">{{ \Illuminate\Support\Str::limit($article->title, 60) }}</div>
                             </div>
-                            @if($article->excerpt)<div style="font-size:0.8125rem; color:var(--text-secondary); margin-top:2px;">{{ $article->excerpt }}</div>@endif
-                            <div style="font-size:0.6875rem; color:var(--text-muted); margin-top:4px;">
-                                {{ $article->readMinutes() }} MIN • {{ number_format($article->wordCount()) }} Words
-                                · <a href="{{ route('corex.agents.article.preview', [auth()->user(), $article, $article->previewSlug()]) }}" target="_blank" style="color:var(--brand-icon); text-decoration:underline;">Preview ↗</a>
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:7px;">
+                                <span style="font-size:0.625rem; color:var(--text-muted);">{{ $article->readMinutes() }} MIN • {{ number_format($article->wordCount()) }}w</span>
+                                <div style="display:flex; align-items:center; gap:12px;">
+                                    <a href="{{ route('corex.agents.article.preview', [auth()->user(), $article, $article->previewSlug()]) }}" target="_blank" title="Preview" style="font-size:0.75rem; color:var(--brand-icon); text-decoration:none;">↗</a>
+                                    <button type="button" @click="editingId = (editingId === {{ $article->id }} ? null : {{ $article->id }})" style="font-size:0.6875rem; font-weight:600; color:var(--brand-icon); background:none; border:none; cursor:pointer;">Edit</button>
+                                    <form method="POST" action="{{ route('agent.portal.articles.destroy', $article) }}" onsubmit="return confirm('Delete this article?');">
+                                        @csrf @method('DELETE')
+                                        <button type="submit" title="Delete" style="font-size:0.75rem; font-weight:700; color:var(--ds-crimson); background:none; border:none; cursor:pointer;">✕</button>
+                                    </form>
+                                </div>
                             </div>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:14px; flex-shrink:0;">
-                            <form method="POST" action="{{ route('agent.portal.articles.publish', $article) }}">
+                            <form method="POST" action="{{ route('agent.portal.articles.publish', $article) }}" style="margin-top:4px;">
                                 @csrf @method('PATCH')
                                 <input type="hidden" name="is_published" value="0">
-                                <label style="display:flex; align-items:center; gap:6px; font-size:0.6875rem; color:var(--text-secondary); cursor:pointer; white-space:nowrap;">
-                                    <input type="checkbox" name="is_published" value="1" onchange="this.form.submit()" {{ $article->is_published ? 'checked' : '' }} style="accent-color:var(--brand-button);">
-                                    Publish
+                                <label style="display:flex; align-items:center; gap:5px; font-size:0.625rem; color:var(--text-secondary); cursor:pointer;">
+                                    <input type="checkbox" name="is_published" value="1" onchange="this.form.submit()" {{ $article->is_published ? 'checked' : '' }} style="accent-color:var(--brand-button);"> On website
                                 </label>
                             </form>
-                            <button type="button" @click="editing=!editing" style="font-size:0.6875rem; font-weight:600; color:var(--brand-icon); background:none; border:none; cursor:pointer;">Edit</button>
-                            <form method="POST" action="{{ route('agent.portal.articles.destroy', $article) }}" onsubmit="return confirm('Delete this article?');">
-                                @csrf @method('DELETE')
-                                <button type="submit" style="font-size:0.6875rem; font-weight:600; color:var(--ds-crimson); background:none; border:none; cursor:pointer;">Delete</button>
-                            </form>
                         </div>
-                    </div>
-                    <form x-show="editing" x-cloak method="POST" action="{{ route('agent.portal.articles.update', $article) }}" enctype="multipart/form-data" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+                    @endforeach
+                </div>
+
+                {{-- Edit panels (full-width, shown when a card's Edit is clicked) --}}
+                @foreach($articles as $article)
+                    <form x-show="editingId === {{ $article->id }}" x-cloak method="POST" action="{{ route('agent.portal.articles.update', $article) }}" enctype="multipart/form-data" style="margin-top:14px; display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--border); padding-top:14px;">
                         @csrf @method('PUT')
-                        <input name="title" required maxlength="200" value="{{ $article->title }}" style="{{ $inputStyle }} background:var(--surface);">
-                        <input name="excerpt" maxlength="500" value="{{ $article->excerpt }}" placeholder="Short summary" style="{{ $inputStyle }} background:var(--surface);">
-                        <textarea name="body" rows="5" style="{{ $inputStyle }} background:var(--surface); resize:vertical;">{{ $article->body }}</textarea>
+                        <div style="font-size:0.6875rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Editing: {{ $article->title }}</div>
+                        <input name="title" required maxlength="200" value="{{ $article->title }}" style="{{ $inputStyle }}">
+                        <input name="excerpt" maxlength="500" value="{{ $article->excerpt }}" placeholder="Short summary" style="{{ $inputStyle }}">
+                        <textarea name="body" rows="5" style="{{ $inputStyle }} resize:vertical;">{{ $article->body }}</textarea>
                         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                            <input name="link_url" type="url" maxlength="500" value="{{ $article->link_url }}" placeholder="Connecting link (optional)" style="{{ $inputStyle }} background:var(--surface);">
-                            <input name="tags" maxlength="500" value="{{ $article->tags }}" placeholder="Tags, comma separated" style="{{ $inputStyle }} background:var(--surface);">
+                            <input name="link_url" type="url" maxlength="500" value="{{ $article->link_url }}" placeholder="Connecting link (optional)" style="{{ $inputStyle }}">
+                            <input name="tags" maxlength="500" value="{{ $article->tags }}" placeholder="Tags, comma separated" style="{{ $inputStyle }}">
                         </div>
                         @if($article->coverImageUrl())
                             <div style="display:flex; align-items:center; gap:10px;">
@@ -562,14 +568,12 @@
                             <input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp" style="display:block; margin-top:4px; font-size:0.8125rem; color:var(--text-secondary);">
                         </label>
                         <div style="display:flex; justify-content:flex-end; gap:8px;">
-                            <button type="button" @click="editing=false" style="font-size:0.8125rem; padding:6px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); cursor:pointer;">Cancel</button>
+                            <button type="button" @click="editingId = null" style="font-size:0.8125rem; padding:6px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); cursor:pointer;">Cancel</button>
                             <button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Save</button>
                         </div>
                     </form>
-                </div>
-            @empty
-                <p style="font-size:0.8125rem; color:var(--text-muted);">No articles yet. Add one above.</p>
-            @endforelse
+                @endforeach
+            @endif
         </div>
     </div>{{-- /tab: profile --}}
 
