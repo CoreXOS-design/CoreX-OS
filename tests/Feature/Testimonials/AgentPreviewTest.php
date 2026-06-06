@@ -57,7 +57,6 @@ class AgentPreviewTest extends TestCase
             ->assertOk()
             ->assertSee('Thandi Mbeki')
             ->assertSee('Principal Property Practitioner')
-            ->assertSee('CoreX live preview')
             ->assertSee('For Sale')        // status badge on the listing card
             ->assertSee('Uvongo')          // listing suburb
             ->assertSee('House')           // listing property type

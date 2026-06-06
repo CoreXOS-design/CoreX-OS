@@ -201,6 +201,21 @@ class AgentProfileArticlesTest extends TestCase
             ->assertSee('View My Profile');
     }
 
+    public function test_about_me_saved_via_profile_form_shows_on_preview(): void
+    {
+        // Save through the real profile route (the form an agent submits)…
+        $this->actingAs($this->agent)->patch(route('agent.portal.profile.update'), [
+            'name' => 'Thandi Mbeki', 'email' => 'thandi@coastal.example', 'cell' => '0825550100',
+            'about_me' => 'KZN South Coast specialist — Get to Know Me text.',
+        ])->assertRedirect();
+
+        // …then it appears in the Get to Know Me section of the preview.
+        $this->actingAs($this->agent)->get(route('corex.agents.preview', $this->agent))
+            ->assertOk()
+            ->assertSee('Get to Know Me')
+            ->assertSee('KZN South Coast specialist — Get to Know Me text.', false);
+    }
+
     public function test_preview_shows_social_icon_link(): void
     {
         $this->agent->update(['website_social_facebook' => 'https://facebook.com/thandi']);

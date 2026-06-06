@@ -83,18 +83,6 @@
 </head>
 <body>
 
-{{-- Preview banner --}}
-<div style="position:sticky; top:0; z-index:50; background:var(--brand-default); color:#fff;" class="px-4 py-2.5">
-    <div class="wrap flex items-center justify-between gap-3 flex-wrap" style="padding-left:0;padding-right:0;">
-        <div class="flex items-center gap-2 text-xs">
-            <span style="font-weight:700;">CoreX live preview</span>
-            <span style="opacity:.7;">— how {{ $isSelf ? 'your' : $agent->name."'s" }} agent page appears on the website.</span>
-            <span class="badge" style="background:rgba(255,255,255,.16); color:#fff;">{{ $agent->show_on_website ? '● On website' : 'Not published yet' }}</span>
-        </div>
-        <a href="{{ route('agent.portal') }}#profile" style="color:#fff; text-decoration:underline; opacity:.9; font-size:.8125rem;">← Back to My Portal</a>
-    </div>
-</div>
-
 {{-- CONTACT CARD --}}
 <section style="background:var(--brand-default); color:#fff;">
     <div class="wrap" style="padding-top:2.5rem; padding-bottom:2.5rem;">
