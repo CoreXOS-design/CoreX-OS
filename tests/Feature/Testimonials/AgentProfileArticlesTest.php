@@ -158,10 +158,11 @@ class AgentProfileArticlesTest extends TestCase
     {
         \Illuminate\Support\Facades\Storage::fake('public');
 
+        // A large (~10 MB) image — proves there is no size cap.
         $this->actingAs($this->agent)->post(route('agent.portal.articles.store'), [
             'title'       => 'With cover',
-            'cover_image' => \Illuminate\Http\UploadedFile::fake()->image('cover.jpg', 800, 600),
-        ])->assertRedirect();
+            'cover_image' => \Illuminate\Http\UploadedFile::fake()->image('cover.jpg', 800, 600)->size(10240),
+        ])->assertSessionHasNoErrors()->assertRedirect();
 
         $a = AgentArticle::withoutGlobalScope(AgencyScope::class)->first();
         $this->assertNotNull($a->cover_image_path);

@@ -102,7 +102,9 @@ class AgentArticleController extends Controller
             'body'        => ['nullable', 'string', 'max:50000'],
             'link_url'    => ['nullable', 'url', 'max:500'],
             'tags'        => ['nullable', 'string', 'max:500'],
-            'cover_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+            // No size cap — any image may be uploaded (subject only to the
+            // server's PHP upload_max_filesize / post_max_size).
+            'cover_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp'],
         ]);
     }
 
