@@ -244,6 +244,19 @@ class Phase2WebsiteApiTest extends TestCase
             ->assertJsonPath('data.agent_order_mode', 'alphabetical');
     }
 
+    public function test_agents_custom_order_partial_numbering_rest_alphabetical(): void
+    {
+        // Only Bob is numbered; the rest (Anna, Zoe, + setUp's Thandi) have no number.
+        $this->agency->update(['website_agent_order_mode' => 'custom']);
+        $this->makeAgent('Bob', 1);
+        $this->makeAgent('Zoe', null);
+        $this->makeAgent('Anna', null);
+
+        // Expected: Bob (numbered) first, then the un-numbered ones A–Z.
+        $names = collect($this->withToken($this->token)->getJson('/api/v1/website/agents')->json('data'))->pluck('name')->all();
+        $this->assertSame(['Bob', 'Anna', 'Thandi Mbeki', 'Zoe'], $names);
+    }
+
     public function test_agents_custom_order(): void
     {
         // All setup BEFORE any request (the test guard memoizes the key/agency).
