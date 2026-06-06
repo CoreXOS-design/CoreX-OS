@@ -58,6 +58,22 @@ class Phase5bWebsiteTabTest extends TestCase
         $this->assertFalse((bool) $a->website_show_listings);
     }
 
+    public function test_website_tab_saves_agent_order_mode_and_positions(): void
+    {
+        $branch = \App\Models\Branch::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $this->agency->id)->first();
+        $a = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $branch->id, 'role' => 'agent', 'show_on_website' => true]);
+        $b = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $branch->id, 'role' => 'agent', 'show_on_website' => true]);
+
+        $this->actingAs($this->user)->put(route('admin.company-settings.website.update', $this->agency), [
+            'website_agent_order_mode' => 'custom',
+            'agent_order' => [$a->id => 2, $b->id => 1],
+        ])->assertRedirect();
+
+        $this->assertSame('custom', $this->agency->fresh()->website_agent_order_mode);
+        $this->assertSame(2, (int) $a->fresh()->website_order);
+        $this->assertSame(1, (int) $b->fresh()->website_order);
+    }
+
     public function test_invalid_url_and_email_are_rejected(): void
     {
         $this->actingAs($this->user)->put(route('admin.company-settings.website.update', $this->agency), [

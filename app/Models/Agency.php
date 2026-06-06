@@ -166,7 +166,12 @@ class Agency extends Model
         'website_contact_phone',
         'website_show_agents',
         'website_show_listings',
+        'website_agent_order_mode',
     ];
+
+    /** Website agent ordering modes. */
+    public const AGENT_ORDER_ALPHABETICAL = 'alphabetical';
+    public const AGENT_ORDER_CUSTOM       = 'custom';
 
     protected $casts = [
         'is_active' => 'boolean',

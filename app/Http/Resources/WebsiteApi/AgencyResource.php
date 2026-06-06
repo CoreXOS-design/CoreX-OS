@@ -51,6 +51,10 @@ class AgencyResource extends JsonResource
                 'agents'   => (bool) $this->website_show_agents,
                 'listings' => (bool) $this->website_show_listings,
             ],
+
+            // How /agents is ordered ('alphabetical' | 'custom'). The /agents
+            // response is already sorted accordingly — this is just informational.
+            'agent_order_mode' => $this->website_agent_order_mode ?: 'alphabetical',
         ];
     }
 }

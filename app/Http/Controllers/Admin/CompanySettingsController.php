@@ -158,12 +158,32 @@ class CompanySettingsController extends Controller
             'website_social_youtube'   => ['nullable', 'string', 'max:255'],
             'website_contact_email'    => ['nullable', 'email', 'max:255'],
             'website_contact_phone'    => ['nullable', 'string', 'max:255'],
+            'website_agent_order_mode' => ['nullable', 'in:alphabetical,custom'],
+            'agent_order'              => ['nullable', 'array'],
+            'agent_order.*'            => ['nullable', 'integer', 'min:1', 'max:9999'],
         ]);
 
-        $data['website_show_agents']   = $request->boolean('website_show_agents');
-        $data['website_show_listings'] = $request->boolean('website_show_listings');
+        $agentOrder = $data['agent_order'] ?? [];
+        unset($data['agent_order']);
+
+        $data['website_show_agents']      = $request->boolean('website_show_agents');
+        $data['website_show_listings']    = $request->boolean('website_show_listings');
+        $data['website_agent_order_mode'] = $data['website_agent_order_mode'] ?? Agency::AGENT_ORDER_ALPHABETICAL;
 
         $agency->update($data);
+
+        // Persist per-agent positions (only this agency's users; ignore unknowns).
+        if (!empty($agentOrder)) {
+            $agencyUserIds = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->where('agency_id', $agency->id)->pluck('id')->all();
+            foreach ($agentOrder as $userId => $position) {
+                if (in_array((int) $userId, $agencyUserIds, true)) {
+                    \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                        ->where('id', (int) $userId)
+                        ->update(['website_order' => $position !== null && $position !== '' ? (int) $position : null]);
+                }
+            }
+        }
 
         return redirect()->route('admin.company-settings', ['agency' => $agency->id, 'tab' => 'website'])
             ->with('success', 'Website settings updated.');

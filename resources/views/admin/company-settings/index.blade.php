@@ -788,6 +788,49 @@
                     </label>
                 </div>
 
+                {{-- Agent ordering on the website --}}
+                @php
+                    $orderMode = old('website_agent_order_mode', $agency->website_agent_order_mode ?? 'alphabetical');
+                    $websiteAgents = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                        ->where('agency_id', $agency->id)
+                        ->where('show_on_website', true)
+                        ->orderByRaw('website_order IS NULL, website_order ASC')
+                        ->orderBy('name')
+                        ->get(['id', 'name', 'website_order']);
+                @endphp
+                <div class="pt-3 space-y-3" style="border-top:1px solid var(--border);"
+                     x-data="{ mode: '{{ $orderMode }}' }">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Agent order on website</div>
+                        <div class="text-xs" style="color:var(--text-secondary);">How agents are ordered on the website's “meet the team”.</div>
+                    </div>
+                    <div class="flex gap-5">
+                        <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                            <input type="radio" name="website_agent_order_mode" value="alphabetical" x-model="mode" style="accent-color:var(--brand-icon, #0ea5e9);">
+                            Alphabetical (A–Z)
+                        </label>
+                        <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                            <input type="radio" name="website_agent_order_mode" value="custom" x-model="mode" style="accent-color:var(--brand-icon, #0ea5e9);">
+                            Custom order
+                        </label>
+                    </div>
+
+                    {{-- Custom: number each agent (1, 2, 3 …). Blank = sorted last. --}}
+                    <div x-show="mode === 'custom'" x-cloak class="space-y-1.5">
+                        @forelse($websiteAgents as $wa)
+                            <div class="flex items-center gap-3">
+                                <input type="number" min="1" max="9999" name="agent_order[{{ $wa->id }}]"
+                                       value="{{ old('agent_order.'.$wa->id, $wa->website_order) }}"
+                                       class="w-16 rounded-md px-2 py-1 text-sm" placeholder="#"
+                                       style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
+                                <span class="text-sm" style="color:var(--text-primary);">{{ $wa->name }}</span>
+                            </div>
+                        @empty
+                            <p class="text-xs" style="color:var(--text-muted);">No agents are shown on the website yet. Turn on “Show on website” for agents first (Admin → Users, or the bulk button in API Access).</p>
+                        @endforelse
+                    </div>
+                </div>
+
                 <button type="submit" class="corex-btn-primary">Save Website Settings</button>
             </form>
         </div>

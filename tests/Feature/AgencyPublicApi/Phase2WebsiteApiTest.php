@@ -231,6 +231,43 @@ class Phase2WebsiteApiTest extends TestCase
         $this->assertSame('Open house', $data['show_days'][0]['note']);
     }
 
+    public function test_agents_default_alphabetical_order(): void
+    {
+        // setUp already has visible "Thandi Mbeki".
+        $this->makeAgent('Zoe', 1);
+        $this->makeAgent('Anna', 2);
+        $this->makeAgent('Bob', 3);
+
+        $names = collect($this->withToken($this->token)->getJson('/api/v1/website/agents')->json('data'))->pluck('name')->all();
+        $this->assertSame(['Anna', 'Bob', 'Thandi Mbeki', 'Zoe'], $names);
+        $this->withToken($this->token)->getJson('/api/v1/website/agency')
+            ->assertJsonPath('data.agent_order_mode', 'alphabetical');
+    }
+
+    public function test_agents_custom_order(): void
+    {
+        // All setup BEFORE any request (the test guard memoizes the key/agency).
+        $this->agency->update(['website_agent_order_mode' => 'custom']);
+        $zoe = $this->makeAgent('Zoe', 1);
+        $anna = $this->makeAgent('Anna', 2);
+        $bob = $this->makeAgent('Bob', 3);
+
+        // Custom = by website_order (Zoe=1, Anna=2, Bob=3), null-order (Thandi from setUp) last.
+        $ids = collect($this->withToken($this->token)->getJson('/api/v1/website/agents')->json('data'))->pluck('id')->all();
+        $this->assertSame([$zoe->id, $anna->id, $bob->id, $this->agent->id], $ids);
+
+        $this->withToken($this->token)->getJson('/api/v1/website/agency')
+            ->assertJsonPath('data.agent_order_mode', 'custom');
+    }
+
+    private function makeAgent(string $name, ?int $order): User
+    {
+        return User::factory()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'role' => 'agent', 'name' => $name, 'show_on_website' => true, 'website_order' => $order,
+        ]);
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private function makeProperty(string $title, string $status, int $price): Property

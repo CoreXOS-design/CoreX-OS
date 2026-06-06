@@ -28,8 +28,11 @@ DROP TABLE IF EXISTS `activity_definition_calendar_classes`;
 CREATE TABLE `activity_definition_calendar_classes` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint(20) unsigned NOT NULL,
-  `event_class` varchar(64) NOT NULL,
+  `event_class` varchar(64) DEFAULT NULL,
   `activity_definition_id` bigint(20) unsigned NOT NULL,
+  `trigger_kind` varchar(16) NOT NULL DEFAULT 'calendar',
+  `slug` varchar(64) DEFAULT NULL,
+  `subject_type` varchar(100) DEFAULT NULL,
   `value_per_event` int(11) NOT NULL DEFAULT 1,
   `requires_feedback` tinyint(1) NOT NULL DEFAULT 1,
   `auto_revoke_after_hours` int(11) DEFAULT 24,
@@ -43,10 +46,12 @@ CREATE TABLE `activity_definition_calendar_classes` (
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `adcc_agency_class_def_unique` (`agency_id`,`event_class`,`activity_definition_id`,`deleted_at`),
+  UNIQUE KEY `adcc_agency_slug_unique` (`agency_id`,`slug`,`deleted_at`),
   KEY `adcc_def_fk` (`activity_definition_id`),
   KEY `adcc_created_by_fk` (`created_by`),
   KEY `adcc_updated_by_fk` (`updated_by`),
   KEY `adcc_agency_class_active_idx` (`agency_id`,`event_class`,`is_active`),
+  KEY `adcc_agency_kind_active_idx` (`agency_id`,`trigger_kind`,`is_active`),
   CONSTRAINT `adcc_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `adcc_created_by_fk` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `adcc_def_fk` FOREIGN KEY (`activity_definition_id`) REFERENCES `activity_definitions` (`id`) ON DELETE CASCADE,
@@ -273,6 +278,7 @@ CREATE TABLE `agencies` (
   `website_contact_phone` varchar(255) DEFAULT NULL,
   `website_show_agents` tinyint(1) NOT NULL DEFAULT 1,
   `website_show_listings` tinyint(1) NOT NULL DEFAULT 1,
+  `website_agent_order_mode` varchar(255) NOT NULL DEFAULT 'alphabetical',
   PRIMARY KEY (`id`),
   UNIQUE KEY `agencies_slug_unique` (`slug`),
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
@@ -2724,6 +2730,8 @@ CREATE TABLE `daily_activity_entries` (
   `point_state` varchar(20) NOT NULL DEFAULT 'confirmed',
   `source` varchar(20) NOT NULL DEFAULT 'manual',
   `calendar_event_id` bigint(20) unsigned DEFAULT NULL,
+  `subject_type` varchar(100) DEFAULT NULL,
+  `subject_id` bigint(20) unsigned DEFAULT NULL,
   `confirmed_at` timestamp NULL DEFAULT NULL,
   `revoked_at` timestamp NULL DEFAULT NULL,
   `revoke_reason` text DEFAULT NULL,
@@ -2735,7 +2743,7 @@ CREATE TABLE `daily_activity_entries` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `dae_def_user_date_unique` (`activity_definition_id`,`user_id`,`activity_date`),
+  UNIQUE KEY `dae_def_user_date_event_unique` (`activity_definition_id`,`user_id`,`activity_date`,`calendar_event_id`),
   KEY `daily_activity_entries_user_id_foreign` (`user_id`),
   KEY `daily_activity_entries_branch_id_foreign` (`branch_id`),
   KEY `daily_activity_entries_created_by_foreign` (`created_by`),
@@ -2747,6 +2755,7 @@ CREATE TABLE `daily_activity_entries` (
   KEY `dae_state_date_idx` (`point_state`,`activity_date`),
   KEY `dae_source_idx` (`source`),
   KEY `dae_calendar_event_idx` (`calendar_event_id`),
+  KEY `dae_subject_idx` (`subject_type`,`subject_id`),
   CONSTRAINT `daily_activity_entries_activity_definition_id_foreign` FOREIGN KEY (`activity_definition_id`) REFERENCES `activity_definitions` (`id`) ON DELETE CASCADE,
   CONSTRAINT `daily_activity_entries_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `daily_activity_entries_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
@@ -10102,6 +10111,7 @@ CREATE TABLE `users` (
   `medical_aid_main_member` tinyint(1) NOT NULL DEFAULT 0,
   `medical_aid_dependents_count` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `show_on_website` tinyint(1) NOT NULL DEFAULT 0,
+  `website_order` int(10) unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `users_email_unique` (`email`),
   UNIQUE KEY `users_api_token_unique` (`api_token`),
@@ -11131,3 +11141,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (756,'2026_06_19_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (757,'2026_06_19_140000_create_holding_cost_data_points_table',3);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (758,'2026_06_19_140100_add_freehold_holding_defaults_to_agencies',3);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (759,'2026_06_19_140200_add_freehold_monthly_to_presentations',3);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (760,'2026_06_02_101001_add_website_agent_order_to_agencies_table',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (761,'2026_06_02_101002_add_website_order_to_users_table',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (762,'2026_06_20_120000_seed_hfc_activity_calendar_mappings',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (763,'2026_06_20_140000_relax_daily_activity_unique_for_calendar_events',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (764,'2026_06_20_160000_extend_activity_actions_for_instant',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (765,'2026_06_20_160100_make_event_class_nullable_for_instant_rows',4);

@@ -32,6 +32,7 @@ class User extends Authenticatable
         'agency_id',
         'is_active',
         'show_on_website',
+        'website_order',
 
         // Admin-controlled commission defaults
         'agent_cut_percent',
@@ -117,6 +118,7 @@ class User extends Authenticatable
         'password' => 'hashed',
         'is_active' => 'boolean',
         'show_on_website' => 'boolean',
+        'website_order' => 'integer',
 
         'agent_cut_percent' => 'decimal:2',
         'paye_value' => 'decimal:2',
