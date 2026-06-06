@@ -319,19 +319,30 @@
         </div>
 
         {{-- Profile photo upload --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-bottom:20px;">
-            <div class="text-sm font-bold mb-1" style="color:var(--text-primary);">Profile Photo</div>
-            <div class="text-xs mb-4" style="color:var(--text-muted);">Square crop, face centered — applied automatically to keep every agent photo consistent.</div>
-            <form method="POST" action="{{ route('agent.portal.upload') }}" enctype="multipart/form-data">
-                @csrf
-                <input type="hidden" name="document_type" value="photo">
-                <x-agent-photo-cropper name="file" :current="$photoUrl" :autosubmit="true" :size="80" />
-            </form>
+        <div x-data="{ open:false }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; margin-bottom:20px; overflow:hidden;">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
+                <div>
+                    <div class="text-sm font-bold" style="color:var(--text-primary);">Profile Photo</div>
+                    <div class="text-xs mt-0.5" style="color:var(--text-muted);">Square crop, face centered — applied automatically.</div>
+                </div>
+                <svg style="width:18px;height:18px;color:var(--text-muted);transition:transform .2s;" :style="open && 'transform:rotate(180deg)'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+            </button>
+            <div x-show="open" x-cloak style="padding:0 24px 20px;">
+                <form method="POST" action="{{ route('agent.portal.upload') }}" enctype="multipart/form-data">
+                    @csrf
+                    <input type="hidden" name="document_type" value="photo">
+                    <x-agent-photo-cropper name="file" :current="$photoUrl" :autosubmit="true" :size="80" />
+                </form>
+            </div>
         </div>
 
         {{-- Profile form --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 20px;">Profile Information</h3>
+        <div x-data="{ open: {{ $errors->any() ? 'true' : 'false' }} }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
+                <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Profile Information</h3>
+                <svg style="width:18px;height:18px;color:var(--text-muted);transition:transform .2s;" :style="open && 'transform:rotate(180deg)'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+            </button>
+            <div x-show="open" x-cloak style="padding:0 24px 20px;">
 
             <form id="send-verification" method="post" action="{{ route('verification.send') }}">@csrf</form>
 
@@ -484,13 +495,21 @@
                     <button type="submit" class="corex-btn-primary">Save Profile</button>
                 </div>
             </form>
+            </div>{{-- /x-show profile info --}}
         </div>
 
         {{-- Articles — agent-authored content for the public website profile --}}
         @php $inputStyle = 'width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;'; @endphp
-        <div x-data="{ editingId: null }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 4px;">Articles</h3>
-            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Write articles for your public website profile. Tick <strong>Publish</strong> to make one live; untick to hide it.</p>
+        <div x-data="{ editingId: null, open:false }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; margin-top:20px; overflow:hidden;">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
+                <div>
+                    <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Articles</h3>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin:2px 0 0;">Content for your public website profile.</p>
+                </div>
+                <svg style="width:18px;height:18px;color:var(--text-muted);transition:transform .2s;" :style="open && 'transform:rotate(180deg)'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+            </button>
+            <div x-show="open" x-cloak style="padding:0 24px 20px;">
+            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Tick <strong>Publish</strong> to make one live; untick to hide it.</p>
 
             {{-- Add article --}}
             <form method="POST" action="{{ route('agent.portal.articles.store') }}" enctype="multipart/form-data" style="margin-bottom:18px; display:flex; flex-direction:column; gap:8px;">
@@ -574,6 +593,7 @@
                     </form>
                 @endforeach
             @endif
+            </div>{{-- /x-show articles --}}
         </div>
     </div>{{-- /tab: profile --}}
 

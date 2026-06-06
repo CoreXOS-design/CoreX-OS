@@ -798,12 +798,16 @@
                         ->orderBy('name')
                         ->get(['id', 'name', 'website_order']);
                 @endphp
-                <div class="pt-3 space-y-3" style="border-top:1px solid var(--border);"
-                     x-data="{ mode: '{{ $orderMode }}' }">
-                    <div>
-                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Agent order on website</div>
-                        <div class="text-xs" style="color:var(--text-secondary);">How agents are ordered on the website's “meet the team”.</div>
-                    </div>
+                <div class="pt-3" style="border-top:1px solid var(--border);"
+                     x-data="{ mode: '{{ $orderMode }}', open: false }">
+                    <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; background:none; border:0; cursor:pointer; text-align:left; padding:2px 0;">
+                        <div>
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Agent order on website</div>
+                            <div class="text-xs" style="color:var(--text-secondary);">How agents are ordered on the website's “meet the team”.</div>
+                        </div>
+                        <svg style="width:18px;height:18px;color:var(--text-muted);transition:transform .2s;" :style="open && 'transform:rotate(180deg)'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                    </button>
+                    <div x-show="open" x-cloak class="space-y-3" style="margin-top:12px;">
                     <div class="flex gap-5">
                         <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
                             <input type="radio" name="website_agent_order_mode" value="alphabetical" x-model="mode" style="accent-color:var(--brand-icon, #0ea5e9);">
@@ -829,6 +833,7 @@
                             <p class="text-xs" style="color:var(--text-muted);">No agents are shown on the website yet. Turn on “Show on website” for agents first (Admin → Users, or the bulk button in API Access).</p>
                         @endforelse
                     </div>
+                    </div>{{-- /x-show agent order --}}
                 </div>
 
                 <button type="submit" class="corex-btn-primary">Save Website Settings</button>
@@ -846,11 +851,15 @@
                     ->get();
                 $canPublishTestimonials = auth()->user()?->hasPermission('testimonials.publish');
             @endphp
-            <div class="ds-status-card p-4 space-y-4 mt-5" id="testimonials">
-                <div>
-                    <h3 class="ds-section-header">Testimonials</h3>
-                    <p class="text-xs" style="color:var(--text-muted);">Testimonials agents capture on contacts. Tick one to publish it to your website; untick to remove it. Click a testimonial to read the full text.</p>
-                </div>
+            <div class="ds-status-card p-4 mt-5" id="testimonials" x-data="{ secOpen: false }">
+                <button type="button" @click="secOpen=!secOpen" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; background:none; border:0; cursor:pointer; text-align:left;">
+                    <div>
+                        <h3 class="ds-section-header" style="margin:0;">Testimonials</h3>
+                        <p class="text-xs" style="color:var(--text-muted); margin:2px 0 0;">Tick one to publish it to your website; untick to remove it.</p>
+                    </div>
+                    <svg style="width:18px;height:18px;color:var(--text-muted);transition:transform .2s;" :style="secOpen && 'transform:rotate(180deg)'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </button>
+                <div x-show="secOpen" x-cloak class="space-y-4" style="margin-top:14px;">
 
                 @forelse($agencyTestimonials as $t)
                     <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ open: false }">
@@ -896,6 +905,7 @@
                 @empty
                     <p class="text-xs" style="color:var(--text-muted);">No testimonials captured yet. Agents add them on a contact's “Notes &amp; Testimonials” tab.</p>
                 @endforelse
+                </div>{{-- /x-show testimonials --}}
             </div>
         </div>
 
