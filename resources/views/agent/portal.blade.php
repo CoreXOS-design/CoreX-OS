@@ -308,30 +308,13 @@
 
         {{-- Profile photo upload --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-bottom:20px;">
-            <div class="flex items-center gap-6">
-                <div style="position:relative;">
-                    @if($photoUrl)
-                    <img src="{{ $photoUrl }}" alt="Profile photo"
-                         style="width:80px; height:80px; object-fit:cover; border-radius:50%; border:2px solid var(--border);">
-                    @else
-                    <div style="width:80px; height:80px; border-radius:50%; background:var(--surface-2); border:2px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:700; color:var(--text-muted);">
-                        {{ $user->initials() }}
-                    </div>
-                    @endif
-                    <form method="POST" action="{{ route('agent.portal.upload') }}" enctype="multipart/form-data" style="position:absolute; bottom:-4px; right:-4px;">
-                        @csrf
-                        <input type="hidden" name="document_type" value="photo">
-                        <label style="width:28px; height:28px; border-radius:50%; background:var(--brand-button); display:flex; align-items:center; justify-content:center; cursor:pointer; border:2px solid var(--surface);">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="#ffffff" style="width:14px; height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
-                            <input type="file" name="file" accept=".jpg,.jpeg,.png" class="hidden" onchange="this.closest('form').submit();">
-                        </label>
-                    </form>
-                </div>
-                <div>
-                    <div class="text-sm font-bold" style="color:var(--text-primary);">Profile Photo</div>
-                    <div class="text-xs" style="color:var(--text-muted);">JPG or PNG, max 10MB. Click the camera icon to upload.</div>
-                </div>
-            </div>
+            <div class="text-sm font-bold mb-1" style="color:var(--text-primary);">Profile Photo</div>
+            <div class="text-xs mb-4" style="color:var(--text-muted);">Square crop, face centered — applied automatically to keep every agent photo consistent.</div>
+            <form method="POST" action="{{ route('agent.portal.upload') }}" enctype="multipart/form-data">
+                @csrf
+                <input type="hidden" name="document_type" value="photo">
+                <x-agent-photo-cropper name="file" :current="$photoUrl" :autosubmit="true" :size="80" />
+            </form>
         </div>
 
         {{-- Profile form --}}

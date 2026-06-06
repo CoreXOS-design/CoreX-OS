@@ -15,6 +15,7 @@ use App\Models\TrainingCompletion;
 use App\Models\TrainingCourse;
 use App\Models\User;
 use App\Models\UserDocument;
+use App\Services\Images\AgentPhotoNormalizer;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -250,12 +251,11 @@ class AgentPortalController extends Controller
 
         $request->validate([
             'document_type' => ['required', 'string', 'max:50'],
-            'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
             'expiry_date' => ['nullable', 'date'],
         ]);
 
         $file = $request->file('file');
-        $path = $file->store('agent-docs/' . $user->id, 'public');
         $type = $request->document_type;
 
         // Map incoming type to UserDocument document_type
@@ -270,15 +270,30 @@ class AgentPortalController extends Controller
         $documentType = $docTypeMap[$type] ?? UserDocument::DOCUMENT_TYPE_OTHER;
         $isPhoto = $documentType === UserDocument::DOCUMENT_TYPE_PROFILE_PHOTO;
 
+        // Profile photos are normalized to a uniform 1200×1200 square WebP so the
+        // agent looks identical everywhere (spec: .ai/specs/agent-photo.md). Other
+        // documents store as-is.
+        if ($isPhoto) {
+            $path = app(AgentPhotoNormalizer::class)->store($file, $user->id, $user->agent_photo_path);
+            $fileName = 'photo.webp';
+            $mimeType = 'image/webp';
+            $fileSize = \Illuminate\Support\Facades\Storage::disk('public')->size($path);
+        } else {
+            $path = $file->store('agent-docs/' . $user->id, 'public');
+            $fileName = $file->getClientOriginalName();
+            $mimeType = $file->getMimeType();
+            $fileSize = $file->getSize();
+        }
+
         // Create UserDocument record (source of truth)
         UserDocument::create([
             'user_id'       => $user->id,
             'agency_id'     => $user->agency_id,
             'document_type' => $documentType,
             'file_path'     => $path,
-            'file_name'     => $file->getClientOriginalName(),
-            'file_size'     => $file->getSize(),
-            'mime_type'     => $file->getMimeType(),
+            'file_name'     => $fileName,
+            'file_size'     => $fileSize,
+            'mime_type'     => $mimeType,
             'status'        => $isPhoto ? 'verified' : 'pending',
             'verified_at'   => $isPhoto ? now() : null,
             'verified_by'   => $isPhoto ? $user->id : null,

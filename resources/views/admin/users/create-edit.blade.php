@@ -472,20 +472,16 @@
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">
                             Agent Photo
                         </label>
-                        <div class="text-[11px] mb-2" style="color:var(--text-muted);">jpg/png/webp, max 2MB</div>
+                        <x-agent-photo-cropper name="agent_photo"
+                            :current="$isEdit ? $user->profilePhotoUrl() : null" />
+                        @error('agent_photo')
+                            <p class="text-[11px] mt-1.5" style="color:var(--ds-crimson);">{{ $message }}</p>
+                        @enderror
                         @if($isEdit && $user->profilePhotoUrl())
-                        <div class="flex items-center gap-3 mb-3 p-2.5 rounded-lg" style="background:var(--surface-2); border:1px solid var(--border);">
-                            <img src="{{ $user->profilePhotoUrl() }}" alt="Photo"
-                                 class="w-10 h-10 rounded-lg object-cover flex-shrink-0" style="border:1px solid var(--border);">
-                            <span class="text-xs flex-1 truncate" style="color:var(--text-secondary);">Current photo</span>
-                            <button type="button" class="text-xs font-medium px-2 py-1 rounded-md transition-colors"
-                                    style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
-                                    onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML=document.querySelector('meta[name=csrf-token]').content?'<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo>':'';;document.body.appendChild(f);f.submit();}">Remove</button>
-                        </div>
+                        <button type="button" class="text-[11px] font-medium mt-2 px-2 py-1 rounded-md transition-colors"
+                                style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
+                                onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML='<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo>';document.body.appendChild(f);f.submit();}">Remove current photo</button>
                         @endif
-                        <input type="file" name="agent_photo" accept="image/jpeg,image/png,image/webp"
-                               class="block w-full text-sm rounded-md px-3 py-2"
-                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
                     </div>
                     {{-- FFC Certificate --}}
                     <div>
