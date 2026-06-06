@@ -731,26 +731,6 @@
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Website URL</label>
-                        <input type="url" name="website_url" value="{{ old('website_url', $agency->website_url) }}" placeholder="https://www.youragency.co.za"
-                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        @error('website_url')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Tagline</label>
-                        <input type="text" name="website_tagline" value="{{ old('website_tagline', $agency->website_tagline) }}" maxlength="255"
-                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                    </div>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">About</label>
-                    <textarea name="website_about" rows="4" maxlength="5000"
-                              class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('website_about', $agency->website_about) }}</textarea>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Public contact email</label>
                         <input type="email" name="website_contact_email" value="{{ old('website_contact_email', $agency->website_contact_email) }}"
                                class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
@@ -761,6 +741,48 @@
                         <input type="text" name="website_contact_phone" value="{{ old('website_contact_phone', $agency->website_contact_phone) }}"
                                class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
+                </div>
+
+                {{-- Public address — shown on the website's contact block.
+                     Falls back to the company address when left blank. --}}
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Address</label>
+                    <textarea name="website_address" rows="2" maxlength="500"
+                              class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                              placeholder="e.g. 12 Marina Drive, Seabreeze Bay, 4275">{{ old('website_address', $agency->website_address) }}</textarea>
+                    <p class="text-[10px] mt-1" style="color:var(--text-muted);">Leave blank to use the company address from the Company tab.</p>
+                </div>
+
+                {{-- Open hours — a repeatable list of day-range / hours rows the
+                     website renders as an "Opening hours" block. Add a row for
+                     Saturday, public holidays, etc. Empty rows are dropped on save. --}}
+                @php
+                    $openHoursInitial = old('website_open_hours', $agency->website_open_hours ?: [
+                        ['days' => 'Monday – Friday', 'hours' => '08:00 – 17:00'],
+                    ]);
+                @endphp
+                <div x-data="{ hours: {{ \Illuminate\Support\Js::from($openHoursInitial) }} }">
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Open hours</label>
+                    <p class="text-[10px] mb-2" style="color:var(--text-muted);">Add a row per day range (e.g. weekdays, Saturday, public holidays). Leave the list empty to hide opening hours on the website.</p>
+
+                    <div class="space-y-2">
+                        <template x-for="(row, i) in hours" :key="i">
+                            <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                                <input type="text" x-model="row.days" :name="`website_open_hours[${i}][days]`" maxlength="100"
+                                       placeholder="e.g. Monday – Friday"
+                                       class="w-full sm:w-1/2 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <input type="text" x-model="row.hours" :name="`website_open_hours[${i}][hours]`" maxlength="100"
+                                       placeholder="e.g. 08:00 – 17:00 (or 'Closed')"
+                                       class="w-full sm:flex-1 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <button type="button" @click="hours.splice(i, 1)"
+                                        class="text-xs font-semibold px-2 py-2 flex-shrink-0" style="color:var(--ds-crimson);"
+                                        title="Remove this row">Remove</button>
+                            </div>
+                        </template>
+                    </div>
+
+                    <button type="button" @click="hours.push({ days: '', hours: '' })"
+                            class="corex-btn-outline text-xs mt-2">+ Add hours</button>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -75,13 +75,25 @@ class Phase2WebsiteApiTest extends TestCase
 
     public function test_agency_endpoint_returns_branding_and_settings(): void
     {
+        $this->agency->update([
+            'website_address'    => '12 Marina Drive, Uvongo',
+            'website_open_hours' => [
+                ['days' => 'Monday – Friday', 'hours' => '08:00 – 17:00'],
+                ['days' => 'Saturday',        'hours' => '09:00 – 13:00'],
+            ],
+        ]);
+
         $this->withToken($this->token)->getJson('/api/v1/website/agency')
             ->assertOk()
             ->assertJsonPath('data.name', 'Coastal Realty')
-            ->assertJsonPath('data.tagline', 'Your coast, your home')
-            ->assertJsonPath('data.website_url', 'https://coastal.example')
             ->assertJsonPath('data.social.facebook', 'coastalrealty')
-            ->assertJsonPath('data.branding.button_color', '#0ea5e9');
+            ->assertJsonPath('data.branding.button_color', '#0ea5e9')
+            ->assertJsonPath('data.contact.address', '12 Marina Drive, Uvongo')
+            ->assertJsonPath('data.open_hours.1.days', 'Saturday')
+            // Legacy hero copy fields are no longer exposed.
+            ->assertJsonMissingPath('data.website_url')
+            ->assertJsonMissingPath('data.tagline')
+            ->assertJsonMissingPath('data.about');
     }
 
     public function test_listings_returns_only_syndicated_enabled_for_this_key(): void

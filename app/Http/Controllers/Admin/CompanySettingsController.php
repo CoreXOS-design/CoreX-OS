@@ -149,15 +149,16 @@ class CompanySettingsController extends Controller
         $this->authorizeAgency($agency);
 
         $data = $request->validate([
-            'website_url'              => ['nullable', 'url', 'max:255'],
-            'website_tagline'          => ['nullable', 'string', 'max:255'],
-            'website_about'            => ['nullable', 'string', 'max:5000'],
             'website_social_facebook'  => ['nullable', 'string', 'max:255'],
             'website_social_instagram' => ['nullable', 'string', 'max:255'],
             'website_social_linkedin'  => ['nullable', 'string', 'max:255'],
             'website_social_youtube'   => ['nullable', 'string', 'max:255'],
             'website_contact_email'    => ['nullable', 'email', 'max:255'],
             'website_contact_phone'    => ['nullable', 'string', 'max:255'],
+            'website_address'          => ['nullable', 'string', 'max:500'],
+            'website_open_hours'       => ['nullable', 'array'],
+            'website_open_hours.*.days'  => ['nullable', 'string', 'max:100'],
+            'website_open_hours.*.hours' => ['nullable', 'string', 'max:100'],
             'website_agent_order_mode' => ['nullable', 'in:alphabetical,custom'],
             'agent_order'              => ['nullable', 'array'],
             'agent_order.*'            => ['nullable', 'integer', 'min:1', 'max:9999'],
@@ -165,6 +166,18 @@ class CompanySettingsController extends Controller
 
         $agentOrder = $data['agent_order'] ?? [];
         unset($data['agent_order']);
+
+        // Open hours — drop blank rows (both fields empty) and trim. Store null
+        // when nothing remains so the public API omits the block entirely.
+        $hours = [];
+        foreach ($data['website_open_hours'] ?? [] as $row) {
+            $days  = trim((string) ($row['days'] ?? ''));
+            $hrs   = trim((string) ($row['hours'] ?? ''));
+            if ($days !== '' || $hrs !== '') {
+                $hours[] = ['days' => $days, 'hours' => $hrs];
+            }
+        }
+        $data['website_open_hours'] = $hours ?: null;
 
         $data['website_show_agents']      = $request->boolean('website_show_agents');
         $data['website_show_listings']    = $request->boolean('website_show_listings');

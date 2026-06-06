@@ -164,6 +164,8 @@ class Agency extends Model
         'website_social_youtube',
         'website_contact_email',
         'website_contact_phone',
+        'website_address',
+        'website_open_hours',
         'website_show_agents',
         'website_show_listings',
         'website_agent_order_mode',
@@ -247,6 +249,7 @@ class Agency extends Model
         'website_enabled'       => 'boolean',
         'website_show_agents'   => 'boolean',
         'website_show_listings' => 'boolean',
+        'website_open_hours'    => 'array',
     ];
 
     /**

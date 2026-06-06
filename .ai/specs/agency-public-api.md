@@ -98,17 +98,19 @@ An agency can hold **many** keys — one per website (production site, second br
 
 ### 3.7 Website settings (Company Settings → Website tab)
 
-A small set of public-facing website settings, stored on `agencies` (extend the existing presentation/branding-settings pattern — see `2026_05_23_100001_add_presentation_settings_to_agency.php`). Exact fields to be confirmed (§13 Q3), starter set:
+A small set of public-facing website settings, stored on `agencies` (extend the existing presentation/branding-settings pattern — see `2026_05_23_100001_add_presentation_settings_to_agency.php`). Current field set:
 
 | Column | Purpose |
 |--------|---------|
-| `website_url` | the agency's live site URL (for "Visit website" links + reference) |
-| `website_tagline` / `website_about` | hero/about copy the site can pull |
 | `website_social_*` | facebook / instagram / linkedin / youtube handles |
-| `website_contact_email` / `website_contact_phone` | public contact shown on the site (may differ from internal) |
+| `website_contact_email` / `website_contact_phone` | public contact shown on the site (may differ from internal; falls back to agency `email` / `phone`) |
+| `website_address` | public address shown on the site's contact block (falls back to agency `address`) |
+| `website_open_hours` | JSON list of `{ days, hours }` rows the site renders as an opening-hours block — repeatable (weekdays, Saturday, public holidays, …); blank rows are dropped on save |
 | `website_show_agents` / `website_show_listings` | section master toggles the API honours |
 
-These are served read-only via `GET /api/v1/website/agency` so the website renders them.
+These are served read-only via `GET /api/v1/website/agency` so the website renders them. **Blank values are omitted from the response** (no empty `contact`/`social`/`open_hours` keys) so the website never renders an empty field — an unset section simply does not appear.
+
+> **Deprecated (2026-06-06):** the `website_url`, `website_tagline`, and `website_about` columns are retained for backward compatibility but are no longer edited in the Website tab nor exposed by the API. The website owns its own hero/about copy and URL.
 
 ### 3.2 `agency_webhook_deliveries` (new table — delivery log / retry)
 

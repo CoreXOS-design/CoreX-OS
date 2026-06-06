@@ -276,6 +276,8 @@ CREATE TABLE `agencies` (
   `website_social_youtube` varchar(255) DEFAULT NULL,
   `website_contact_email` varchar(255) DEFAULT NULL,
   `website_contact_phone` varchar(255) DEFAULT NULL,
+  `website_address` varchar(255) DEFAULT NULL,
+  `website_open_hours` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`website_open_hours`)),
   `website_show_agents` tinyint(1) NOT NULL DEFAULT 1,
   `website_show_listings` tinyint(1) NOT NULL DEFAULT 1,
   `website_agent_order_mode` varchar(255) NOT NULL DEFAULT 'alphabetical',
@@ -650,6 +652,32 @@ CREATE TABLE `agent_applications` (
   CONSTRAINT `agent_applications_referred_by_user_id_foreign` FOREIGN KEY (`referred_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `agent_applications_reviewed_by_foreign` FOREIGN KEY (`reviewed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `agent_applications_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agent_articles`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `agent_articles` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint(20) unsigned NOT NULL,
+  `user_id` bigint(20) unsigned NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `slug` varchar(255) DEFAULT NULL,
+  `excerpt` varchar(500) DEFAULT NULL,
+  `cover_image_path` varchar(255) DEFAULT NULL,
+  `body` longtext DEFAULT NULL,
+  `link_url` varchar(255) DEFAULT NULL,
+  `tags` varchar(500) DEFAULT NULL,
+  `is_published` tinyint(1) NOT NULL DEFAULT 0,
+  `published_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `agent_articles_agency_id_user_id_index` (`agency_id`,`user_id`),
+  KEY `agent_articles_user_id_is_published_index` (`user_id`,`is_published`),
+  CONSTRAINT `agent_articles_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `agent_articles_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agent_cap_periods`;
@@ -2575,6 +2603,38 @@ CREATE TABLE `contact_tags` (
   PRIMARY KEY (`id`),
   KEY `contact_tags_agency_id_idx` (`agency_id`),
   CONSTRAINT `contact_tags_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `contact_testimonials`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `contact_testimonials` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint(20) unsigned NOT NULL,
+  `contact_id` bigint(20) unsigned NOT NULL,
+  `user_id` bigint(20) unsigned DEFAULT NULL,
+  `agent_id` bigint(20) unsigned DEFAULT NULL,
+  `body` text NOT NULL,
+  `display_name` varchar(150) NOT NULL,
+  `rating` tinyint(3) unsigned DEFAULT NULL,
+  `published` tinyint(1) NOT NULL DEFAULT 0,
+  `published_at` timestamp NULL DEFAULT NULL,
+  `published_by_user_id` bigint(20) unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `contact_testimonials_agency_id_published_index` (`agency_id`,`published`),
+  KEY `contact_testimonials_contact_id_index` (`contact_id`),
+  KEY `contact_testimonials_user_id_foreign` (`user_id`),
+  KEY `contact_testimonials_published_by_user_id_foreign` (`published_by_user_id`),
+  KEY `contact_testimonials_agency_id_agent_id_index` (`agency_id`,`agent_id`),
+  KEY `contact_testimonials_agent_id_foreign` (`agent_id`),
+  CONSTRAINT `contact_testimonials_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_testimonials_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contact_testimonials_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_testimonials_published_by_user_id_foreign` FOREIGN KEY (`published_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contact_testimonials_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `contact_types`;
@@ -9313,6 +9373,25 @@ CREATE TABLE `signed_document_versions` (
   CONSTRAINT `signed_document_versions_signature_request_id_foreign` FOREIGN KEY (`signature_request_id`) REFERENCES `signature_requests` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `soft_delete_restorations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `soft_delete_restorations` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `model_type` varchar(255) NOT NULL,
+  `model_id` bigint(20) unsigned NOT NULL,
+  `model_label` varchar(255) DEFAULT NULL,
+  `agency_id` bigint(20) unsigned DEFAULT NULL,
+  `restored_by_user_id` bigint(20) unsigned NOT NULL,
+  `restored_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `soft_delete_restorations_model_type_model_id_index` (`model_type`,`model_id`),
+  KEY `soft_delete_restorations_agency_id_index` (`agency_id`),
+  KEY `soft_delete_restorations_restored_by_user_id_index` (`restored_by_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `staff_take_on_records`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -10077,6 +10156,7 @@ CREATE TABLE `users` (
   `ppra_status` enum('active','pending','expired','suspended') DEFAULT NULL,
   `ppra_last_verified_at` date DEFAULT NULL,
   `website` varchar(255) DEFAULT NULL,
+  `about_me` text DEFAULT NULL,
   `theme` varchar(10) NOT NULL DEFAULT 'dark',
   `last_presentation_send_channel` varchar(20) DEFAULT NULL,
   `last_presentation_send_mode` varchar(10) DEFAULT NULL,
@@ -10112,6 +10192,10 @@ CREATE TABLE `users` (
   `medical_aid_dependents_count` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `show_on_website` tinyint(1) NOT NULL DEFAULT 0,
   `website_order` int(10) unsigned DEFAULT NULL,
+  `website_social_facebook` varchar(255) DEFAULT NULL,
+  `website_social_instagram` varchar(255) DEFAULT NULL,
+  `website_social_linkedin` varchar(255) DEFAULT NULL,
+  `website_social_youtube` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `users_email_unique` (`email`),
   UNIQUE KEY `users_api_token_unique` (`api_token`),
@@ -11147,3 +11231,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (762,'2026_06_20_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (763,'2026_06_20_140000_relax_daily_activity_unique_for_calendar_events',4);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (764,'2026_06_20_160000_extend_activity_actions_for_instant',4);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (765,'2026_06_20_160100_make_event_class_nullable_for_instant_rows',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (766,'2026_06_21_000000_create_soft_delete_restorations_table',5);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (767,'2026_06_06_100001_create_contact_testimonials_table',6);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (768,'2026_06_06_100002_add_agent_id_to_contact_testimonials_table',7);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (769,'2026_06_06_100003_add_agent_public_profile_and_articles',8);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (770,'2026_06_06_100004_add_media_to_agent_articles',9);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (771,'2026_06_06_120000_add_website_address_and_open_hours_to_agencies',10);
