@@ -9,24 +9,19 @@
      x-data="ppAgentsPage($el)">
     <div class="flex items-center justify-between">
         <div>
-            <h1 class="text-xl font-bold" style="color:var(--text-primary);">Private Property — Agents on Branch</h1>
+            <h1 class="text-xl font-bold" style="color:var(--text-primary);">Private Property — PP Branch Profiles</h1>
             <p class="text-sm mt-1" style="color:var(--text-muted);">
                 Every agent profile PP currently has for this branch. Rows highlighted in red share an email with another row — those are duplicate profiles that need cleanup.
             </p>
         </div>
-        <div class="flex items-center gap-2">
-            <a href="{{ route('admin.pp.mapping-email') }}"
-               class="px-4 py-2 rounded-md text-sm font-medium"
-               style="background:var(--brand-button); color:#fff;">
-                Generate Mapping Email
-            </a>
-            <a href="{{ route('admin.pp.agents') }}"
-               class="px-4 py-2 rounded-md text-sm font-medium"
-               style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                Refresh from PP
-            </a>
-        </div>
+        <a href="{{ route('admin.pp.agents') }}"
+           class="px-4 py-2 rounded-md text-sm font-medium"
+           style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+            Refresh from PP
+        </a>
     </div>
+
+    @include('admin.pp._tabs')
 
     @if($error)
         <div class="rounded-md p-4 text-xs whitespace-pre-wrap break-all" style="background:rgba(239,68,68,0.12); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">

@@ -355,6 +355,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/users/{user}/pp/sync', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'sync'])->middleware('permission:manage_users')->name('admin.users.pp.sync');
     Route::post('/admin/users/{user}/pp/update-id', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateId'])->middleware('permission:manage_users')->name('admin.users.pp.update-id');
     Route::post('/admin/users/{user}/pp/update-external-ref', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateExternalRef'])->middleware('permission:manage_users')->name('admin.users.pp.update-external-ref');
+    Route::get('/admin/pp/agent-mapping', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'agentMapping'])->middleware('permission:manage_users')->name('admin.pp.agent-mapping');
     Route::get('/admin/pp/agents', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'index'])->middleware('permission:manage_users')->name('admin.pp.agents');
     Route::get('/admin/pp/mapping-email', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'mappingEmail'])->middleware('permission:manage_users')->name('admin.pp.mapping-email');
     Route::post('/admin/pp/agents/deactivate', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'deactivateByEncryptedId'])->middleware('permission:manage_users')->name('admin.pp.agents.deactivate');
