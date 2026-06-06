@@ -201,6 +201,15 @@ class AgentProfileArticlesTest extends TestCase
             ->assertSee('View My Profile');
     }
 
+    public function test_mixed_case_email_is_accepted(): void
+    {
+        $this->actingAs($this->agent)->patch(route('agent.portal.profile.update'), [
+            'name' => 'Thandi Mbeki', 'email' => 'Thandi.Mbeki@Coastal.Example', 'cell' => '0825550100',
+        ])->assertSessionHasNoErrors()->assertRedirect();
+
+        $this->assertSame('Thandi.Mbeki@Coastal.Example', $this->agent->fresh()->email);
+    }
+
     public function test_about_me_saved_via_profile_form_shows_on_preview(): void
     {
         // Save through the real profile route (the form an agent submits)…
