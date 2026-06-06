@@ -177,6 +177,11 @@ Route::prefix('v1/website')
             Route::get('/agents',       [\App\Http\Controllers\Api\V1\Website\AgentsController::class, 'index'])->name('v1.website.agents.index');
             Route::get('/agents/{id}',  [\App\Http\Controllers\Api\V1\Website\AgentsController::class, 'show'])->name('v1.website.agents.show');
         });
+
+        Route::middleware('website.scope:testimonials:read')->group(function () {
+            Route::get('/testimonials',      [\App\Http\Controllers\Api\V1\Website\TestimonialsController::class, 'index'])->name('v1.website.testimonials.index');
+            Route::get('/testimonials/{id}', [\App\Http\Controllers\Api\V1\Website\TestimonialsController::class, 'show'])->name('v1.website.testimonials.show');
+        });
     });
 
 // ════════════════════════════════════════════════════════════════

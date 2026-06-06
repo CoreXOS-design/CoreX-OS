@@ -189,6 +189,35 @@ class CompanySettingsController extends Controller
             ->with('success', 'Website settings updated.');
     }
 
+    /**
+     * Publish / unpublish a captured testimonial to the agency website (the
+     * tick box in the Website tab → Testimonials section). The model observer
+     * fires the testimonial.published / .removed webhook. Gated separately by
+     * testimonials.publish (route middleware) so curation is a deliberate act.
+     *
+     * Spec: .ai/specs/testimonials.md §6.2, §7.
+     */
+    public function toggleTestimonial(Request $request, Agency $agency, \App\Models\ContactTestimonial $testimonial)
+    {
+        $this->authorizeAccess();
+        $this->authorizeAgency($agency);
+
+        // Defence-in-depth: the testimonial must belong to this agency.
+        abort_unless((int) $testimonial->agency_id === (int) $agency->id, 404);
+
+        $publish = $request->boolean('published');
+
+        $testimonial->update([
+            'published'            => $publish,
+            'published_at'         => $publish ? ($testimonial->published_at ?: now()) : $testimonial->published_at,
+            'published_by_user_id' => $publish ? auth()->id() : $testimonial->published_by_user_id,
+        ]);
+
+        return redirect()->route('admin.company-settings', ['agency' => $agency->id, 'tab' => 'website'])
+            ->with('success', $publish ? 'Testimonial published to website.' : 'Testimonial removed from website.')
+            ->withFragment('testimonials');
+    }
+
     private function authorizeAccess(): void
     {
         abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);

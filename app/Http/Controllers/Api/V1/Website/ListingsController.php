@@ -22,13 +22,18 @@ class ListingsController extends Controller
         $keyId = $request->user()->getKey();
         $perPage = max(1, min(50, (int) $request->integer('per_page', 20)));
 
-        $listings = Property::query()
+        $query = Property::query()
             ->whereHas('websiteSyndication', fn ($q) => $q->where('agency_api_key_id', $keyId)->where('enabled', true))
             ->with(['agent', 'activeShowdays'])
-            ->latest('published_at')
-            ->paginate($perPage);
+            ->latest('published_at');
 
-        return ListingResource::collection($listings);
+        // Optional ?agent_id= — the agent's website profile pulls just their
+        // listings. Each listing already carries agent.id for linking back.
+        if (($agentId = (int) $request->integer('agent_id')) > 0) {
+            $query->where('agent_id', $agentId);
+        }
+
+        return ListingResource::collection($query->paginate($perPage));
     }
 
     public function show(Request $request, string $idOrRef): ListingResource

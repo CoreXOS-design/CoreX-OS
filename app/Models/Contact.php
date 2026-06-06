@@ -109,6 +109,11 @@ class Contact extends Model
         return $this->hasMany(ContactNote::class)->latest();
     }
 
+    public function testimonials(): HasMany
+    {
+        return $this->hasMany(ContactTestimonial::class)->latest();
+    }
+
     /** @deprecated Use documents() instead. Kept for backward compat during transition. */
     public function legacyDocuments(): HasMany
     {

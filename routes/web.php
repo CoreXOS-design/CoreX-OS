@@ -1890,6 +1890,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         [\App\Http\Controllers\Admin\CompanySettingsController::class, 'updateWebsite'])
         ->middleware('permission:manage_performance_settings')
         ->name('admin.company-settings.website.update');
+    // Testimonials — publish/unpublish a captured testimonial to the website.
+    // Spec: .ai/specs/testimonials.md §7.
+    Route::patch('/admin/company-settings/{agency}/testimonials/{testimonial}/publish',
+        [\App\Http\Controllers\Admin\CompanySettingsController::class, 'toggleTestimonial'])
+        ->middleware('permission:testimonials.publish')
+        ->name('admin.company-settings.testimonials.toggle');
 
 
     // Module 6 (M6.2) — Activity Points → Calendar class mappings.
@@ -2147,6 +2153,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Notes
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');
+
+        // Testimonials (capture only — publishing lives in Company Settings → Website)
+        Route::post('/{contact}/testimonials',                  [\App\Http\Controllers\CoreX\ContactTestimonialController::class, 'store'])->name('testimonials.store');
+        Route::put('/{contact}/testimonials/{testimonial}',     [\App\Http\Controllers\CoreX\ContactTestimonialController::class, 'update'])->name('testimonials.update');
+        Route::delete('/{contact}/testimonials/{testimonial}',  [\App\Http\Controllers\CoreX\ContactTestimonialController::class, 'destroy'])->name('testimonials.destroy');
 
         // Documents (Drive)
         Route::post('/{contact}/documents',                    [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'store'])->name('documents.store');

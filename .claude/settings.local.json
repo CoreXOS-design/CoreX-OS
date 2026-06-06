@@ -76,7 +76,10 @@
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|DEV CHECK|FAILED  Tests\" | Select-Object -Last 8)",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|DEV CHECK OK|DEV CHECK FAILED\" | Select-Object -Last 3)",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 40)",
-      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & powershell -ExecutionPolicy Bypass -File scripts/dev-check.ps1 2>&1 | Select-Object -Last 35)"
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & powershell -ExecutionPolicy Bypass -File scripts/dev-check.ps1 2>&1 | Select-Object -Last 35)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 35)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 -Full 2>&1 | Select-Object -Last 25)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 14)"
     ]
   }
 }

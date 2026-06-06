@@ -163,6 +163,8 @@ Responses use dedicated **public API Resources** (`app/Http/Resources/WebsiteApi
 
 **AgentResource public fields:** `id`, `name`, `designation` (the agent's role/title, e.g. "Principal Property Practitioner" / "Candidate Property Practitioner" — a public "meet the team" field), `email`, `phone`, `cell`, `photo_url`. The compliance **FFC number is NOT exposed** (§13 Q7).
 
+**Agent-scoped listings:** `GET /api/v1/website/listings?agent_id={userId}` filters to a single agent's syndicated listings — used by the agent's website profile to show "their properties". Each listing's `agent` block carries `agent.id`, so the website links a listing card back to that agent's profile. (Testimonials carry the same `agent_id` + a `?agent_id=` filter — see `testimonials.md`.)
+
 **ListingResource is P24-parity** — it carries the same rich marketing field set CoreX syndicates to Property24: location detail (complex/unit/floor/stand + street parts), `costs` (rates/levy/special levy), a `rental` block (lease period, deposit, rental amount, gross/net, per-period rates) populated only for rentals, `mandate_type`, `pet_friendly`, `spaces`, `features`, a categorised `gallery`, `video` (YouTube/Matterport/virtual tour), and upcoming `show_days` — alongside the core price/beds/baths/size/images/agent. Numeric fields are coerced to int/float for a clean contract.
 
 ---

@@ -833,6 +833,70 @@
 
                 <button type="submit" class="corex-btn-primary">Save Website Settings</button>
             </form>
+
+            {{-- ============================================================
+                 TESTIMONIALS — publish captured testimonials to the website
+                 Spec: .ai/specs/testimonials.md §6.2
+                 ============================================================ --}}
+            @php
+                $agencyTestimonials = \App\Models\ContactTestimonial::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                    ->where('agency_id', $agency->id)
+                    ->with(['contact', 'agent'])
+                    ->latest()
+                    ->get();
+                $canPublishTestimonials = auth()->user()?->hasPermission('testimonials.publish');
+            @endphp
+            <div class="ds-status-card p-4 space-y-4 mt-5" id="testimonials">
+                <div>
+                    <h3 class="ds-section-header">Testimonials</h3>
+                    <p class="text-xs" style="color:var(--text-muted);">Testimonials agents capture on contacts. Tick one to publish it to your website; untick to remove it. Click a testimonial to read the full text.</p>
+                </div>
+
+                @forelse($agencyTestimonials as $t)
+                    <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ open: false }">
+                        <div class="flex items-start justify-between gap-3">
+                            <button type="button" @click="open = !open" class="flex-1 text-left min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $t->display_name }}</span>
+                                    @if($t->rating)
+                                        <span class="text-xs" style="color:var(--ds-amber, #f5b301);">{{ str_repeat('★', (int) $t->rating) }}</span>
+                                    @endif
+                                    @if($t->published)
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">On website</span>
+                                    @endif
+                                </div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-show="!open">{{ \Illuminate\Support\Str::limit($t->body, 110) }}</div>
+                                <div class="text-sm mt-2 whitespace-pre-line" style="color:var(--text-primary);" x-show="open" x-cloak>{{ $t->body }}</div>
+                                <div class="text-[11px] mt-1" style="color:var(--text-muted);">
+                                    @if($t->contact)
+                                        From <a href="{{ route('corex.contacts.show', $t->contact) }}" class="underline" style="color:var(--brand-icon, #0ea5e9);">{{ trim(($t->contact->first_name ?? '').' '.($t->contact->last_name ?? '')) ?: 'contact' }}</a>
+                                    @endif
+                                    @if($t->agent)
+                                        · About <span style="color:var(--text-secondary);">{{ $t->agent->name }}</span>
+                                    @endif
+                                </div>
+                            </button>
+                            <div class="flex-shrink-0">
+                                @if($canPublishTestimonials)
+                                    <form method="POST" action="{{ route('admin.company-settings.testimonials.toggle', [$agency, $t]) }}">
+                                        @csrf @method('PATCH')
+                                        <input type="hidden" name="published" value="0">
+                                        <label class="flex items-center gap-2 text-xs cursor-pointer" style="color:var(--text-secondary);" title="Publish this testimonial to the website">
+                                            <input type="checkbox" name="published" value="1" onchange="this.form.submit()"
+                                                   class="rounded" style="accent-color:var(--brand-icon, #0ea5e9);" {{ $t->published ? 'checked' : '' }}>
+                                            Publish
+                                        </label>
+                                    </form>
+                                @else
+                                    <span class="text-xs" style="color:var(--text-muted);">{{ $t->published ? 'Published' : '—' }}</span>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                @empty
+                    <p class="text-xs" style="color:var(--text-muted);">No testimonials captured yet. Agents add them on a contact's “Notes &amp; Testimonials” tab.</p>
+                @endforelse
+            </div>
         </div>
 
         {{-- ============================================================

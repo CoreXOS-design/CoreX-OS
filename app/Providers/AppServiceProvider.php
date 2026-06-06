@@ -338,6 +338,14 @@ class AppServiceProvider extends ServiceProvider
         );
         \App\Models\User::observe(\App\Observers\UserObserver::class);
 
+        // Contact Testimonials — publish/unpublish fans out to per-website
+        // testimonial.* webhooks. Spec: .ai/specs/testimonials.md §5.
+        Event::listen(
+            \App\Events\Website\TestimonialVisibilityChanged::class,
+            \App\Listeners\Webhooks\DispatchTestimonialWebhooks::class,
+        );
+        \App\Models\ContactTestimonial::observe(\App\Observers\ContactTestimonialObserver::class);
+
         // Phase 8 — auto-record outcome=won_sale when a Deal flips to registered
         // and a linked presentation has no outcome yet. Observer is failure-
         // isolated so outcome auto-capture never breaks a deal save.

@@ -39,13 +39,15 @@ class AgencyApiKey extends Model implements Authenticatable
     public const SCOPE_LISTINGS_READ   = 'listings:read';
     public const SCOPE_AGENTS_READ     = 'agents:read';
     public const SCOPE_AGENCY_READ     = 'agency:read';
+    public const SCOPE_TESTIMONIALS_READ = 'testimonials:read';
     public const SCOPE_WEBHOOKS_RECEIVE = 'webhooks:receive';
 
     public const SCOPES = [
-        self::SCOPE_LISTINGS_READ    => 'Read listings',
-        self::SCOPE_AGENTS_READ      => 'Read agent profiles',
-        self::SCOPE_AGENCY_READ      => 'Read agency branding & settings',
-        self::SCOPE_WEBHOOKS_RECEIVE => 'Receive webhook events',
+        self::SCOPE_LISTINGS_READ      => 'Read listings',
+        self::SCOPE_AGENTS_READ        => 'Read agent profiles',
+        self::SCOPE_AGENCY_READ        => 'Read agency branding & settings',
+        self::SCOPE_TESTIMONIALS_READ  => 'Read published testimonials',
+        self::SCOPE_WEBHOOKS_RECEIVE   => 'Receive webhook events',
     ];
 
     protected $fillable = [

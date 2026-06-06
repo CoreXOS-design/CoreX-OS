@@ -193,6 +193,19 @@ contact_id → contacts, property_id → properties
 role — free text: 'lessor', 'landlord', 'owner', 'tenant', etc.
 ```
 
+**`contact_testimonials`** — Testimonials a contact gave (captured on the
+"Notes & Testimonials" tab; published to the agency website via the Agency
+Public API). Spec: `.ai/specs/testimonials.md`
+```
+agency_id (NOT NULL), contact_id → contacts, user_id (captured by)
+body, display_name (public author), rating (1-5, nullable)
+published (bool) — the Settings publish tick; published_at, published_by_user_id
+Model: App\Models\ContactTestimonial (BelongsToAgency, SoftDeletes)
+Publish toggle fires testimonial.* webhooks via ContactTestimonialObserver →
+TestimonialVisibilityChanged → DispatchTestimonialWebhooks (mirrors agent sync).
+Public read: GET /api/v1/website/testimonials (scope testimonials:read).
+```
+
 ### Contact Dependency Chain
 ```
 CONTACT TABLE CHANGED?
