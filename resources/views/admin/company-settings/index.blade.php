@@ -805,7 +805,7 @@
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">Agent order on website</div>
                             <div class="text-xs" style="color:var(--text-secondary);">How agents are ordered on the website's “meet the team”.</div>
                         </div>
-                        <svg style="width:18px;height:18px;color:var(--text-muted);transition:transform .2s;" :style="open && 'transform:rotate(180deg)'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
                     </button>
                     <div x-show="open" x-cloak class="space-y-3" style="margin-top:12px;">
                     <div class="flex gap-5">
@@ -857,7 +857,7 @@
                         <h3 class="ds-section-header" style="margin:0;">Testimonials</h3>
                         <p class="text-xs" style="color:var(--text-muted); margin:2px 0 0;">Tick one to publish it to your website; untick to remove it.</p>
                     </div>
-                    <svg style="width:18px;height:18px;color:var(--text-muted);transition:transform .2s;" :style="secOpen && 'transform:rotate(180deg)'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: secOpen ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
                 </button>
                 <div x-show="secOpen" x-cloak class="space-y-4" style="margin-top:14px;">
 
