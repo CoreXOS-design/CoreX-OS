@@ -185,11 +185,16 @@ Events that should fire webhooks (emit if not already emitted — current `app/E
 | Agent created **with** `show_on_website=true`, or flag flipped on | `agent.published` | new agent card appears on site |
 | Agent updated while `show_on_website=true` | `agent.updated` | site refreshes the agent card |
 | Agent soft-deleted, or `show_on_website` flipped off | `agent.removed` | site pulls the agent card down |
+| Article created **with** `is_published=true`, or `is_published` flipped on (incl. restore of a published article) | `article.published` | new article appears on the agent's profile |
+| Published article's public content edited (`title`, `slug`, `excerpt`, `cover_image_path`, `body`, `link_url`, `tags`, `published_at`) | `article.updated` | site refreshes the article |
+| Article `is_published` flipped off, or a published article soft-deleted | `article.removed` | site pulls the article down |
 
 **Agent sync semantics (the requested create/update/delete behaviour):**
 - An agent change only fires a webhook when it crosses the public boundary. Create/update of an agent that is *not* `show_on_website` fires **nothing** (it's not public).
 - Turning `show_on_website` on → `agent.published`. Turning it off → `agent.removed`. Editing a public agent → `agent.updated`. Soft-deleting a public agent → `agent.removed`.
 - This mirrors the listing publish logic exactly, so the website handles agents and listings with the same "published / updated / removed" pattern.
+
+**Article sync semantics:** Identical "crosses the public boundary" rule, keyed on `is_published`. A draft article fires **nothing** (create, edit, delete) until it is published. Publish → `article.published`; unpublish → `article.removed`; edit of a published article's public fields → `article.updated`; soft-delete of a published article → `article.removed`. Wired via `AgentArticleObserver` → `ArticleVisibilityChanged` → `DispatchArticleWebhooks`. **Every `article.*` payload carries both `id` and `agent_id`** (the `removed` payload is `{ id, agent_id }`; published/updated carry the full `ArticleResource`) so the consuming site can bust its **per-agent** article cache off `data.agent_id`.
 
 > Implementation note: emitting `listing.*` and `agent.*` cleanly requires the matching domain events (`PropertyPublished`/`PropertyUpdated`/`PropertyRemoved`, `AgentPublished`/`AgentUpdated`/`AgentRemoved`). Current `app/Events/Property/` has only `PropertySgDocumentSaved` + `PropertySuburbLinked`, and there is no `app/Events/Agent/` publish event yet — these are added to the catalogue (`corex-domain-events-spec.md`) and emitted from the Property/User observers at build time, per non-negotiable #9. We do NOT bolt webhook logic directly onto controllers.
 
