@@ -168,6 +168,7 @@ class Agency extends Model
         'website_open_hours',
         'website_show_agents',
         'website_show_listings',
+        'website_show_branches',
         'website_agent_order_mode',
     ];
 
@@ -249,6 +250,7 @@ class Agency extends Model
         'website_enabled'       => 'boolean',
         'website_show_agents'   => 'boolean',
         'website_show_listings' => 'boolean',
+        'website_show_branches' => 'boolean',
         'website_open_hours'    => 'array',
     ];
 

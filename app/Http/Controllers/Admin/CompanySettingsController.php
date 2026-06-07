@@ -181,6 +181,7 @@ class CompanySettingsController extends Controller
 
         $data['website_show_agents']      = $request->boolean('website_show_agents');
         $data['website_show_listings']    = $request->boolean('website_show_listings');
+        $data['website_show_branches']    = $request->boolean('website_show_branches');
         $data['website_agent_order_mode'] = $data['website_agent_order_mode'] ?? Agency::AGENT_ORDER_ALPHABETICAL;
 
         $agency->update($data);

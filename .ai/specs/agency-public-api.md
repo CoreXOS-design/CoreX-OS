@@ -123,6 +123,7 @@ Records each webhook send attempt: `agency_api_key_id`, `event_name`, `payload` 
 | `listings:read` | active Agency Stock listings (index + detail) |
 | `agents:read` | public agent profile fields |
 | `agency:read` | agency branding/contact (name, logo, colours, address) |
+| `branches:read` | branches (offices) with trading identity + their public agents + listing counts |
 | `webhooks:receive` | eligible to receive listing/agent webhook events |
 
 No `*:write` scopes ship in v1.
@@ -159,6 +160,8 @@ Reuse the constant-time-compare + HMAC discipline already proven in `PpWebhookCo
 | GET | `/api/v1/website/agents` | `v1.website.agents.index` | `agents:read` |
 | GET | `/api/v1/website/agents/{id}` | `v1.website.agents.show` | `agents:read` |
 | GET | `/api/v1/website/agency` | `v1.website.agency.show` | `agency:read` |
+| GET | `/api/v1/website/branches` | `v1.website.branches.index` | `branches:read` |
+| GET | `/api/v1/website/branches/{id}` | `v1.website.branches.show` | `branches:read` |
 | GET | `/api/v1/website/ping` | `v1.website.ping` | (any valid key) |
 
 Responses use dedicated **public API Resources** (`app/Http/Resources/WebsiteApi/*`) so the external contract is decoupled from internal model shape — we can refactor models without breaking agency sites. PII not meant for the public web (owner contact, internal notes) is **never** included.
@@ -166,6 +169,36 @@ Responses use dedicated **public API Resources** (`app/Http/Resources/WebsiteApi
 **AgentResource public fields:** `id`, `name`, `designation` (the agent's role/title, e.g. "Principal Property Practitioner" / "Candidate Property Practitioner" — a public "meet the team" field), `email`, `phone`, `cell`, `photo_url`. The compliance **FFC number is NOT exposed** (§13 Q7).
 
 **Agent-scoped listings:** `GET /api/v1/website/listings?agent_id={userId}` filters to a single agent's syndicated listings — used by the agent's website profile to show "their properties". Each listing's `agent` block carries `agent.id`, so the website links a listing card back to that agent's profile. (Testimonials carry the same `agent_id` + a `?agent_id=` filter — see `testimonials.md`.)
+
+### 5.1 Branches (offices)
+
+Multi-office agencies expose their branch structure to the website so the site
+can render a "Our offices" page and route agents/listings under the right
+office. Master content toggle: **`website_show_branches`** on `agencies`
+(Company Settings → Website → "Show branches on website", off by default). The
+toggle is surfaced to the site in `agency.show` → `show.branches` (bool),
+exactly like `show.agents` / `show.listings`; the website decides whether to
+render the section. The endpoints themselves are gated only by the
+`branches:read` scope, mirroring agents/listings.
+
+`BranchResource` public fields (per branch): `id`, `trading_name` (falls back
+to the branch's internal name), `tagline`, `address`, `phone`, `phone_label`,
+`phone_secondary`, `phone_secondary_label`, `email`, `ppra_number`, `logo_url`,
+`agent_count`, `listing_count`, and a nested `agents[]` array (each an
+`AgentResource`, only `show_on_website` agents whose `branch_id` is this
+branch). Blank per-branch contact fields are dropped — a blank value means
+"this branch uses the agency default", so the site falls back to `/agency`.
+This satisfies "the branch sends the trading name, address, phone override,
+email and branch logo" plus the agents that fall under each branch.
+
+**Branch-scoped agents & listings:** both `/agents` and `/listings` accept a
+`?branch_id={id}` filter so an office page can pull exactly the agents and
+properties under that office. The nested `agents[]` in the branch payload is the
+convenience path (header + cards in one call); the `?branch_id=` filters are the
+paginated path for the full agent/listing grids. `listing_count` per branch
+counts only properties whose syndication portal is enabled for the requesting
+key — identical filtering to `/listings` — so the count always matches what
+`/listings?branch_id=` returns.
 
 **ListingResource is P24-parity** — it carries the same rich marketing field set CoreX syndicates to Property24: location detail (complex/unit/floor/stand + street parts), `costs` (rates/levy/special levy), a `rental` block (lease period, deposit, rental amount, gross/net, per-period rates) populated only for rentals, `mandate_type`, `pet_friendly`, `spaces`, `features`, a categorised `gallery`, `video` (YouTube/Matterport/virtual tour), and upcoming `show_days` — alongside the core price/beds/baths/size/images/agent. Numeric fields are coerced to int/float for a clean contract.
 

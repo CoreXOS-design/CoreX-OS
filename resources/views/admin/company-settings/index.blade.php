@@ -808,6 +808,12 @@
                                {{ old('website_show_listings', (int)($agency->website_show_listings ?? 1)) ? 'checked' : '' }}>
                         Show listings on website
                     </label>
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                        <input type="hidden" name="website_show_branches" value="0">
+                        <input type="checkbox" name="website_show_branches" value="1" class="rounded" style="accent-color:var(--brand-icon, #0ea5e9);"
+                               {{ old('website_show_branches', (int)($agency->website_show_branches ?? 0)) ? 'checked' : '' }}>
+                        Show branches on website
+                    </label>
                 </div>
 
                 {{-- Agent ordering on the website --}}

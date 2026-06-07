@@ -65,6 +65,7 @@ class AgencyResource extends JsonResource
             'show' => [
                 'agents'   => (bool) $this->website_show_agents,
                 'listings' => (bool) $this->website_show_listings,
+                'branches' => (bool) $this->website_show_branches,
             ],
 
             // How /agents is ordered ('alphabetical' | 'custom'). The /agents

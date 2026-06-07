@@ -29,6 +29,12 @@ class AgentsController extends Controller
             ->where('agency_id', $agencyId)
             ->where('show_on_website', true);
 
+        // Optional ?branch_id= — a branch (office) page pulls just the agents
+        // that fall under it. Pairs with /branches (branches:read).
+        if (($branchId = (int) $request->integer('branch_id')) > 0) {
+            $query->where('branch_id', $branchId);
+        }
+
         // CoreX decides the order; the website just renders the array in order.
         if (optional($key->agency)->website_agent_order_mode === \App\Models\Agency::AGENT_ORDER_CUSTOM) {
             // Custom positions first (nulls last), then name as a tiebreaker.

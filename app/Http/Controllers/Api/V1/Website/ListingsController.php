@@ -33,6 +33,12 @@ class ListingsController extends Controller
             $query->where('agent_id', $agentId);
         }
 
+        // Optional ?branch_id= — a branch (office) page pulls just the listings
+        // that sit under it. Pairs with /branches (branches:read).
+        if (($branchId = (int) $request->integer('branch_id')) > 0) {
+            $query->where('branch_id', $branchId);
+        }
+
         return ListingResource::collection($query->paginate($perPage));
     }
 
