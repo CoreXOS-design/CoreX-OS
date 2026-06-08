@@ -260,6 +260,34 @@ class Phase2WebsiteApiTest extends TestCase
         $this->assertSame('Open house', $data['show_days'][0]['note']);
     }
 
+    public function test_listing_images_do_not_double_the_storage_prefix(): void
+    {
+        // gallery_images_json stores values exactly as Storage::url() emits them
+        // at upload time — i.e. already carrying a leading `/storage/`. The API
+        // must NOT re-prefix these into `/storage/storage/...` (which 403s).
+        $p = Property::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'external_id' => (string) Str::uuid(), 'title' => 'Prefix unit', 'suburb' => 'Uvongo',
+            'property_type' => 'house', 'listing_type' => 'sale', 'status' => 'active', 'price' => 1000000,
+            'beds' => 3, 'baths' => 2, 'garages' => 1,
+            'gallery_images_json' => [
+                '/storage/properties/42/already-public.jpg', // upload-time shape
+                'properties/42/bare-relative.jpg',           // bare disk path
+            ],
+            'published_at' => now(),
+        ]);
+        $this->syndicate($p, true);
+
+        $data = $this->withToken($this->token)->getJson("/api/v1/website/listings/{$p->id}")->assertOk()->json('data');
+
+        foreach ($data['images'] as $url) {
+            $this->assertStringNotContainsString('/storage/storage/', $url, "Doubled storage prefix in: {$url}");
+        }
+        // Both shapes resolve to the same single-prefixed public URL.
+        $expected = \Illuminate\Support\Facades\Storage::disk('public')->url('properties/42/already-public.jpg');
+        $this->assertContains($expected, $data['images']);
+    }
+
     public function test_agents_default_alphabetical_order(): void
     {
         // setUp already has visible "Thandi Mbeki".

@@ -501,6 +501,12 @@ class PropertyController extends Controller
             || collect((array) $request->input('pending_new_contacts', []))
                 ->contains(fn ($nc) => !empty($nc['first_name']) && !empty($nc['last_name']) && !empty($nc['phone']));
         if (! $hasContact) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => 'A contact must be linked to the property before saving.',
+                ], 422);
+            }
             return back()
                 ->withInput()
                 ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
@@ -645,6 +651,19 @@ class PropertyController extends Controller
                 role: 'unknown',
                 actorUserId: auth()->id(),
             ));
+        }
+
+        // The create form falls back to an AJAX submit when it carries more
+        // gallery images than PHP's max_file_uploads cap (default 20): the
+        // property is created here without the gallery, then the gallery is
+        // batch-uploaded to upload-images. Hand the client the new property's
+        // id + show URL so it can run those batches and land on the property.
+        if ($request->wantsJson()) {
+            return response()->json([
+                'ok'       => true,
+                'property' => ['id' => $property->id],
+                'redirect' => route('corex.properties.show', $property),
+            ]);
         }
 
         return redirect()->route('corex.properties.show', $property)
@@ -973,6 +992,10 @@ class PropertyController extends Controller
 
         if (!empty($updates)) {
             $property->update($updates);
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'added' => $added]);
         }
 
         return back()

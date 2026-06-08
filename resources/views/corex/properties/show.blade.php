@@ -807,76 +807,101 @@
                 <div x-show="synStep === 'main'" class="p-4 space-y-4">
 
                     @if($websiteKeys->isNotEmpty())
-                    {{-- Website portals — one panel per agency website (API key). Submit / Refresh / Deactivate. Spec §6.5.2 --}}
+                    {{-- Website portals — one panel per agency website (API key). Mirrors the
+                         Property24 panel exactly: header card with toggle + status badge, status
+                         line, and a View · Refresh · Deactivate action row. Spec §6.5.2 --}}
                     <div class="space-y-3">
                         <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Websites</p>
                         @foreach($websiteKeys as $wk)
-                        @php $wState = $websiteState[$wk->id] ?? null; @endphp
-                        <div @click.stop class="space-y-2 px-3 py-2 rounded-md"
-                             x-data="{
-                                enabled: {{ optional($wState)->enabled ? 'true' : 'false' }},
-                                lastSynced: @js(optional(optional($wState)->last_synced_at)->diffForHumans()),
-                                loading: false,
-                                errorMsg: '',
-                                flash: '',
-                                csrf: '{{ csrf_token() }}',
-                                urls: {
-                                    activate: '{{ route('corex.properties.website-syndication.activate', [$property, $wk]) }}',
-                                    deactivate: '{{ route('corex.properties.website-syndication.deactivate', [$property, $wk]) }}',
-                                    refresh: '{{ route('corex.properties.website-syndication.refresh', [$property, $wk]) }}',
-                                },
-                                async post(url) {
-                                    if (this.loading) return;
-                                    this.loading = true; this.errorMsg = ''; this.flash = '';
-                                    const fd = new FormData(); fd.append('_token', this.csrf);
-                                    try {
-                                        const r = await fetch(url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
-                                        const j = await r.json().catch(() => ({}));
-                                        if (r.ok && j.success) {
-                                            this.enabled = j.enabled; this.lastSynced = j.last_synced || this.lastSynced; this.flash = j.message || '';
-                                        } else {
-                                            this.errorMsg = j.message || ('Request failed (HTTP ' + r.status + ')');
-                                        }
-                                    } catch (e) { this.errorMsg = e.message || 'Network error'; }
-                                    this.loading = false;
-                                },
-                             }"
-                             :style="enabled ? 'background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.25);' : 'background:var(--surface-2); border:1px solid var(--border);'">
-                            <div class="flex items-center justify-between gap-2">
+                        @php
+                            $wState = $websiteState[$wk->id] ?? null;
+                            $wConfig = [
+                                'propertyId'  => $property->id,
+                                'name'        => $wk->name,
+                                'enabled'     => (bool) optional($wState)->enabled,
+                                'status'      => optional($wState)->status ?? '',
+                                'lastSynced'  => optional(optional($wState)->last_synced_at)->diffForHumans() ?? '',
+                                'lastError'   => optional($wState)->last_error ?? '',
+                                // No per-listing public URL exists for a generic website yet, so the
+                                // "View" button only appears when one is known (e.g. HFC's own site).
+                                'publicUrl'   => $property->publicListingUrls()['hfc'] ?? '',
+                                'csrfToken'   => csrf_token(),
+                                'urls'        => [
+                                    'activate'   => route('corex.properties.website-syndication.activate', [$property, $wk]),
+                                    'deactivate' => route('corex.properties.website-syndication.deactivate', [$property, $wk]),
+                                    'refresh'    => route('corex.properties.website-syndication.refresh', [$property, $wk]),
+                                ],
+                            ];
+                        @endphp
+                        <div x-data="websiteSyndication({{ Js::from($wConfig) }})" @click.stop class="space-y-3 mt-2">
+                            {{-- Header card — click toggles active/deactivated (enable = active). --}}
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
+                                 @click="toggleEnabled()"
+                                 :style="enabled ? 'background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.25);' : 'background:var(--surface-2); border:1px solid var(--border);'">
                                 <div class="flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--ds-green)' : 'color:var(--text-muted)'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:#3b82f6' : 'color:var(--text-muted)'">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
                                     </svg>
-                                    <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $wk->name }}</span>
+                                    <span class="text-xs font-semibold" style="color:var(--text-primary);" x-text="name"></span>
                                 </div>
-                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
-                                      :style="enabled ? 'background:rgba(34,197,94,0.15); color:var(--ds-green);' : 'background:var(--surface-3); color:var(--text-muted);'"
-                                      x-text="enabled ? 'Live' : 'Off'"></span>
+                                <div class="flex items-center gap-2">
+                                    <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                                         :style="enabled ? 'background:#3b82f6' : 'background:var(--surface-3)'"
+                                         role="switch" :aria-checked="enabled">
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                              style="background:#fff; margin-top:2px;"
+                                              :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                    </div>
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
+                                          :style="statusBadgeStyle()" x-text="statusLabel()"></span>
+                                </div>
                             </div>
 
-                            <div x-show="errorMsg" x-cloak class="rounded-md px-2 py-1.5 text-[0.6875rem]" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);" x-text="errorMsg"></div>
-                            <div x-show="flash" x-cloak class="text-[0.6875rem]" style="color:var(--ds-green);" x-text="flash"></div>
+                            {{-- Status line --}}
+                            <div x-show="status && status !== ''" x-cloak class="text-xs px-1" style="color:var(--text-secondary);">
+                                <template x-if="status === 'active'"><span x-text="statusLabel()"></span></template>
+                                <template x-if="status === 'submitted'"><span>Submitted, awaiting activation...</span></template>
+                                <template x-if="status === 'pending'"><span>Ready to submit</span></template>
+                                <template x-if="status === 'error'"><span style="color:var(--ds-crimson);" x-text="'Error: ' + lastError"></span></template>
+                                <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
+                            </div>
 
-                            <div class="flex flex-wrap items-center gap-2">
-                                {{-- Submit to website (when off) --}}
-                                <button type="button" x-show="!enabled" @click.stop="post(urls.activate)" :disabled="loading"
-                                        class="px-3 py-1.5 rounded-md text-xs font-semibold transition-opacity hover:opacity-85"
-                                        style="background:var(--ds-green); color:#fff;">
-                                    <span x-text="loading ? 'Submitting…' : 'Submit to website'"></span>
+                            {{-- Active listing actions: View · Refresh · Deactivate --}}
+                            <div x-show="enabled && (status === 'active' || status === 'submitted')" x-cloak class="flex flex-wrap gap-2">
+                                <a x-show="publicUrl" :href="publicUrl" target="_blank"
+                                   class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
+                                   style="background:#3b82f6; color:#fff;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                    View on website
+                                </a>
+                                <button type="button" @click.stop="post(urls.refresh)" :disabled="loading"
+                                        :class="publicUrl ? '' : 'flex-1'"
+                                        class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                    <span x-text="loading ? 'Syncing...' : 'Refresh'"></span>
                                 </button>
-                                {{-- Refresh + Deactivate (when live) --}}
-                                <button type="button" x-show="enabled" @click.stop="post(urls.refresh)" :disabled="loading"
-                                        class="px-3 py-1.5 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(34,197,94,0.10); color:var(--ds-green); border:1px solid rgba(34,197,94,0.25);">
-                                    <span x-text="loading ? 'Sending…' : 'Refresh'"></span>
-                                </button>
-                                <button type="button" x-show="enabled" @click.stop="post(urls.deactivate)" :disabled="loading"
-                                        class="px-3 py-1.5 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">
+                                <button type="button" @click.stop="post(urls.deactivate)" :disabled="loading"
+                                        class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
-                                <span x-show="enabled && lastSynced" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">Synced <span x-text="lastSynced"></span></span>
                             </div>
+
+                            {{-- Last synced timestamp --}}
+                            <div x-show="enabled && lastSynced" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">
+                                Synced <span x-text="lastSynced"></span>
+                            </div>
+
+                            {{-- Toast message --}}
+                            <div x-show="message && messageType === 'success'" x-cloak x-transition
+                                 class="px-3 py-2 rounded-md text-xs font-medium"
+                                 style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                 x-text="message"></div>
+
+                            {{-- Error panel --}}
+                            <div x-show="errorMsg" x-cloak class="rounded-md px-2 py-1.5 text-[0.6875rem]" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);" x-text="errorMsg"></div>
                         </div>
                         @endforeach
                     </div>
@@ -3181,6 +3206,7 @@
                     percent: 0,
                     errorMsg: '',
                     statusText: 'Uploading...',
+                    _done: 0,
                     get labelText() {
                         if (this.uploading) return 'Uploading ' + this.files.length + ' image(s)...';
                         if (this.files.length === 0) return 'Select images to upload (multiple allowed)';
@@ -3191,39 +3217,52 @@
                         this.errorMsg = '';
                         this.percent = 0;
                     },
-                    upload() {
+                    // PHP caps a single POST at max_file_uploads (default 20) and
+                    // silently drops the overflow, so we send the selection in
+                    // batches. Progress spans all batches via _done so the bar
+                    // climbs smoothly toward the full count.
+                    uploadChunk(chunk) {
+                        return new Promise((resolve, reject) => {
+                            const fd = new FormData();
+                            chunk.forEach(f => fd.append('gallery_images[]', f));
+                            const xhr = new XMLHttpRequest();
+                            xhr.open('POST', endpoint);
+                            xhr.setRequestHeader('X-CSRF-TOKEN', csrf);
+                            xhr.setRequestHeader('Accept', 'text/html');
+                            xhr.upload.onprogress = (ev) => {
+                                if (!ev.lengthComputable) return;
+                                const frac = (this._done + (ev.loaded / ev.total) * chunk.length) / this.files.length;
+                                this.percent = Math.min(99, Math.round(frac * 100));
+                            };
+                            xhr.onload = () => (xhr.status >= 200 && xhr.status < 400)
+                                ? resolve()
+                                : reject(new Error('Upload failed (HTTP ' + xhr.status + '). Please try again.'));
+                            xhr.onerror = () => reject(new Error('Network error during upload.'));
+                            xhr.send(fd);
+                        });
+                    },
+                    async upload() {
                         if (!this.files.length) return;
-                        const fd = new FormData();
-                        this.files.forEach(f => fd.append('gallery_images[]', f));
-                        const xhr = new XMLHttpRequest();
-                        xhr.open('POST', endpoint);
-                        xhr.setRequestHeader('X-CSRF-TOKEN', csrf);
-                        xhr.setRequestHeader('Accept', 'text/html');
-                        xhr.upload.onprogress = (ev) => {
-                            if (ev.lengthComputable) {
-                                this.percent = Math.round((ev.loaded / ev.total) * 100);
-                                if (this.percent >= 100) this.statusText = 'Saving...';
-                            }
-                        };
-                        xhr.onload = () => {
-                            this.uploading = false;
-                            if (xhr.status >= 200 && xhr.status < 400) {
-                                this.percent = 100;
-                                this.statusText = 'Done';
-                                window.location.reload();
-                            } else {
-                                this.errorMsg = 'Upload failed (HTTP ' + xhr.status + '). Please try again.';
-                            }
-                        };
-                        xhr.onerror = () => {
-                            this.uploading = false;
-                            this.errorMsg = 'Network error during upload.';
-                        };
                         this.uploading = true;
                         this.percent = 0;
+                        this._done = 0;
                         this.statusText = 'Uploading...';
                         this.errorMsg = '';
-                        xhr.send(fd);
+                        const BATCH = 10;
+                        try {
+                            for (let i = 0; i < this.files.length; i += BATCH) {
+                                const chunk = this.files.slice(i, i + BATCH);
+                                await this.uploadChunk(chunk);
+                                this._done += chunk.length;
+                                this.percent = Math.min(99, Math.round((this._done / this.files.length) * 100));
+                            }
+                            this.percent = 100;
+                            this.statusText = 'Saving...';
+                            window.location.reload();
+                        } catch (e) {
+                            this.uploading = false;
+                            this.errorMsg = e.message || 'Upload failed. Please try again.';
+                        }
                     }
                 }
             }
@@ -6227,6 +6266,58 @@ function p24Syndication(config) {
     };
 }
 
+// Website Syndication Alpine component — mirrors p24Syndication() so the
+// website portal panel looks and behaves exactly like the Property24 one.
+// The website model is enable = active (no async submit round-trip), so the
+// header toggle activates/deactivates directly.
+function websiteSyndication(config) {
+    return {
+        propertyId: config.propertyId,
+        name: config.name || 'Website',
+        enabled: config.enabled,
+        status: config.status || '',
+        lastSynced: config.lastSynced || '',
+        lastError: config.lastError || '',
+        publicUrl: config.publicUrl || '',
+        csrfToken: config.csrfToken,
+        urls: config.urls || {},
+        loading: false, message: '', messageType: 'success', errorMsg: '',
+        statusLabel() {
+            const labels = {'':'Off','pending':'Pending','submitted':'Submitted','active':'Active','error':'Error','deactivated':'Off'};
+            if (!this.enabled && !this.status) return 'Off';
+            return labels[this.status] || (this.enabled ? 'Active' : 'Off');
+        },
+        statusBadgeStyle() {
+            const styles = {'':'background:var(--surface-3);color:var(--text-muted);','pending':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','submitted':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','active':'background:rgba(59,130,246,0.12);color:#3b82f6;','error':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','deactivated':'background:var(--surface-3);color:var(--text-muted);'};
+            if (!this.enabled && !this.status) return styles[''];
+            return styles[this.status] || styles[''];
+        },
+        showMessage(msg, type = 'success') { this.message = msg; this.messageType = type; setTimeout(() => { this.message = ''; }, 5000); },
+        async toggleEnabled() {
+            // Header click toggles the active/deactivated state (enable = active).
+            await this.post(this.enabled ? this.urls.deactivate : this.urls.activate);
+        },
+        async post(url) {
+            if (this.loading || !url) return;
+            this.loading = true; this.errorMsg = '';
+            const fd = new FormData(); fd.append('_token', this.csrfToken);
+            try {
+                const r = await fetch(url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                const j = await r.json().catch(() => ({}));
+                if (r.ok && j.success) {
+                    this.enabled = j.enabled;
+                    this.status = j.status || (j.enabled ? 'active' : 'deactivated');
+                    this.lastSynced = j.last_synced || this.lastSynced;
+                    if (j.message) this.showMessage(j.message);
+                } else {
+                    this.errorMsg = j.message || ('Request failed (HTTP ' + r.status + ')');
+                }
+            } catch (e) { this.errorMsg = e.message || 'Network error'; }
+            finally { this.loading = false; }
+        },
+    };
+}
+
 // ── Property form: required-fields modal ────────────────────────────────
 (function() {
     var form     = document.getElementById('prop-update-form');
@@ -6345,6 +6436,113 @@ function p24Syndication(config) {
     modal.addEventListener('click', function(e) { if (e.target === modal) hideModal(); });
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && !modal.classList.contains('hidden')) hideModal();
+    });
+})();
+
+// ── Create form: upload more than 20 gallery images reliably ────────────
+// A single multipart POST is capped by PHP's max_file_uploads (default 20),
+// which silently drops the overflow. When the create form carries more
+// gallery images than that, create the property via fetch WITHOUT the
+// gallery (all other fields/files post as normal), then batch-upload the
+// gallery to the freshly-created property so every photo lands — and the
+// save button reports live progress while it runs.
+(function () {
+    var form = document.getElementById('prop-update-form');
+    if (!form || form.getAttribute('data-is-new') !== '1') return;
+    var galleryInput = form.querySelector('input[type="file"][name="gallery_images[]"]');
+    if (!galleryInput) return;
+
+    var BATCH = 10;
+    var MAX_SINGLE_POST = 20;   // PHP max_file_uploads default
+    var UPLOAD_BASE = '{{ url('corex/properties') }}';
+
+    function hasLinkedContact() {
+        return document.querySelectorAll(
+            "input[name^='pending_contact_ids'], input[name^='pending_new_contacts']"
+        ).length > 0;
+    }
+
+    form.addEventListener('submit', async function (e) {
+        // A native fallback re-submit (validation errors) sets this flag so we
+        // step aside and let the server render its error banner.
+        if (form.dataset.galleryAjaxBypass === '1') { delete form.dataset.galleryAjaxBypass; return; }
+        if (e.defaultPrevented) return;                  // required-fields modal already blocked
+        var files = Array.from(galleryInput.files || []);
+        if (files.length <= MAX_SINGLE_POST) return;     // native submit handles it fine
+        if (!hasLinkedContact()) return;                 // let the contact guard surface its modal
+
+        e.preventDefault();
+        if (window.coreXPropDirty && window.coreXPropDirty.clear) window.coreXPropDirty.clear();
+
+        var saveBtns    = Array.from(document.querySelectorAll('[data-prop-save]'));
+        var saveLabels  = saveBtns.map(function (b) { return b.querySelector('.prop-save-label'); });
+        var origLabels  = saveLabels.map(function (l) { return l ? l.textContent : null; });
+        function setBusy(txt) {
+            saveBtns.forEach(function (b, i) { b.disabled = true; if (saveLabels[i]) saveLabels[i].textContent = txt; });
+        }
+        function restore() {
+            saveBtns.forEach(function (b, i) { b.disabled = false; if (saveLabels[i] && origLabels[i] != null) saveLabels[i].textContent = origLabels[i]; });
+        }
+
+        var token = (form.querySelector('input[name="_token"]') || {}).value || '';
+
+        // 1) Create the property WITHOUT the gallery images.
+        setBusy('Creating…');
+        var created;
+        try {
+            var fd = new FormData(form);
+            fd.delete('gallery_images[]');
+            var res = await fetch(form.action, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                body: fd,
+                credentials: 'same-origin',
+            });
+            if (res.status === 422) {
+                // Server validation failed — re-submit natively so the server
+                // re-renders the form with its error banner and old input.
+                restore();
+                form.dataset.galleryAjaxBypass = '1';
+                if (form.requestSubmit) { form.requestSubmit(); } else { form.submit(); }
+                return;
+            }
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            created = await res.json();
+            if (!created || !created.property || !created.property.id) throw new Error('Malformed response');
+        } catch (err) {
+            restore();
+            alert('Could not create the property. Please try again.');
+            return;
+        }
+
+        // 2) Batch-upload the gallery to the new property (each batch < cap).
+        var id = created.property.id;
+        var uploadUrl = UPLOAD_BASE + '/' + id + '/upload-images';
+        var done = 0, failed = 0;
+        for (var i = 0; i < files.length; i += BATCH) {
+            var chunk = files.slice(i, i + BATCH);
+            var body = new FormData();
+            body.append('_token', token);
+            body.append('group', 'gallery_images');
+            chunk.forEach(function (f) { body.append('gallery_images[]', f); });
+            try {
+                var ur = await fetch(uploadUrl, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                    body: body,
+                    credentials: 'same-origin',
+                });
+                if (!ur.ok) failed += chunk.length;
+            } catch (err) { failed += chunk.length; }
+            done += chunk.length;
+            setBusy('Uploading photos ' + Math.min(done, files.length) + '/' + files.length + '…');
+        }
+
+        // 3) Land on the new property. Warn if some photos didn't make it.
+        if (failed > 0) {
+            alert(failed + ' of ' + files.length + ' photo(s) failed to upload. You can add the missing ones from the Gallery tab.');
+        }
+        window.location.href = created.redirect || (UPLOAD_BASE + '/' + id);
     });
 })();
 </script>
