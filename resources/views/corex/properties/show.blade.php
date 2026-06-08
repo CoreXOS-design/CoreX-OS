@@ -2005,11 +2005,11 @@
                         <div>
                             <p class="prop-subsection-heading">Sizes</p>
                             <div class="flex flex-wrap gap-4">
-                                @foreach([['garages','Garages','prop-field-count'],['size_m2','Floor m²','prop-field-m2'],['erf_size_m2','Erf m²','prop-field-m2']] as [$n,$lbl,$cls])
+                                @foreach([['size_m2','Floor m²','prop-field-m2'],['erf_size_m2','Erf m²','prop-field-m2']] as [$n,$lbl,$cls])
                                     <div>
                                         <label class="prop-label">{{ $lbl }}</label>
                                         <input type="number" name="{{ $n }}" value="{{ old($n, $property->$n ?? '') }}" min="0"
-                                               {!! $n === 'garages' ? 'required max=20' : 'placeholder="—"' !!}
+                                               placeholder="—"
                                                class="prop-input {{ $cls }}">
                                     </div>
                                 @endforeach
@@ -2026,11 +2026,13 @@
                     {{ json_encode($initSpaces) }},
                     {{ json_encode($initFeatures) }},
                     {{ (int)($property->beds  ?? 0) }},
-                    {{ (int)($property->baths ?? 0) }}
+                    {{ (int)($property->baths ?? 0) }},
+                    {{ (int)($property->garages ?? 0) }}
                 )">
                     {{-- Hidden form inputs (beds/baths derived from spaces; spaces_json = full data) --}}
                     <input type="hidden" name="beds"        :value="bedsCount">
                     <input type="hidden" name="baths"       :value="bathsCount">
+                    <input type="hidden" name="garages"     :value="garagesCount">
                     <input type="hidden" name="spaces_json" :value="spacesJsonStr">
 
                     {{-- ── SPACES ────────────────────────────────────────────── --}}
@@ -5416,7 +5418,7 @@ const _FEAT_CAT_SVG = {
     sustainability: `<svg viewBox="0 0 24 24" fill="none" stroke="#14b8a6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a1 1 0 01-1 1H4a1 1 0 01-1-1V9z"/><path d="M9 14a3 3 0 006 0V11"/><circle cx="12" cy="8.5" r="1.5" fill="#14b8a6" stroke="none"/></svg>`,
 };
 
-function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths) {
+function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths, initGarages) {
     return {
         spaces: initSpaces || [],
         features: {
@@ -5439,8 +5441,9 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths)
                 const defaults = ['Bedroom','Bathroom','Garage','Parking','Pool','Kitchen','Garden'];
                 for (const type of defaults) {
                     let count = 0;
-                    if (type === 'Bedroom'  && initBeds  > 0) count = initBeds;
-                    if (type === 'Bathroom' && initBaths > 0) count = initBaths;
+                    if (type === 'Bedroom'  && initBeds    > 0) count = initBeds;
+                    if (type === 'Bathroom' && initBaths   > 0) count = initBaths;
+                    if (type === 'Garage'   && initGarages > 0) count = initGarages;
                     this.spaces.push(this._makeSpace(type, count));
                 }
             }
@@ -5456,8 +5459,9 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths)
         get currentSpace() {
             return (this.modalSpaceIdx !== null && this.spaces[this.modalSpaceIdx]) ? this.spaces[this.modalSpaceIdx] : null;
         },
-        get bedsCount()  { const s = this.spaces.find(s => s.type === 'Bedroom');  return s ? Math.floor(s.count) : 0; },
-        get bathsCount() { const s = this.spaces.find(s => s.type === 'Bathroom'); return s ? s.count : 0; },
+        get bedsCount()    { const s = this.spaces.find(s => s.type === 'Bedroom');  return s ? Math.floor(s.count) : 0; },
+        get bathsCount()   { const s = this.spaces.find(s => s.type === 'Bathroom'); return s ? s.count : 0; },
+        get garagesCount() { const s = this.spaces.find(s => s.type === 'Garage');   return s ? Math.floor(s.count) : 0; },
         get spacesJsonStr() { return JSON.stringify({ spaces: this.spaces, features: this.features }); },
         get allFeaturesFlat() {
             const set = new Set();
