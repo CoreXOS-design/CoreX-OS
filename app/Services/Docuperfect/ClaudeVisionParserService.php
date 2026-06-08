@@ -2,6 +2,8 @@
 
 namespace App\Services\Docuperfect;
 
+use App\Models\AI\AiUsageEvent;
+use App\Services\AI\AiUsageRecorder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -110,6 +112,15 @@ class ClaudeVisionParserService
             Log::warning('ClaudeVisionParser: Empty response for page ' . $pageNumber);
             return [];
         }
+
+        // Cost ledger — DocuPerfect vision-parse spend, per page (spec ai-cost-ledger.md §4.3).
+        app(AiUsageRecorder::class)->record(
+            source:       AiUsageEvent::SOURCE_DOCUPERFECT_VISION,
+            model:        (string) ($body['model'] ?? 'claude-sonnet-4-6'),
+            inputTokens:  (int) ($body['usage']['input_tokens']  ?? 0),
+            outputTokens: (int) ($body['usage']['output_tokens'] ?? 0),
+            surfaceRef:   'page:' . $pageNumber,
+        );
 
         // Strip markdown code fences if present
         $content = trim($content);

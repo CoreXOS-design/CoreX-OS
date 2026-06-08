@@ -204,10 +204,26 @@ unchanged — same hero, same daily burn, same top-consumers, same budget form.
 
 ## 5. Multi-tenancy
 
-`ai_usage_events` is tenant-owned → `agency_id` column + `BelongsToAgency` /
-`AgencyScope` from day one (non-negotiable #7 / `.ai/specs/multi-tenancy.md`).
-Global/system calls write `agency_id = null` and are visible only to super-admin
-(the dashboard already special-cases the global bucket as "(global)").
+`ai_usage_events` carries an `agency_id` column and every row is stamped with
+the correct agency at write time by `AiUsageRecorder` (explicit arg → else the
+authenticated user's effective agency → else null for system/cron calls).
+
+**Documented deviation from non-negotiable #7 (no `BelongsToAgency`/`AgencyScope`).**
+This ledger intentionally does NOT use the global agency scope, exactly like the
+`ai_narrative_cache` table it supersedes as the cost source. Two concrete reasons:
+
+1. `AgencyScope` filters out NULL-`agency_id` rows as orphans — that would hide
+   all genuinely global (cross-agency) MIC narrative spend from the dashboard.
+2. The only read surface is the `mic.view_ai_costs`-gated admin dashboard, which
+   is **cross-agency by design** (its "top consumers across agencies" panel, and
+   the per-agency budget table that already loads every agency). A global read
+   scope would break that view.
+
+Tenancy is therefore enforced at WRITE time (correct `agency_id` always stamped)
+and read isolation is provided where it matters — `Agency::aiBudgetUsedZar()`
+filters by explicit `agency_id`, so one agency's cap never counts another's
+spend (covered by a test). Global/system rows write `agency_id = null` and the
+dashboard renders them in the "(global)" bucket.
 
 ---
 
@@ -276,8 +292,9 @@ out of scope here.)
    the hero total.
 6. A recorder write failure (simulated) logs a warning and does **not** throw —
    the underlying AI call still returns its result.
-7. `ai_usage_events` is tenant-scoped: Agency A's dashboard never sees Agency B
-   rows (AgencyScope test).
+7. Cost attribution is isolated per agency: `Agency::aiBudgetUsedZar()` for
+   agency A never includes agency B's rows (isolation test) — tenancy is
+   enforced at write time, see §5.
 8. `scripts/dev-check.ps1` green; `php artisan schema:dump` re-run and committed.
 
 ---

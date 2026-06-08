@@ -2,6 +2,8 @@
 
 namespace App\Services\Presentations\Evidence;
 
+use App\Models\AI\AiUsageEvent;
+use App\Services\AI\AiUsageRecorder;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 
@@ -146,7 +148,19 @@ PROMPT;
             ],
         ]);
 
-        return json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+
+        // Cost ledger — presentation evidence extraction/summarisation spend
+        // (spec ai-cost-ledger.md §4.3). Both extractListings() and
+        // summariseArticle() route through here, so one record() covers both.
+        app(AiUsageRecorder::class)->record(
+            source:       AiUsageEvent::SOURCE_PRESENTATION_EVIDENCE,
+            model:        $model,
+            inputTokens:  (int) ($body['usage']['input_tokens']  ?? 0),
+            outputTokens: (int) ($body['usage']['output_tokens'] ?? 0),
+        );
+
+        return $body;
     }
 
     /**

@@ -171,6 +171,16 @@ Schedule::job(new \App\Jobs\AI\PurgeOldSoftDeletedCacheJob())
     ->withoutOverlapping()
     ->name('ai-cache-purge');
 
+// Weekly: retention sweep of the AI cost ledger — hard-delete ai_usage_events
+// rows older than 13 months. Sundays at 03:45 SAST (after the cache purge).
+// Spec: .ai/specs/ai-cost-ledger.md §3.2.8.
+Schedule::job(new \App\Jobs\AI\PurgeOldAiUsageEventsJob())
+    ->weeklyOn(0, '03:45')
+    ->timezone('Africa/Johannesburg')
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->name('ai-usage-ledger-purge');
+
 // Nightly: warm the "This Week" tile cache so morning agent visits hit cache
 // instead of paying AI cost during peak. 02:30 SAST is before the 03:00 SAST
 // expired-cache sweep so any stale rows are gone before the warm starts.

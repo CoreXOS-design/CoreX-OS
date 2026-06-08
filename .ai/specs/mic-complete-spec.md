@@ -474,7 +474,15 @@ Responsibilities:
 - Batch API support — for non-real-time work (briefs, tile copy nightly cron), use Anthropic Batch API for 50% discount
 - Prompt caching — system prompts cached at API level for additional 90% input cost reduction
 
-**Monthly cost dashboard:** New admin page at `/admin/ai-usage` showing per-agency token consumption, ZAR spend, narrative type breakdown, cache hit rate.
+**Monthly cost dashboard:** New admin page at `/admin/ai-usage` showing per-agency token consumption, ZAR spend, per-source breakdown, cache hit rate.
+
+> **Cost source of truth — see `.ai/specs/ai-cost-ledger.md`.** Spend is no
+> longer read from `ai_narrative_cache` (which only the MIC gateway writes).
+> All Anthropic calls across CoreX — MIC narratives, mobile voice, image
+> analysis, DocuPerfect, marketing copy, presentation evidence — record to the
+> append-only `ai_usage_events` ledger via `AiUsageRecorder`. The dashboard and
+> `Agency::aiBudgetUsedZar()` read the ledger, so spend visibility and the
+> per-agency budget cap cover every surface, not just narratives.
 
 ---
 

@@ -2,6 +2,8 @@
 
 namespace App\Services\Docuperfect;
 
+use App\Models\AI\AiUsageEvent;
+use App\Services\AI\AiUsageRecorder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -114,6 +116,14 @@ class ImporterAiService
         }
 
         Log::info('ImporterAI: Claude — success', ['duration_ms' => $durationMs]);
+
+        // Cost ledger — DocuPerfect import spend (spec ai-cost-ledger.md §4.3).
+        app(AiUsageRecorder::class)->record(
+            source:       AiUsageEvent::SOURCE_DOCUPERFECT_IMPORT,
+            model:        (string) ($body['model'] ?? 'claude-sonnet-4-6'),
+            inputTokens:  (int) ($body['usage']['input_tokens']  ?? 0),
+            outputTokens: (int) ($body['usage']['output_tokens'] ?? 0),
+        );
 
         return $this->parseJsonResponse($text);
     }

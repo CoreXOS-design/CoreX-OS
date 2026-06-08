@@ -48,10 +48,10 @@ class AiUsageController extends Controller
         $tokens         = $this->aggregator->totalTokensThisMonth(null);
         $cacheHitRate30 = $this->aggregator->cacheHitRate(30);
 
-        // ── Daily burn for the month ──
-        $dailyBurn = DB::table('ai_narrative_cache')
-            ->selectRaw('DATE(generated_at) AS day, SUM(cost_zar) AS cost_zar_sum, COUNT(*) AS generations')
-            ->whereBetween('generated_at', [$monthStart, $monthEnd])
+        // ── Daily burn for the month (from the unified ledger) ──
+        $dailyBurn = DB::table('ai_usage_events')
+            ->selectRaw('DATE(occurred_at) AS day, SUM(cost_zar) AS cost_zar_sum, COUNT(*) AS generations')
+            ->whereBetween('occurred_at', [$monthStart, $monthEnd])
             ->groupBy('day')
             ->orderBy('day')
             ->get()
@@ -62,14 +62,14 @@ class AiUsageController extends Controller
             ])
             ->all();
 
-        // ── By narrative type ──
-        $byType = $this->aggregator->monthlyCostByNarrativeType(null, $monthCarbon);
+        // ── By source (mic_narrative, mobile_voice, image_analysis, …) ──
+        $bySource = $this->aggregator->monthlyCostBySource(null, $monthCarbon);
 
-        // ── Top consumers (agencies) ──
-        $topAgencies = DB::table('ai_narrative_cache as c')
+        // ── Top consumers (agencies) — across every AI surface ──
+        $topAgencies = DB::table('ai_usage_events as c')
             ->leftJoin('agencies as a', 'a.id', '=', 'c.agency_id')
             ->selectRaw('c.agency_id, a.name AS agency_name, SUM(c.cost_zar) AS cost_zar_sum, COUNT(*) AS generations')
-            ->whereBetween('c.generated_at', [$monthStart, $monthEnd])
+            ->whereBetween('c.occurred_at', [$monthStart, $monthEnd])
             ->groupBy('c.agency_id', 'a.name')
             ->orderByDesc('cost_zar_sum')
             ->limit(10)
@@ -120,7 +120,7 @@ class AiUsageController extends Controller
             'tokens'         => $tokens,
             'cacheHitRate30' => $cacheHitRate30,
             'dailyBurn'      => $dailyBurn,
-            'byType'         => $byType,
+            'bySource'       => $bySource,
             'topAgencies'    => $topAgencies,
             'agencies'       => $agencies,
             'cacheStats'     => $cacheStats,

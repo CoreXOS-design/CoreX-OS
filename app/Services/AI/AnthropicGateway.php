@@ -12,6 +12,7 @@ use App\Exceptions\AI\AnthropicApiException;
 use App\Exceptions\AI\InvalidNarrativeRequestException;
 use App\Exceptions\AI\NarrativeGenerationException;
 use App\Models\AI\AINarrativeCache;
+use App\Models\AI\AiUsageEvent;
 use App\Models\Agency;
 use App\Services\AI\DTOs\NarrativeRequest;
 use App\Services\AI\DTOs\NarrativeResponse;
@@ -45,6 +46,12 @@ final class AnthropicGateway
 {
     private const API_VERSION_HEADER = '2023-06-01';
     private const FALLBACK_CACHE_TTL_MINUTES = 5;
+
+    public function __construct(
+        private readonly AiUsageRecorder $usageRecorder,
+        private readonly AiCostCalculator $costCalculator,
+    ) {
+    }
 
     /**
      * Generate (or cache-serve) a narrative.
@@ -356,6 +363,16 @@ final class AnthropicGateway
 
         event(new AINarrativeGenerated($cacheRow));
 
+        // Cost ledger — one row per API call (spec ai-cost-ledger.md §4.3).
+        $this->usageRecorder->record(
+            source:       AiUsageEvent::SOURCE_MIC_NARRATIVE,
+            model:        $model,
+            inputTokens:  $inputTokens,
+            outputTokens: $outputTokens,
+            agencyId:     $request->agencyId,
+            surfaceRef:   $request->cacheKey,
+        );
+
         // Budget warning detection — fire AgencyAiBudgetWarning once per month
         // when usage first crosses 80%/95%/100% of the monthly cap. Failures
         // here MUST NOT break the AI call, so wrap defensively.
@@ -461,6 +478,18 @@ final class AnthropicGateway
             failureReason: $reason,
         ));
 
+        // Cost ledger — log the degraded call (cost 0) so the dashboard shows
+        // fallbacks, not silent gaps (spec ai-cost-ledger.md §4.3).
+        $this->usageRecorder->record(
+            source:       AiUsageEvent::SOURCE_MIC_NARRATIVE,
+            model:        (string) $model,
+            inputTokens:  0,
+            outputTokens: 0,
+            agencyId:     $request->agencyId,
+            surfaceRef:   $request->cacheKey,
+            fallback:     true,
+        );
+
         return new NarrativeResponse(
             outputText:    $fallbackText,
             outputJson:    $fallbackJson,
@@ -477,6 +506,19 @@ final class AnthropicGateway
 
     private function buildResponseFromCache(AINarrativeCache $cached): NarrativeResponse
     {
+        // Cost ledger — log the cache hit (cost 0, tokens carried from the
+        // original generation) so cache-hit-rate is an exact ratio, not a
+        // heuristic (spec ai-cost-ledger.md §4.3, §2).
+        $this->usageRecorder->record(
+            source:       AiUsageEvent::SOURCE_MIC_NARRATIVE,
+            model:        (string) $cached->model,
+            inputTokens:  (int) $cached->input_tokens,
+            outputTokens: (int) $cached->output_tokens,
+            agencyId:     $cached->agency_id !== null ? (int) $cached->agency_id : null,
+            surfaceRef:   (string) $cached->cache_key,
+            cacheHit:     true,
+        );
+
         return new NarrativeResponse(
             outputText:    (string) $cached->output_text,
             outputJson:    is_array($cached->output_json) ? $cached->output_json : null,
@@ -493,14 +535,10 @@ final class AnthropicGateway
 
     private function computeCostZar(string $model, int $inputTokens, int $outputTokens): float
     {
-        $pricing = config("services.anthropic.pricing.{$model}");
-        if (!is_array($pricing)) {
-            return 0.0;
-        }
-        $usd  = ($inputTokens / 1_000_000) * (float) ($pricing['input']  ?? 0);
-        $usd += ($outputTokens / 1_000_000) * (float) ($pricing['output'] ?? 0);
-        $zar  = $usd * (float) config('services.anthropic.usd_to_zar', 18.50);
-        return round($zar, 4);
+        // Pricing maths live in one place now (spec ai-cost-ledger.md §4.2).
+        // Behaviour is unchanged for the alias model ids this gateway passes
+        // (exact-match short-circuit in the calculator).
+        return $this->costCalculator->zar($model, $inputTokens, $outputTokens);
     }
 
     /**

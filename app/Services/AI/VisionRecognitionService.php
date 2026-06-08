@@ -3,6 +3,7 @@
 namespace App\Services\AI;
 
 use App\Http\Controllers\CoreX\ContactMatchController;
+use App\Models\AI\AiUsageEvent;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -39,9 +40,13 @@ class VisionRecognitionService
     /**
      * Analyse a single image (absolute filesystem path).
      *
+     * @param int|null $agencyId Attribution for the cost ledger (the queued
+     *                           job has no auth user — pass the analysis row's
+     *                           agency_id explicitly).
+     * @param int|null $userId   Attribution for the cost ledger when known.
      * @return array{features:array,spaces:array,cost_usd:?float,raw:string}
      */
-    public function analyseImage(string $absoluteImagePath): array
+    public function analyseImage(string $absoluteImagePath, ?int $agencyId = null, ?int $userId = null): array
     {
         if (!is_readable($absoluteImagePath)) {
             throw new \RuntimeException("Image not readable: {$absoluteImagePath}");
@@ -91,6 +96,17 @@ class VisionRecognitionService
         }
 
         $body = $response->json();
+
+        // Cost ledger — property image analysis spend (spec ai-cost-ledger.md §4.3).
+        app(AiUsageRecorder::class)->record(
+            source:       AiUsageEvent::SOURCE_IMAGE_ANALYSIS,
+            model:        self::MODEL,
+            inputTokens:  (int) ($body['usage']['input_tokens']  ?? 0),
+            outputTokens: (int) ($body['usage']['output_tokens'] ?? 0),
+            agencyId:     $agencyId,
+            userId:       $userId,
+        );
+
         $raw  = (string) ($body['content'][0]['text'] ?? '');
         $parsed = $this->parseJson($raw);
 

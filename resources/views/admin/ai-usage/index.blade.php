@@ -96,7 +96,7 @@
                                      style="width: {{ max(2, ($d['cost_zar'] / $maxDaily) * 100) }}%; background: var(--brand-icon)"></div>
                             </div>
                             <span class="w-24 text-right font-mono" style="color:var(--text-primary)">R {{ number_format($d['cost_zar'], 2) }}</span>
-                            <span class="w-16 text-right" style="color:var(--text-secondary)">{{ $d['generations'] }} gen</span>
+                            <span class="w-16 text-right" style="color:var(--text-secondary)">{{ $d['generations'] }} calls</span>
                         </div>
                     @endforeach
                 </div>
@@ -109,24 +109,24 @@
         <div class="hfc-card">
             <div class="px-4 py-3 border-b" style="border-color:var(--border)">
                 <h2 class="text-sm font-semibold uppercase tracking-wider" style="color:var(--brand-icon)">
-                    Spend by narrative type
+                    Spend by source
                 </h2>
             </div>
             <div class="p-4">
-                @if(empty($byType))
+                @if(empty($bySource))
                     <p class="text-sm" style="color:var(--text-secondary)">No data.</p>
                 @else
-                    @php $maxByType = max($byType) ?: 1; @endphp
+                    @php $maxBySource = max($bySource) ?: 1; @endphp
                     <div class="space-y-2">
-                        @foreach($byType as $type => $cost)
+                        @foreach($bySource as $source => $cost)
                             <div>
                                 <div class="flex justify-between text-xs mb-1">
-                                    <span style="color:var(--text-primary)">{{ $type }}</span>
+                                    <span style="color:var(--text-primary)">{{ ucwords(str_replace('_', ' ', $source)) }}</span>
                                     <span class="font-mono" style="color:var(--text-secondary)">R {{ number_format($cost, 2) }}</span>
                                 </div>
                                 <div class="h-2 rounded" style="background:var(--surface-2)">
                                     <div class="h-full rounded"
-                                         style="width: {{ ($cost / $maxByType) * 100 }}%; background: var(--brand-icon)"></div>
+                                         style="width: {{ ($cost / $maxBySource) * 100 }}%; background: var(--brand-icon)"></div>
                                 </div>
                             </div>
                         @endforeach
