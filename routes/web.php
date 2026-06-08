@@ -989,6 +989,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/command-center/Today/cards', [CommandCenterDashboardController::class, 'todayCards'])->name('command-center.today.cards');
     Route::get('/legacy-dashboard', [CommandCenterDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard.legacy');
 
+    // ── Overdue & Unresolved (Today card drill-down) ──
+    Route::get('/overdue', [CommandCenterDashboardController::class, 'overdue'])->name('command-center.overdue');
+
     // ── Notifications ──
     Route::get('/notifications', function () {
         $notifications = \Illuminate\Support\Facades\DB::table('notifications')
