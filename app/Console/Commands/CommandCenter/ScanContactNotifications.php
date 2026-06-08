@@ -50,8 +50,10 @@ class ScanContactNotifications extends Command
                         }
                     }
 
-                    // contact.birthday — daily, fires once per (year-month-day) via threshold_hit_at = today
-                    if (($contact->birthday ?? null) || ($contact->dob ?? null)) {
+                    // contact.birthday — daily, fires once per (year-month-day) via threshold_hit_at = today.
+                    // Opt-in only: agents are never reminded about a birthday unless they explicitly
+                    // turned on the reminder for this contact (contacts.birthday_reminder).
+                    if (($contact->birthday_reminder ?? false) && (($contact->birthday ?? null) || ($contact->dob ?? null))) {
                         $dob = $contact->birthday ?? $contact->dob;
                         try {
                             $dobC = \Carbon\Carbon::parse($dob);

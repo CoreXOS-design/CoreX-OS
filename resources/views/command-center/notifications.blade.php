@@ -23,7 +23,13 @@
                 @php
                     $title = $data['title'] ?? $data['message'] ?? null;
                     $body  = $data['body']  ?? null;
-                    if (!$title && !$body) { $title = \Illuminate\Support\Str::headline(class_basename($n->type)); }
+                    if (!$title && !$body) {
+                        // Derive a readable label from the event key (e.g. "contact.birthday" → "Contact Birthday")
+                        // rather than leaking the raw notification class name.
+                        $title = !empty($data['event_key'])
+                            ? \Illuminate\Support\Str::headline(str_replace('.', ' ', $data['event_key']))
+                            : \Illuminate\Support\Str::headline(class_basename($n->type));
+                    }
                 @endphp
                 @if($title)
                     <div class="text-sm font-medium" style="color:var(--text-primary);">{{ $title }}</div>

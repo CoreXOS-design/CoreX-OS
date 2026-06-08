@@ -278,7 +278,7 @@ class CommandCentreService
             'urgency' => 'critical',
             'count' => $items->count(),
             'items' => $items->sortByDesc('days_overdue')->take(5)->values()->toArray(),
-            'view_all_url' => route('corex.dashboard'),
+            'view_all_url' => route('command-center.tasks'),
         ];
     }
 
@@ -1252,11 +1252,17 @@ class CommandCentreService
             'icon' => 'mail',
             'urgency' => $count > 5 ? 'high' : 'medium',
             'count' => $count,
-            'items' => $recent->map(fn($n) => [
-                'id' => $n->id,
-                'message' => json_decode($n->data, true)['message'] ?? str_replace('_', ' ', class_basename($n->type)),
-                'when' => \Carbon\Carbon::parse($n->created_at)->diffForHumans(),
-            ])->toArray(),
+            'items' => $recent->map(function ($n) {
+                $data = json_decode($n->data, true) ?: [];
+                return [
+                    'id' => $n->id,
+                    'message' => $data['title']
+                        ?? $data['body']
+                        ?? $data['message']
+                        ?? \Illuminate\Support\Str::headline(class_basename($n->type)),
+                    'when' => \Carbon\Carbon::parse($n->created_at)->diffForHumans(),
+                ];
+            })->toArray(),
             'view_all_url' => '/corex/notifications',
         ];
     }

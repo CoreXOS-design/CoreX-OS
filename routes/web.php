@@ -2164,6 +2164,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/consent/record', [\App\Http\Controllers\CoreX\ContactController::class, 'recordConsent'])->name('consent.record');
         Route::post('/{contact}/consent/revoke', [\App\Http\Controllers\CoreX\ContactController::class, 'revokeConsent'])->name('consent.revoke');
         Route::post('/{contact}/touch',   [\App\Http\Controllers\CoreX\ContactController::class, 'touch'])->name('touch');
+        Route::post('/{contact}/birthday-reminder', [\App\Http\Controllers\CoreX\ContactController::class, 'toggleBirthdayReminder'])->name('birthday-reminder.toggle');
         Route::post('/{contact}/increment', [\App\Http\Controllers\CoreX\ContactController::class, 'incrementChannel'])->name('increment');
 
         // Notes

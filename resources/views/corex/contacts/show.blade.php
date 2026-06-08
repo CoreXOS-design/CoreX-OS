@@ -99,6 +99,24 @@
                 Schedule Event
             </a>
 
+            {{-- Birthday reminder (opt-in, only when a DOB is on file) --}}
+            @if($contact->birthday)
+            <form method="POST" action="{{ route('corex.contacts.birthday-reminder.toggle', $contact) }}" class="flex-shrink-0">
+                @csrf
+                @if($contact->birthday_reminder)
+                <button type="submit" class="corex-btn-primary no-underline" title="Stop reminding me about this birthday">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M11.983 1.907a.75.75 0 0 0-1.966 0l-.16.661a8.25 8.25 0 0 0-6.357 8.027v3.243a3 3 0 0 1-.879 2.121l-.886.886A.75.75 0 0 0 2.5 18.75h19a.75.75 0 0 0 .53-1.28l-.886-.886a3 3 0 0 1-.879-2.122v-3.242a8.25 8.25 0 0 0-6.357-8.027l-.16-.661ZM12 22.5a3 3 0 0 1-2.83-2h5.66A3 3 0 0 1 12 22.5Z"/></svg>
+                    Birthday reminder on
+                </button>
+                @else
+                <button type="submit" class="corex-btn-outline no-underline" title="Remind me about this birthday">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg>
+                    Remind me of birthday
+                </button>
+                @endif
+            </form>
+            @endif
+
             {{-- View as Buyer (if buyer) --}}
             @if($contact->is_buyer)
             <a href="{{ route('command-center.buyers.show', $contact) }}"

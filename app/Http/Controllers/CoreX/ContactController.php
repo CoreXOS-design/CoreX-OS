@@ -494,6 +494,27 @@ class ContactController extends Controller
         return redirect()->route('corex.contacts.show', $contact)->with('success', 'Last contacted date updated.');
     }
 
+    /**
+     * Toggle the per-contact birthday reminder opt-in.
+     * When on, the contact's birthday surfaces on the agent's calendar and
+     * fires an in-app reminder on the day. Off by default — no birthday noise
+     * unless the agent explicitly asks for it on this contact.
+     */
+    public function toggleBirthdayReminder(Request $request, Contact $contact)
+    {
+        if (! $contact->birthday) {
+            return back()->with('error', 'Add a date of birth before setting a birthday reminder.');
+        }
+
+        $contact->update(['birthday_reminder' => ! $contact->birthday_reminder]);
+
+        $message = $contact->birthday_reminder
+            ? "You'll be reminded about {$contact->full_name}'s birthday."
+            : "Birthday reminder removed for {$contact->full_name}.";
+
+        return back()->with('success', $message);
+    }
+
     public function incrementChannel(Request $request, Contact $contact)
     {
         $data = $request->validate([
