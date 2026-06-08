@@ -68,9 +68,15 @@ TXT;
 
     private const FALLBACK_TEXT = '(AI summary unavailable — please regenerate or edit the static summary.)';
 
-    public function __construct(
-        private readonly AnthropicGateway $gateway = new AnthropicGateway(),
-    ) {}
+    private readonly AnthropicGateway $gateway;
+
+    public function __construct(?AnthropicGateway $gateway = null)
+    {
+        // Resolve from the container when not injected — AnthropicGateway now
+        // has constructor dependencies (AiUsageRecorder, AiCostCalculator), so
+        // a bare `new AnthropicGateway()` default is no longer valid.
+        $this->gateway = $gateway ?? app(AnthropicGateway::class);
+    }
 
     /**
      * Collect every fact the AI is allowed to use. Returns a structured

@@ -612,17 +612,24 @@ function propertyWizard(config) {
             this.uploadTotal = images.length;
             this.uploadedCount = 0;
 
-            // Upload in one POST for simplicity
-            const body = new FormData();
-            body.append('_token', this.csrf);
-            images.forEach(f => body.append('gallery_images[]', f));
+            // PHP caps a single POST at max_file_uploads (default 20) and
+            // silently drops the overflow. Upload in batches so every photo
+            // lands no matter how many were selected, and so the counter
+            // advances live as each batch completes.
+            const BATCH = 10;
             try {
                 const url = `${this.routes.photos}/${this.propertyId}/photos`;
-                const r = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body });
-                const j = await r.json();
-                if (r.ok && j.urls) {
-                    this.photos = this.photos.concat(j.urls);
-                    this.uploadedCount = images.length;
+                for (let i = 0; i < images.length; i += BATCH) {
+                    const chunk = images.slice(i, i + BATCH);
+                    const body = new FormData();
+                    body.append('_token', this.csrf);
+                    chunk.forEach(f => body.append('gallery_images[]', f));
+                    const r = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body });
+                    const j = await r.json();
+                    if (r.ok && j.urls) {
+                        this.photos = this.photos.concat(j.urls);
+                        this.uploadedCount += chunk.length;
+                    }
                 }
             } catch (e) { /* silent */ }
             finally { this.uploading = false; }

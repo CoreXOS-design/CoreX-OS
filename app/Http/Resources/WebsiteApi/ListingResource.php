@@ -128,7 +128,17 @@ class ListingResource extends JsonResource
             if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) {
                 return $val;
             }
-            return Storage::disk('public')->url(ltrim($val, '/'));
+            // Stored values arrive in two shapes: bare disk-relative paths
+            // (`properties/123/x.jpg`) and the already-public URL that
+            // Storage::url() produced at upload time (`/storage/properties/...`).
+            // Strip a leading `storage/` segment so we resolve from the bare
+            // path and never emit `/storage/storage/...` — which 403s for the
+            // website (and any other API consumer). Idempotent for both shapes.
+            $relative = ltrim($val, '/');
+            if (str_starts_with($relative, 'storage/')) {
+                $relative = substr($relative, strlen('storage/'));
+            }
+            return Storage::disk('public')->url($relative);
         }, (array) $raw));
 
         return array_values(array_unique($mapped));

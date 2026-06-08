@@ -49,7 +49,9 @@ class AnalysePropertyImageJob implements ShouldQueue
         }
 
         try {
-            $result = $vision->analyseImage($absolute);
+            // Pass agency attribution explicitly — the queued job has no auth
+            // user, so the cost ledger can't resolve it from the request.
+            $result = $vision->analyseImage($absolute, $analysis->agency_id);
 
             $analysis->update([
                 'status'            => 'complete',

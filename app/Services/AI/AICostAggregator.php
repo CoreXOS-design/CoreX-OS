@@ -4,17 +4,22 @@ declare(strict_types=1);
 
 namespace App\Services\AI;
 
-use App\Models\AI\AINarrativeCache;
+use App\Models\AI\AiUsageEvent;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Read-only aggregator over `ai_narrative_cache`. Backs the (future) admin
- * AI-usage dashboard at /admin/ai-usage. Lands now alongside the gateway
- * so it ships tested.
+ * Read-only aggregator over `ai_usage_events` — the unified AI cost ledger.
+ * Backs the admin AI-usage dashboard at /admin/ai-usage.
  *
- * Spec: .ai/specs/mic-complete-spec.md §4.8 (cost dashboard, cache hit rate).
+ * Reads the ledger, not `ai_narrative_cache`, so every AI surface counts:
+ * MIC narratives, mobile voice, image analysis, DocuPerfect, marketing copy,
+ * presentation evidence (spec ai-cost-ledger.md §4.4).
+ *
+ * Cross-agency by design: these are admin reporting queries gated by
+ * `mic.view_ai_costs`. The ledger model carries no global agency scope (see
+ * AiUsageEvent), so an explicit agency filter is the only narrowing applied.
  */
 final class AICostAggregator
 {
@@ -27,8 +32,8 @@ final class AICostAggregator
     public function monthlyCostZar(?int $agencyId = null, ?CarbonInterface $month = null): float
     {
         $month ??= Carbon::now();
-        $q = AINarrativeCache::query()
-            ->whereBetween('generated_at', [
+        $q = AiUsageEvent::query()
+            ->whereBetween('occurred_at', [
                 $month->copy()->startOfMonth(),
                 $month->copy()->endOfMonth(),
             ]);
@@ -39,66 +44,56 @@ final class AICostAggregator
     }
 
     /**
-     * Spend broken down by narrative_type (weekly_brief, tile_copy, …).
+     * Spend broken down by `source` (mic_narrative, mobile_voice, image_analysis,
+     * docuperfect_*, marketing_copy, presentation_evidence).
      *
-     * @return array<string, float>  narrative_type => ZAR sum
+     * @return array<string, float>  source => ZAR sum
      */
-    public function monthlyCostByNarrativeType(?int $agencyId = null, ?CarbonInterface $month = null): array
+    public function monthlyCostBySource(?int $agencyId = null, ?CarbonInterface $month = null): array
     {
         $month ??= Carbon::now();
-        $q = AINarrativeCache::query()
-            ->select('narrative_type', DB::raw('SUM(cost_zar) AS cost_zar_sum'))
-            ->whereBetween('generated_at', [
+        $q = AiUsageEvent::query()
+            ->select('source', DB::raw('SUM(cost_zar) AS cost_zar_sum'))
+            ->whereBetween('occurred_at', [
                 $month->copy()->startOfMonth(),
                 $month->copy()->endOfMonth(),
             ])
-            ->groupBy('narrative_type');
+            ->groupBy('source');
         if ($agencyId !== null) {
             $q->where('agency_id', $agencyId);
         }
         return $q->get()
-            ->mapWithKeys(fn ($r) => [(string) $r->narrative_type => (float) $r->cost_zar_sum])
+            ->mapWithKeys(fn ($r) => [(string) $r->source => (float) $r->cost_zar_sum])
             ->all();
     }
 
     /**
-     * Cache hit rate (%) over the last N days.
+     * Cache hit rate (%) over the last N days — now an EXACT ratio.
      *
-     * We can't directly count hits vs misses from `ai_narrative_cache`
-     * (the table only holds the latest row per cache_key) — so this is
-     * approximated from `agent_activity_events`: ai.narrative_generated
-     * events ≈ misses (every generation writes the row + fires the event);
-     * cache hits do NOT fire the event. The denominator is the union
-     * of generations + lookups; lookups are inferred from total HTTP
-     * requests against the gateway, which we approximate as 1× cache rows
-     * (one per cache_key alive in the window) since every active key was
-     * looked up at least once to keep it alive.
-     *
-     * Best-effort metric. Replace with a per-call counter (Redis) if you
-     * want true precision.
+     * Every MIC narrative call records a ledger row with `cache_hit` set true
+     * (served from cache) or false (hit the API), so the rate is simply
+     * hits / total. This replaces the previous heuristic that approximated
+     * from `agent_activity_events` because the old cache table could not
+     * distinguish a hit from a miss (spec ai-cost-ledger.md §2, §4.4).
      */
     public function cacheHitRate(int $days = 30): float
     {
         $since = Carbon::now()->subDays($days);
 
-        // Generations in the window (each = one cache MISS that hit the API).
-        $generations = DB::table('agent_activity_events')
-            ->where('event_type', 'ai.narrative_generated')
-            ->where('occurred_at', '>=', $since)
-            ->count();
+        // Only the cacheable surface (MIC narratives) participates — other
+        // sources are one-shot calls with no cache, and including them would
+        // dilute the metric toward 0.
+        $base = AiUsageEvent::query()
+            ->where('source', AiUsageEvent::SOURCE_MIC_NARRATIVE)
+            ->where('occurred_at', '>=', $since);
 
-        // Estimated hits = active cache rows whose generated_at is OLDER than
-        // the window (i.e. their first generation already happened, every
-        // subsequent fetch in the window was a hit). Heuristic but stable.
-        $estimatedHits = AINarrativeCache::query()
-            ->where('generated_at', '<', $since)
-            ->where('expires_at', '>=', $since)
-            ->count();
+        $total = (clone $base)->count();
+        if ($total === 0) {
+            return 0.0;
+        }
+        $hits = (clone $base)->where('cache_hit', true)->count();
 
-        $denominator = $generations + $estimatedHits;
-        if ($denominator === 0) return 0.0;
-
-        return round(($estimatedHits / $denominator) * 100, 2);
+        return round(($hits / $total) * 100, 2);
     }
 
     /**
@@ -110,8 +105,8 @@ final class AICostAggregator
     public function totalTokensThisMonth(?int $agencyId = null): array
     {
         $now = Carbon::now();
-        $q = AINarrativeCache::query()
-            ->whereBetween('generated_at', [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()]);
+        $q = AiUsageEvent::query()
+            ->whereBetween('occurred_at', [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()]);
         if ($agencyId !== null) {
             $q->where('agency_id', $agencyId);
         }

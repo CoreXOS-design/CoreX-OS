@@ -303,15 +303,20 @@ class Agency extends Model
     }
 
     /**
-     * Sum of cost_zar in ai_narrative_cache attributed to this agency
-     * for the given month (default = current month).
+     * Sum of cost_zar in the unified AI cost ledger (ai_usage_events)
+     * attributed to this agency for the given month (default = current month).
+     *
+     * Reads the ledger, not ai_narrative_cache, so the budget cap sees EVERY
+     * AI surface — mobile voice, image analysis, DocuPerfect, marketing copy,
+     * presentation evidence — not just the MIC narrative gateway. This is the
+     * line that makes canMakeAiCall() honest (spec ai-cost-ledger.md §4.4).
      */
     public function aiBudgetUsedZar(?\Carbon\Carbon $month = null): float
     {
         $month ??= \Carbon\Carbon::now();
-        return (float) \DB::table('ai_narrative_cache')
+        return (float) \DB::table('ai_usage_events')
             ->where('agency_id', $this->id)
-            ->whereBetween('generated_at', [
+            ->whereBetween('occurred_at', [
                 $month->copy()->startOfMonth(),
                 $month->copy()->endOfMonth(),
             ])

@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\AI\AiUsageEvent;
 use App\Models\Property;
+use App\Services\AI\AiUsageRecorder;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
 
@@ -109,6 +111,16 @@ PROMPT;
             if (!is_array($parsed) || empty($parsed['primary'])) {
                 throw new \RuntimeException('MarketingCopyService: unexpected API response structure. Raw: ' . $content);
             }
+
+            // Cost ledger — marketing copy spend (spec ai-cost-ledger.md §4.3).
+            app(AiUsageRecorder::class)->record(
+                source:       AiUsageEvent::SOURCE_MARKETING_COPY,
+                model:        self::MODEL,
+                inputTokens:  (int) ($body['usage']['input_tokens']  ?? 0),
+                outputTokens: (int) ($body['usage']['output_tokens'] ?? 0),
+                agencyId:     $property->agency_id,
+                surfaceRef:   'property:' . $property->id . ':' . $platform,
+            );
 
             return [
                 'primary'   => (string) ($parsed['primary'] ?? ''),

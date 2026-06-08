@@ -2,6 +2,8 @@
 
 namespace App\Services\Docuperfect;
 
+use App\Models\AI\AiUsageEvent;
+use App\Services\AI\AiUsageRecorder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -116,6 +118,14 @@ PROMPT;
             Log::warning('AiFieldMapper: Empty response content from API');
             return $detectedBlanks;
         }
+
+        // Cost ledger — DocuPerfect field-mapping spend (spec ai-cost-ledger.md §4.3).
+        app(AiUsageRecorder::class)->record(
+            source:       AiUsageEvent::SOURCE_DOCUPERFECT_FIELD_MAP,
+            model:        (string) ($body['model'] ?? 'claude-sonnet-4-20250514'),
+            inputTokens:  (int) ($body['usage']['input_tokens']  ?? 0),
+            outputTokens: (int) ($body['usage']['output_tokens'] ?? 0),
+        );
 
         // Parse the JSON response
         $aiFields = json_decode($content, true);

@@ -2,6 +2,7 @@
 
 namespace App\Services\AI;
 
+use App\Models\AI\AiUsageEvent;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -59,7 +60,17 @@ class IntentExtractionService
             return ['intent' => 'unknown', 'slots' => [], 'raw' => null];
         }
 
-        $raw = (string) ($response->json('content.0.text') ?? '');
+        $body = $response->json();
+
+        // Cost ledger — mobile voice spend (spec ai-cost-ledger.md §4.3).
+        app(AiUsageRecorder::class)->record(
+            source:       AiUsageEvent::SOURCE_MOBILE_VOICE,
+            model:        self::MODEL,
+            inputTokens:  (int) ($body['usage']['input_tokens']  ?? 0),
+            outputTokens: (int) ($body['usage']['output_tokens'] ?? 0),
+        );
+
+        $raw = (string) ($body['content'][0]['text'] ?? '');
         $parsed = $this->parseJson($raw);
 
         if (!is_array($parsed) || !isset($parsed['intent'])) {
