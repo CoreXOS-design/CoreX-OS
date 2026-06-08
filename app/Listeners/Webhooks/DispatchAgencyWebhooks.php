@@ -54,7 +54,7 @@ class DispatchAgencyWebhooks
 
         $data = $event->action === 'removed'
             ? ['id' => $property->id, 'reference' => $property->external_id ?: (string) $property->id]
-            : (new ListingResource($property->loadMissing('agent')))->resolve();
+            : (new ListingResource($property->loadMissing('agent', 'secondAgent')))->resolve();
 
         foreach ($keys as $key) {
             $delivery = AgencyWebhookDelivery::withoutGlobalScope(AgencyScope::class)->create([

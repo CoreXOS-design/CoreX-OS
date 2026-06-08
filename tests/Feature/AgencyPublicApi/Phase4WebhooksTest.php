@@ -163,6 +163,30 @@ class Phase4WebhooksTest extends TestCase
         $this->assertNull($delivery->next_retry_at);
     }
 
+    public function test_webhook_payload_carries_slug_and_public_url(): void
+    {
+        config()->set('integrations.public_website_url', 'http://91.99.130.85:1050');
+        Http::fake(['*' => Http::response('', 200)]);
+        $key = $this->keyWithWebhook();
+        $property = $this->makeProperty(); // title 'Sea-view'
+
+        app(WebsiteSyndicationService::class)->setEnabled($property, $key, true);
+
+        // Stored payload alongside the existing id + reference.
+        $delivery = \App\Models\AgencyWebhookDelivery::withoutGlobalScope(AgencyScope::class)->first();
+        $this->assertSame($property->id, $delivery->payload['id']);
+        $this->assertSame('sea-view', $delivery->payload['slug']);
+        $this->assertSame("http://91.99.130.85:1050/property/sea-view-{$property->id}", $delivery->payload['public_url']);
+
+        // And it actually went out on the wire inside the data object.
+        Http::assertSent(function ($request) use ($property) {
+            $body = json_decode($request->body(), true);
+            $data = $body['data'] ?? $body;
+            return ($data['slug'] ?? null) === 'sea-view'
+                && ($data['public_url'] ?? null) === "http://91.99.130.85:1050/property/sea-view-{$property->id}";
+        });
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private function keyWithWebhook(): AgencyApiKey

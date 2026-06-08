@@ -16,6 +16,13 @@ return [
     // Listing detail pattern: {website_public_url}/listings/{external_id}
     'website_public_url'   => env('WEBSITE_PUBLIC_URL', env('WEBSITE_SYNC_URL', '')),
 
+    // Base URL of the public CoreX listing website where individual properties
+    // render. Used to compose each property's canonical public URL:
+    //   {public_website_url}/property/{slug}-{id}
+    // The website resolves a property by the trailing id, so the slug is purely
+    // cosmetic/SEO — see Property::getPublicUrlAttribute().
+    'public_website_url'   => env('PUBLIC_WEBSITE_URL', 'http://91.99.130.85:1050'),
+
     /*
     |--------------------------------------------------------------------------
     | Agency Public API — auth debug

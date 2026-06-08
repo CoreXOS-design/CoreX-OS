@@ -24,13 +24,17 @@ class ListingsController extends Controller
 
         $query = Property::query()
             ->whereHas('websiteSyndication', fn ($q) => $q->where('agency_api_key_id', $keyId)->where('enabled', true))
-            ->with(['agent', 'activeShowdays'])
+            ->with(['agent', 'secondAgent', 'activeShowdays'])
             ->latest('published_at');
 
         // Optional ?agent_id= — the agent's website profile pulls just their
-        // listings. Each listing already carries agent.id for linking back.
+        // listings. Matches EITHER the primary or the co-listing agent so a
+        // co-listed property appears on both agents' profiles. Each listing
+        // carries agents[].id (with is_primary) for linking back.
         if (($agentId = (int) $request->integer('agent_id')) > 0) {
-            $query->where('agent_id', $agentId);
+            $query->where(fn ($q) => $q
+                ->where('agent_id', $agentId)
+                ->orWhere('pp_second_agent_id', $agentId));
         }
 
         // Optional ?branch_id= — a branch (office) page pulls just the listings
@@ -49,7 +53,7 @@ class ListingsController extends Controller
         $listing = Property::query()
             ->whereHas('websiteSyndication', fn ($q) => $q->where('agency_api_key_id', $keyId)->where('enabled', true))
             ->where(fn ($q) => $q->where('id', $idOrRef)->orWhere('external_id', $idOrRef))
-            ->with(['agent', 'activeShowdays'])
+            ->with(['agent', 'secondAgent', 'activeShowdays'])
             ->first();
 
         abort_if($listing === null, 404, 'Listing not found.');

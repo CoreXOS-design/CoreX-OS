@@ -132,6 +132,86 @@ class Phase2WebsiteApiTest extends TestCase
             ->assertOk()->assertJsonPath('data.id', $p->id);
     }
 
+    public function test_co_listed_property_sends_both_agents_and_appears_on_both_profiles(): void
+    {
+        // A second agent co-lists the property alongside Thandi (primary).
+        $second = $this->makeAgent('Sipho Dlamini', null);
+
+        $p = $this->makeProperty('Co-listed villa', 'active', 3950000);
+        $p->forceFill(['pp_second_agent_id' => $second->id])->save();
+        $this->syndicate($p, true);
+
+        // Detail endpoint: `agents` carries BOTH, primary first with is_primary.
+        $data = $this->withToken($this->token)->getJson("/api/v1/website/listings/{$p->id}")
+            ->assertOk()
+            // `agent` (singular) stays as the primary for backward compatibility.
+            ->assertJsonPath('data.agent.name', 'Thandi Mbeki')
+            ->assertJsonPath('data.agents.0.name', 'Thandi Mbeki')
+            ->assertJsonPath('data.agents.0.is_primary', true)
+            ->assertJsonPath('data.agents.1.name', 'Sipho Dlamini')
+            ->assertJsonPath('data.agents.1.is_primary', false)
+            ->json('data');
+        $this->assertCount(2, $data['agents']);
+
+        // The property appears when filtering by EITHER agent's id.
+        $primaryList = $this->withToken($this->token)
+            ->getJson("/api/v1/website/listings?agent_id={$this->agent->id}")->assertOk()->json('data');
+        $this->assertContains('Co-listed villa', collect($primaryList)->pluck('title'));
+
+        $secondList = $this->withToken($this->token)
+            ->getJson("/api/v1/website/listings?agent_id={$second->id}")->assertOk()->json('data');
+        $this->assertContains('Co-listed villa', collect($secondList)->pluck('title'));
+    }
+
+    public function test_single_agent_listing_returns_one_element_agents_array(): void
+    {
+        $p = $this->makeProperty('Solo listing', 'active', 1500000);
+        $this->syndicate($p, true);
+
+        $data = $this->withToken($this->token)->getJson("/api/v1/website/listings/{$p->id}")
+            ->assertOk()
+            ->assertJsonPath('data.agents.0.name', 'Thandi Mbeki')
+            ->assertJsonPath('data.agents.0.is_primary', true)
+            ->json('data');
+        $this->assertCount(1, $data['agents']);
+    }
+
+    public function test_listing_exposes_seo_slug_and_canonical_public_url(): void
+    {
+        config()->set('integrations.public_website_url', 'http://91.99.130.85:1050');
+
+        // Title slugified exactly like Str::slug(): lowercased, accents stripped,
+        // every run of non-alphanumerics (spaces, commas) collapsed to one hyphen.
+        $p = $this->makeProperty('Apartment For Sale in Margate, KwaZulu Natal', 'active', 1500000);
+        $this->syndicate($p, true);
+
+        $data = $this->withToken($this->token)->getJson("/api/v1/website/listings/{$p->id}")
+            ->assertOk()
+            ->assertJsonPath('data.slug', 'apartment-for-sale-in-margate-kwazulu-natal')
+            ->assertJsonPath('data.public_url', "http://91.99.130.85:1050/property/apartment-for-sale-in-margate-kwazulu-natal-{$p->id}")
+            ->json('data');
+        $this->assertSame("apartment-for-sale-in-margate-kwazulu-natal-{$p->id}", basename($data['public_url']));
+    }
+
+    public function test_listing_without_title_falls_back_to_bare_id_url(): void
+    {
+        config()->set('integrations.public_website_url', 'http://91.99.130.85:1050');
+
+        // A property with no usable title (empty string slugifies to '') falls
+        // back to the bare-id URL — still resolvable since the website keys on id.
+        $p = Property::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'external_id' => (string) Str::uuid(), 'title' => '', 'suburb' => 'Uvongo',
+            'property_type' => 'house', 'status' => 'active', 'price' => 999000, 'published_at' => now(),
+        ]);
+        $this->syndicate($p, true);
+
+        $this->withToken($this->token)->getJson("/api/v1/website/listings/{$p->id}")
+            ->assertOk()
+            ->assertJsonPath('data.slug', '')
+            ->assertJsonPath('data.public_url', "http://91.99.130.85:1050/property/{$p->id}");
+    }
+
     public function test_non_syndicated_listing_detail_is_404(): void
     {
         $p = $this->makeProperty('Hidden listing', 'active', 1000000);

@@ -18,6 +18,14 @@ class Property extends Model
 {
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
+    /**
+     * Derived public-website fields surfaced on every serialisation so the
+     * listing's cosmetic slug and canonical public URL are available
+     * everywhere CoreX shows the property. Both are computed (never stored),
+     * so they can never go stale when the title changes.
+     */
+    protected $appends = ['slug', 'public_url'];
+
     protected $fillable = [
         'external_id',
         'p24_listing_number',
@@ -251,6 +259,17 @@ class Property extends Model
         return $this->belongsTo(User::class, 'agent_id');
     }
 
+    /**
+     * Co-listing agent. A listing may be worked by two agents — the secondary
+     * is stored on `pp_second_agent_id` (originally added for P24/PrivateProperty
+     * dual-agent syndication) and is surfaced to agency websites alongside the
+     * primary so a co-listed property appears on BOTH agents' profiles.
+     */
+    public function secondAgent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'pp_second_agent_id');
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
@@ -455,6 +474,40 @@ class Property extends Model
     public function isPublished(): bool
     {
         return $this->published_at !== null;
+    }
+
+    /**
+     * Cosmetic/SEO slug for the public website — the title run through the
+     * exact same transform as Laravel's Str::slug() (lowercase, accents
+     * stripped, every run of non-alphanumeric characters collapsed to a
+     * single hyphen, leading/trailing hyphens trimmed). Empty string when the
+     * property has no title.
+     *
+     * The slug is purely cosmetic: the website resolves a property by the
+     * trailing id in its public URL, so the title may change without breaking
+     * any link. See getPublicUrlAttribute().
+     */
+    public function getSlugAttribute(): string
+    {
+        return Str::slug((string) ($this->title ?? ''));
+    }
+
+    /**
+     * Canonical public-website URL for this listing:
+     *   {base}/property/{slug}-{id}      (titled listing)
+     *   {base}/property/{id}             (no title — bare id fallback)
+     *
+     * Base URL lives in config('integrations.public_website_url') — never
+     * hardcode it. Resolution on the website is by the trailing id, so the
+     * slug segment is SEO-only and a changing title never breaks the link.
+     */
+    public function getPublicUrlAttribute(): string
+    {
+        $base = rtrim((string) config('integrations.public_website_url'), '/');
+        $slug = $this->slug;
+        $path = $slug !== '' ? "{$slug}-{$this->id}" : (string) $this->id;
+
+        return "{$base}/property/{$path}";
     }
 
     public function formattedPrice(): string

@@ -24,6 +24,11 @@ class ListingResource extends JsonResource
         return [
             'id'            => $this->id,
             'reference'     => $this->external_id ?: (string) $this->id,
+            // Cosmetic SEO slug + canonical public URL. The website resolves a
+            // property by the trailing id in public_url, so the slug is purely
+            // for readable links and may change with the title without breaking.
+            'slug'          => $this->slug,
+            'public_url'    => $this->public_url,
             'title'         => $this->title,
             'headline'      => $this->headline,
             'description'   => $this->description,
@@ -104,14 +109,53 @@ class ListingResource extends JsonResource
                 ])->values()
                 : [],
 
+            // Primary agent — kept as a single object for backward compatibility
+            // with existing website consumers that read `agent`.
             'agent' => $this->when(
                 $this->relationLoaded('agent') && $this->agent,
                 fn () => new AgentResource($this->agent)
             ),
 
+            // All agents working this listing, primary first. A co-listed
+            // property carries two entries so it appears on BOTH agents'
+            // profiles. Single-agent listings return a one-element array.
+            // Each entry adds `is_primary` so the site can label the lead agent.
+            'agents' => $this->buildAgents(),
+
             'published_at' => optional($this->published_at)->toIso8601String(),
             'updated_at'   => optional($this->updated_at)->toIso8601String(),
         ];
+    }
+
+    /**
+     * Build the agents list for this listing — primary first, then the
+     * co-listing agent if one is set. Each entry is the public AgentResource
+     * shape plus `is_primary` so the website can mark the lead agent and link
+     * the property onto every agent's profile. De-dupes if the same user is
+     * recorded in both slots. Returns [] if no agent relationships are loaded.
+     */
+    private function buildAgents(): array
+    {
+        $out = [];
+        $seen = [];
+
+        $candidates = [
+            [$this->relationLoaded('agent') ? $this->agent : null, true],
+            [$this->relationLoaded('secondAgent') ? $this->secondAgent : null, false],
+        ];
+
+        foreach ($candidates as [$agent, $isPrimary]) {
+            if (!$agent || isset($seen[$agent->id])) {
+                continue;
+            }
+            $seen[$agent->id] = true;
+            $out[] = array_merge(
+                (new AgentResource($agent))->resolve(),
+                ['is_primary' => $isPrimary],
+            );
+        }
+
+        return $out;
     }
 
     /**
