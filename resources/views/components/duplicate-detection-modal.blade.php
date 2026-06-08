@@ -53,16 +53,17 @@
                 <div class="flex-1 min-w-0">
                     <div class="text-sm font-semibold truncate" style="color:var(--text-primary);">{{ $dup['name'] }}</div>
                     <div class="text-xs" style="color:var(--text-muted);">
-                        @if($dup['phone']) {{ $dup['phone'] }} @endif
-                        @if($dup['phone'] && $dup['email']) · @endif
-                        @if($dup['email']) {{ $dup['email'] }} @endif
-                        @if(!$dup['phone'] && !$dup['email']) Managed by {{ $dup['owner'] }} @endif
+                        @if(!empty($dup['phone'])) {{ $dup['phone'] }} @endif
+                        @if(!empty($dup['phone']) && !empty($dup['email'])) · @endif
+                        @if(!empty($dup['email'])) {{ $dup['email'] }} @endif
+                        @if(empty($dup['phone']) && empty($dup['email'])) Managed by {{ $dup['owner'] }} @endif
                     </div>
                     @if($dupData['mode'] === 'hard_block_request')
                         <div class="text-xs mt-0.5" style="color:var(--text-muted);">Owner: {{ $dup['owner'] }}</div>
                     @endif
                 </div>
-                @if(isset($dup['url']))
+                {{-- Only link to records this user can actually open — otherwise the show route 404s. --}}
+                @if(($dup['can_view'] ?? true) && !empty($dup['url']))
                     <a href="{{ $dup['url'] }}" class="text-xs font-medium px-2 py-1 rounded" style="background:var(--surface-2); color:var(--brand-icon);">View</a>
                 @endif
             </div>
@@ -71,8 +72,10 @@
 
     {{-- Actions --}}
     <div class="flex flex-wrap items-center gap-2">
-        {{-- Use existing (always available except hard_block_request) --}}
-        @if($dupData['mode'] !== 'hard_block_request' && !empty($dupData['duplicates'][0]['url']))
+        {{-- Use existing (available when the match is viewable, except hard_block_request).
+             An agency-wide match owned by another agent/branch has no url and is skipped
+             here so we never offer a link the show route would 404 on. --}}
+        @if($dupData['mode'] !== 'hard_block_request' && ($dupData['duplicates'][0]['can_view'] ?? true) && !empty($dupData['duplicates'][0]['url']))
             <a href="{{ $dupData['duplicates'][0]['url'] }}"
                class="text-xs font-semibold px-3 py-1.5 rounded-md transition hover:opacity-80"
                style="background:var(--brand-button); color:#fff;">

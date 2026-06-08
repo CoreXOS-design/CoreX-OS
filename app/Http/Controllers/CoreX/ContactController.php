@@ -368,21 +368,41 @@ class ContactController extends Controller
                         $match['field'], $match['value'],
                         $existing->id, $data, 'auto_linked'
                     );
-                    return redirect()->route('corex.contacts.show', $existing)
-                        ->with('info', 'Existing contact found and linked automatically.');
+                    // The match runs agency-wide (ContactScope is bypassed), so the
+                    // existing contact may sit outside this user's visibility. Only
+                    // redirect to it when they can actually open it — otherwise the
+                    // show route 404s. When invisible, fall through to the warn UI.
+                    if (Contact::whereKey($existing->id)->exists()) {
+                        return redirect()->route('corex.contacts.show', $existing)
+                            ->with('info', 'Existing contact found and linked automatically.');
+                    }
                 }
+
+                // The duplicate search bypasses ContactScope (it must catch
+                // agency-wide dupes), so a match may be owned by another agent /
+                // branch and be invisible to this user. Mark which ones they can
+                // actually open: the modal only offers "Use Existing" + contact
+                // details for viewable matches, and never links to a record the
+                // show route would 404 on.
+                $viewableIds = Contact::whereIn('id', $duplicates->pluck('id'))->pluck('id')->all();
+                $mapDuplicate = function ($c) use ($mode, $viewableIds) {
+                    $canView = in_array($c->id, $viewableIds, true);
+                    $hide    = $mode === 'hard_block_request' || ! $canView;
+                    return [
+                        'id'       => $c->id,
+                        'name'     => $c->full_name,
+                        'phone'    => $hide ? null : $c->phone,
+                        'email'    => $hide ? null : $c->email,
+                        'owner'    => optional($c->createdBy)->name ?? 'Unknown',
+                        'can_view' => $canView,
+                        'url'      => $canView ? route('corex.contacts.show', $c) : null,
+                    ];
+                };
 
                 // Return 422 with duplicates for modal display
                 if ($request->wantsJson() || $request->ajax()) {
                     return response()->json([
-                        'duplicates' => $duplicates->map(fn($c) => [
-                            'id' => $c->id,
-                            'name' => $c->full_name,
-                            'phone' => $mode === 'hard_block_request' ? null : $c->phone,
-                            'email' => $mode === 'hard_block_request' ? null : $c->email,
-                            'owner' => optional($c->createdBy)->name ?? 'Unknown',
-                            'url' => route('corex.contacts.show', $c),
-                        ]),
+                        'duplicates' => $duplicates->map($mapDuplicate),
                         'mode' => $mode,
                         'match_field' => $match['field'],
                         'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner']),
@@ -391,14 +411,7 @@ class ContactController extends Controller
 
                 // Non-AJAX fallback: redirect back with duplicate info in session
                 return back()->withInput()->with('duplicate_detected', [
-                    'duplicates' => $duplicates->map(fn($c) => [
-                        'id' => $c->id,
-                        'name' => $c->full_name,
-                        'phone' => $mode === 'hard_block_request' ? null : $c->phone,
-                        'email' => $mode === 'hard_block_request' ? null : $c->email,
-                        'owner' => optional($c->createdBy)->name ?? 'Unknown',
-                        'url' => route('corex.contacts.show', $c),
-                    ])->toArray(),
+                    'duplicates' => $duplicates->map($mapDuplicate)->toArray(),
                     'mode' => $mode,
                     'match_field' => $match['field'],
                     'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner']),
