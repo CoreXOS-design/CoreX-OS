@@ -28,7 +28,9 @@ class AiUsageController extends Controller
 {
     public function __construct(private readonly AICostAggregator $aggregator)
     {
-        $this->middleware(['auth', 'permission:mic.view_ai_costs']);
+        // Middleware is applied at the route level (see routes/web.php):
+        // `auth` via the wrapping group, `permission:mic.view_ai_costs` per route.
+        // Laravel 11/12 controllers no longer expose $this->middleware().
     }
 
     public function index(Request $request): View

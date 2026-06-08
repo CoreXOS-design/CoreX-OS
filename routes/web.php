@@ -207,8 +207,10 @@ Route::middleware('auth')->group(function () {
 
     // ── Admin: AI usage / cost dashboard (MIC Phase B2) ──
     Route::get('/admin/ai-usage', [\App\Http\Controllers\Admin\AiUsageController::class, 'index'])
+        ->middleware('permission:mic.view_ai_costs')
         ->name('admin.ai-usage.index');
     Route::post('/admin/ai-usage/agencies/{agency}/budget', [\App\Http\Controllers\Admin\AiUsageController::class, 'updateBudget'])
+        ->middleware('permission:mic.view_ai_costs')
         ->name('admin.ai-usage.budget.update');
 
 // ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
