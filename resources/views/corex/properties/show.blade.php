@@ -822,9 +822,12 @@
                                 'status'      => optional($wState)->status ?? '',
                                 'lastSynced'  => optional(optional($wState)->last_synced_at)->diffForHumans() ?? '',
                                 'lastError'   => optional($wState)->last_error ?? '',
-                                // No per-listing public URL exists for a generic website yet, so the
-                                // "View" button only appears when one is known (e.g. HFC's own site).
-                                'publicUrl'   => $property->publicListingUrls()['hfc'] ?? '',
+                                // Canonical public-website URL for this listing
+                                // ({base}/property/{slug}-{id}, resolved by id). The
+                                // "View on website" button below renders only while the
+                                // listing is active/submitted on the site, so this links
+                                // straight to the live property page once it's been sent.
+                                'publicUrl'   => $property->public_url,
                                 'csrfToken'   => csrf_token(),
                                 'urls'        => [
                                     'activate'   => route('corex.properties.website-syndication.activate', [$property, $wk]),
