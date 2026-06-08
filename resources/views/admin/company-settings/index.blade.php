@@ -731,26 +731,6 @@
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Website URL</label>
-                        <input type="url" name="website_url" value="{{ old('website_url', $agency->website_url) }}" placeholder="https://www.youragency.co.za"
-                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        @error('website_url')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Tagline</label>
-                        <input type="text" name="website_tagline" value="{{ old('website_tagline', $agency->website_tagline) }}" maxlength="255"
-                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                    </div>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">About</label>
-                    <textarea name="website_about" rows="4" maxlength="5000"
-                              class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('website_about', $agency->website_about) }}</textarea>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Public contact email</label>
                         <input type="email" name="website_contact_email" value="{{ old('website_contact_email', $agency->website_contact_email) }}"
                                class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
@@ -761,6 +741,48 @@
                         <input type="text" name="website_contact_phone" value="{{ old('website_contact_phone', $agency->website_contact_phone) }}"
                                class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
+                </div>
+
+                {{-- Public address — shown on the website's contact block.
+                     Falls back to the company address when left blank. --}}
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Address</label>
+                    <textarea name="website_address" rows="2" maxlength="500"
+                              class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                              placeholder="e.g. 12 Marina Drive, Seabreeze Bay, 4275">{{ old('website_address', $agency->website_address) }}</textarea>
+                    <p class="text-[10px] mt-1" style="color:var(--text-muted);">Leave blank to use the company address from the Company tab.</p>
+                </div>
+
+                {{-- Open hours — a repeatable list of day-range / hours rows the
+                     website renders as an "Opening hours" block. Add a row for
+                     Saturday, public holidays, etc. Empty rows are dropped on save. --}}
+                @php
+                    $openHoursInitial = old('website_open_hours', $agency->website_open_hours ?: [
+                        ['days' => 'Monday – Friday', 'hours' => '08:00 – 17:00'],
+                    ]);
+                @endphp
+                <div x-data="{ hours: {{ \Illuminate\Support\Js::from($openHoursInitial) }} }">
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Open hours</label>
+                    <p class="text-[10px] mb-2" style="color:var(--text-muted);">Add a row per day range (e.g. weekdays, Saturday, public holidays). Leave the list empty to hide opening hours on the website.</p>
+
+                    <div class="space-y-2">
+                        <template x-for="(row, i) in hours" :key="i">
+                            <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                                <input type="text" x-model="row.days" :name="`website_open_hours[${i}][days]`" maxlength="100"
+                                       placeholder="e.g. Monday – Friday"
+                                       class="w-full sm:w-1/2 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <input type="text" x-model="row.hours" :name="`website_open_hours[${i}][hours]`" maxlength="100"
+                                       placeholder="e.g. 08:00 – 17:00 (or 'Closed')"
+                                       class="w-full sm:flex-1 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <button type="button" @click="hours.splice(i, 1)"
+                                        class="text-xs font-semibold px-2 py-2 flex-shrink-0" style="color:var(--ds-crimson);"
+                                        title="Remove this row">Remove</button>
+                            </div>
+                        </template>
+                    </div>
+
+                    <button type="button" @click="hours.push({ days: '', hours: '' })"
+                            class="corex-btn-outline text-xs mt-2">+ Add hours</button>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -786,10 +808,133 @@
                                {{ old('website_show_listings', (int)($agency->website_show_listings ?? 1)) ? 'checked' : '' }}>
                         Show listings on website
                     </label>
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                        <input type="hidden" name="website_show_branches" value="0">
+                        <input type="checkbox" name="website_show_branches" value="1" class="rounded" style="accent-color:var(--brand-icon, #0ea5e9);"
+                               {{ old('website_show_branches', (int)($agency->website_show_branches ?? 0)) ? 'checked' : '' }}>
+                        Show branches on website
+                    </label>
+                </div>
+
+                {{-- Agent ordering on the website --}}
+                @php
+                    $orderMode = old('website_agent_order_mode', $agency->website_agent_order_mode ?? 'alphabetical');
+                    $websiteAgents = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                        ->where('agency_id', $agency->id)
+                        ->where('show_on_website', true)
+                        ->orderByRaw('website_order IS NULL, website_order ASC')
+                        ->orderBy('name')
+                        ->get(['id', 'name', 'website_order']);
+                @endphp
+                <div class="pt-3" style="border-top:1px solid var(--border);"
+                     x-data="{ mode: '{{ $orderMode }}', open: false }">
+                    <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; background:none; border:0; cursor:pointer; text-align:left; padding:2px 0;">
+                        <div>
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Agent order on website</div>
+                            <div class="text-xs" style="color:var(--text-secondary);">How agents are ordered on the website's “meet the team”.</div>
+                        </div>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                    </button>
+                    <div x-show="open" x-cloak class="space-y-3" style="margin-top:12px;">
+                    <div class="flex gap-5">
+                        <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                            <input type="radio" name="website_agent_order_mode" value="alphabetical" x-model="mode" style="accent-color:var(--brand-icon, #0ea5e9);">
+                            Alphabetical (A–Z)
+                        </label>
+                        <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                            <input type="radio" name="website_agent_order_mode" value="custom" x-model="mode" style="accent-color:var(--brand-icon, #0ea5e9);">
+                            Custom order
+                        </label>
+                    </div>
+
+                    {{-- Custom: number each agent (1, 2, 3 …). Blank = sorted last. --}}
+                    <div x-show="mode === 'custom'" x-cloak class="space-y-1.5">
+                        @forelse($websiteAgents as $wa)
+                            <div class="flex items-center gap-3">
+                                <input type="number" min="1" max="9999" name="agent_order[{{ $wa->id }}]"
+                                       value="{{ old('agent_order.'.$wa->id, $wa->website_order) }}"
+                                       class="w-16 rounded-md px-2 py-1 text-sm" placeholder="#"
+                                       style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
+                                <span class="text-sm" style="color:var(--text-primary);">{{ $wa->name }}</span>
+                            </div>
+                        @empty
+                            <p class="text-xs" style="color:var(--text-muted);">No agents are shown on the website yet. Turn on “Show on website” for agents first (Admin → Users, or the bulk button in API Access).</p>
+                        @endforelse
+                    </div>
+                    </div>{{-- /x-show agent order --}}
                 </div>
 
                 <button type="submit" class="corex-btn-primary">Save Website Settings</button>
             </form>
+
+            {{-- ============================================================
+                 TESTIMONIALS — publish captured testimonials to the website
+                 Spec: .ai/specs/testimonials.md §6.2
+                 ============================================================ --}}
+            @php
+                $agencyTestimonials = \App\Models\ContactTestimonial::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                    ->where('agency_id', $agency->id)
+                    ->with(['contact', 'agent'])
+                    ->latest()
+                    ->get();
+                $canPublishTestimonials = auth()->user()?->hasPermission('testimonials.publish');
+            @endphp
+            <div class="ds-status-card p-4 mt-5" id="testimonials" x-data="{ secOpen: false }">
+                <button type="button" @click="secOpen=!secOpen" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; background:none; border:0; cursor:pointer; text-align:left;">
+                    <div>
+                        <h3 class="ds-section-header" style="margin:0;">Testimonials</h3>
+                        <p class="text-xs" style="color:var(--text-muted); margin:2px 0 0;">Tick one to publish it to your website; untick to remove it.</p>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: secOpen ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </button>
+                <div x-show="secOpen" x-cloak class="space-y-4" style="margin-top:14px;">
+
+                @forelse($agencyTestimonials as $t)
+                    <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ open: false }">
+                        <div class="flex items-start justify-between gap-3">
+                            <button type="button" @click="open = !open" class="flex-1 text-left min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $t->display_name }}</span>
+                                    @if($t->rating)
+                                        <span class="text-xs" style="color:var(--ds-amber, #f5b301);">{{ str_repeat('★', (int) $t->rating) }}</span>
+                                    @endif
+                                    @if($t->published)
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">On website</span>
+                                    @endif
+                                </div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-show="!open">{{ \Illuminate\Support\Str::limit($t->body, 110) }}</div>
+                                <div class="text-sm mt-2 whitespace-pre-line" style="color:var(--text-primary);" x-show="open" x-cloak>{{ $t->body }}</div>
+                                <div class="text-[11px] mt-1" style="color:var(--text-muted);">
+                                    @if($t->contact)
+                                        From <a href="{{ route('corex.contacts.show', $t->contact) }}" class="underline" style="color:var(--brand-icon, #0ea5e9);">{{ trim(($t->contact->first_name ?? '').' '.($t->contact->last_name ?? '')) ?: 'contact' }}</a>
+                                    @endif
+                                    @if($t->agent)
+                                        · About <span style="color:var(--text-secondary);">{{ $t->agent->name }}</span>
+                                    @endif
+                                </div>
+                            </button>
+                            <div class="flex-shrink-0">
+                                @if($canPublishTestimonials)
+                                    <form method="POST" action="{{ route('admin.company-settings.testimonials.toggle', [$agency, $t]) }}">
+                                        @csrf @method('PATCH')
+                                        <input type="hidden" name="published" value="0">
+                                        <label class="flex items-center gap-2 text-xs cursor-pointer" style="color:var(--text-secondary);" title="Publish this testimonial to the website">
+                                            <input type="checkbox" name="published" value="1" onchange="this.form.submit()"
+                                                   class="rounded" style="accent-color:var(--brand-icon, #0ea5e9);" {{ $t->published ? 'checked' : '' }}>
+                                            Publish
+                                        </label>
+                                    </form>
+                                @else
+                                    <span class="text-xs" style="color:var(--text-muted);">{{ $t->published ? 'Published' : '—' }}</span>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                @empty
+                    <p class="text-xs" style="color:var(--text-muted);">No testimonials captured yet. Agents add them on a contact's “Notes &amp; Testimonials” tab.</p>
+                @endforelse
+                </div>{{-- /x-show testimonials --}}
+            </div>
         </div>
 
         {{-- ============================================================

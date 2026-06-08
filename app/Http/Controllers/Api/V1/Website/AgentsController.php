@@ -21,16 +21,29 @@ class AgentsController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
-        $agencyId = $request->user()->agency_id;
+        $key = $request->user();
+        $agencyId = $key->agency_id;
         $perPage = max(1, min(100, (int) $request->integer('per_page', 50)));
 
-        $agents = User::query()
+        $query = User::query()
             ->where('agency_id', $agencyId)
-            ->where('show_on_website', true)
-            ->orderBy('name')
-            ->paginate($perPage);
+            ->where('show_on_website', true);
 
-        return AgentResource::collection($agents);
+        // Optional ?branch_id= — a branch (office) page pulls just the agents
+        // that fall under it. Pairs with /branches (branches:read).
+        if (($branchId = (int) $request->integer('branch_id')) > 0) {
+            $query->where('branch_id', $branchId);
+        }
+
+        // CoreX decides the order; the website just renders the array in order.
+        if (optional($key->agency)->website_agent_order_mode === \App\Models\Agency::AGENT_ORDER_CUSTOM) {
+            // Custom positions first (nulls last), then name as a tiebreaker.
+            $query->orderByRaw('website_order IS NULL, website_order ASC')->orderBy('name');
+        } else {
+            $query->orderBy('name');
+        }
+
+        return AgentResource::collection($query->paginate($perPage));
     }
 
     public function show(Request $request, int $id): AgentResource

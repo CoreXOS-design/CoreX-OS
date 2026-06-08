@@ -42,7 +42,7 @@
     <template x-for="group in groups" :key="group.key">
         <section x-show="group.cards.length > 0">
             {{-- Section label --}}
-            <div class="flex items-center gap-2 mb-3">
+            <div class="flex items-center gap-2 mb-4">
                 <span class="w-2 h-2 rounded-full" :style="'background:' + group.colour"></span>
                 <h2 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-secondary);" x-text="group.label"></h2>
                 <span class="text-xs tabular-nums" style="color: var(--text-muted);" x-text="'· ' + group.cards.length"></span>
@@ -50,7 +50,7 @@
             </div>
 
             {{-- Card grid: capped at 4 cols, responsive --}}
-            <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div class="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <template x-for="card in group.cards" :key="card.card_id">
                     <a :href="card.view_all_url || '#'"
                        class="group flex flex-col rounded-md overflow-hidden transition-all no-underline hover:-translate-y-0.5 shadow-sm hover:shadow h-full"
@@ -80,12 +80,12 @@
                         </div>
 
                         {{-- ─── Detailed ─── --}}
-                        <div class="p-4 flex flex-col flex-1 min-h-[180px]">
-                            <div class="flex items-center justify-between mb-3 gap-2">
-                                <div class="flex items-center gap-2 min-w-0">
-                                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                        <div class="p-5 flex flex-col flex-1 min-h-[190px]">
+                            <div class="flex items-center justify-between mb-4 gap-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <div class="w-10 h-10 rounded-md flex items-center justify-center flex-shrink-0"
                                          :style="'background: color-mix(in srgb, ' + urgencyColour(card.urgency) + ' 15%, transparent); color: ' + urgencyColour(card.urgency)">
-                                        <span x-html="cardIcon(card.icon)" class="w-4 h-4"></span>
+                                        <span x-html="cardIcon(card.icon)" class="w-[1.125rem] h-[1.125rem]"></span>
                                     </div>
                                     <div class="min-w-0">
                                         <h3 class="text-sm font-semibold truncate leading-tight" style="color: var(--text-primary);" x-text="card.title"></h3>
@@ -100,7 +100,7 @@
 
                             {{-- Inline invitation actions --}}
                             <template x-if="card.card_id === 'pending_invitations'">
-                                <div class="flex-1 space-y-1.5 text-xs">
+                                <div class="flex-1 space-y-2 text-xs">
                                     <template x-for="item in card.items.slice(0,3)" :key="item.id">
                                         <div>
                                             <div class="truncate font-medium" style="color:var(--text-primary);" x-text="item.title"></div>
@@ -116,7 +116,7 @@
 
                             {{-- Pipeline / breakdown --}}
                             <template x-if="['active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing'].includes(card.card_id)">
-                                <div class="flex-1 space-y-1.5 text-xs min-w-0">
+                                <div class="flex-1 space-y-2.5 text-xs min-w-0">
                                     <template x-for="item in card.items" :key="item.label">
                                         <div class="flex items-center justify-between gap-2 min-w-0">
                                             <div class="flex items-center gap-2 min-w-0 flex-1">
@@ -131,7 +131,7 @@
 
                             {{-- Agency snapshot --}}
                             <template x-if="card.card_id === 'agency_health'">
-                                <div class="flex-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                                <div class="flex-1 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
                                     <template x-for="item in card.items" :key="'ah'"><template x-if="true"><div class="contents">
                                         <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.agents"></span> <span style="color:var(--text-muted);">agents</span></div>
                                         <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.listings"></span> <span style="color:var(--text-muted);">listings</span></div>
@@ -143,15 +143,15 @@
 
                             {{-- Generic list --}}
                             <template x-if="!['pending_invitations','active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing','agency_health'].includes(card.card_id)">
-                                <div class="flex-1 space-y-1 text-xs">
+                                <div class="flex-1 space-y-2 text-xs">
                                     <template x-for="(item, idx) in card.items.slice(0, 4)" :key="idx">
-                                        <div class="truncate" style="color:var(--text-secondary);" x-text="detailedItemText(card, item)"></div>
+                                        <div class="truncate leading-relaxed" style="color:var(--text-secondary);" x-text="detailedItemText(card, item)"></div>
                                     </template>
                                     <template x-if="card.items.length > 4"><div class="text-[0.6875rem]" style="color: var(--text-muted);" x-text="'+ ' + (card.items.length - 4) + ' more'"></div></template>
                                 </div>
                             </template>
 
-                            <div class="mt-auto pt-2 text-xs font-semibold flex items-center gap-1" style="color:var(--brand-button);border-top:1px solid var(--border);">
+                            <div class="mt-auto pt-3 text-xs font-semibold flex items-center gap-1" style="color:var(--brand-button);border-top:1px solid var(--border);">
                                 <span>View all</span><span class="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
                             </div>
                         </div>

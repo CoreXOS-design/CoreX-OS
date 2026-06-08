@@ -88,6 +88,38 @@ class AgentPpController extends Controller
     }
 
     /**
+     * "Agents" tab — every CoreX agent in the current agency with their PP
+     * External Ref (AgentId) management controls. This is the default PP admin
+     * landing tab: pure DB read (agency-scoped via the User AgencyScope global
+     * scope), no SOAP call, so it loads instantly. The per-row Update / Sync /
+     * Deactivate actions reuse the existing per-user PP endpoints.
+     */
+    public function agentMapping()
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        // Mirror the User Management list exactly: agency members only
+        // (agencyMembers() excludes System Owners / Super Admins via is_owner),
+        // scoped to the current agency by agency_id or branch. Only users that
+        // appear in User Management should appear here.
+        $agencyId = auth()->user()->effectiveAgencyId();
+
+        $agents = User::agencyMembers()
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where(function ($q2) use ($agencyId) {
+                    $q2->where('agency_id', $agencyId)
+                        ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+                });
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'role', 'branch_id', 'pp_external_ref', 'pp_unique_agent_id', 'is_active']);
+
+        return view('admin.pp.agent-mapping', [
+            'agents' => $agents,
+        ]);
+    }
+
+    /**
      * Deactivate a PP agent by its encrypted PrivatePropertyAgentId.
      * Used to clean up duplicate profiles that don't map to a CoreX user.
      * Sends UpdateAgent with Active=false.

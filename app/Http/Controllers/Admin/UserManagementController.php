@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\Branch;
 use App\Services\Admin\AgentDeletionService;
+use App\Services\Images\AgentPhotoNormalizer;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use App\Services\Syndication\Property24\Property24SyndicationService;
 use Illuminate\Http\Request;
@@ -194,8 +195,8 @@ class UserManagementController extends Controller
 
         // File uploads
         if ($request->hasFile('agent_photo')) {
-            $ext = $request->file('agent_photo')->getClientOriginalExtension();
-            $path = $request->file('agent_photo')->storeAs("agents/{$user->id}", "photo.{$ext}", 'public');
+            $path = app(AgentPhotoNormalizer::class)
+                ->store($request->file('agent_photo'), $user->id, $user->agent_photo_path);
             $user->update(['agent_photo_path' => $path]);
         }
         if ($request->hasFile('ffc_certificate')) {
@@ -408,11 +409,8 @@ class UserManagementController extends Controller
 
         // File uploads
         if ($request->hasFile('agent_photo')) {
-            if ($user->agent_photo_path) {
-                Storage::disk('public')->delete($user->agent_photo_path);
-            }
-            $ext = $request->file('agent_photo')->getClientOriginalExtension();
-            $path = $request->file('agent_photo')->storeAs("agents/{$user->id}", "photo.{$ext}", 'public');
+            $path = app(AgentPhotoNormalizer::class)
+                ->store($request->file('agent_photo'), $user->id, $user->agent_photo_path);
             $user->update(['agent_photo_path' => $path]);
         }
         if ($request->hasFile('ffc_certificate')) {
@@ -700,13 +698,8 @@ class UserManagementController extends Controller
         ]);
 
         if ($request->hasFile('agent_photo')) {
-            if ($user->agent_photo_path) {
-                Storage::disk('public')->delete($user->agent_photo_path);
-            }
-            $ext = $request->file('agent_photo')->getClientOriginalExtension();
-            $path = $request->file('agent_photo')->storeAs(
-                "agents/{$user->id}", "photo.{$ext}", 'public'
-            );
+            $path = app(AgentPhotoNormalizer::class)
+                ->store($request->file('agent_photo'), $user->id, $user->agent_photo_path);
             $user->update(['agent_photo_path' => $path]);
         }
 

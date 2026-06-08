@@ -98,17 +98,19 @@ An agency can hold **many** keys — one per website (production site, second br
 
 ### 3.7 Website settings (Company Settings → Website tab)
 
-A small set of public-facing website settings, stored on `agencies` (extend the existing presentation/branding-settings pattern — see `2026_05_23_100001_add_presentation_settings_to_agency.php`). Exact fields to be confirmed (§13 Q3), starter set:
+A small set of public-facing website settings, stored on `agencies` (extend the existing presentation/branding-settings pattern — see `2026_05_23_100001_add_presentation_settings_to_agency.php`). Current field set:
 
 | Column | Purpose |
 |--------|---------|
-| `website_url` | the agency's live site URL (for "Visit website" links + reference) |
-| `website_tagline` / `website_about` | hero/about copy the site can pull |
 | `website_social_*` | facebook / instagram / linkedin / youtube handles |
-| `website_contact_email` / `website_contact_phone` | public contact shown on the site (may differ from internal) |
+| `website_contact_email` / `website_contact_phone` | public contact shown on the site (may differ from internal; falls back to agency `email` / `phone`) |
+| `website_address` | public address shown on the site's contact block (falls back to agency `address`) |
+| `website_open_hours` | JSON list of `{ days, hours }` rows the site renders as an opening-hours block — repeatable (weekdays, Saturday, public holidays, …); blank rows are dropped on save |
 | `website_show_agents` / `website_show_listings` | section master toggles the API honours |
 
-These are served read-only via `GET /api/v1/website/agency` so the website renders them.
+These are served read-only via `GET /api/v1/website/agency` so the website renders them. **Blank values are omitted from the response** (no empty `contact`/`social`/`open_hours` keys) so the website never renders an empty field — an unset section simply does not appear.
+
+> **Deprecated (2026-06-06):** the `website_url`, `website_tagline`, and `website_about` columns are retained for backward compatibility but are no longer edited in the Website tab nor exposed by the API. The website owns its own hero/about copy and URL.
 
 ### 3.2 `agency_webhook_deliveries` (new table — delivery log / retry)
 
@@ -121,6 +123,7 @@ Records each webhook send attempt: `agency_api_key_id`, `event_name`, `payload` 
 | `listings:read` | active Agency Stock listings (index + detail) |
 | `agents:read` | public agent profile fields |
 | `agency:read` | agency branding/contact (name, logo, colours, address) |
+| `branches:read` | branches (offices) with trading identity + their public agents + listing counts |
 | `webhooks:receive` | eligible to receive listing/agent webhook events |
 
 No `*:write` scopes ship in v1.
@@ -157,9 +160,45 @@ Reuse the constant-time-compare + HMAC discipline already proven in `PpWebhookCo
 | GET | `/api/v1/website/agents` | `v1.website.agents.index` | `agents:read` |
 | GET | `/api/v1/website/agents/{id}` | `v1.website.agents.show` | `agents:read` |
 | GET | `/api/v1/website/agency` | `v1.website.agency.show` | `agency:read` |
+| GET | `/api/v1/website/branches` | `v1.website.branches.index` | `branches:read` |
+| GET | `/api/v1/website/branches/{id}` | `v1.website.branches.show` | `branches:read` |
 | GET | `/api/v1/website/ping` | `v1.website.ping` | (any valid key) |
 
 Responses use dedicated **public API Resources** (`app/Http/Resources/WebsiteApi/*`) so the external contract is decoupled from internal model shape — we can refactor models without breaking agency sites. PII not meant for the public web (owner contact, internal notes) is **never** included.
+
+**AgentResource public fields:** `id`, `name`, `designation` (the agent's role/title, e.g. "Principal Property Practitioner" / "Candidate Property Practitioner" — a public "meet the team" field), `email`, `phone`, `cell`, `photo_url`. The compliance **FFC number is NOT exposed** (§13 Q7).
+
+**Agent-scoped listings:** `GET /api/v1/website/listings?agent_id={userId}` filters to a single agent's syndicated listings — used by the agent's website profile to show "their properties". Each listing's `agent` block carries `agent.id`, so the website links a listing card back to that agent's profile. (Testimonials carry the same `agent_id` + a `?agent_id=` filter — see `testimonials.md`.)
+
+### 5.1 Branches (offices)
+
+Multi-office agencies expose their branch structure to the website so the site
+can render a "Our offices" page and route agents/listings under the right
+office. Master content toggle: **`website_show_branches`** on `agencies`
+(Company Settings → Website → "Show branches on website", off by default). The
+toggle is surfaced to the site in `agency.show` → `show.branches` (bool),
+exactly like `show.agents` / `show.listings`; the website decides whether to
+render the section. The endpoints themselves are gated only by the
+`branches:read` scope, mirroring agents/listings.
+
+`BranchResource` public fields (per branch): `id`, `trading_name` (falls back
+to the branch's internal name), `tagline`, `address`, `phone`, `phone_label`,
+`phone_secondary`, `phone_secondary_label`, `email`, `ppra_number`, `logo_url`,
+`agent_count`, `listing_count`, and a nested `agents[]` array (each an
+`AgentResource`, only `show_on_website` agents whose `branch_id` is this
+branch). Blank per-branch contact fields are dropped — a blank value means
+"this branch uses the agency default", so the site falls back to `/agency`.
+This satisfies "the branch sends the trading name, address, phone override,
+email and branch logo" plus the agents that fall under each branch.
+
+**Branch-scoped agents & listings:** both `/agents` and `/listings` accept a
+`?branch_id={id}` filter so an office page can pull exactly the agents and
+properties under that office. The nested `agents[]` in the branch payload is the
+convenience path (header + cards in one call); the `?branch_id=` filters are the
+paginated path for the full agent/listing grids. `listing_count` per branch
+counts only properties whose syndication portal is enabled for the requesting
+key — identical filtering to `/listings` — so the count always matches what
+`/listings?branch_id=` returns.
 
 **ListingResource is P24-parity** — it carries the same rich marketing field set CoreX syndicates to Property24: location detail (complex/unit/floor/stand + street parts), `costs` (rates/levy/special levy), a `rental` block (lease period, deposit, rental amount, gross/net, per-period rates) populated only for rentals, `mandate_type`, `pet_friendly`, `spaces`, `features`, a categorised `gallery`, `video` (YouTube/Matterport/virtual tour), and upcoming `show_days` — alongside the core price/beds/baths/size/images/agent. Numeric fields are coerced to int/float for a clean contract.
 
@@ -181,11 +220,16 @@ Events that should fire webhooks (emit if not already emitted — current `app/E
 | Agent created **with** `show_on_website=true`, or flag flipped on | `agent.published` | new agent card appears on site |
 | Agent updated while `show_on_website=true` | `agent.updated` | site refreshes the agent card |
 | Agent soft-deleted, or `show_on_website` flipped off | `agent.removed` | site pulls the agent card down |
+| Article created **with** `is_published=true`, or `is_published` flipped on (incl. restore of a published article) | `article.published` | new article appears on the agent's profile |
+| Published article's public content edited (`title`, `slug`, `excerpt`, `cover_image_path`, `body`, `link_url`, `tags`, `published_at`) | `article.updated` | site refreshes the article |
+| Article `is_published` flipped off, or a published article soft-deleted | `article.removed` | site pulls the article down |
 
 **Agent sync semantics (the requested create/update/delete behaviour):**
 - An agent change only fires a webhook when it crosses the public boundary. Create/update of an agent that is *not* `show_on_website` fires **nothing** (it's not public).
 - Turning `show_on_website` on → `agent.published`. Turning it off → `agent.removed`. Editing a public agent → `agent.updated`. Soft-deleting a public agent → `agent.removed`.
 - This mirrors the listing publish logic exactly, so the website handles agents and listings with the same "published / updated / removed" pattern.
+
+**Article sync semantics:** Identical "crosses the public boundary" rule, keyed on `is_published`. A draft article fires **nothing** (create, edit, delete) until it is published. Publish → `article.published`; unpublish → `article.removed`; edit of a published article's public fields → `article.updated`; soft-delete of a published article → `article.removed`. Wired via `AgentArticleObserver` → `ArticleVisibilityChanged` → `DispatchArticleWebhooks`. **Every `article.*` payload carries both `id` and `agent_id`** (the `removed` payload is `{ id, agent_id }`; published/updated carry the full `ArticleResource`) so the consuming site can bust its **per-agent** article cache off `data.agent_id`.
 
 > Implementation note: emitting `listing.*` and `agent.*` cleanly requires the matching domain events (`PropertyPublished`/`PropertyUpdated`/`PropertyRemoved`, `AgentPublished`/`AgentUpdated`/`AgentRemoved`). Current `app/Events/Property/` has only `PropertySgDocumentSaved` + `PropertySuburbLinked`, and there is no `app/Events/Agent/` publish event yet — these are added to the catalogue (`corex-domain-events-spec.md`) and emitted from the Property/User observers at build time, per non-negotiable #9. We do NOT bolt webhook logic directly onto controllers.
 
@@ -210,7 +254,7 @@ Retries are driven by `next_retry_at` + a scheduled sweep, NOT queue-native back
 **CoreX server (one-time, platform-wide — already provisioned on prod):**
 - `.env`: `QUEUE_CONNECTION=database` (webhooks queue instead of blocking requests).
   No per-website keys live in CoreX's `.env`.
-- Scheduler cron: `* * * * * cd /hfc && php artisan schedule:run >> /dev/null 2>&1`
+- Scheduler cron: `* * * * * cd /corex && php artisan schedule:run >> /dev/null 2>&1`
   (drives `webhooks:retry-due` + all other CoreX schedules).
 - A queue worker (systemd/supervisor): `php artisan queue:work --queue=default --tries=1`
   (delivers the webhooks).
@@ -398,6 +442,6 @@ These are deferred *by design with an upgrade path*, not "good enough for now" c
 4. **Exact Website-tab settings** — confirm the final `website_*` field list (the §3.7 set is a starter). What does the website actually need to render from CoreX vs hold itself?
 5. **Listing identity in the public API** — expose by internal id, a stable public `ref`, or slug? (Affects URL stability for the websites.)
 6. **Media/images** — serve via signed CoreX URLs, or include CDN/public URLs in the payload? (P24 sync logic may already have an answer to reuse.)
-7. **Which agent fields are "public"** — confirm with compliance what's safe to expose (FFC number? direct cell?).
+7. **Which agent fields are "public"** — confirm with compliance what's safe to expose (FFC number? direct cell?). **Current shape (built):** `id`, `name`, `designation`, `email`, `phone`, `cell`, `photo_url`. FFC number stays hidden. `designation` added 2026-06-06 so websites can render the agent's title on the team card.
 8. **Webhook retry ceiling + dead-letter** — how many attempts before we surface a "your endpoint is down" alert in the Agencies UI?
 9. Do we want a **sandbox key type** (`cx_test_…`) for the web devs to build against before go-live, mirroring the PP `pp_sandbox` flag?

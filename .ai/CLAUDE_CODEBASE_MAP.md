@@ -15,7 +15,7 @@ then copy the pattern for the new feature.
 | Item | Value |
 |------|-------|
 | Production server | Ubuntu at 91.99.130.85 |
-| Codebase path | /hfc |
+| Codebase path | /corex |
 | Domain | corex.hfcoastal.co.za |
 | GitHub repo | johan7610/hfc-dash |
 | Branches | main (production), HFC2402 (Johan dev), andre (Andre dev) |
@@ -30,13 +30,13 @@ then copy the pattern for the new feature.
 
 ```bash
 # Standard deploy to server
-cd /hfc && git fetch origin main && git reset --hard origin/main && npm run build && php artisan migrate --force && php artisan view:clear && php artisan cache:clear && php artisan route:clear && php -r "opcache_reset();"
+cd /corex && git fetch origin main && git reset --hard origin/main && npm run build && php artisan migrate --force && php artisan view:clear && php artisan cache:clear && php artisan route:clear && php -r "opcache_reset();"
 
 # Deploy HFC2402 directly (skip main)
-cd /hfc && git fetch origin HFC2402 && git reset --hard origin/HFC2402 && npm run build && php artisan migrate --force && php artisan view:clear && php artisan cache:clear && php artisan route:clear && php -r "opcache_reset();"
+cd /corex && git fetch origin HFC2402 && git reset --hard origin/HFC2402 && npm run build && php artisan migrate --force && php artisan view:clear && php artisan cache:clear && php artisan route:clear && php -r "opcache_reset();"
 
 # Clear sessions (force all users to re-login)
-php -r "require '/hfc/vendor/autoload.php'; \$app = require_once '/hfc/bootstrap/app.php'; \$app->make('Illuminate\Contracts\Console\Kernel')->bootstrap(); DB::table('sessions')->truncate(); echo 'Sessions cleared';"
+php -r "require '/corex/vendor/autoload.php'; \$app = require_once '/corex/bootstrap/app.php'; \$app->make('Illuminate\Contracts\Console\Kernel')->bootstrap(); DB::table('sessions')->truncate(); echo 'Sessions cleared';"
 
 # Python AI service
 systemctl restart hf-ai

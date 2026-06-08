@@ -72,6 +72,7 @@
                 $portalTabs = [
                     'overview' => 'Overview',
                     'profile' => 'Profile',
+                    'tools' => 'Tools',
                     'documents' => 'Documents',
                     'compliance' => 'Compliance',
                     'training' => 'Training',
@@ -306,37 +307,42 @@
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'profile'" x-cloak>
 
+        {{-- Live preview of the public agent page --}}
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 24px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+            <div>
+                <div class="text-sm font-bold" style="color:var(--text-primary);">Your public agent page</div>
+                <div class="text-xs mt-0.5" style="color:var(--text-muted);">See exactly how your profile, listings &amp; testimonials look on the agency website.</div>
+            </div>
+            <a href="{{ route('corex.agents.preview', auth()->user()) }}" target="_blank" class="corex-btn-primary text-sm" style="white-space:nowrap;">
+                Preview my agent page ↗
+            </a>
+        </div>
+
         {{-- Profile photo upload --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-bottom:20px;">
-            <div class="flex items-center gap-6">
-                <div style="position:relative;">
-                    @if($photoUrl)
-                    <img src="{{ $photoUrl }}" alt="Profile photo"
-                         style="width:80px; height:80px; object-fit:cover; border-radius:50%; border:2px solid var(--border);">
-                    @else
-                    <div style="width:80px; height:80px; border-radius:50%; background:var(--surface-2); border:2px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:700; color:var(--text-muted);">
-                        {{ $user->initials() }}
-                    </div>
-                    @endif
-                    <form method="POST" action="{{ route('agent.portal.upload') }}" enctype="multipart/form-data" style="position:absolute; bottom:-4px; right:-4px;">
-                        @csrf
-                        <input type="hidden" name="document_type" value="photo">
-                        <label style="width:28px; height:28px; border-radius:50%; background:var(--brand-button); display:flex; align-items:center; justify-content:center; cursor:pointer; border:2px solid var(--surface);">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="#ffffff" style="width:14px; height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
-                            <input type="file" name="file" accept=".jpg,.jpeg,.png" class="hidden" onchange="this.closest('form').submit();">
-                        </label>
-                    </form>
-                </div>
+        <div x-data="{ open:false }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; margin-bottom:20px; overflow:hidden;">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
                 <div>
                     <div class="text-sm font-bold" style="color:var(--text-primary);">Profile Photo</div>
-                    <div class="text-xs" style="color:var(--text-muted);">JPG or PNG, max 10MB. Click the camera icon to upload.</div>
+                    <div class="text-xs mt-0.5" style="color:var(--text-muted);">Square crop, face centered — applied automatically.</div>
                 </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+            </button>
+            <div x-show="open" x-cloak style="padding:0 24px 20px;">
+                <form method="POST" action="{{ route('agent.portal.upload') }}" enctype="multipart/form-data">
+                    @csrf
+                    <input type="hidden" name="document_type" value="photo">
+                    <x-agent-photo-cropper name="file" :current="$photoUrl" :autosubmit="true" :size="80" />
+                </form>
             </div>
         </div>
 
         {{-- Profile form --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 20px;">Profile Information</h3>
+        <div x-data="{ open: {{ $errors->any() ? 'true' : 'false' }} }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
+                <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Profile Information</h3>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+            </button>
+            <div x-show="open" x-cloak style="padding:0 24px 20px;">
 
             <form id="send-verification" method="post" action="{{ route('verification.send') }}">@csrf</form>
 
@@ -416,6 +422,36 @@
                     </div>
                 </div>
 
+                {{-- Public website profile — About me + personal social links.
+                     Shown on the agent's public website page (distinct from the
+                     ad/OAuth accounts under the Tools tab). --}}
+                <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
+                    <div class="flex items-center gap-2 mb-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 0a8.949 8.949 0 0 0 4.951-1.488A3.987 3.987 0 0 0 13 16h-2a3.987 3.987 0 0 0-3.951 3.512A8.949 8.949 0 0 0 12 21Zm3-11a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                        <span style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Public Website Profile</span>
+                    </div>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px;">Shown on your public agent page. <a href="{{ route('corex.agents.preview', auth()->user()) }}" target="_blank" style="color:var(--brand-icon); text-decoration:underline;">Preview ↗</a></p>
+                    <div style="max-width:560px;">
+                        <div style="margin-bottom:16px;">
+                            <label for="about_me" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">About me</label>
+                            <textarea id="about_me" name="about_me" rows="4" placeholder="A short bio shown on your website profile…"
+                                      style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; resize:vertical;">{{ old('about_me', $user->about_me) }}</textarea>
+                            @error('about_me') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                            @foreach(['facebook' => 'Facebook', 'instagram' => 'Instagram', 'linkedin' => 'LinkedIn', 'youtube' => 'YouTube'] as $net => $label)
+                            <div>
+                                <label for="website_social_{{ $net }}" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">{{ $label }}</label>
+                                <input id="website_social_{{ $net }}" name="website_social_{{ $net }}" type="text"
+                                       value="{{ old('website_social_'.$net, $user->{'website_social_'.$net}) }}" placeholder="Profile URL"
+                                       style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;">
+                                @error('website_social_'.$net) <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
+                            </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+
                 {{-- Read-only admin fields --}}
                 <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
                     <div class="flex items-center gap-2 mb-3">
@@ -459,7 +495,112 @@
                     <button type="submit" class="corex-btn-primary">Save Profile</button>
                 </div>
             </form>
+            </div>{{-- /x-show profile info --}}
         </div>
+
+        {{-- Articles — agent-authored content for the public website profile --}}
+        @php $inputStyle = 'width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;'; @endphp
+        <div x-data="{ editingId: null, open:false }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; margin-top:20px; overflow:hidden;">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
+                <div>
+                    <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Articles</h3>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin:2px 0 0;">Content for your public website profile.</p>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+            </button>
+            <div x-show="open" x-cloak style="padding:0 24px 20px;">
+            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Tick <strong>Publish</strong> to make one live; untick to hide it.</p>
+
+            {{-- Add article --}}
+            <form method="POST" action="{{ route('agent.portal.articles.store') }}" enctype="multipart/form-data" style="margin-bottom:18px; display:flex; flex-direction:column; gap:8px;">
+                @csrf
+                <input name="title" required maxlength="200" placeholder="Article title" style="{{ $inputStyle }}">
+                <input name="excerpt" maxlength="500" placeholder="Short summary (optional)" style="{{ $inputStyle }}">
+                <textarea name="body" rows="5" placeholder="Article content…" style="{{ $inputStyle }} resize:vertical;"></textarea>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                    <input name="link_url" type="url" maxlength="500" placeholder="Connecting link (optional, e.g. https://…)" style="{{ $inputStyle }}">
+                    <input name="tags" maxlength="500" placeholder="Tags, comma separated (e.g. BondApproval, HomeBuying)" style="{{ $inputStyle }}">
+                </div>
+                <label style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Cover image (optional)
+                    <input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp" style="display:block; margin-top:4px; font-size:0.8125rem; color:var(--text-secondary);">
+                </label>
+                @error('cover_image') <p style="font-size:0.6875rem; color:var(--ds-crimson);">{{ $message }}</p> @enderror
+                @error('link_url') <p style="font-size:0.6875rem; color:var(--ds-crimson);">{{ $message }}</p> @enderror
+                <div style="display:flex; justify-content:flex-end;"><button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Add Article</button></div>
+            </form>
+
+            @if($articles->isEmpty())
+                <p style="font-size:0.8125rem; color:var(--text-muted);">No articles yet. Add one above.</p>
+            @else
+                {{-- Carousel of square article cards (cover image, or blank if none) --}}
+                <div style="display:flex; gap:14px; overflow-x:auto; padding-bottom:10px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch;">
+                    @foreach($articles as $article)
+                        <div style="flex:0 0 200px; scroll-snap-align:start;">
+                            <div style="position:relative; width:200px; height:200px; border-radius:10px; overflow:hidden; border:1px solid var(--border); background:var(--surface-2);">
+                                @if($article->coverImageUrl())
+                                    <img src="{{ $article->coverImageUrl() }}" alt="{{ $article->title }}" style="width:100%; height:100%; object-fit:cover;">
+                                @endif
+                                <span class="ds-badge {{ $article->is_published ? 'ds-badge-success' : 'ds-badge-default' }}" style="position:absolute; top:8px; left:8px;">{{ $article->is_published ? 'Published' : 'Draft' }}</span>
+                                <div style="position:absolute; left:0; right:0; bottom:0; padding:26px 10px 10px; background:linear-gradient(to top, rgba(0,0,0,.72), transparent); color:#fff; font-weight:700; font-size:0.8125rem; line-height:1.25;">{{ \Illuminate\Support\Str::limit($article->title, 60) }}</div>
+                            </div>
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:7px;">
+                                <span style="font-size:0.625rem; color:var(--text-muted);">{{ $article->readMinutes() }} MIN • {{ number_format($article->wordCount()) }}w</span>
+                                <div style="display:flex; align-items:center; gap:12px;">
+                                    <a href="{{ route('corex.agents.article.preview', [auth()->user(), $article, $article->previewSlug()]) }}" target="_blank" title="Preview" style="font-size:0.75rem; color:var(--brand-icon); text-decoration:none;">↗</a>
+                                    <button type="button" @click="editingId = (editingId === {{ $article->id }} ? null : {{ $article->id }})" style="font-size:0.6875rem; font-weight:600; color:var(--brand-icon); background:none; border:none; cursor:pointer;">Edit</button>
+                                    <form method="POST" action="{{ route('agent.portal.articles.destroy', $article) }}" onsubmit="return confirm('Delete this article?');">
+                                        @csrf @method('DELETE')
+                                        <button type="submit" title="Delete" style="font-size:0.75rem; font-weight:700; color:var(--ds-crimson); background:none; border:none; cursor:pointer;">✕</button>
+                                    </form>
+                                </div>
+                            </div>
+                            <form method="POST" action="{{ route('agent.portal.articles.publish', $article) }}" style="margin-top:4px;">
+                                @csrf @method('PATCH')
+                                <input type="hidden" name="is_published" value="0">
+                                <label style="display:flex; align-items:center; gap:5px; font-size:0.625rem; color:var(--text-secondary); cursor:pointer;">
+                                    <input type="checkbox" name="is_published" value="1" onchange="this.form.submit()" {{ $article->is_published ? 'checked' : '' }} style="accent-color:var(--brand-button);"> On website
+                                </label>
+                            </form>
+                        </div>
+                    @endforeach
+                </div>
+
+                {{-- Edit panels (full-width, shown when a card's Edit is clicked) --}}
+                @foreach($articles as $article)
+                    <form x-show="editingId === {{ $article->id }}" x-cloak method="POST" action="{{ route('agent.portal.articles.update', $article) }}" enctype="multipart/form-data" style="margin-top:14px; display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--border); padding-top:14px;">
+                        @csrf @method('PUT')
+                        <div style="font-size:0.6875rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Editing: {{ $article->title }}</div>
+                        <input name="title" required maxlength="200" value="{{ $article->title }}" style="{{ $inputStyle }}">
+                        <input name="excerpt" maxlength="500" value="{{ $article->excerpt }}" placeholder="Short summary" style="{{ $inputStyle }}">
+                        <textarea name="body" rows="5" style="{{ $inputStyle }} resize:vertical;">{{ $article->body }}</textarea>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <input name="link_url" type="url" maxlength="500" value="{{ $article->link_url }}" placeholder="Connecting link (optional)" style="{{ $inputStyle }}">
+                            <input name="tags" maxlength="500" value="{{ $article->tags }}" placeholder="Tags, comma separated" style="{{ $inputStyle }}">
+                        </div>
+                        @if($article->coverImageUrl())
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <img src="{{ $article->coverImageUrl() }}" alt="cover" style="width:60px; height:45px; object-fit:cover; border-radius:4px; border:1px solid var(--border);">
+                                <label style="font-size:0.6875rem; color:var(--text-secondary); display:flex; align-items:center; gap:5px; cursor:pointer;"><input type="checkbox" name="remove_cover" value="1" style="accent-color:var(--ds-crimson);"> Remove cover image</label>
+                            </div>
+                        @endif
+                        <label style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">{{ $article->coverImageUrl() ? 'Replace' : 'Add' }} cover image
+                            <input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp" style="display:block; margin-top:4px; font-size:0.8125rem; color:var(--text-secondary);">
+                        </label>
+                        <div style="display:flex; justify-content:flex-end; gap:8px;">
+                            <button type="button" @click="editingId = null" style="font-size:0.8125rem; padding:6px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); cursor:pointer;">Cancel</button>
+                            <button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Save</button>
+                        </div>
+                    </form>
+                @endforeach
+            @endif
+            </div>{{-- /x-show articles --}}
+        </div>
+    </div>{{-- /tab: profile --}}
+
+    {{-- ═══════════════════════════════════════════
+         TAB: TOOLS — utilities moved out of Profile
+         ═══════════════════════════════════════════ --}}
+    <div x-show="tab === 'tools'" x-cloak>
 
         {{-- Theme Preference --}}
         <div class="rounded-md p-5 mt-5" style="background:var(--surface); border:1px solid var(--border);"

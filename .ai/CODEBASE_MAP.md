@@ -24,7 +24,7 @@
 ## REPOSITORY STRUCTURE
 
 ```
-/hfc
+/corex
 ├── .ai/
 │   ├── CLAUDE.md               ← Master instructions for VS Code Claude
 │   ├── STANDARDS.md            ← UX Standards (dark theme, sticky headers, etc.)
@@ -191,6 +191,29 @@ color, sort_order, is_active
 ```
 contact_id → contacts, property_id → properties
 role — free text: 'lessor', 'landlord', 'owner', 'tenant', etc.
+```
+
+**`agent_articles`** — Articles an agent authors for their public website
+profile (My Portal → Profile). `agency_id`, `user_id` (author), `title`,
+`excerpt`, `body`, `is_published`, `published_at`. Model
+`App\Models\AgentArticle` (BelongsToAgency, SoftDeletes). Public read:
+`GET /api/v1/website/articles?agent_id=` (scope `articles:read`).
+Agent public-profile fields also added to `users`: `about_me`,
+`website_social_facebook|instagram|linkedin|youtube` (personal links, distinct
+from the OAuth ad accounts). Agent live preview: `corex.agents.preview`
+(`AgentPreviewController` → `corex/agents/live-preview.blade.php`).
+
+**`contact_testimonials`** — Testimonials a contact gave (captured on the
+"Notes & Testimonials" tab; published to the agency website via the Agency
+Public API). Has `agent_id` (the agent it's about). Spec: `.ai/specs/testimonials.md`
+```
+agency_id (NOT NULL), contact_id → contacts, user_id (captured by)
+body, display_name (public author), rating (1-5, nullable)
+published (bool) — the Settings publish tick; published_at, published_by_user_id
+Model: App\Models\ContactTestimonial (BelongsToAgency, SoftDeletes)
+Publish toggle fires testimonial.* webhooks via ContactTestimonialObserver →
+TestimonialVisibilityChanged → DispatchTestimonialWebhooks (mirrors agent sync).
+Public read: GET /api/v1/website/testimonials (scope testimonials:read).
 ```
 
 ### Contact Dependency Chain
@@ -616,7 +639,7 @@ agencies — added: dashboard_settings_mode (string, default 'user')
 | Environment | DB | Server | Codebase |
 |-------------|-----|--------|----------|
 | Local (Johan) | MySQL 8.4.3 via Laragon, DB: nexus_os | 127.0.0.1:8000 | HFC2402 branch |
-| Staging | MySQL, DB: hfc_staging | 91.99.130.85 /hfc-staging | Staging branch |
-| Production | MySQL, DB: nexus_os | 91.99.130.85 /hfc | main branch |
+| Staging | MySQL, DB: hfc_staging | 91.99.130.85 /corex-staging | Staging branch |
+| Production | MySQL, DB: nexus_os | 91.99.130.85 /corex | main branch |
 
 **Python AI Service:** `/opt/hf-ai/app.py` on port 3100. Not git-tracked. Manual restart.

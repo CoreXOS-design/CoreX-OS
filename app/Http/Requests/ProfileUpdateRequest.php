@@ -20,7 +20,6 @@ class ProfileUpdateRequest extends FormRequest
             'email' => [
                 'required',
                 'string',
-                'lowercase',
                 'email',
                 'max:255',
                 Rule::unique(User::class)->ignore($this->user()->id),
@@ -32,6 +31,12 @@ class ProfileUpdateRequest extends FormRequest
             'ffc_number' => ['nullable', 'string', 'max:50'],
             'ffc_expiry_date' => ['nullable', 'date', 'after:today'],
             'id_number' => ['nullable', 'string', 'max:20'],
+            // Public agent profile (shown on the agency website).
+            'about_me' => ['nullable', 'string', 'max:5000'],
+            'website_social_facebook' => ['nullable', 'string', 'max:255'],
+            'website_social_instagram' => ['nullable', 'string', 'max:255'],
+            'website_social_linkedin' => ['nullable', 'string', 'max:255'],
+            'website_social_youtube' => ['nullable', 'string', 'max:255'],
         ];
     }
 }

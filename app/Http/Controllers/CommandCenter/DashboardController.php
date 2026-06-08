@@ -51,6 +51,38 @@ class DashboardController extends Controller
         return response()->json(['cards' => $service->assembleForUser($user)]);
     }
 
+    /**
+     * Overdue & Unresolved — drill-down page for the Today card of the same name.
+     * Lists overdue tasks + overdue calendar events that still need resolution,
+     * with inline resolve actions. People-domain markers (birthdays, anniversaries)
+     * are excluded — they are not actionable items.
+     */
+    public function overdue(Request $request)
+    {
+        $user = $request->user();
+
+        $tasks = CommandTask::forUser($user->id)
+            ->overdue()
+            ->whereNull('resolution')
+            ->with(['property', 'contact'])
+            ->orderBy('due_date')
+            ->get();
+
+        $events = CalendarEvent::forUser($user->id)
+            ->where('status', 'overdue')
+            ->whereNull('resolution')
+            ->where('event_type', '!=', 'people')
+            ->with(['property', 'contact'])
+            ->orderBy('event_date')
+            ->get();
+
+        return view('command-center.overdue', [
+            'user'   => $user,
+            'tasks'  => $tasks,
+            'events' => $events,
+        ]);
+    }
+
     public function index(Request $request)
     {
         $user   = $request->user();

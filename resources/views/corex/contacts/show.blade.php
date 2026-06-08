@@ -99,6 +99,24 @@
                 Schedule Event
             </a>
 
+            {{-- Birthday reminder (opt-in, only when a DOB is on file) --}}
+            @if($contact->birthday)
+            <form method="POST" action="{{ route('corex.contacts.birthday-reminder.toggle', $contact) }}" class="flex-shrink-0">
+                @csrf
+                @if($contact->birthday_reminder)
+                <button type="submit" class="corex-btn-primary no-underline" title="Stop reminding me about this birthday">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M11.983 1.907a.75.75 0 0 0-1.966 0l-.16.661a8.25 8.25 0 0 0-6.357 8.027v3.243a3 3 0 0 1-.879 2.121l-.886.886A.75.75 0 0 0 2.5 18.75h19a.75.75 0 0 0 .53-1.28l-.886-.886a3 3 0 0 1-.879-2.122v-3.242a8.25 8.25 0 0 0-6.357-8.027l-.16-.661ZM12 22.5a3 3 0 0 1-2.83-2h5.66A3 3 0 0 1 12 22.5Z"/></svg>
+                    Birthday reminder on
+                </button>
+                @else
+                <button type="submit" class="corex-btn-outline no-underline" title="Remind me about this birthday">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg>
+                    Remind me of birthday
+                </button>
+                @endif
+            </form>
+            @endif
+
             {{-- View as Buyer (if buyer) --}}
             @if($contact->is_buyer)
             <a href="{{ route('command-center.buyers.show', $contact) }}"
@@ -153,7 +171,7 @@
                 ['key'=>'info','label'=>'Info'],
                 ['key'=>'properties','label'=>'Properties <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->properties->count() .'</span>'],
                 ['key'=>'viewings','label'=>'Viewings &amp; Feedback <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($viewingsCount ?? 0) .'</span>'],
-                ['key'=>'notes','label'=>'Notes <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->contactNotes->count() .'</span>'],
+                ['key'=>'notes','label'=>'Notes &amp; Testimonials <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contact->contactNotes->count() + $contact->testimonials->count()) .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'consent','label'=>'Consent'],
@@ -715,6 +733,146 @@
              NOTES TAB
              ════════════════════════════ --}}
         <div x-show="activeTab === 'notes'" x-cloak class="p-6 space-y-5" id="tab-notes">
+
+            {{-- ════════════════════════════ TESTIMONIALS ════════════════════════════ --}}
+            <div class="space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Testimonials</h3>
+                    <span class="text-xs" style="color:var(--text-muted);">Captured here · publish to the website in <span class="font-semibold">Company Settings → Website</span></span>
+                </div>
+
+                {{-- Add testimonial --}}
+                <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);" x-data="{ rating: 0 }">
+                    <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Testimonial</div>
+                    <form method="POST" action="{{ route('corex.contacts.testimonials.store', $contact) }}" class="space-y-3">
+                        @csrf
+                        <textarea name="body" rows="3" required placeholder="What did the client say?"
+                                  class="w-full rounded-md px-3 py-2 text-sm resize-none"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Public display name</label>
+                                <input type="text" name="display_name" maxlength="150"
+                                       value="{{ trim(($contact->first_name ?? '').' '.($contact->last_name ?? '')) }}"
+                                       placeholder="Name shown on the website"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Agent it's about</label>
+                                <select name="agent_id"
+                                        class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    @foreach(($agencyAgents ?? collect()) as $ag)
+                                        <option value="{{ $ag->id }}" {{ (int) $ag->id === (int) auth()->id() ? 'selected' : '' }}>{{ $ag->name }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Rating (optional)</label>
+                                <input type="hidden" name="rating" :value="rating || ''">
+                                <div class="flex items-center gap-1">
+                                    <template x-for="star in 5" :key="star">
+                                        <button type="button" @click="rating = (rating === star ? 0 : star)"
+                                                class="text-xl leading-none"
+                                                :style="star <= rating ? 'color:var(--ds-amber, #f5b301);' : 'color:var(--text-muted); opacity:.5;'">★</button>
+                                    </template>
+                                    <button type="button" x-show="rating > 0" @click="rating = 0" class="ml-2 text-xs" style="color:var(--text-muted);">clear</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex justify-end">
+                            <button type="submit" class="corex-btn-primary text-sm">Add Testimonial</button>
+                        </div>
+                    </form>
+                </div>
+
+                {{-- Testimonials list --}}
+                @forelse($contact->testimonials as $testimonial)
+                <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);" x-data="{ editing: false }">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $testimonial->display_name }}</span>
+                                @if($testimonial->rating)
+                                    <span class="text-sm" style="color:var(--ds-amber, #f5b301);">{{ str_repeat('★', (int) $testimonial->rating) }}<span style="color:var(--text-muted); opacity:.4;">{{ str_repeat('★', 5 - (int) $testimonial->rating) }}</span></span>
+                                @endif
+                            </div>
+                            <div class="text-xs" style="color:var(--text-muted);">
+                                {{ $testimonial->user?->name ?? 'Unknown' }} · {{ $testimonial->created_at->format('d M Y') }}
+                                @if($testimonial->agent)
+                                    · <span style="color:var(--text-secondary);">About {{ $testimonial->agent->name }}</span>
+                                @endif
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3 flex-shrink-0">
+                            @if($testimonial->published)
+                                <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">On website</span>
+                            @else
+                                <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:var(--surface); color:var(--text-muted); border:1px solid var(--border);">Not published</span>
+                            @endif
+                            <button type="button" @click="editing = !editing" class="text-xs font-semibold" style="color:var(--brand-icon, #0ea5e9);">Edit</button>
+                            <form method="POST" action="{{ route('corex.contacts.testimonials.destroy', [$contact, $testimonial]) }}"
+                                  onsubmit="return confirm('Delete this testimonial?');">
+                                @csrf @method('DELETE')
+                                <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Delete</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    {{-- Read view --}}
+                    <div class="mt-3 text-sm whitespace-pre-line" style="color:var(--text-primary);" x-show="!editing">{{ $testimonial->body }}</div>
+
+                    {{-- Edit view --}}
+                    <form x-show="editing" x-cloak method="POST" action="{{ route('corex.contacts.testimonials.update', [$contact, $testimonial]) }}"
+                          class="mt-3 space-y-3" x-data="{ rating: {{ (int) $testimonial->rating }} }">
+                        @csrf @method('PUT')
+                        <textarea name="body" rows="3" required class="w-full rounded-md px-3 py-2 text-sm resize-none"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ $testimonial->body }}</textarea>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Public display name</label>
+                                <input type="text" name="display_name" maxlength="150" value="{{ $testimonial->display_name }}"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Agent it's about</label>
+                                <select name="agent_id"
+                                        class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    @foreach(($agencyAgents ?? collect()) as $ag)
+                                        <option value="{{ $ag->id }}" {{ (int) $ag->id === (int) $testimonial->agent_id ? 'selected' : '' }}>{{ $ag->name }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Rating (optional)</label>
+                                <input type="hidden" name="rating" :value="rating || ''">
+                                <div class="flex items-center gap-1">
+                                    <template x-for="star in 5" :key="star">
+                                        <button type="button" @click="rating = (rating === star ? 0 : star)"
+                                                class="text-xl leading-none"
+                                                :style="star <= rating ? 'color:var(--ds-amber, #f5b301);' : 'color:var(--text-muted); opacity:.5;'">★</button>
+                                    </template>
+                                    <button type="button" x-show="rating > 0" @click="rating = 0" class="ml-2 text-xs" style="color:var(--text-muted);">clear</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" @click="editing = false" class="text-sm px-3 py-1.5 rounded-md" style="border:1px solid var(--border); color:var(--text-secondary);">Cancel</button>
+                            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+                        </div>
+                    </form>
+                </div>
+                @empty
+                <div class="rounded-md py-8 px-6 text-center" style="background: var(--surface); border: 1px dashed var(--border);">
+                    <p class="text-sm" style="color: var(--text-muted);">No testimonials captured yet. Add one above when a client gives you positive feedback.</p>
+                </div>
+                @endforelse
+            </div>
+
+            <div style="border-top:1px solid var(--border);"></div>
 
             {{-- Add note --}}
             <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">

@@ -291,6 +291,9 @@ return [
         // Spec: .ai/specs/agency-public-api.md §8
         ['key' => 'agency_api.view',             'label' => 'View Website API Keys',       'section' => 'admin',            'type' => 'access',  'module' => 'agency_api',       'sort_order' => 60],
         ['key' => 'agency_api.manage',           'label' => 'Manage Website API Keys',     'section' => 'admin',            'type' => 'action',  'module' => 'agency_api',       'sort_order' => 61],
+        // Testimonials — publish/unpublish to website. Capture is gated by access_contacts.
+        // Spec: .ai/specs/testimonials.md §8
+        ['key' => 'testimonials.publish',        'label' => 'Publish Testimonials to Website', 'section' => 'admin',        'type' => 'action',  'module' => 'agency_api',       'sort_order' => 62],
 
         // ── Calculators / Tools ──
         ['key' => 'access_calculators',          'label' => 'Access Calculators & Tools',  'section' => 'calculators',      'type' => 'access',  'module' => 'calculators',      'sort_order' => 1],
@@ -460,6 +463,9 @@ return [
         ['key' => 'sidebar.section.branch_manager',  'label' => 'Show Branch Manager Section',   'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 2],
         ['key' => 'sidebar.section.tools',           'label' => 'Show Tools Section',            'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 3],
         ['key' => 'sidebar.section.admin',           'label' => 'Show Admin Section',            'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 5],
+
+        // ── Soft Deletes Register ──
+        ['key' => 'access_soft_deletes',             'label' => 'Access Soft Deletes Register',  'section' => 'admin',           'type' => 'access',  'module' => 'soft_deletes',     'sort_order' => 1],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -483,6 +489,8 @@ return [
                 // Sidebar sections — admin sees all
                 'sidebar.section.agents', 'sidebar.section.branch_manager',
                 'sidebar.section.tools', 'sidebar.section.admin',
+                // Soft Deletes Register
+                'access_soft_deletes',
                 // Whistleblower
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
@@ -495,6 +503,8 @@ return [
                 'mic.restore_reports',
                 // Agency Public API — admins manage their agency's website keys
                 'agency_api.view', 'agency_api.manage',
+                // Testimonials — admins curate which testimonials go on the website
+                'testimonials.publish',
                 // Module 6 Activity Points — admin manages the calendar-class →
                 // activity-definition mappings that drive auto-credit.
                 // (super_admin gets it via the '*' wildcard above; branch_manager

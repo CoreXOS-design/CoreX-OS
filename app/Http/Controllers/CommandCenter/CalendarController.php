@@ -1120,11 +1120,20 @@ class CalendarController extends Controller
 
     // ── Private helpers ──
 
+    /**
+     * Birthday / anniversary markers are hidden from the calendar by default —
+     * they cluttered the grid. They remain available when the user explicitly
+     * selects one of these categories in the filter.
+     */
+    private const HIDDEN_BY_DEFAULT_CATEGORIES = ['agent_birthday', 'contact_birthday', 'employment_anniversary'];
+
     private function applyFilters(Collection $events, $user, array $typeFilter, array $categoryFilter, string $scope): Collection
     {
         $filtered = $events
             ->when(!empty($typeFilter), fn ($c) => $c->whereIn('event_type', $typeFilter))
             ->when(!empty($categoryFilter), fn ($c) => $c->whereIn('category', $categoryFilter))
+            // No explicit category filter → suppress birthdays/anniversaries by default.
+            ->when(empty($categoryFilter), fn ($c) => $c->whereNotIn('category', self::HIDDEN_BY_DEFAULT_CATEGORIES))
             ->when($scope === 'own', fn ($c) => $c->where('user_id', $user->id))
             ->when($scope === 'branch' && $user->branch_id, fn ($c) => $c->where('branch_id', $user->branch_id));
 

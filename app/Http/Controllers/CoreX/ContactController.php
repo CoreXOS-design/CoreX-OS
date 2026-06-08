@@ -111,7 +111,15 @@ class ContactController extends Controller
             ]);
         }
 
-        $contact->load(['type', 'createdBy', 'contactNotes.user', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags']);
+        $contact->load(['type', 'createdBy', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags']);
+
+        // Agents in this contact's agency — for the "agent this testimonial is
+        // about" selector on the Notes & Testimonials tab.
+        $agencyAgents = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->where('agency_id', $contact->agency_id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
         $contactTypes     = ContactType::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $matchCategories  = PropertySettingItem::group('category')->get();
@@ -280,7 +288,7 @@ class ContactController extends Controller
             }
         }
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents'));
     }
 
     public function checkDuplicate(Request $request)
@@ -484,6 +492,27 @@ class ContactController extends Controller
         $contact->update(['last_contacted_at' => $data['last_contacted_at']]);
 
         return redirect()->route('corex.contacts.show', $contact)->with('success', 'Last contacted date updated.');
+    }
+
+    /**
+     * Toggle the per-contact birthday reminder opt-in.
+     * When on, the contact's birthday surfaces on the agent's calendar and
+     * fires an in-app reminder on the day. Off by default — no birthday noise
+     * unless the agent explicitly asks for it on this contact.
+     */
+    public function toggleBirthdayReminder(Request $request, Contact $contact)
+    {
+        if (! $contact->birthday) {
+            return back()->with('error', 'Add a date of birth before setting a birthday reminder.');
+        }
+
+        $contact->update(['birthday_reminder' => ! $contact->birthday_reminder]);
+
+        $message = $contact->birthday_reminder
+            ? "You'll be reminded about {$contact->full_name}'s birthday."
+            : "Birthday reminder removed for {$contact->full_name}.";
+
+        return back()->with('success', $message);
     }
 
     public function incrementChannel(Request $request, Contact $contact)

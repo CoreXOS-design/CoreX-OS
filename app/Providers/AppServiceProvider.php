@@ -403,6 +403,23 @@ class AppServiceProvider extends ServiceProvider
         );
         \App\Models\User::observe(\App\Observers\UserObserver::class);
 
+        // Contact Testimonials — publish/unpublish fans out to per-website
+        // testimonial.* webhooks. Spec: .ai/specs/testimonials.md §5.
+        Event::listen(
+            \App\Events\Website\TestimonialVisibilityChanged::class,
+            \App\Listeners\Webhooks\DispatchTestimonialWebhooks::class,
+        );
+        \App\Models\ContactTestimonial::observe(\App\Observers\ContactTestimonialObserver::class);
+
+        // Agent Articles — publish/unpublish/edit fans out to per-website
+        // article.* webhooks. Payload carries id + agent_id so the consuming
+        // site can bust its per-agent article cache. Spec: agency-public-api.md §6.1.
+        Event::listen(
+            \App\Events\Website\ArticleVisibilityChanged::class,
+            \App\Listeners\Webhooks\DispatchArticleWebhooks::class,
+        );
+        \App\Models\AgentArticle::observe(\App\Observers\AgentArticleObserver::class);
+
         // Phase 8 — auto-record outcome=won_sale when a Deal flips to registered
         // and a linked presentation has no outcome yet. Observer is failure-
         // isolated so outcome auto-capture never breaks a deal save.

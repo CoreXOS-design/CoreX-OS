@@ -6,6 +6,7 @@ use App\Models\Deal;
 use App\Models\User;
 use App\Services\CommandCenter\NotificationDispatcher;
 use App\Services\CommandCenter\NotificationPreferenceService;
+use App\Support\Notifications\AgeFormatter;
 use Illuminate\Console\Command;
 
 class ScanDealNotifications extends Command
@@ -36,19 +37,29 @@ class ScanDealNotifications extends Command
                         $stageKey = empty($deal->accepted_status) ? 'deal.stalled_offer'
                             : ($deal->accepted_status === 'G' ? 'deal.stalled_bond' : 'deal.stalled_conveyancing');
 
+                        // Human stage label — never leak the raw status code ('G' etc.) into copy.
+                        $stageLabel = [
+                            'deal.stalled_offer'        => 'offer',
+                            'deal.stalled_bond'         => 'bond approval',
+                            'deal.stalled_conveyancing' => 'conveyancing',
+                        ][$stageKey];
+
                         $eff = $prefs->effective($agent, $stageKey);
                         if ($eff && $eff['enabled'] && $eff['threshold']) {
                             $stamp = $deal->updated_at ?? $deal->created_at;
                             if (! $stamp) continue;
-                            $ageHours = $stamp->diffInHours(now());
+                            $ageHours = AgeFormatter::wholeHours($stamp);
                             $thresholdHours = $eff['event_type']->threshold_unit === 'days'
                                 ? ((int) $eff['threshold']) * 24
                                 : (int) $eff['threshold'];
                             if ($ageHours >= $thresholdHours) {
                                 $label = $deal->title ?? ("Deal #" . $deal->id);
+                                $age   = AgeFormatter::duration($stamp);
                                 $dispatcher->fire($agent, $stageKey, $deal, [
                                     'title' => "$label — no progress",
-                                    'body'  => "No update in {$ageHours}h at " . ($deal->accepted_status ?: 'offer') . " stage.",
+                                    'body'  => $age
+                                        ? "No update in {$age} at {$stageLabel} stage."
+                                        : "Awaiting progress at {$stageLabel} stage.",
                                     'subject_label' => $label,
                                     'action_url' => "/deals/{$deal->id}",
                                     'severity' => 'warning',

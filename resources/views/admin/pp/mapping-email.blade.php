@@ -39,20 +39,15 @@
 
 @section('corex-content')
 <div class="p-6 space-y-6" x-data="{ copied: '' }">
-    <div class="flex items-center justify-between">
-        <div>
-            <h1 class="text-xl font-bold" style="color:var(--text-primary);">Private Property — Mapping Email</h1>
-            <p class="text-sm mt-1" style="color:var(--text-muted);">
-                Copy-paste block for PP's stock-file mapping request. Tab-separated so it pastes cleanly into Excel/Sheets.
-                {{ count($agents) }} agents · {{ count($listings) }} listings.
-            </p>
-        </div>
-        <a href="{{ route('admin.pp.agents') }}"
-           class="px-4 py-2 rounded-md text-sm font-medium"
-           style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-            ← Back to PP Agents
-        </a>
+    <div>
+        <h1 class="text-xl font-bold" style="color:var(--text-primary);">Private Property — Mapping Email</h1>
+        <p class="text-sm mt-1" style="color:var(--text-muted);">
+            Copy-paste block for PP's stock-file mapping request. Tab-separated so it pastes cleanly into Excel/Sheets.
+            {{ count($agents) }} agents · {{ count($listings) }} listings.
+        </p>
     </div>
+
+    @include('admin.pp._tabs')
 
     <div class="rounded-xl p-4 space-y-3" style="background:var(--surface); border:1px solid var(--border);">
         <div class="flex items-center justify-between">

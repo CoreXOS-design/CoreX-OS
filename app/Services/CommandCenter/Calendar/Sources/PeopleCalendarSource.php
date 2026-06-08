@@ -66,9 +66,12 @@ class PeopleCalendarSource implements CalendarSourceContract
 
     private function contactBirthday(): Collection
     {
+        // Opt-in only: birthdays surface on the calendar only when the agent has
+        // turned on the reminder for that contact (contacts.birthday_reminder).
         return DB::table('contacts')
             ->whereNull('deleted_at')
             ->whereNotNull('birthday')
+            ->where('birthday_reminder', true)
             ->select('id', 'first_name', 'last_name', 'birthday', 'agency_id', 'branch_id', 'created_by_user_id')
             ->get()
             ->map(function ($c) {

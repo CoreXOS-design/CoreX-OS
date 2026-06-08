@@ -44,9 +44,9 @@ php -r "var_dump(class_exists('SoapClient'));"
 Edit the `.env` file on the server:
 
 ```bash
-nano /hfc/.env    # production
+nano /corex/.env    # production
 # or
-nano /hfc-staging/.env    # staging
+nano /corex-staging/.env    # staging
 ```
 
 Add these lines at the bottom:
@@ -78,7 +78,7 @@ PP_IMAGE_BASE_URL=https://corex.hfcoastal.co.za
 ## Step 3 — Clear and Cache Config
 
 ```bash
-cd /hfc  # or /hfc-staging
+cd /corex  # or /corex-staging
 php artisan config:clear
 php artisan config:cache
 ```
@@ -104,7 +104,7 @@ This creates the PP syndication columns on the `properties` table:
 ## Step 5 — Ensure Storage Symlink Exists
 
 ```bash
-cd /hfc  # or /hfc-staging
+cd /corex  # or /corex-staging
 php artisan storage:link
 ```
 
@@ -119,7 +119,7 @@ PP's servers fetch images from the URL in `PP_IMAGE_BASE_URL`. The images must p
 If staging images are stored separately from production:
 ```bash
 # Copy staging property images to production (if needed)
-cp -r /hfc-staging/storage/app/public/properties/ /hfc/storage/app/public/properties/
+cp -r /corex-staging/storage/app/public/properties/ /corex/storage/app/public/properties/
 ```
 
 Test accessibility:
@@ -133,7 +133,7 @@ curl -I https://corex.hfcoastal.co.za/storage/properties/16/001_3FU4hTDt.jpg
 ## Step 7 — Verify Connection
 
 ```bash
-cd /hfc  # or /hfc-staging
+cd /corex  # or /corex-staging
 php artisan pp:smoke-test
 ```
 
@@ -170,7 +170,7 @@ crontab -e
 
 Add this line if not already present:
 ```
-* * * * * cd /hfc && php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd /corex && php artisan schedule:run >> /dev/null 2>&1
 ```
 
 ---

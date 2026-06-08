@@ -110,7 +110,7 @@ For NEW features, use the structured spec format:
 - Python service at `/opt/hf-ai/app.py` on port 3100, managed by `hf-ai.service`
 - Uses OpenAI GPT-4o via the Responses API (web search) and Chat Completions API (standard)
 - Knowledge base: 32 documents with vector embeddings via OpenAI text-embedding-3-small
-- Auto-embedding on upload (requires OPENAI_API_KEY in /hfc/.env)
+- Auto-embedding on upload (requires OPENAI_API_KEY in /corex/.env)
 - KB search: hybrid scoring (cosine × 0.7 + structural × 0.3, min threshold 0.3)
 - Clause-aware chunking, KB context injected into user message (not system prompt)
 - Company documents take priority over web search (needs_web returns false when KB context exists)
@@ -131,7 +131,7 @@ For NEW features, use the structured spec format:
 ## Technical Context
 
 - **Stack:** Laravel PHP + Blade + Alpine.js, MySQL (production), SQLite (local dev), Vite build
-- **Server:** Ubuntu at `91.99.130.85`, codebase at `/hfc`, domain `corex.hfcoastal.co.za`
+- **Server:** Ubuntu at `91.99.130.85`, codebase at `/corex`, domain `corex.hfcoastal.co.za`
 - **Branches:** `main` = production, `HFC2402` = Johan's dev, `andre` = Andre's branch
 - **Deploy workflow:** VS Code → git push → SSH: `git pull origin main && php artisan view:clear && php artisan cache:clear`
 - **Python AI service:** Not in git. Restart: `systemctl restart hf-ai`. Config: `/etc/hf-ai/openai.env`
@@ -139,7 +139,7 @@ For NEW features, use the structured spec format:
 - **VS Code Claude** is the coding agent — I paste prompts, it executes
 - **Spec files** live in `.ai/` folder
 - **Dev check:** `scripts/dev-check.ps1` — 894 tests, 2234 assertions
-- **Puppeteer PDF:** Uses `/hfc/scripts/html-to-pdf.mjs` with Chromium on ARM64 server
+- **Puppeteer PDF:** Uses `/corex/scripts/html-to-pdf.mjs` with Chromium on ARM64 server
 - **Chrome Extension:** `public/chrome-extension/portal-capture/` — manifest V3, content scripts for P24 + PP, background service worker with tab navigation
 - **Sanctum tokens:** Generated from user profile page, used by Chrome extension for API auth
 - **Git merge note:** `bootstrap/cache/` files cause conflicts — stash or `checkout --theirs` to resolve

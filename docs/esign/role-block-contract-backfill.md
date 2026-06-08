@@ -48,12 +48,12 @@ php artisan docuperfect:normalize-templates               # apply for real
 # Confirm Step 4 preview renders correctly for a multi-seller session.
 
 # Staging
-ssh agent@91.99.130.85 'cd /hfc-staging && php artisan docuperfect:normalize-templates --dry-run'
-ssh agent@91.99.130.85 'cd /hfc-staging && php artisan docuperfect:normalize-templates'
+ssh agent@91.99.130.85 'cd /corex-staging && php artisan docuperfect:normalize-templates --dry-run'
+ssh agent@91.99.130.85 'cd /corex-staging && php artisan docuperfect:normalize-templates'
 
 # Production (after staging confirmed)
-ssh agent@91.99.130.85 'cd /hfc && php artisan docuperfect:normalize-templates --dry-run'
-ssh agent@91.99.130.85 'cd /hfc && php artisan docuperfect:normalize-templates'
+ssh agent@91.99.130.85 'cd /corex && php artisan docuperfect:normalize-templates --dry-run'
+ssh agent@91.99.130.85 'cd /corex && php artisan docuperfect:normalize-templates'
 ```
 
 ## Verifying after the backfill

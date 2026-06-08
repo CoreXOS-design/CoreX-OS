@@ -47,6 +47,7 @@ class Phase2WebsiteApiTest extends TestCase
         $this->agent = User::factory()->create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
             'role' => 'agent', 'name' => 'Thandi Mbeki', 'show_on_website' => true,
+            'designation' => 'Principal Property Practitioner',
         ]);
         // Hidden agent — must never surface.
         User::factory()->create([
@@ -74,13 +75,25 @@ class Phase2WebsiteApiTest extends TestCase
 
     public function test_agency_endpoint_returns_branding_and_settings(): void
     {
+        $this->agency->update([
+            'website_address'    => '12 Marina Drive, Uvongo',
+            'website_open_hours' => [
+                ['days' => 'Monday – Friday', 'hours' => '08:00 – 17:00'],
+                ['days' => 'Saturday',        'hours' => '09:00 – 13:00'],
+            ],
+        ]);
+
         $this->withToken($this->token)->getJson('/api/v1/website/agency')
             ->assertOk()
             ->assertJsonPath('data.name', 'Coastal Realty')
-            ->assertJsonPath('data.tagline', 'Your coast, your home')
-            ->assertJsonPath('data.website_url', 'https://coastal.example')
             ->assertJsonPath('data.social.facebook', 'coastalrealty')
-            ->assertJsonPath('data.branding.button_color', '#0ea5e9');
+            ->assertJsonPath('data.branding.button_color', '#0ea5e9')
+            ->assertJsonPath('data.contact.address', '12 Marina Drive, Uvongo')
+            ->assertJsonPath('data.open_hours.1.days', 'Saturday')
+            // Legacy hero copy fields are no longer exposed.
+            ->assertJsonMissingPath('data.website_url')
+            ->assertJsonMissingPath('data.tagline')
+            ->assertJsonMissingPath('data.about');
     }
 
     public function test_listings_returns_only_syndicated_enabled_for_this_key(): void
@@ -135,6 +148,22 @@ class Phase2WebsiteApiTest extends TestCase
         $this->assertFalse($names->contains('Hidden Harry'));
         // Agent card excludes the FFC number (compliance).
         $this->assertArrayNotHasKey('ffc_number', $resp->json('data.0'));
+    }
+
+    public function test_agent_card_includes_designation(): void
+    {
+        // Designation is a public "meet the team" field (e.g. Principal /
+        // Candidate Property Practitioner) — surfaced on the agent card,
+        // distinct from the compliance FFC number which stays hidden.
+        $resp = $this->withToken($this->token)->getJson('/api/v1/website/agents')->assertOk();
+
+        $thandi = collect($resp->json('data'))->firstWhere('name', 'Thandi Mbeki');
+        $this->assertSame('Principal Property Practitioner', $thandi['designation']);
+
+        // And on the detail endpoint.
+        $this->withToken($this->token)->getJson("/api/v1/website/agents/{$this->agent->id}")
+            ->assertOk()
+            ->assertJsonPath('data.designation', 'Principal Property Practitioner');
     }
 
     public function test_cross_agency_isolation(): void
@@ -229,6 +258,56 @@ class Phase2WebsiteApiTest extends TestCase
         $this->assertContains('https://img.example/k1.jpg', $data['gallery']['Kitchen']);
         $this->assertCount(1, $data['show_days']);
         $this->assertSame('Open house', $data['show_days'][0]['note']);
+    }
+
+    public function test_agents_default_alphabetical_order(): void
+    {
+        // setUp already has visible "Thandi Mbeki".
+        $this->makeAgent('Zoe', 1);
+        $this->makeAgent('Anna', 2);
+        $this->makeAgent('Bob', 3);
+
+        $names = collect($this->withToken($this->token)->getJson('/api/v1/website/agents')->json('data'))->pluck('name')->all();
+        $this->assertSame(['Anna', 'Bob', 'Thandi Mbeki', 'Zoe'], $names);
+        $this->withToken($this->token)->getJson('/api/v1/website/agency')
+            ->assertJsonPath('data.agent_order_mode', 'alphabetical');
+    }
+
+    public function test_agents_custom_order_partial_numbering_rest_alphabetical(): void
+    {
+        // Only Bob is numbered; the rest (Anna, Zoe, + setUp's Thandi) have no number.
+        $this->agency->update(['website_agent_order_mode' => 'custom']);
+        $this->makeAgent('Bob', 1);
+        $this->makeAgent('Zoe', null);
+        $this->makeAgent('Anna', null);
+
+        // Expected: Bob (numbered) first, then the un-numbered ones A–Z.
+        $names = collect($this->withToken($this->token)->getJson('/api/v1/website/agents')->json('data'))->pluck('name')->all();
+        $this->assertSame(['Bob', 'Anna', 'Thandi Mbeki', 'Zoe'], $names);
+    }
+
+    public function test_agents_custom_order(): void
+    {
+        // All setup BEFORE any request (the test guard memoizes the key/agency).
+        $this->agency->update(['website_agent_order_mode' => 'custom']);
+        $zoe = $this->makeAgent('Zoe', 1);
+        $anna = $this->makeAgent('Anna', 2);
+        $bob = $this->makeAgent('Bob', 3);
+
+        // Custom = by website_order (Zoe=1, Anna=2, Bob=3), null-order (Thandi from setUp) last.
+        $ids = collect($this->withToken($this->token)->getJson('/api/v1/website/agents')->json('data'))->pluck('id')->all();
+        $this->assertSame([$zoe->id, $anna->id, $bob->id, $this->agent->id], $ids);
+
+        $this->withToken($this->token)->getJson('/api/v1/website/agency')
+            ->assertJsonPath('data.agent_order_mode', 'custom');
+    }
+
+    private function makeAgent(string $name, ?int $order): User
+    {
+        return User::factory()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'role' => 'agent', 'name' => $name, 'show_on_website' => true, 'website_order' => $order,
+        ]);
     }
 
     // ---- helpers -----------------------------------------------------------

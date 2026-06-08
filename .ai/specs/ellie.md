@@ -43,7 +43,7 @@ This is non-negotiable.
 
 ## Consolidation Notes
 
-- `OPENAI_API_KEY` must be present in `/hfc/.env` — missing key = zero embeddings
+- `OPENAI_API_KEY` must be present in `/corex/.env` — missing key = zero embeddings
 - Python AI service at `/opt/hf-ai/app.py` on port 3100 — not in git, restart manually
 
 ---

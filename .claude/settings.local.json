@@ -74,7 +74,17 @@
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" 2>&1 | Select-Object -Last 16)",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|DEV CHECK\" | Select-Object -Last 4)",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|DEV CHECK|FAILED  Tests\" | Select-Object -Last 8)",
-      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|DEV CHECK OK|DEV CHECK FAILED\" | Select-Object -Last 3)"
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & \"scripts\\\\dev-check.ps1\" -Full 2>&1 | Select-String -Pattern \"Tests:|DEV CHECK OK|DEV CHECK FAILED\" | Select-Object -Last 3)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 40)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & powershell -ExecutionPolicy Bypass -File scripts/dev-check.ps1 2>&1 | Select-Object -Last 35)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 35)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 -Full 2>&1 | Select-Object -Last 25)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 14)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 16)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 12)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 11)",
+      "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & scripts/dev-check.ps1 2>&1 | Select-Object -Last 9)",
+      "PowerShell(Start-Process -FilePath \"C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe\" -ArgumentList \"--defaults-file=C:\\\\xampp\\\\mysql\\\\bin\\\\my.ini\",\"--standalone\" -WindowStyle Hidden; Start-Sleep -Seconds 6; $c = Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -WarningAction SilentlyContinue; \"Port 3306 open: $\\($c.TcpTestSucceeded\\)\")"
     ]
   }
 }

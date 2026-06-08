@@ -181,10 +181,16 @@ class CommandCentreService
     private function todayAppointments(User $user): array
     {
         $calendarService = new CalendarEventService();
-        $todayEvents = $calendarService->getTodayEvents($user);
 
         $thresholdResolver = app(CalendarThresholdResolver::class);
         $visibilityResolver = app(CalendarVisibilityResolver::class);
+
+        // "Today's Schedule" is for appointments — exclude people-domain markers
+        // (birthdays, anniversaries, HR awareness) which are not scheduled events.
+        $isAppointment = fn ($e) => $e->event_type !== 'people';
+
+        $todayEvents = collect($calendarService->getTodayEvents($user, 25))
+            ->filter($isAppointment);
 
         // Also get tomorrow's
         $tomorrowRaw = $calendarService->getEventsForRange(
@@ -193,6 +199,7 @@ class CommandCentreService
             now()->addDay()->endOfDay()->toDateString()
         );
         $tomorrowEvents = collect($visibilityResolver->filterVisible($tomorrowRaw, $user))
+            ->filter($isAppointment)
             ->sortBy('event_date')->take(5)->values();
 
         $items = collect($todayEvents)->merge($tomorrowEvents)->take(8)->map(fn($e) => [
@@ -249,6 +256,7 @@ class CommandCentreService
 
         $overdueEvents = CalendarEvent::forUser($user->id)
             ->where('status', 'overdue')->whereNull('resolution')
+            ->where('event_type', '!=', 'people') // exclude birthdays / anniversaries — not actionable
             ->orderBy('event_date')->limit(5)->get();
 
         $items = collect();
@@ -278,7 +286,7 @@ class CommandCentreService
             'urgency' => 'critical',
             'count' => $items->count(),
             'items' => $items->sortByDesc('days_overdue')->take(5)->values()->toArray(),
-            'view_all_url' => route('corex.dashboard'),
+            'view_all_url' => route('command-center.overdue'),
         ];
     }
 
@@ -1252,11 +1260,17 @@ class CommandCentreService
             'icon' => 'mail',
             'urgency' => $count > 5 ? 'high' : 'medium',
             'count' => $count,
-            'items' => $recent->map(fn($n) => [
-                'id' => $n->id,
-                'message' => json_decode($n->data, true)['message'] ?? str_replace('_', ' ', class_basename($n->type)),
-                'when' => \Carbon\Carbon::parse($n->created_at)->diffForHumans(),
-            ])->toArray(),
+            'items' => $recent->map(function ($n) {
+                $data = json_decode($n->data, true) ?: [];
+                return [
+                    'id' => $n->id,
+                    'message' => $data['title']
+                        ?? $data['body']
+                        ?? $data['message']
+                        ?? \Illuminate\Support\Str::headline(class_basename($n->type)),
+                    'when' => \Carbon\Carbon::parse($n->created_at)->diffForHumans(),
+                ];
+            })->toArray(),
             'view_all_url' => '/corex/notifications',
         ];
     }

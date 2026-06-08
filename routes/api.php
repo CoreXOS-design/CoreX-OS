@@ -177,6 +177,21 @@ Route::prefix('v1/website')
             Route::get('/agents',       [\App\Http\Controllers\Api\V1\Website\AgentsController::class, 'index'])->name('v1.website.agents.index');
             Route::get('/agents/{id}',  [\App\Http\Controllers\Api\V1\Website\AgentsController::class, 'show'])->name('v1.website.agents.show');
         });
+
+        Route::middleware('website.scope:branches:read')->group(function () {
+            Route::get('/branches',      [\App\Http\Controllers\Api\V1\Website\BranchesController::class, 'index'])->name('v1.website.branches.index');
+            Route::get('/branches/{id}', [\App\Http\Controllers\Api\V1\Website\BranchesController::class, 'show'])->name('v1.website.branches.show');
+        });
+
+        Route::middleware('website.scope:testimonials:read')->group(function () {
+            Route::get('/testimonials',      [\App\Http\Controllers\Api\V1\Website\TestimonialsController::class, 'index'])->name('v1.website.testimonials.index');
+            Route::get('/testimonials/{id}', [\App\Http\Controllers\Api\V1\Website\TestimonialsController::class, 'show'])->name('v1.website.testimonials.show');
+        });
+
+        Route::middleware('website.scope:articles:read')->group(function () {
+            Route::get('/articles',      [\App\Http\Controllers\Api\V1\Website\ArticlesController::class, 'index'])->name('v1.website.articles.index');
+            Route::get('/articles/{id}', [\App\Http\Controllers\Api\V1\Website\ArticlesController::class, 'show'])->name('v1.website.articles.show');
+        });
     });
 
 // ════════════════════════════════════════════════════════════════

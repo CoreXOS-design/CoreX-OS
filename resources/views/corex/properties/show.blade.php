@@ -6305,6 +6305,26 @@ function p24Syndication(config) {
                 missing.push({ el: f, label: labelFor(f) });
             }
         });
+
+        // Province / City / Suburb come from the P24 location picker, whose
+        // values land in hidden inputs — deliberately skipped by the sweep
+        // above. Validate them explicitly so a missing suburb pops this same
+        // modal before saving, instead of failing server-side ("The suburb
+        // field is required") and surfacing only in the error banner.
+        [
+            { name: 'province', label: 'Province' },
+            { name: 'city',     label: 'City / Town' },
+            { name: 'suburb',   label: 'Suburb' },
+        ].forEach(function(loc) {
+            var hidden = form.querySelector('input[type="hidden"][name="' + loc.name + '"]');
+            if (!hidden) return;
+            if (!(hidden.value || '').trim()) {
+                // Focus the visible typeahead, never the hidden input.
+                var visible = form.querySelector('[data-loc-field="' + loc.name + '"]') || hidden;
+                missing.push({ el: visible, label: loc.label });
+            }
+        });
+
         if (missing.length) {
             e.preventDefault();
             showModal(missing);

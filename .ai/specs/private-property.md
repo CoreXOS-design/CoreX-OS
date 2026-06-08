@@ -154,6 +154,20 @@ Retry policy: `call()` retries once on timeout-style faults (`Error Fetching htt
    ```
 3. `SoapClient::updateAgent()` creates-or-updates by `AgentId`.
 4. **Quirk:** `UpdateAgent` will *create a new PP profile* if `AgentId` doesn't already exist — this is how the Elize duplicate (AgentId=100, encrypted `lW2pKs8th84=`) was created. To re-map an existing PP profile to a different External Ref use `UpdateUniqueAgentID` (`AgentPpController::updateExternalRef`).
+
+### 8b. Admin UI — Private Property → Agents tab
+External Ref (Agent ID) management lives in the PP admin area, **not** on the agent
+edit page. Sidebar → System Developer → **PP Agents** opens a three-tab page
+(link-based tabs share `admin/pp/_tabs.blade.php`):
+
+| Tab | Route | Content |
+|---|---|---|
+| **Agents** (default) | `admin.pp.agent-mapping` | Every CoreX agent in the agency (DB read, agency-scoped) with a per-row expandable editor: External Ref, PP Encrypted Agent ID, **Update PP Agent ID**, **Sync Agent to PP**, **Deactivate Agent on PP**. Reuses the per-user endpoints (`admin.users.pp.update-external-ref`, `admin.users.pp.sync`, `corex.properties.syndication.agent.deactivate`). |
+| **PP Branch Profiles** | `admin.pp.agents` | The live `GetAllAgentsForBranch` SOAP list (duplicate-profile cleanup). Fires SOAP only when opened. |
+| **Mapping Email** | `admin.pp.mapping-email` | Tab-separated copy-paste block for PP's stock-file mapping request. |
+
+The old per-agent Private Property card on `admin/users/{user}/edit` was removed — that
+page is now a tabbed Profile / Role & Access / Finance / Compliance / Actions layout.
 5. Image upload — `submitAgentImages()` reads `User::agent_photo_path`, builds `PP_IMAGE_BASE_URL/storage/<path>`, enforces HTTPS + ≤1MB, calls `UpdateAgentImage` with field name **`imgurl`** (lowercase).
 
 PP image spec: minimum 160×120px, max 1MB. The 1MB check is enforced server-side; the dimension minimum is documented but not validated server-side (would require GD/Imagick) — agents must comply when uploading.
@@ -265,6 +279,9 @@ PP Admin Portal registration URL: `https://corex.hfcoastal.co.za/api/pp/webhook`
 
 | Method | Path | Controller |
 |---|---|---|
+| GET  | `/admin/pp/agent-mapping` | AgentPpController@agentMapping |
+| GET  | `/admin/pp/agents` | AgentPpController@index |
+| GET  | `/admin/pp/mapping-email` | AgentPpController@mappingEmail |
 | POST | `/admin/users/{user}/pp/sync` | AgentPpController@sync |
 | POST | `/admin/users/{user}/pp/update-id` | AgentPpController@updateId |
 | POST | `/admin/users/{user}/pp/update-external-ref` | AgentPpController@updateExternalRef |

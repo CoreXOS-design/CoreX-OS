@@ -190,6 +190,21 @@ Route::middleware('auth')->group(function () {
         ->middleware('permission:manage_users')
         ->name('admin.api.catalog');
 
+    // ── Admin: Soft Deletes Register (restore archived records) ──
+    // Spec: .ai/specs/soft-deletes-admin.md
+    Route::get('/admin/soft-deletes', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'index'])
+        ->middleware('permission:access_soft_deletes')
+        ->name('admin.soft-deletes.index');
+    Route::get('/admin/soft-deletes/{key}', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'show'])
+        ->middleware('permission:access_soft_deletes')
+        ->where('key', '[A-Za-z0-9.]+')
+        ->name('admin.soft-deletes.show');
+    Route::post('/admin/soft-deletes/{key}/{id}/restore', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'restore'])
+        ->middleware('permission:access_soft_deletes')
+        ->where('key', '[A-Za-z0-9.]+')
+        ->where('id', '[0-9]+')
+        ->name('admin.soft-deletes.restore');
+
     // ── Admin: AI usage / cost dashboard (MIC Phase B2) ──
     Route::get('/admin/ai-usage', [\App\Http\Controllers\Admin\AiUsageController::class, 'index'])
         ->name('admin.ai-usage.index');
@@ -340,6 +355,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/users/{user}/pp/sync', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'sync'])->middleware('permission:manage_users')->name('admin.users.pp.sync');
     Route::post('/admin/users/{user}/pp/update-id', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateId'])->middleware('permission:manage_users')->name('admin.users.pp.update-id');
     Route::post('/admin/users/{user}/pp/update-external-ref', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateExternalRef'])->middleware('permission:manage_users')->name('admin.users.pp.update-external-ref');
+    Route::get('/admin/pp/agent-mapping', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'agentMapping'])->middleware('permission:manage_users')->name('admin.pp.agent-mapping');
     Route::get('/admin/pp/agents', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'index'])->middleware('permission:manage_users')->name('admin.pp.agents');
     Route::get('/admin/pp/mapping-email', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'mappingEmail'])->middleware('permission:manage_users')->name('admin.pp.mapping-email');
     Route::post('/admin/pp/agents/deactivate', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'deactivateByEncryptedId'])->middleware('permission:manage_users')->name('admin.pp.agents.deactivate');
@@ -973,6 +989,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/command-center/Today/cards', [CommandCenterDashboardController::class, 'todayCards'])->name('command-center.today.cards');
     Route::get('/legacy-dashboard', [CommandCenterDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard.legacy');
 
+    // ── Overdue & Unresolved (Today card drill-down) ──
+    Route::get('/overdue', [CommandCenterDashboardController::class, 'overdue'])->name('command-center.overdue');
+
     // ── Notifications ──
     Route::get('/notifications', function () {
         $notifications = \Illuminate\Support\Facades\DB::table('notifications')
@@ -1217,6 +1236,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:upload_own_documents')->name('agent.portal.upload');
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
+
+    // Live preview of an agent's public website page (self, or any agent in the
+    // agency for managers/owner). Authorization handled in the controller.
+    // Spec: .ai/specs/testimonials.md (agent linkage).
+    Route::get('/agents/{user}/preview/{slug?}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'show'])
+        ->middleware('permission:access_my_portal')->name('corex.agents.preview');
+    Route::get('/agents/{user}/articles/{article}/preview/{slug?}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'article'])
+        ->middleware('permission:access_my_portal')->name('corex.agents.article.preview');
+
+    // Agent articles (self-service, My Portal → Profile).
+    Route::middleware('permission:edit_own_profile')->group(function () {
+        Route::post('/my-portal/articles',                          [\App\Http\Controllers\Agent\AgentArticleController::class, 'store'])->name('agent.portal.articles.store');
+        Route::put('/my-portal/articles/{article}',                 [\App\Http\Controllers\Agent\AgentArticleController::class, 'update'])->name('agent.portal.articles.update');
+        Route::patch('/my-portal/articles/{article}/publish',       [\App\Http\Controllers\Agent\AgentArticleController::class, 'togglePublish'])->name('agent.portal.articles.publish');
+        Route::delete('/my-portal/articles/{article}',              [\App\Http\Controllers\Agent\AgentArticleController::class, 'destroy'])->name('agent.portal.articles.destroy');
+    });
 
     // ── My Payslips (self-service) ──
     Route::get('/my-portal/payslips', [\App\Http\Controllers\Agent\AgentPortalController::class, 'myPayslips'])
@@ -1874,6 +1909,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         [\App\Http\Controllers\Admin\CompanySettingsController::class, 'updateWebsite'])
         ->middleware('permission:manage_performance_settings')
         ->name('admin.company-settings.website.update');
+    // Testimonials — publish/unpublish a captured testimonial to the website.
+    // Spec: .ai/specs/testimonials.md §7.
+    Route::patch('/admin/company-settings/{agency}/testimonials/{testimonial}/publish',
+        [\App\Http\Controllers\Admin\CompanySettingsController::class, 'toggleTestimonial'])
+        ->middleware('permission:testimonials.publish')
+        ->name('admin.company-settings.testimonials.toggle');
 
 
     // SPINE-SETTINGS — Activity scoring (full catalogue: calendar +
@@ -2128,11 +2169,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/consent/record', [\App\Http\Controllers\CoreX\ContactController::class, 'recordConsent'])->name('consent.record');
         Route::post('/{contact}/consent/revoke', [\App\Http\Controllers\CoreX\ContactController::class, 'revokeConsent'])->name('consent.revoke');
         Route::post('/{contact}/touch',   [\App\Http\Controllers\CoreX\ContactController::class, 'touch'])->name('touch');
+        Route::post('/{contact}/birthday-reminder', [\App\Http\Controllers\CoreX\ContactController::class, 'toggleBirthdayReminder'])->name('birthday-reminder.toggle');
         Route::post('/{contact}/increment', [\App\Http\Controllers\CoreX\ContactController::class, 'incrementChannel'])->name('increment');
 
         // Notes
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');
+
+        // Testimonials (capture only — publishing lives in Company Settings → Website)
+        Route::post('/{contact}/testimonials',                  [\App\Http\Controllers\CoreX\ContactTestimonialController::class, 'store'])->name('testimonials.store');
+        Route::put('/{contact}/testimonials/{testimonial}',     [\App\Http\Controllers\CoreX\ContactTestimonialController::class, 'update'])->name('testimonials.update');
+        Route::delete('/{contact}/testimonials/{testimonial}',  [\App\Http\Controllers\CoreX\ContactTestimonialController::class, 'destroy'])->name('testimonials.destroy');
 
         // Documents (Drive)
         Route::post('/{contact}/documents',                    [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'store'])->name('documents.store');

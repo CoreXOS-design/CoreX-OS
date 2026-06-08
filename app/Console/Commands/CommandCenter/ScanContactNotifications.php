@@ -6,6 +6,7 @@ use App\Models\Contact;
 use App\Models\User;
 use App\Services\CommandCenter\NotificationDispatcher;
 use App\Services\CommandCenter\NotificationPreferenceService;
+use App\Support\Notifications\AgeFormatter;
 use Illuminate\Console\Command;
 
 class ScanContactNotifications extends Command
@@ -25,7 +26,7 @@ class ScanContactNotifications extends Command
                     // contact.fica_missing
                     $eff = $prefs->effective($agent, 'contact.fica_missing');
                     if ($eff && $eff['enabled'] && $eff['threshold']) {
-                        $ageHours = optional($contact->created_at)->diffInHours(now()) ?? 0;
+                        $ageHours = AgeFormatter::wholeHours($contact->created_at);
                         if ($ageHours >= (int) $eff['threshold']) {
                             $hasFica = false;
                             try {
@@ -34,9 +35,12 @@ class ScanContactNotifications extends Command
 
                             if (! $hasFica) {
                                 $name = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: ('Contact #' . $contact->id);
+                                $age  = AgeFormatter::ago($contact->created_at);
                                 $dispatcher->fire($agent, 'contact.fica_missing', $contact, [
                                     'title' => "$name — FICA missing",
-                                    'body'  => "Created {$ageHours}h ago without FICA documents.",
+                                    'body'  => $age
+                                        ? "Created {$age} without FICA documents."
+                                        : 'No FICA documents on file.',
                                     'subject_label' => $name,
                                     'action_url' => "/contacts/{$contact->id}",
                                     'severity' => 'warning',
@@ -46,8 +50,10 @@ class ScanContactNotifications extends Command
                         }
                     }
 
-                    // contact.birthday — daily, fires once per (year-month-day) via threshold_hit_at = today
-                    if (($contact->birthday ?? null) || ($contact->dob ?? null)) {
+                    // contact.birthday — daily, fires once per (year-month-day) via threshold_hit_at = today.
+                    // Opt-in only: agents are never reminded about a birthday unless they explicitly
+                    // turned on the reminder for this contact (contacts.birthday_reminder).
+                    if (($contact->birthday_reminder ?? false) && (($contact->birthday ?? null) || ($contact->dob ?? null))) {
                         $dob = $contact->birthday ?? $contact->dob;
                         try {
                             $dobC = \Carbon\Carbon::parse($dob);
