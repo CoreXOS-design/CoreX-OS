@@ -8,8 +8,8 @@
 # failure; the backup taken in step 2 is the rollback source.
 #
 # Usage:
-#   /hfc/scripts/deploy.sh staging
-#   /hfc/scripts/deploy.sh production
+#   /corex-staging/scripts/deploy.sh staging
+#   /corex/scripts/deploy.sh production
 #
 # Prerequisites — see DEPLOY.md §"One-time server setup":
 #   - mysql-client installed (for mysqldump)
@@ -46,12 +46,14 @@ if [[ "$ENV_NAME" != "staging" && "$ENV_NAME" != "production" ]]; then
 fi
 
 if [[ "$ENV_NAME" == "staging" ]]; then
-    DIR="/hfc-staging"
+    # Post hfc→corex server rename (2026-06-06): staging lives at /corex-staging,
+    # prod at /corex. DB names + backup dirs intentionally keep the hfc name.
+    DIR="/corex-staging"
     BRANCH="Staging"
     DB_NAME_DEFAULT="hfc_staging"
     EXPECT_APP_ENV="staging"
 else
-    DIR="/hfc"
+    DIR="/corex"
     BRANCH="main"
     DB_NAME_DEFAULT="hfc_prod"
     EXPECT_APP_ENV="production"
