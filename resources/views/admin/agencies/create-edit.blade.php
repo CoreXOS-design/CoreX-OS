@@ -70,6 +70,10 @@
           class="space-y-5">
         @csrf
         @if($agency) @method('PUT') @endif
+        {{-- Carries the tab the user was on so the controller can return them
+             to the same tab after save (e.g. Syndication when editing P24
+             credentials), instead of bouncing to the agency list. --}}
+        <input type="hidden" name="active_tab" :value="activeTab">
 
         {{-- ── COMPANY TAB ── --}}
         <div x-show="activeTab === 'company'" x-cloak data-tab-panel="company" class="ds-status-card p-4 space-y-5">

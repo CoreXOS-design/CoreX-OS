@@ -87,7 +87,11 @@
       "PowerShell(Start-Process -FilePath \"C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe\" -ArgumentList \"--defaults-file=C:\\\\xampp\\\\mysql\\\\bin\\\\my.ini\",\"--standalone\" -WindowStyle Hidden; Start-Sleep -Seconds 6; $c = Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -WarningAction SilentlyContinue; \"Port 3306 open: $\\($c.TcpTestSucceeded\\)\")",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; & .\\\\scripts\\\\dev-check.ps1 2>&1 | Select-Object -Last 45)",
       "PowerShell($p = Get-Process mysqld -ErrorAction SilentlyContinue; if \\($p\\) { \"mysqld running pid $\\($p.Id\\)\" } else { \"mysqld not running\" }; Test-Path \"C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe\")",
-      "PowerShell(Start-Process -FilePath \"C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe\" -ArgumentList \"--defaults-file=C:\\\\xampp\\\\mysql\\\\bin\\\\my.ini\" -WindowStyle Hidden; Start-Sleep -Seconds 6; $ok = Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -InformationLevel Quiet; \"port3306=$ok\")"
+      "PowerShell(Start-Process -FilePath \"C:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe\" -ArgumentList \"--defaults-file=C:\\\\xampp\\\\mysql\\\\bin\\\\my.ini\" -WindowStyle Hidden; Start-Sleep -Seconds 6; $ok = Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -InformationLevel Quiet; \"port3306=$ok\")",
+      "PowerShell($env:PATH=\"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; php artisan test tests/Feature/Admin/AgencyP24PasswordSaveTest.php)",
+      "PowerShell(php -l app\\\\Http\\\\Controllers\\\\Admin\\\\AgencyController.php; $env:PATH=\"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; php artisan test tests/Feature/Admin/AgencyP24PasswordSaveTest.php)",
+      "PowerShell(php artisan route:clear)",
+      "PowerShell(php artisan cache:clear)"
     ]
   }
 }

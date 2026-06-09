@@ -268,10 +268,17 @@ class AgencyController extends Controller
             $extraFlash = ['key' => 'success', 'msg' => 'Property24 locations sync queued. Refresh the page in a few minutes to see updated status.'];
         }
 
-        $user = auth()->user();
-        $redirect = ($user && !$user->isOwnerRole())
-            ? redirect()->route('admin.company-settings')
-            : redirect()->route('agencies.index');
+        // Return the user to the SAME edit page and tab they were on (carried
+        // by the hidden `active_tab` field) instead of bouncing them to the
+        // agency list. Bouncing away made a successful save look like it failed
+        // — especially for masked credentials (P24 password) that never
+        // re-display their stored value. Staying put shows the success flash
+        // in-context and the "•••••••• (leave blank to keep)" placeholder that
+        // confirms the credential is stored.
+        $allowedTabs = ['company', 'branding', 'branches', 'syndication', 'api-access'];
+        $tab = $request->input('active_tab');
+        $tab = in_array($tab, $allowedTabs, true) ? $tab : 'company';
+        $redirect = redirect()->to(route('agencies.edit', $agency) . '#' . $tab);
         $redirect = $redirect->with('success', "Agency \"{$agency->name}\" updated.");
         if ($extraFlash) {
             $redirect = $redirect->with($extraFlash['key'], $extraFlash['msg']);
