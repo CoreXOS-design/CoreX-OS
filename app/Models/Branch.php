@@ -39,6 +39,7 @@ class Branch extends Model
         'privacy_policy_markdown',
         'privacy_policy_token',
         'privacy_policy_published_at',
+        'website_order',
     ];
 
     protected $casts = [
@@ -46,6 +47,7 @@ class Branch extends Model
         'pp_credentials'  => 'encrypted:array',
         'p24_credentials' => 'encrypted:array',
         'privacy_policy_published_at' => 'datetime',
+        'website_order'   => 'integer',
     ];
 
     /**

@@ -170,11 +170,16 @@ class Agency extends Model
         'website_show_listings',
         'website_show_branches',
         'website_agent_order_mode',
+        'website_branch_order_mode',
     ];
 
     /** Website agent ordering modes. */
     public const AGENT_ORDER_ALPHABETICAL = 'alphabetical';
     public const AGENT_ORDER_CUSTOM       = 'custom';
+
+    /** Website branch ordering modes (mirror the agent modes). */
+    public const BRANCH_ORDER_ALPHABETICAL = 'alphabetical';
+    public const BRANCH_ORDER_CUSTOM       = 'custom';
 
     protected $casts = [
         'is_active' => 'boolean',

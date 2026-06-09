@@ -31,10 +31,18 @@ class BranchesController extends Controller
         $agencyId = $key->agency_id;
         $perPage = max(1, min(100, (int) $request->integer('per_page', 50)));
 
-        $branches = Branch::query()
-            ->where('agency_id', $agencyId)
-            ->orderBy('name')
-            ->paginate($perPage);
+        $branchesQuery = Branch::query()
+            ->where('agency_id', $agencyId);
+
+        // CoreX decides the order; the website just renders the array in order.
+        if (optional($key->agency)->website_branch_order_mode === \App\Models\Agency::BRANCH_ORDER_CUSTOM) {
+            // Custom positions first (nulls last), then name as a tiebreaker.
+            $branchesQuery->orderByRaw('website_order IS NULL, website_order ASC')->orderBy('name');
+        } else {
+            $branchesQuery->orderBy('name');
+        }
+
+        $branches = $branchesQuery->paginate($perPage);
 
         $this->hydrate($branches->getCollection(), $key);
 

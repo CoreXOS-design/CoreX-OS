@@ -162,10 +162,15 @@ class CompanySettingsController extends Controller
             'website_agent_order_mode' => ['nullable', 'in:alphabetical,custom'],
             'agent_order'              => ['nullable', 'array'],
             'agent_order.*'            => ['nullable', 'integer', 'min:1', 'max:9999'],
+            'website_branch_order_mode' => ['nullable', 'in:alphabetical,custom'],
+            'branch_order'              => ['nullable', 'array'],
+            'branch_order.*'            => ['nullable', 'integer', 'min:1', 'max:9999'],
         ]);
 
         $agentOrder = $data['agent_order'] ?? [];
         unset($data['agent_order']);
+        $branchOrder = $data['branch_order'] ?? [];
+        unset($data['branch_order']);
 
         // Open hours — drop blank rows (both fields empty) and trim. Store null
         // when nothing remains so the public API omits the block entirely.
@@ -182,7 +187,8 @@ class CompanySettingsController extends Controller
         $data['website_show_agents']      = $request->boolean('website_show_agents');
         $data['website_show_listings']    = $request->boolean('website_show_listings');
         $data['website_show_branches']    = $request->boolean('website_show_branches');
-        $data['website_agent_order_mode'] = $data['website_agent_order_mode'] ?? Agency::AGENT_ORDER_ALPHABETICAL;
+        $data['website_agent_order_mode']  = $data['website_agent_order_mode'] ?? Agency::AGENT_ORDER_ALPHABETICAL;
+        $data['website_branch_order_mode'] = $data['website_branch_order_mode'] ?? Agency::BRANCH_ORDER_ALPHABETICAL;
 
         $agency->update($data);
 
@@ -194,6 +200,19 @@ class CompanySettingsController extends Controller
                 if (in_array((int) $userId, $agencyUserIds, true)) {
                     \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
                         ->where('id', (int) $userId)
+                        ->update(['website_order' => $position !== null && $position !== '' ? (int) $position : null]);
+                }
+            }
+        }
+
+        // Persist per-branch positions (only this agency's branches; ignore unknowns).
+        if (!empty($branchOrder)) {
+            $agencyBranchIds = \App\Models\Branch::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->where('agency_id', $agency->id)->pluck('id')->all();
+            foreach ($branchOrder as $branchId => $position) {
+                if (in_array((int) $branchId, $agencyBranchIds, true)) {
+                    \App\Models\Branch::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                        ->where('id', (int) $branchId)
                         ->update(['website_order' => $position !== null && $position !== '' ? (int) $position : null]);
                 }
             }

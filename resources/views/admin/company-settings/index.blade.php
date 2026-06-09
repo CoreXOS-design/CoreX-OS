@@ -864,6 +864,53 @@
                     </div>{{-- /x-show agent order --}}
                 </div>
 
+                {{-- Branch ordering on the website --}}
+                @php
+                    $branchOrderMode = old('website_branch_order_mode', $agency->website_branch_order_mode ?? 'alphabetical');
+                    $websiteBranches = \App\Models\Branch::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                        ->where('agency_id', $agency->id)
+                        ->orderByRaw('website_order IS NULL, website_order ASC')
+                        ->orderBy('name')
+                        ->get(['id', 'name', 'website_order']);
+                @endphp
+                <div class="pt-3" style="border-top:1px solid var(--border);"
+                     x-data="{ mode: '{{ $branchOrderMode }}', open: false }">
+                    <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; background:none; border:0; cursor:pointer; text-align:left; padding:2px 0;">
+                        <div>
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Branch order on website</div>
+                            <div class="text-xs" style="color:var(--text-secondary);">How branches (offices) are ordered on the website.</div>
+                        </div>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                    </button>
+                    <div x-show="open" x-cloak class="space-y-3" style="margin-top:12px;">
+                    <div class="flex gap-5">
+                        <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                            <input type="radio" name="website_branch_order_mode" value="alphabetical" x-model="mode" style="accent-color:var(--brand-icon, #0ea5e9);">
+                            Alphabetical (A–Z)
+                        </label>
+                        <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                            <input type="radio" name="website_branch_order_mode" value="custom" x-model="mode" style="accent-color:var(--brand-icon, #0ea5e9);">
+                            Custom order
+                        </label>
+                    </div>
+
+                    {{-- Custom: number each branch (1, 2, 3 …). Blank = sorted last. --}}
+                    <div x-show="mode === 'custom'" x-cloak class="space-y-1.5">
+                        @forelse($websiteBranches as $wb)
+                            <div class="flex items-center gap-3">
+                                <input type="number" min="1" max="9999" name="branch_order[{{ $wb->id }}]"
+                                       value="{{ old('branch_order.'.$wb->id, $wb->website_order) }}"
+                                       class="w-16 rounded-md px-2 py-1 text-sm" placeholder="#"
+                                       style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
+                                <span class="text-sm" style="color:var(--text-primary);">{{ $wb->name }}</span>
+                            </div>
+                        @empty
+                            <p class="text-xs" style="color:var(--text-muted);">No branches found for this agency yet.</p>
+                        @endforelse
+                    </div>
+                    </div>{{-- /x-show branch order --}}
+                </div>
+
                 <button type="submit" class="corex-btn-primary">Save Website Settings</button>
             </form>
 

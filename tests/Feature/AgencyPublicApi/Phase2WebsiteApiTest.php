@@ -61,7 +61,8 @@ class Phase2WebsiteApiTest extends TestCase
             'agency_id' => $this->agency->id, 'name' => 'Coastal Website',
             'key_prefix' => $minted['prefix'], 'secret_hash' => $minted['hash'],
             'scopes' => [
-                AgencyApiKey::SCOPE_LISTINGS_READ, AgencyApiKey::SCOPE_AGENTS_READ, AgencyApiKey::SCOPE_AGENCY_READ,
+                AgencyApiKey::SCOPE_LISTINGS_READ, AgencyApiKey::SCOPE_AGENTS_READ,
+                AgencyApiKey::SCOPE_AGENCY_READ, AgencyApiKey::SCOPE_BRANCHES_READ,
             ],
         ]);
     }
@@ -439,6 +440,43 @@ class Phase2WebsiteApiTest extends TestCase
 
         $this->withToken($this->token)->getJson('/api/v1/website/agency')
             ->assertJsonPath('data.agent_order_mode', 'custom');
+    }
+
+    public function test_branches_default_alphabetical_order(): void
+    {
+        // setUp already created branch "Main".
+        $this->makeBranch('Zinkwazi', 1);
+        $this->makeBranch('Amanzimtoti', 2);
+        $this->makeBranch('Ballito', 3);
+
+        $names = collect($this->withToken($this->token)->getJson('/api/v1/website/branches')->json('data'))->pluck('trading_name')->all();
+        // No trading_name set → BranchResource falls back to name. Default = A–Z.
+        $this->assertSame(['Amanzimtoti', 'Ballito', 'Main', 'Zinkwazi'], $names);
+
+        $this->withToken($this->token)->getJson('/api/v1/website/agency')
+            ->assertJsonPath('data.branch_order_mode', 'alphabetical');
+    }
+
+    public function test_branches_custom_order_numbered_first_rest_alphabetical(): void
+    {
+        $this->agency->update(['website_branch_order_mode' => 'custom']);
+        $ballito = $this->makeBranch('Ballito', 1);
+        $zinkwazi = $this->makeBranch('Zinkwazi', null);
+        $amanzimtoti = $this->makeBranch('Amanzimtoti', null);
+
+        // Numbered branch first, then the un-numbered ones (incl. setUp's Main) A–Z.
+        $names = collect($this->withToken($this->token)->getJson('/api/v1/website/branches')->json('data'))->pluck('trading_name')->all();
+        $this->assertSame(['Ballito', 'Amanzimtoti', 'Main', 'Zinkwazi'], $names);
+
+        $this->withToken($this->token)->getJson('/api/v1/website/agency')
+            ->assertJsonPath('data.branch_order_mode', 'custom');
+    }
+
+    private function makeBranch(string $name, ?int $order): Branch
+    {
+        return Branch::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'name' => $name, 'website_order' => $order,
+        ]);
     }
 
     private function makeAgent(string $name, ?int $order): User

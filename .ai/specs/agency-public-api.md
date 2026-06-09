@@ -106,7 +106,11 @@ A small set of public-facing website settings, stored on `agencies` (extend the 
 | `website_contact_email` / `website_contact_phone` | public contact shown on the site (may differ from internal; falls back to agency `email` / `phone`) |
 | `website_address` | public address shown on the site's contact block (falls back to agency `address`) |
 | `website_open_hours` | JSON list of `{ days, hours }` rows the site renders as an opening-hours block — repeatable (weekdays, Saturday, public holidays, …); blank rows are dropped on save |
-| `website_show_agents` / `website_show_listings` | section master toggles the API honours |
+| `website_show_agents` / `website_show_listings` / `website_show_branches` | section master toggles the API honours |
+| `website_agent_order_mode` | `'alphabetical'` (default) or `'custom'` — how `/agents` is sorted. Custom positions live in `users.website_order` (nullable int, nulls last then name) |
+| `website_branch_order_mode` | `'alphabetical'` (default) or `'custom'` — how `/branches` is sorted. Custom positions live in `branches.website_order` (nullable int, nulls last then name). Mirrors the agent ordering exactly |
+
+Ordering is **CoreX-decided**: the API already returns `/agents` and `/branches` pre-sorted; `agency.agent_order_mode` / `agency.branch_order_mode` are echoed in `GET /api/v1/website/agency` purely as information. The Website tab sets the mode (radio) and, in custom mode, a number per agent (`agent_order[id]`) / per branch (`branch_order[id]`); `CompanySettingsController::updateWebsite()` persists the mode on the agency and each position on the agent/branch row (agency-scoped, unknown ids ignored).
 
 These are served read-only via `GET /api/v1/website/agency` so the website renders them. **Blank values are omitted from the response** (no empty `contact`/`social`/`open_hours` keys) so the website never renders an empty field — an unset section simply does not appear.
 

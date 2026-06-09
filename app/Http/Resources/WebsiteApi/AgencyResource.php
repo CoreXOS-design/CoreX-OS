@@ -71,6 +71,10 @@ class AgencyResource extends JsonResource
             // How /agents is ordered ('alphabetical' | 'custom'). The /agents
             // response is already sorted accordingly — this is just informational.
             'agent_order_mode' => $this->website_agent_order_mode ?: 'alphabetical',
+
+            // How /branches is ordered ('alphabetical' | 'custom'). The /branches
+            // response is already sorted accordingly — this is just informational.
+            'branch_order_mode' => $this->website_branch_order_mode ?: 'alphabetical',
         ], fn ($v) => !is_null($v));
     }
 }
