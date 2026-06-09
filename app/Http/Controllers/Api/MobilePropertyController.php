@@ -57,7 +57,10 @@ class MobilePropertyController extends Controller
                 'suburb', 'city', 'complex_name', 'unit_number',
                 'beds', 'baths', 'garages', 'status', 'property_type',
                 'category', 'listing_type', 'price', 'agent_id',
-                'gallery_images_json', 'updated_at',
+                // All image groups so the thumbnail matches the web card,
+                // which uses allImages()[0] (dawn→noon→dusk→gallery→images).
+                'gallery_images_json', 'dawn_images_json', 'noon_images_json',
+                'dusk_images_json', 'images_json', 'updated_at',
             ])
             ->map(fn (Property $p) => [
                 'id'            => $p->id,
@@ -71,7 +74,9 @@ class MobilePropertyController extends Controller
                 'listing_type'  => $p->listing_type,
                 'price'         => $p->price,
                 'price_display' => $p->formattedPrice(),
-                'thumbnail'     => ($p->gallery_images_json ?? [])[0] ?? null,
+                // Same first image as the web listing card, as an absolute URL
+                // so it loads on a mobile device (relative /storage paths don't).
+                'thumbnail'     => $this->coverImageUrl($p),
                 'updated_at'    => $p->updated_at?->toIso8601String(),
             ]);
 
@@ -632,7 +637,8 @@ class MobilePropertyController extends Controller
 
         return response()->json([
             'message'     => 'Image uploaded.',
-            'url'         => $url,
+            // Absolute so the app can render it straight back without a reload.
+            'url'         => $this->absoluteImageUrl($url),
             'room_tag'    => $roomTag,
             'analysis_id' => $analysisId,
         ], 201);
@@ -650,7 +656,9 @@ class MobilePropertyController extends Controller
         $this->authorizeProperty($request->user(), $property);
         $property->load(['agent', 'branch', 'contacts.type']);
 
-        $coverImage = ($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
+        // Match the web listing card exactly: first of allImages() (dawn →
+        // noon → dusk → gallery → images), returned as an absolute URL.
+        $coverImage = $this->coverImageUrl($property);
         $allImages  = $property->allImages();
         $daysOnMarket = $property->listed_date ? (int) $property->listed_date->diffInDays(now()) : null;
 
@@ -667,8 +675,15 @@ class MobilePropertyController extends Controller
         // Live preview URL (always available even before publish).
         $livePreviewUrl = route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title ?: 'property')]);
 
-        // Build the placements array — one entry per portal the listing is live on.
-        $placements = $this->buildPortalPlacements($property);
+        // Canonical, extensible portal links (website + P24 + PP + any future
+        // portal) from the single source of truth on the model.
+        $portalLinks = $property->portalLinks();
+        // Back-compat: the existing app reads `placements` (live portals only).
+        // Derived from the same source so the two never drift.
+        $placements  = array_values(array_filter(
+            $portalLinks,
+            fn (array $l) => $l['status'] === 'live'
+        ));
 
         return response()->json([
             'id'             => $property->id,
@@ -732,7 +747,27 @@ class MobilePropertyController extends Controller
             'youtube_video_id' => $property->youtube_video_id,
             'matterport_id'    => $property->matterport_id,
 
-            'placements' => $placements,
+            // `placements` is the legacy key (live portals only). `portal_links`
+            // is the full, canonical list — every portal with a live/not_published
+            // status — and is what new clients should read.
+            'placements'   => $placements,
+            'portal_links' => $portalLinks,
+        ]);
+    }
+
+    // ── GET /api/mobile/properties/{id}/portal-links ───────────────
+    // Dedicated endpoint for the property's public portal links: company
+    // website, Property24, Private Property, and any future portal — all
+    // from Property::portalLinks() (single source of truth). Each entry is
+    // { portal, label, status, url, ref }; `url` is non-null only when the
+    // listing is live on that portal. New portals appear here automatically.
+    public function portalLinks(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($request->user(), $property);
+
+        return response()->json([
+            'property_id'  => $property->id,
+            'portal_links' => $property->portalLinks(),
         ]);
     }
 
@@ -944,79 +979,6 @@ class MobilePropertyController extends Controller
         return response()->json(['message' => 'Contact unlinked from property.']);
     }
 
-    // Build an array of portal placements. Only includes portals where the
-    // listing is currently live. Each entry has { portal, label, status, url, ref }.
-    private function buildPortalPlacements(Property $property): array
-    {
-        $out = [];
-
-        // ── Agency websites (Agency Public API) ───────────────────
-        // One placement per website (API key) the listing is enabled on, from
-        // the property_website_syndication pivot. Replaces the legacy single-site
-        // "HFC Premium" published_at placement. Spec: agency-public-api.md §6.5.
-        $websiteRows = \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
-            ->with('apiKey')
-            ->where('property_id', $property->id)
-            ->where('enabled', true)
-            ->get();
-        foreach ($websiteRows as $row) {
-            if (!$row->apiKey) {
-                continue;
-            }
-            $out[] = [
-                'portal' => 'website:' . $row->agency_api_key_id,
-                'label'  => $row->apiKey->name ?: 'Website',
-                'status' => 'live',
-                'url'    => null,
-                'ref'    => $property->external_id,
-            ];
-        }
-
-        // ── Private Property ──────────────────────────────────────
-        $ppEnabled = (bool) \App\Models\PerformanceSetting::get('syndication_pp_enabled', 1);
-        $ppLive    = $ppEnabled
-                  && (string) ($property->pp_syndication_status ?? '') === 'active'
-                  && !empty($property->pp_ref);
-        if ($ppLive) {
-            $out[] = [
-                'portal' => 'private_property',
-                'label'  => 'Private Property',
-                'status' => 'live',
-                // Search-based public URL — PP doesn't expose canonical listing slugs reliably.
-                'url'    => 'https://www.privateproperty.co.za/search?q=' . urlencode((string) $property->pp_ref),
-                'ref'    => $property->pp_ref,
-            ];
-        }
-
-        // ── Property24 ────────────────────────────────────────────
-        $p24Enabled = (bool) \App\Models\PerformanceSetting::get('syndication_p24_enabled', 1);
-        $p24Live    = $p24Enabled
-                   && (string) ($property->p24_syndication_status ?? '') === 'active'
-                   && !empty($property->p24_ref);
-        if ($p24Live) {
-            $isSandbox = (bool) config('services.property24_syndication.sandbox', true);
-            $domain    = $isSandbox ? 'www.exdev.property24-test.com' : 'www.property24.com';
-            $section   = strtolower($property->listing_type ?? 'sale') === 'rental' ? 'to-rent' : 'for-sale';
-            $slug      = function ($s) {
-                $s = strtolower((string) $s);
-                $s = preg_replace('/[^a-z0-9]+/', '-', $s);
-                $s = trim($s, '-');
-                return $s ?: 'property';
-            };
-            $suburbId = $property->p24_suburb_id ?? '0';
-            $url = "https://{$domain}/{$section}/{$slug($property->suburb)}/{$slug($property->city)}/{$slug($property->province)}/{$suburbId}/{$property->p24_ref}";
-            $out[] = [
-                'portal' => 'property24',
-                'label'  => 'Property24',
-                'status' => 'live',
-                'url'    => $url,
-                'ref'    => $property->p24_ref,
-            ];
-        }
-
-        return $out;
-    }
-
     // ── POST /api/mobile/properties/{id}/gallery/tags ──────────────
     // Adds a custom gallery tag to the property. Body: { "tag": "Garden View" }.
     // Tag is trimmed, capitalised, max 40 chars. Case-insensitive de-dupe
@@ -1096,7 +1058,9 @@ class MobilePropertyController extends Controller
 
     private function fullPropertyResponse(Property $property): array
     {
-        $galleryImages = $property->gallery_images_json ?? [];
+        // Absolute URLs so every image loads on a mobile device (relative
+        // /storage paths only resolve in a same-origin browser).
+        $galleryImages = $this->absoluteImageUrls($property->gallery_images_json ?? []);
 
         return [
             'id'              => $property->id,
@@ -1160,7 +1124,8 @@ class MobilePropertyController extends Controller
             'gallery_images'  => $galleryImages,
             'gallery_categories' => $this->buildGalleryCategories($property),
             'gallery_tags'    => $property->getAvailableGalleryTags(),
-            'thumbnail'       => $galleryImages[0] ?? null,
+            // Same first image as the web listing card (allImages()[0]), absolute.
+            'thumbnail'       => $this->coverImageUrl($property),
 
             // Audit
             'agent_id'        => $property->agent_id,
@@ -1180,10 +1145,45 @@ class MobilePropertyController extends Controller
         $mapped = [];
 
         foreach ($raw['categories'] ?? [] as $cat) {
-            $mapped[$cat['name']] = $cat['images'] ?? [];
+            $mapped[$cat['name']] = $this->absoluteImageUrls($cat['images'] ?? []);
         }
 
         return ['categories' => (object) $mapped];
+    }
+
+    // ── Image URL helpers ───────────────────────────────────────
+    // The web renders images same-origin, so stored values may be relative
+    // (/storage/…). A mobile device can't resolve those, so every image the
+    // mobile API returns is absolutised against APP_URL. Already-absolute
+    // URLs pass through untouched (idempotent).
+
+    /** The property's cover image — same first image the web card shows. */
+    private function coverImageUrl(Property $property): ?string
+    {
+        return $this->absoluteImageUrl($property->allImages()[0] ?? null);
+    }
+
+    /** Absolutise a single stored image URL/path. Null-safe. */
+    private function absoluteImageUrl(?string $url): ?string
+    {
+        $url = trim((string) ($url ?? ''));
+        if ($url === '') {
+            return null;
+        }
+        // Already absolute (http/https or protocol-relative) — leave as-is.
+        if (preg_match('#^(https?:)?//#i', $url)) {
+            return $url;
+        }
+        return rtrim((string) config('app.url'), '/') . '/' . ltrim($url, '/');
+    }
+
+    /** Absolutise a list of stored image URLs/paths, dropping empties. */
+    private function absoluteImageUrls(array $urls): array
+    {
+        return array_values(array_filter(array_map(
+            fn ($u) => $this->absoluteImageUrl(is_string($u) ? $u : null),
+            $urls
+        )));
     }
 
     // ── Authorization ───────────────────────────────────────────

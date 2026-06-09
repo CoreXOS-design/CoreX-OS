@@ -606,7 +606,10 @@ class Property extends Model
             $slugify($this->suburb),
             $slugify($this->city),
             $slugify($this->province),
-            $this->pp_suburb_id ?? '0',
+            // P24 suburb id segment — must be the P24 id, not PP's. (The
+            // listing resolves by the trailing p24_ref regardless, but the
+            // segment should still be correct.)
+            $this->p24_suburb_id ?? '0',
             $this->p24_ref,
         );
     }
@@ -622,6 +625,73 @@ class Property extends Model
             return null;
         }
         return 'https://www.privateproperty.co.za/search?q=' . urlencode((string) $this->pp_ref);
+    }
+
+    /**
+     * Canonical, extensible list of public portal links for this listing.
+     *
+     * This is the SINGLE source of truth for "where can the public see this
+     * listing" — consumed by the web "Open listing" CTAs and by the mobile
+     * app's property Overview screen. Each entry is normalised to a fixed
+     * shape so any client renders any portal — including future ones —
+     * without code changes:
+     *
+     *   [
+     *     'portal' => 'property24',     // stable machine key
+     *     'label'  => 'Property24',     // human label
+     *     'status' => 'live'|'not_published',
+     *     'url'    => 'https://…'|null, // present only when it resolves live
+     *     'ref'    => '…'|null,         // the portal's listing reference
+     *   ]
+     *
+     * Adding a portal here makes it appear everywhere (web + mobile) at once —
+     * that is the whole point. "Any other portal that comes along" plugs in
+     * by adding one block below.
+     *
+     * @return array<int, array{portal:string,label:string,status:string,url:?string,ref:?string}>
+     */
+    public function portalLinks(): array
+    {
+        $links = [];
+
+        // ── Company website ───────────────────────────────────────
+        // Live when the listing is enabled on at least one agency website
+        // (the property_website_syndication pivot — same check the mobile
+        // Overview placement used). The public URL is composed by the
+        // config-driven public_url accessor (never hardcoded).
+        $websiteLive = \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->where('property_id', $this->id)
+            ->where('enabled', true)
+            ->exists();
+        $links[] = [
+            'portal' => 'website',
+            'label'  => 'Company Website',
+            'status' => $websiteLive ? 'live' : 'not_published',
+            'url'    => $websiteLive ? $this->public_url : null,
+            'ref'    => $this->external_id,
+        ];
+
+        // ── Property24 ─────────────────────────────────────────────
+        $p24Url = $this->buildP24Url();
+        $links[] = [
+            'portal' => 'property24',
+            'label'  => 'Property24',
+            'status' => $p24Url ? 'live' : 'not_published',
+            'url'    => $p24Url,
+            'ref'    => $this->p24_ref,
+        ];
+
+        // ── Private Property ───────────────────────────────────────
+        $ppUrl = $this->buildPpUrl();
+        $links[] = [
+            'portal' => 'private_property',
+            'label'  => 'Private Property',
+            'status' => $ppUrl ? 'live' : 'not_published',
+            'url'    => $ppUrl,
+            'ref'    => $this->pp_ref,
+        ];
+
+        return $links;
     }
 
     /**

@@ -313,6 +313,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/{property}/overview', [MobilePropertyController::class, 'overview'])->name('v1.mobile.properties.overview');
 
+            // Public portal links (company website, P24, Private Property, + future portals)
+            Route::get('/{property}/portal-links', [MobilePropertyController::class, 'portalLinks'])->name('v1.mobile.properties.portal-links');
+
             Route::get('/{property}/compliance',                 [MobilePropertyController::class, 'compliance'])->name('v1.mobile.properties.compliance');
             Route::post('/{property}/compliance/send-to-market', [MobilePropertyController::class, 'sendToMarket'])->name('v1.mobile.properties.compliance.send-to-market');
 
@@ -513,6 +516,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/{property}',  [MobilePropertyController::class, 'update'])->name('legacy.mobile.properties.update');
         Route::post('/{property}/images', [MobilePropertyController::class, 'uploadImage'])->name('legacy.mobile.properties.images.upload');
         Route::get('/{property}/overview', [MobilePropertyController::class, 'overview'])->name('legacy.mobile.properties.overview');
+        Route::get('/{property}/portal-links', [MobilePropertyController::class, 'portalLinks'])->name('legacy.mobile.properties.portal-links');
         Route::get('/{property}/compliance',                 [MobilePropertyController::class, 'compliance'])->name('legacy.mobile.properties.compliance');
         Route::post('/{property}/compliance/send-to-market', [MobilePropertyController::class, 'sendToMarket'])->name('legacy.mobile.properties.compliance.send-to-market');
         Route::get('/{property}/contacts',              [MobilePropertyController::class, 'contactsIndex'])->name('legacy.mobile.properties.contacts.index');
