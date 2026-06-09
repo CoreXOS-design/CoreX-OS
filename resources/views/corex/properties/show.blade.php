@@ -2059,92 +2059,109 @@
                          class="fixed inset-0 z-[60] flex items-center justify-center p-4"
                          style="background:rgba(0,0,0,0.55);"
                          @keydown.escape.window="aiModalOpen && closeAiModal()">
-                        <div class="w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-2xl shadow-2xl"
+                        <div class="w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-md shadow-2xl"
                              style="background:var(--surface); border:1px solid var(--border);"
                              @click.outside="closeAiModal()">
 
                             {{-- Header --}}
-                            <div class="flex items-start gap-3 p-5 border-b" style="border-color:var(--border);">
-                                <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-                                     style="background:rgba(51,196,224,0.14); color:var(--corex-accent,#33c4e0);">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.5 3.5l1.2 2.6 2.6 1.2-2.6 1.2-1.2 2.6-1.2-2.6L5.7 7.3l2.6-1.2L9.5 3.5zM17 11l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8.8-1.7z"/></svg>
-                                </div>
+                            <div class="flex items-start gap-3 p-4 border-b" style="border-color:var(--border);">
+                                <span class="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
+                                      style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon);">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.5 3.5l1.2 2.6 2.6 1.2-2.6 1.2-1.2 2.6-1.2-2.6L5.7 7.3l2.6-1.2L9.5 3.5zM17 11l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8.8-1.7z"/></svg>
+                                </span>
                                 <div class="min-w-0">
-                                    <h3 class="text-base font-semibold" style="color:var(--text-primary);">AI scanned your photos</h3>
-                                    <p class="text-xs mt-0.5" style="color:var(--text-secondary);">
-                                        Add a space with <strong>✓</strong>, drag a feature onto a space to attach it there,
-                                        <strong>✓</strong> a feature to add it generally, or <strong>✕</strong> to discard.
-                                        Anything you leave is discarded.
+                                    <h3 class="text-sm font-semibold" style="color:var(--text-primary);">AI scanned your photos</h3>
+                                    <p class="text-xs leading-relaxed mt-0.5" style="color:var(--text-secondary);">
+                                        Add a space with <strong style="color:var(--brand-icon);">✓</strong>, drag a feature onto a space to attach it there,
+                                        <strong style="color:var(--brand-icon);">✓</strong> a feature to add it generally, or <strong>✕</strong> to discard.
+                                        Anything left over is discarded.
                                     </p>
                                 </div>
-                                <button type="button" @click="closeAiModal()" class="ml-auto p-1 rounded hover:opacity-70" style="color:var(--text-muted);">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
+                                <button type="button" @click="closeAiModal()" class="ml-auto w-6 h-6 rounded flex items-center justify-center transition-colors"
+                                        style="color:var(--text-muted);"
+                                        onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
                                 </button>
                             </div>
 
-                            <div class="p-5 space-y-5">
+                            <div class="p-4 space-y-4">
                                 {{-- Detected spaces --}}
                                 <div x-show="aiSpaceSugg.length">
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--text-secondary);">Detected spaces</p>
-                                    <div class="flex flex-wrap gap-2">
-                                        <template x-for="(s, i) in aiSpaceSugg" :key="'aisp-' + s.type">
-                                            <span class="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-sm"
-                                                  style="background:var(--surface-2,rgba(148,163,184,0.12)); border:1px solid var(--border); color:var(--text-primary);">
-                                                <span x-text="s.type"></span>
-                                                <span class="text-[10px] opacity-60" x-text="Math.round(s.confidence*100) + '%'"></span>
-                                                <button type="button" @click="acceptAiSpace(i)" title="Add this space"
-                                                        class="w-6 h-6 rounded-full flex items-center justify-center" style="background:rgba(34,197,94,0.18); color:#16a34a;">
-                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                                                </button>
-                                                <button type="button" @click="discardAiSpace(i)" title="Discard"
-                                                        class="w-6 h-6 rounded-full flex items-center justify-center" style="background:rgba(239,68,68,0.14); color:#ef4444;">
-                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
-                                                </button>
-                                            </span>
-                                        </template>
+                                    <span class="text-xs font-semibold" style="color:var(--text-secondary);">Detected spaces:</span>
+                                    <div class="rounded-md mt-1.5" style="border:1px solid var(--border); overflow:hidden;">
+                                        <div class="flex flex-wrap gap-1.5 p-3" style="background:var(--surface-2); min-height:50px;">
+                                            <template x-for="(s, i) in aiSpaceSugg" :key="'aisp-' + s.type">
+                                                <span class="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full text-xs"
+                                                      style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                    <span class="w-4 h-4 flex items-center justify-center" style="color:var(--text-secondary);" x-html="getSpaceIconSvg(s.type)"></span>
+                                                    <span x-text="s.type"></span>
+                                                    <span class="text-[0.625rem]" style="color:var(--text-muted);" x-text="Math.round(s.confidence*100) + '%'"></span>
+                                                    <button type="button" @click="acceptAiSpace(i)" title="Add this space"
+                                                            class="w-5 h-5 rounded-full flex items-center justify-center"
+                                                            style="background:color-mix(in srgb, var(--brand-icon) 15%, transparent); color:var(--brand-icon);">
+                                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                                    </button>
+                                                    <button type="button" @click="discardAiSpace(i)" title="Discard"
+                                                            class="w-5 h-5 rounded-full flex items-center justify-center" style="color:var(--text-muted);"
+                                                            onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--text-muted)'">
+                                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
+                                                    </button>
+                                                </span>
+                                            </template>
+                                        </div>
                                     </div>
                                 </div>
 
                                 {{-- Detected features (draggable) --}}
                                 <div x-show="aiFeatureSugg.length">
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--text-secondary);">Detected features</p>
-                                    <div class="flex flex-wrap gap-2">
-                                        <template x-for="(f, i) in aiFeatureSugg" :key="'aift-' + f.label">
-                                            <span draggable="true"
-                                                  @dragstart="aiDragStart(i)" @dragend="aiDragEnd()"
-                                                  class="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-sm cursor-grab active:cursor-grabbing"
-                                                  :style="aiDragIdx === i ? 'opacity:.5;' : ''"
-                                                  style="background:rgba(51,196,224,0.10); border:1px dashed rgba(51,196,224,0.45); color:var(--text-primary);">
-                                                <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/></svg>
-                                                <span x-text="f.label"></span>
-                                                <span class="text-[10px] opacity-60" x-text="Math.round(f.confidence*100) + '%'"></span>
-                                                <button type="button" @click="acceptAiFeature(i)" title="Add as a general feature"
-                                                        class="w-6 h-6 rounded-full flex items-center justify-center" style="background:rgba(34,197,94,0.18); color:#16a34a;">
-                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                                                </button>
-                                                <button type="button" @click="discardAiFeature(i)" title="Discard"
-                                                        class="w-6 h-6 rounded-full flex items-center justify-center" style="background:rgba(239,68,68,0.14); color:#ef4444;">
-                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
-                                                </button>
-                                            </span>
-                                        </template>
+                                    <span class="text-xs font-semibold" style="color:var(--text-secondary);">Detected features:</span>
+                                    <div class="rounded-md mt-1.5" style="border:1px solid var(--border); overflow:hidden;">
+                                        <div class="flex flex-wrap gap-1.5 p-3" style="background:var(--surface-2); min-height:50px;">
+                                            <template x-for="(f, i) in aiFeatureSugg" :key="'aift-' + f.label">
+                                                <span draggable="true"
+                                                      @dragstart="aiDragStart(i)" @dragend="aiDragEnd()"
+                                                      class="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full text-xs cursor-grab active:cursor-grabbing"
+                                                      :style="aiDragIdx === i ? 'opacity:.45;' : ''"
+                                                      style="background:var(--surface); border:1px dashed color-mix(in srgb, var(--brand-icon) 45%, var(--border)); color:var(--text-primary);">
+                                                    <svg class="w-3 h-3" style="color:var(--text-muted);" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/></svg>
+                                                    <span x-text="f.label"></span>
+                                                    <span class="text-[0.625rem]" style="color:var(--text-muted);" x-text="Math.round(f.confidence*100) + '%'"></span>
+                                                    <button type="button" @click="acceptAiFeature(i)" title="Add as a general feature"
+                                                            class="w-5 h-5 rounded-full flex items-center justify-center"
+                                                            style="background:color-mix(in srgb, var(--brand-icon) 15%, transparent); color:var(--brand-icon);">
+                                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                                    </button>
+                                                    <button type="button" @click="discardAiFeature(i)" title="Discard"
+                                                            class="w-5 h-5 rounded-full flex items-center justify-center" style="color:var(--text-muted);"
+                                                            onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--text-muted)'">
+                                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
+                                                    </button>
+                                                </span>
+                                            </template>
+                                        </div>
                                     </div>
 
-                                    {{-- Drop targets: the property's current spaces --}}
-                                    <p class="text-[11px] mt-3 mb-1.5" style="color:var(--text-muted);">Drag a feature onto a space:</p>
-                                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        <template x-for="(sp, si) in spaces" :key="'aidrop-' + si">
-                                            <div @dragover.prevent="aiDropTarget = si"
-                                                 @dragleave="aiDropTarget === si && (aiDropTarget = null)"
-                                                 @drop.prevent="aiDropOnSpace(si)"
-                                                 class="px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors"
-                                                 :style="aiDropTarget === si
-                                                    ? 'background:rgba(51,196,224,0.18); border:1px solid var(--corex-accent,#33c4e0); color:var(--text-primary);'
-                                                    : 'background:var(--surface-2,rgba(148,163,184,0.10)); border:1px dashed var(--border); color:var(--text-secondary);'">
-                                                <span x-text="sp.type"></span>
-                                                <span class="text-[10px] opacity-60" x-show="sp.count > 0" x-text="'×' + formatCount(sp.count)"></span>
-                                            </div>
-                                        </template>
+                                    {{-- Drop targets: the property's current spaces (styled like the space tiles) --}}
+                                    <p class="text-xs mt-3 mb-1.5" style="color:var(--text-muted);">Drag a feature onto a space:</p>
+                                    <div class="rounded-md" style="border:1px solid var(--border); overflow:hidden;">
+                                        <div class="flex flex-wrap gap-px" style="background:var(--border);">
+                                            <template x-for="(sp, si) in spaces" :key="'aidrop-' + si">
+                                                <div @dragover.prevent="aiDropTarget = si"
+                                                     @dragleave="aiDropTarget === si && (aiDropTarget = null)"
+                                                     @drop.prevent="aiDropOnSpace(si)"
+                                                     class="flex items-center gap-1.5 px-3 py-2 transition-colors"
+                                                     style="flex:1 0 auto;"
+                                                     :style="aiDropTarget === si
+                                                        ? 'background:color-mix(in srgb, var(--brand-icon) 12%, transparent); box-shadow:inset 0 0 0 1px var(--brand-icon);'
+                                                        : 'background:var(--surface);'">
+                                                    <span class="w-4 h-4 flex items-center justify-center"
+                                                          :style="aiDropTarget === si ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
+                                                          x-html="getSpaceIconSvg(sp.type)"></span>
+                                                    <span class="text-xs font-medium" style="color:var(--text-primary);" x-text="sp.type"></span>
+                                                    <span class="text-[0.625rem]" style="color:var(--text-muted);" x-show="sp.count > 0" x-text="'×' + formatCount(sp.count)"></span>
+                                                </div>
+                                            </template>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -2155,10 +2172,10 @@
 
                             {{-- Footer --}}
                             <div class="flex items-center justify-between gap-3 p-4 border-t" style="border-color:var(--border);">
-                                <span class="text-xs" style="color:var(--text-muted);">Remember to <strong>Save</strong> the property to keep your choices.</span>
+                                <span class="text-xs" style="color:var(--text-muted);">Remember to <strong style="color:var(--text-secondary);">Save</strong> the property to keep your choices.</span>
                                 <button type="button" @click="closeAiModal()"
-                                        class="px-4 py-2 rounded-lg text-sm font-semibold"
-                                        style="background:var(--corex-accent,#33c4e0); color:#04222a;">Done</button>
+                                        class="px-4 py-2 rounded-md text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                                        style="background:var(--brand-button, var(--brand-icon));">Done</button>
                             </div>
                         </div>
                     </div></template>
@@ -5664,7 +5681,10 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths,
             return (this.modalSpaceIdx !== null && this.spaces[this.modalSpaceIdx]) ? this.spaces[this.modalSpaceIdx] : null;
         },
         get bedsCount()    { const s = this.spaces.find(s => s.type === 'Bedroom');  return s ? Math.floor(s.count) : 0; },
-        get bathsCount()   { const s = this.spaces.find(s => s.type === 'Bathroom'); return s ? s.count : 0; },
+        // Legacy `baths` column is an integer (the precise half-bath count lives
+        // in spaces_json). Floor it — matches beds/garages and the mobile save
+        // path — so a 2½-bath property doesn't fail the integer validation.
+        get bathsCount()   { const s = this.spaces.find(s => s.type === 'Bathroom'); return s ? Math.floor(s.count) : 0; },
         get garagesCount() { const s = this.spaces.find(s => s.type === 'Garage');   return s ? Math.floor(s.count) : 0; },
         get spacesJsonStr() { return JSON.stringify({ spaces: this.spaces, features: this.features }); },
         get allFeaturesFlat() {
