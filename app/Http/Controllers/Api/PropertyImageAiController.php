@@ -29,22 +29,26 @@ class PropertyImageAiController extends Controller
         $featureBuckets = [];
         $spaceBuckets   = [];
         foreach ($rows as $row) {
+            // NB: the mobile client reads each source by its EXACT camelCase
+            // keys (`analysisId`, `imagePath`). Keep them camelCase — a
+            // snake_case key reads as `undefined` and breaks the source-photo
+            // mapping (and, depending on the parser, the whole suggestion).
             foreach ((array) $row->detected_features as $f) {
                 $token = (string) ($f['token'] ?? '');
                 if ($token === '') continue;
                 $featureBuckets[$token][] = [
-                    'analysis_id' => $row->id,
-                    'image_path'  => $row->image_path,
-                    'confidence'  => (float) ($f['confidence'] ?? 0),
+                    'analysisId' => $row->id,
+                    'imagePath'  => $row->image_path,
+                    'confidence' => (float) ($f['confidence'] ?? 0),
                 ];
             }
             foreach ((array) $row->detected_spaces as $s) {
                 $token = (string) ($s['token'] ?? '');
                 if ($token === '') continue;
                 $spaceBuckets[$token][] = [
-                    'analysis_id' => $row->id,
-                    'image_path'  => $row->image_path,
-                    'confidence'  => (float) ($s['confidence'] ?? 0),
+                    'analysisId' => $row->id,
+                    'imagePath'  => $row->image_path,
+                    'confidence' => (float) ($s['confidence'] ?? 0),
                 ];
             }
         }

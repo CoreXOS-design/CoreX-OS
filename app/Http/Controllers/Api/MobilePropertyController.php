@@ -620,7 +620,13 @@ class MobilePropertyController extends Controller
                 'image_path'  => $path,
                 'status'      => 'queued',
             ]);
-            \App\Jobs\AnalysePropertyImageJob::dispatch($analysis->id)->onQueue('ai');
+            // Dispatch to the DEFAULT queue — the production/staging workers run
+            // `queue:work` with no --queue flag, so they only drain `default`.
+            // A dedicated `ai` queue here would sit unprocessed forever (the
+            // original cause of "AI suggestions never appear"). If a dedicated
+            // AI worker is added later, give it `--queue=ai,default` and restore
+            // ->onQueue('ai') here.
+            \App\Jobs\AnalysePropertyImageJob::dispatch($analysis->id);
             $analysisId = $analysis->id;
         }
 

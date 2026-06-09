@@ -13,7 +13,12 @@ use Illuminate\Http\Request;
  * affordances to render.
  *
  * GET /api/v1/mobile/features
- *   → { "ai_voice": true, "ai_image_recognition": false }
+ *   → { "aiVoice": true, "aiImageRecognition": false }
+ *
+ * NB: the mobile client reads these flags by their EXACT camelCase keys
+ * (`aiVoice`, `aiImageRecognition`) and hides the corresponding UI when the
+ * key is absent/falsy. Keep them camelCase — a snake_case key reads as
+ * `undefined` on the client and silently disables the whole feature.
  */
 class MobileFeatureFlagController extends Controller
 {
@@ -23,16 +28,16 @@ class MobileFeatureFlagController extends Controller
         $agency = $user?->agency;
 
         return response()->json([
-            'ai_voice' => (bool) (
+            'aiVoice' => (bool) (
                 $agency?->ai_voice_enabled
                 && $user->hasPermission('use_ellie_voice')
             ),
-            'ai_image_recognition' => (bool) (
+            'aiImageRecognition' => (bool) (
                 $agency?->ai_image_recognition_enabled
                 && $user->hasPermission('use_property_image_ai')
             ),
-            'agency_id' => $agency?->id,
-            'user_id'   => $user?->id,
+            'agencyId' => $agency?->id,
+            'userId'   => $user?->id,
         ]);
     }
 }
