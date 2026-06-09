@@ -2034,6 +2034,129 @@
                     <input type="hidden" name="baths"       :value="bathsCount">
                     <input type="hidden" name="garages"     :value="garagesCount">
                     <input type="hidden" name="spaces_json" :value="spacesJsonStr">
+                    {{-- Set to 1 once the agent has opened/actioned the AI suggestions
+                         modal so the save stamps those analyses reviewed. --}}
+                    <input type="hidden" name="ai_review"   :value="aiReviewed ? 1 : 0">
+
+                    {{-- Reopen the AI photo-suggestions modal (also auto-opens on load). --}}
+                    <div x-show="hasAiSuggestions" x-cloak class="mb-2">
+                        <button type="button" @click="openAiModal()"
+                                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                                style="background:rgba(51,196,224,0.12); color:var(--corex-accent, #33c4e0); border:1px solid rgba(51,196,224,0.35);">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.5 3.5l1.2 2.6 2.6 1.2-2.6 1.2-1.2 2.6-1.2-2.6L5.7 7.3l2.6-1.2L9.5 3.5zM17 11l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8.8-1.7z"/></svg>
+                            <span>AI photo suggestions</span>
+                            <span class="px-1.5 rounded-full" style="background:var(--corex-accent,#33c4e0); color:#04222a;" x-text="aiSuggestionCount"></span>
+                        </button>
+                    </div>
+
+                    {{-- ── AI PHOTO-SUGGESTIONS MODAL ─────────────────────────── --}}
+                    <div x-show="aiModalOpen" x-cloak
+                         class="fixed inset-0 z-[60] flex items-center justify-center p-4"
+                         style="background:rgba(0,0,0,0.55);"
+                         @keydown.escape.window="aiModalOpen && closeAiModal()">
+                        <div class="w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-2xl shadow-2xl"
+                             style="background:var(--surface); border:1px solid var(--border);"
+                             @click.outside="closeAiModal()">
+
+                            {{-- Header --}}
+                            <div class="flex items-start gap-3 p-5 border-b" style="border-color:var(--border);">
+                                <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                                     style="background:rgba(51,196,224,0.14); color:var(--corex-accent,#33c4e0);">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.5 3.5l1.2 2.6 2.6 1.2-2.6 1.2-1.2 2.6-1.2-2.6L5.7 7.3l2.6-1.2L9.5 3.5zM17 11l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8.8-1.7z"/></svg>
+                                </div>
+                                <div class="min-w-0">
+                                    <h3 class="text-base font-semibold" style="color:var(--text-primary);">AI scanned your photos</h3>
+                                    <p class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                                        Add a space with <strong>✓</strong>, drag a feature onto a space to attach it there,
+                                        <strong>✓</strong> a feature to add it generally, or <strong>✕</strong> to discard.
+                                        Anything you leave is discarded.
+                                    </p>
+                                </div>
+                                <button type="button" @click="closeAiModal()" class="ml-auto p-1 rounded hover:opacity-70" style="color:var(--text-muted);">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
+                                </button>
+                            </div>
+
+                            <div class="p-5 space-y-5">
+                                {{-- Detected spaces --}}
+                                <div x-show="aiSpaceSugg.length">
+                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--text-secondary);">Detected spaces</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="(s, i) in aiSpaceSugg" :key="'aisp-' + s.type">
+                                            <span class="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-sm"
+                                                  style="background:var(--surface-2,rgba(148,163,184,0.12)); border:1px solid var(--border); color:var(--text-primary);">
+                                                <span x-text="s.type"></span>
+                                                <span class="text-[10px] opacity-60" x-text="Math.round(s.confidence*100) + '%'"></span>
+                                                <button type="button" @click="acceptAiSpace(i)" title="Add this space"
+                                                        class="w-6 h-6 rounded-full flex items-center justify-center" style="background:rgba(34,197,94,0.18); color:#16a34a;">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                                </button>
+                                                <button type="button" @click="discardAiSpace(i)" title="Discard"
+                                                        class="w-6 h-6 rounded-full flex items-center justify-center" style="background:rgba(239,68,68,0.14); color:#ef4444;">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
+                                                </button>
+                                            </span>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                {{-- Detected features (draggable) --}}
+                                <div x-show="aiFeatureSugg.length">
+                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color:var(--text-secondary);">Detected features</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="(f, i) in aiFeatureSugg" :key="'aift-' + f.label">
+                                            <span draggable="true"
+                                                  @dragstart="aiDragStart(i)" @dragend="aiDragEnd()"
+                                                  class="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-sm cursor-grab active:cursor-grabbing"
+                                                  :style="aiDragIdx === i ? 'opacity:.5;' : ''"
+                                                  style="background:rgba(51,196,224,0.10); border:1px dashed rgba(51,196,224,0.45); color:var(--text-primary);">
+                                                <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/></svg>
+                                                <span x-text="f.label"></span>
+                                                <span class="text-[10px] opacity-60" x-text="Math.round(f.confidence*100) + '%'"></span>
+                                                <button type="button" @click="acceptAiFeature(i)" title="Add as a general feature"
+                                                        class="w-6 h-6 rounded-full flex items-center justify-center" style="background:rgba(34,197,94,0.18); color:#16a34a;">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                                </button>
+                                                <button type="button" @click="discardAiFeature(i)" title="Discard"
+                                                        class="w-6 h-6 rounded-full flex items-center justify-center" style="background:rgba(239,68,68,0.14); color:#ef4444;">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
+                                                </button>
+                                            </span>
+                                        </template>
+                                    </div>
+
+                                    {{-- Drop targets: the property's current spaces --}}
+                                    <p class="text-[11px] mt-3 mb-1.5" style="color:var(--text-muted);">Drag a feature onto a space:</p>
+                                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        <template x-for="(sp, si) in spaces" :key="'aidrop-' + si">
+                                            <div @dragover.prevent="aiDropTarget = si"
+                                                 @dragleave="aiDropTarget === si && (aiDropTarget = null)"
+                                                 @drop.prevent="aiDropOnSpace(si)"
+                                                 class="px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors"
+                                                 :style="aiDropTarget === si
+                                                    ? 'background:rgba(51,196,224,0.18); border:1px solid var(--corex-accent,#33c4e0); color:var(--text-primary);'
+                                                    : 'background:var(--surface-2,rgba(148,163,184,0.10)); border:1px dashed var(--border); color:var(--text-secondary);'">
+                                                <span x-text="sp.type"></span>
+                                                <span class="text-[10px] opacity-60" x-show="sp.count > 0" x-text="'×' + formatCount(sp.count)"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <div x-show="!hasAiSuggestions" class="text-sm py-4 text-center" style="color:var(--text-muted);">
+                                    All suggestions handled.
+                                </div>
+                            </div>
+
+                            {{-- Footer --}}
+                            <div class="flex items-center justify-between gap-3 p-4 border-t" style="border-color:var(--border);">
+                                <span class="text-xs" style="color:var(--text-muted);">Remember to <strong>Save</strong> the property to keep your choices.</span>
+                                <button type="button" @click="closeAiModal()"
+                                        class="px-4 py-2 rounded-lg text-sm font-semibold"
+                                        style="background:var(--corex-accent,#33c4e0); color:#04222a;">Done</button>
+                            </div>
+                        </div>
+                    </div>
 
                     {{-- ── SPACES ────────────────────────────────────────────── --}}
                     <div x-data="{ spacesInfoOpen: false }">
@@ -5418,6 +5541,11 @@ const _FEAT_CAT_SVG = {
     sustainability: `<svg viewBox="0 0 24 24" fill="none" stroke="#14b8a6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a1 1 0 01-1 1H4a1 1 0 01-1-1V9z"/><path d="M9 14a3 3 0 006 0V11"/><circle cx="12" cy="8.5" r="1.5" fill="#14b8a6" stroke="none"/></svg>`,
 };
 
+// AI photo suggestions (features/spaces the vision model detected), already
+// mapped to the web vocabulary by PropertyAiSuggestionService. Empty when the
+// feature is off or there's nothing new to review.
+var _aiSuggestions = {!! json_encode($aiImageSuggestions ?? ['hasSuggestions' => false, 'spaces' => [], 'features' => []]) !!};
+
 function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths, initGarages) {
     return {
         spaces: initSpaces || [],
@@ -5436,6 +5564,14 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths,
         featureCategories:  _FEATURE_CATEGORIES,
         availableSpaceTypes:_ALL_SPACE_TYPES,
 
+        // ── AI photo-suggestions modal ──────────────────────────────
+        aiModalOpen:    false,
+        aiReviewed:     false,                 // drives the hidden `ai_review` input
+        aiSpaceSugg:    [],                    // [{type, confidence}]
+        aiFeatureSugg:  [],                    // [{label, category, confidence}]
+        aiDragIdx:      null,                  // index of feature chip being dragged
+        aiDropTarget:   null,                  // space index currently hovered as a drop target
+
         init() {
             if (this.spaces.length === 0) {
                 const defaults = ['Bedroom','Bathroom','Garage','Parking','Pool','Kitchen','Garden'];
@@ -5447,6 +5583,69 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths,
                     this.spaces.push(this._makeSpace(type, count));
                 }
             }
+
+            // Seed + auto-open the AI suggestions modal when the vision pass
+            // produced something the agent hasn't reviewed yet.
+            const ai = (typeof _aiSuggestions !== 'undefined') ? _aiSuggestions : null;
+            if (ai && ai.hasSuggestions) {
+                this.aiSpaceSugg   = Array.isArray(ai.spaces)   ? [...ai.spaces]   : [];
+                this.aiFeatureSugg = Array.isArray(ai.features) ? [...ai.features] : [];
+                if (this.aiSpaceSugg.length || this.aiFeatureSugg.length) {
+                    this.$nextTick(() => { this.aiModalOpen = true; });
+                }
+            }
+        },
+
+        get hasAiSuggestions() { return this.aiSpaceSugg.length > 0 || this.aiFeatureSugg.length > 0; },
+        get aiSuggestionCount() { return this.aiSpaceSugg.length + this.aiFeatureSugg.length; },
+
+        openAiModal()  { if (this.hasAiSuggestions) { this.aiModalOpen = true; } },
+        // Closing the modal means "I've reviewed these" — anything not actioned
+        // is discarded, and the next Save stamps them reviewed server-side.
+        closeAiModal() { this.aiModalOpen = false; this.aiReviewed = true; },
+
+        // Accept a detected space → ensure it exists on the property (count ≥ 1).
+        acceptAiSpace(idx) {
+            const sugg = this.aiSpaceSugg[idx];
+            if (!sugg) return;
+            if (!this.hasSpace(sugg.type)) {
+                this.spaces.push(this._makeSpace(sugg.type, 1));
+            }
+            this.aiSpaceSugg.splice(idx, 1);
+            this._afterAiAction();
+        },
+        discardAiSpace(idx) { this.aiSpaceSugg.splice(idx, 1); this._afterAiAction(); },
+
+        // Accept a detected feature → add to its mapped global feature category.
+        acceptAiFeature(idx) {
+            const sugg = this.aiFeatureSugg[idx];
+            if (!sugg) return;
+            const arr = this.features[sugg.category];
+            if (arr && !arr.includes(sugg.label)) arr.push(sugg.label);
+            this.aiFeatureSugg.splice(idx, 1);
+            this._afterAiAction();
+        },
+        discardAiFeature(idx) { this.aiFeatureSugg.splice(idx, 1); this._afterAiAction(); },
+
+        // Drag a feature chip onto a space card → attach it to that space.
+        aiDragStart(idx)         { this.aiDragIdx = idx; },
+        aiDragEnd()              { this.aiDragIdx = null; this.aiDropTarget = null; },
+        aiDropOnSpace(spaceIdx) {
+            const idx = this.aiDragIdx;
+            this.aiDropTarget = null; this.aiDragIdx = null;
+            if (idx === null) return;
+            const sugg = this.aiFeatureSugg[idx];
+            const sp   = this.spaces[spaceIdx];
+            if (!sugg || !sp) return;
+            sp.featuresAll = sp.featuresAll || [];
+            if (!sp.featuresAll.includes(sugg.label)) sp.featuresAll.push(sugg.label);
+            this.aiFeatureSugg.splice(idx, 1);
+            this._afterAiAction();
+        },
+
+        _afterAiAction() {
+            this.aiReviewed = true;            // touched the suggestions → mark for stamping on save
+            if (!this.hasAiSuggestions) this.aiModalOpen = false;
         },
 
         _makeSpace(type, count) {

@@ -342,9 +342,21 @@ class PropertyController extends Controller
                 ->get()
             : collect();
 
+        // AI photo suggestions — only when the agency has the feature on AND
+        // the user may use it. Built from completed, not-yet-reviewed image
+        // analyses and expressed in the web spaces/features vocabulary.
+        $aiImageSuggestions = ['hasSuggestions' => false, 'spaces' => [], 'features' => []];
+        $user = auth()->user();
+        if ($property->exists
+            && $user?->agency?->ai_image_recognition_enabled
+            && $user->hasPermission('use_property_image_ai')) {
+            $aiImageSuggestions = app(\App\Services\AI\PropertyAiSuggestionService::class)->forProperty($property);
+        }
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
-            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'propertyComplianceComplaints'
+            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'propertyComplianceComplaints',
+            'aiImageSuggestions'
         ));
     }
 
@@ -872,6 +884,13 @@ class PropertyController extends Controller
         // so the Modified column always reflects the latest save action.
         if (! $property->wasChanged()) {
             $property->touch();
+        }
+
+        // The agent opened/actioned the AI photo-suggestions modal during this
+        // edit — stamp the analyses reviewed so the modal won't re-appear. The
+        // accepted spaces/features themselves rode in via spaces_json above.
+        if ($request->boolean('ai_review')) {
+            app(\App\Services\AI\PropertyAiSuggestionService::class)->markReviewed($property);
         }
 
         return redirect()->route('corex.properties.show', $property)

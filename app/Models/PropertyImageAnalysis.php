@@ -15,7 +15,7 @@ class PropertyImageAnalysis extends Model
     protected $fillable = [
         'agency_id', 'property_id', 'image_path', 'status',
         'detected_features', 'detected_spaces', 'raw_response',
-        'cost_usd', 'error', 'processed_at',
+        'cost_usd', 'error', 'processed_at', 'reviewed_at',
     ];
 
     protected $casts = [
@@ -24,6 +24,7 @@ class PropertyImageAnalysis extends Model
         'raw_response'      => 'array',
         'cost_usd'          => 'float',
         'processed_at'      => 'datetime',
+        'reviewed_at'       => 'datetime',
     ];
 
     public function property(): BelongsTo
