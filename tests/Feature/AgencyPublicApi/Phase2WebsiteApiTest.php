@@ -304,7 +304,19 @@ class Phase2WebsiteApiTest extends TestCase
             'rental_amount' => 12500, 'deposit_amount' => 25000, 'has_deposit' => true, 'lease_period' => '12 months',
             'rates_taxes' => 800, 'levy' => 1500, 'special_levy' => 200, 'pet_friendly' => true,
             'complex_name' => 'Sea Breeze', 'unit_number' => '4B', 'floor_number' => 4,
-            'features_json' => ['Pool', 'Sea view'], 'spaces_json' => ['Covered parking'],
+            // Features mix categories so grouping is exercised: Pool (uncatalogued
+            // → Other), Intercom + CCTV (Security), Fibre (Connectivity).
+            'features_json' => ['Pool', 'Intercom', 'CCTV', 'Fibre'],
+            // Canonical wrapped spaces shape the editor actually persists.
+            'spaces_json' => [
+                'spaces' => [
+                    ['type' => 'Pool', 'count' => 1, 'featuresAll' => ['Heated'], 'descriptionAll' => 'Sparkling'],
+                    ['type' => 'Parking', 'count' => 2, 'featuresAll' => [], 'descriptionAll' => ''],
+                    ['type' => 'Bedroom', 'count' => 3, 'featuresAll' => [], 'descriptionAll' => '',
+                     'units' => [['label' => 'Bedroom 1', 'features' => ['En-suite']]]],
+                ],
+                'features' => ['security' => ['Intercom', 'CCTV'], 'connectivity' => ['Fibre']],
+            ],
             // Photos live in the dusk bucket — proves allImages() merge (not just images_json).
             'dusk_images_json' => ['https://img.example/dusk1.jpg'],
             'gallery_categories_json' => ['categories' => [['name' => 'Kitchen', 'images' => ['https://img.example/k1.jpg']]]],
@@ -328,11 +340,30 @@ class Phase2WebsiteApiTest extends TestCase
             ->assertJsonPath('data.complex_name', 'Sea Breeze')
             ->assertJsonPath('data.floor_number', 4)
             ->assertJsonPath('data.video.youtube_id', 'abc123')
+            ->assertJsonPath('data.video.youtube_url', 'https://www.youtube.com/watch?v=abc123')
             ->assertJsonPath('data.video.virtual_tour_url', 'https://tour.example/1');
 
         $data = $r->json('data');
         $this->assertContains('Pool', $data['features']);
-        $this->assertContains('Covered parking', $data['spaces']);
+
+        // Spaces are unwrapped from the canonical {spaces:[...]} shape — each a
+        // typed object with count + features, not the raw wrapper.
+        $spaceTypes = collect($data['spaces'])->pluck('type')->all();
+        $this->assertEqualsCanonicalizing(['Pool', 'Parking', 'Bedroom'], $spaceTypes);
+        $pool = collect($data['spaces'])->firstWhere('type', 'Pool');
+        $this->assertSame(1, $pool['count']);
+        $this->assertContains('Heated', $pool['features']);
+        $bedroom = collect($data['spaces'])->firstWhere('type', 'Bedroom');
+        $this->assertSame('Bedroom 1', $bedroom['units'][0]['label']);
+        $this->assertContains('En-suite', $bedroom['units'][0]['features']);
+
+        // Features are grouped by catalog category for labelled display.
+        $byGroup = collect($data['features_grouped'])->keyBy('label');
+        $this->assertEqualsCanonicalizing(['Intercom', 'CCTV'], $byGroup['Security']['items']);
+        $this->assertSame(['Fibre'], $byGroup['Connectivity']['items']);
+        // Pool isn't a catalog feature → lands in the trailing "Other" group.
+        $this->assertSame(['Pool'], $byGroup['Other']['items']);
+
         $this->assertContains('https://img.example/dusk1.jpg', $data['images']); // allImages() merge
         $this->assertArrayHasKey('Kitchen', $data['gallery']);
         $this->assertContains('https://img.example/k1.jpg', $data['gallery']['Kitchen']);

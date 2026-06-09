@@ -202,6 +202,13 @@ key — identical filtering to `/listings` — so the count always matches what
 
 **ListingResource is P24-parity** — it carries the same rich marketing field set CoreX syndicates to Property24: location detail (complex/unit/floor/stand + street parts), `costs` (rates/levy/special levy), a `rental` block (lease period, deposit, rental amount, gross/net, per-period rates) populated only for rentals, `mandate_type`, `pet_friendly`, `spaces`, `features`, a categorised `gallery`, `video` (YouTube/Matterport/virtual tour), and upcoming `show_days` — alongside the core price/beds/baths/size/images/agent. Numeric fields are coerced to int/float for a clean contract.
 
+**Spaces, grouped features & video — exact shapes (enriched 2026-06-09):**
+
+- `spaces` — array of EVERY space the agent captured (Bedroom, Bathroom, Garage, Parking, Pool, Flatlet, Study, …), unwrapped from the editor's canonical `spaces_json = {spaces:[…], features:{…}}` shape. Each entry: `{ "type": "Pool", "count": 1|2.5|null, "features": ["Heated", …], "description": "…"|null, "units"?: [{ "label": "Bedroom 1", "features": ["En-suite"] }] }`. `units` is only present when a space has per-unit detail. The bug fixed here: the resource previously emitted `array_values((array) $spaces_json)`, which leaked the raw `{spaces, features}` wrapper as a two-element array instead of the space list — so pools/parking/garages never reached the website. `mapSpaces()` now handles the wrapped shape, legacy flat `[{type,count}]`, and bare string lists.
+- `features` — flat `["Intercom", "CCTV", "Fibre", …]` (unchanged, backward-compatible).
+- `features_grouped` — the same features bucketed by the catalog category they belong to, so the site can render "Security: Intercom, CCTV". Shape: `[{ "group": "security", "label": "Security", "items": ["Intercom","CCTV"] }, …]`. Categories and order come from `config/property-spaces.php` → `feature_categories` (The Property / Security / Connectivity / Sustainability); any feature not in the catalog lands in a trailing `{ "group": "other", "label": "Other" }` bucket. Empty groups are dropped.
+- `video` — `{ "youtube_id": "abc123"|null, "youtube_url": "https://www.youtube.com/watch?v=abc123"|null, "matterport_id": …|null, "virtual_tour_url": …|null }`. `youtube_id` is the canonical 11-char id CoreX extracts from any URL the agent pastes; `youtube_url` is the ready-to-embed watch URL derived from it. `virtual_tour_url` is the editor's "Other Virtual Tour / Video URL" (iPanorama, Kuula, findaholiday, any embeddable host).
+
 ---
 
 ## 6. Webhooks (the "push" half)

@@ -71,7 +71,11 @@ class ListingResource extends JsonResource
             'size_m2'     => $this->size_m2 !== null ? (int) $this->size_m2 : null,
             'erf_size_m2' => $this->erf_size_m2 !== null ? (int) $this->erf_size_m2 : null,
             'pet_friendly' => (bool) $this->pet_friendly,
-            'spaces'  => array_values((array) ($this->spaces_json ?? [])),
+            // Every space the agent captured — Bedroom, Bathroom, Garage,
+            // Parking, Pool, Flatlet, etc. — each with its count, space-wide
+            // features and per-unit detail. Unwrapped from the canonical
+            // {spaces:[...], features:{...}} editor shape (see mapSpaces()).
+            'spaces'  => $this->mapSpaces(),
 
             // Location.
             'address'       => $this->address,
@@ -88,16 +92,31 @@ class ListingResource extends JsonResource
             'latitude'      => $this->latitude !== null ? (float) $this->latitude : null,
             'longitude'     => $this->longitude !== null ? (float) $this->longitude : null,
 
+            // Flat feature list — kept for backward compatibility.
             'features' => array_values(array_filter((array) ($this->features_json ?? []))),
+            // Same features, grouped by the catalog category they belong to
+            // (The Property / Security / Connectivity / Sustainability) so the
+            // website can render "Security: Intercom, CCTV" instead of one
+            // undifferentiated chip wall. Anything not in the catalog lands in
+            // an "Other" group. See groupFeatures().
+            'features_grouped' => $this->groupFeatures(),
 
             // Media — allImages() merges dawn/noon/dusk/gallery/images JSON buckets,
             // mirroring what CoreX syndicates to P24.
             'images'  => $this->mapImages($this->allImages()),
             'gallery' => $this->mapGallery(),
             'video'   => [
-                'youtube_id'       => $this->youtube_video_id,
-                'matterport_id'    => $this->matterport_id,
-                'virtual_tour_url' => $this->virtual_tour_url,
+                // Canonical 11-char YouTube id (CoreX extracts it from any URL
+                // the agent pastes) PLUS a ready-to-use watch URL so the site
+                // can embed without re-deriving it.
+                'youtube_id'       => $this->youtube_video_id ?: null,
+                'youtube_url'      => $this->youtube_video_id
+                    ? 'https://www.youtube.com/watch?v=' . $this->youtube_video_id
+                    : null,
+                'matterport_id'    => $this->matterport_id ?: null,
+                // "Other Virtual Tour / Video URL" from the editor — iPanorama,
+                // Kuula, findaholiday, any embeddable 360/video host.
+                'virtual_tour_url' => $this->virtual_tour_url ?: null,
             ],
 
             // Upcoming show days (open houses).
@@ -156,6 +175,124 @@ class ListingResource extends JsonResource
         }
 
         return $out;
+    }
+
+    /**
+     * Normalise the property's spaces into a clean public list.
+     *
+     * The editor persists spaces_json in the canonical wrapped shape
+     * {spaces:[{type,count,featuresAll,descriptionAll,units:[...]}], features:{...}}.
+     * Older / imported records may carry a flat [{type,count}] array, or even a
+     * bare ["Covered parking"] string list. All three collapse to the same
+     * output: one object per space with its type, count, space-wide features,
+     * optional description and per-unit breakdown. The sibling `features` key in
+     * the wrapped shape is intentionally ignored here — those global features
+     * are surfaced via features / features_grouped, not as spaces.
+     */
+    private function mapSpaces(): array
+    {
+        $raw = $this->spaces_json ?? [];
+
+        // Canonical wrapped shape stores the list under `spaces`; legacy shapes
+        // ARE the list. is_string keys (the wrapped form) → use ['spaces'].
+        $list = (is_array($raw) && array_key_exists('spaces', $raw) && is_array($raw['spaces']))
+            ? $raw['spaces']
+            : (array) $raw;
+
+        $out = [];
+        foreach ($list as $sp) {
+            // Bare string entry (oldest shape) → treat as a typed space, no count.
+            if (is_string($sp)) {
+                $sp = trim($sp);
+                if ($sp !== '') {
+                    $out[] = ['type' => $sp, 'count' => null, 'features' => [], 'description' => null];
+                }
+                continue;
+            }
+            if (!is_array($sp) || empty($sp['type'])) {
+                continue;
+            }
+
+            $count = $sp['count'] ?? null;
+            if (is_numeric($count)) {
+                // Whole numbers stay ints (3), halves keep the fraction (2.5).
+                $count = ((float) $count === (float) (int) $count) ? (int) $count : (float) $count;
+            } else {
+                $count = null;
+            }
+
+            $entry = [
+                'type'        => (string) $sp['type'],
+                'count'       => $count,
+                'features'    => array_values(array_filter((array) ($sp['featuresAll'] ?? []))),
+                'description' => isset($sp['descriptionAll']) && $sp['descriptionAll'] !== ''
+                    ? (string) $sp['descriptionAll']
+                    : null,
+            ];
+
+            // Per-unit detail (e.g. "Bedroom 1" with its own features) — only
+            // emitted when at least one unit carries a label or features.
+            $units = [];
+            foreach ((array) ($sp['units'] ?? []) as $u) {
+                if (!is_array($u)) {
+                    continue;
+                }
+                $uFeatures = array_values(array_filter((array) ($u['features'] ?? [])));
+                $uLabel    = isset($u['label']) && $u['label'] !== '' ? (string) $u['label'] : null;
+                if ($uLabel === null && empty($uFeatures)) {
+                    continue;
+                }
+                $units[] = ['label' => $uLabel, 'features' => $uFeatures];
+            }
+            if (!empty($units)) {
+                $entry['units'] = $units;
+            }
+
+            $out[] = $entry;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Group the flat features_json list by the catalog category each feature
+     * belongs to, so the website can label them (Security, Connectivity, …).
+     *
+     * Source of truth for the category → features map is
+     * config/property-spaces.php `feature_categories`. Groups are emitted in
+     * catalog order; any feature not found in the catalog falls into a trailing
+     * "Other" group. Empty groups are dropped. Returns [] when no features.
+     */
+    private function groupFeatures(): array
+    {
+        $flat = array_values(array_filter((array) ($this->features_json ?? [])));
+        if (empty($flat)) {
+            return [];
+        }
+
+        $categories = (array) config('property-spaces.feature_categories', []);
+
+        // Build a lowercase lookup: feature => category key.
+        $lookup = [];
+        foreach ($categories as $key => $cat) {
+            foreach ((array) ($cat['features'] ?? []) as $f) {
+                $lookup[mb_strtolower((string) $f)] = $key;
+            }
+        }
+
+        // Seed buckets in catalog order, with "Other" reserved for the tail.
+        $groups = [];
+        foreach ($categories as $key => $cat) {
+            $groups[$key] = ['group' => $key, 'label' => (string) ($cat['label'] ?? $key), 'items' => []];
+        }
+        $groups['other'] = ['group' => 'other', 'label' => 'Other', 'items' => []];
+
+        foreach ($flat as $feature) {
+            $bucket = $lookup[mb_strtolower((string) $feature)] ?? 'other';
+            $groups[$bucket]['items'][] = $feature;
+        }
+
+        return array_values(array_filter($groups, fn ($g) => !empty($g['items'])));
     }
 
     /**
