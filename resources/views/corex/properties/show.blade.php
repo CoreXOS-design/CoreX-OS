@@ -2050,7 +2050,12 @@
                     </div>
 
                     {{-- ── AI PHOTO-SUGGESTIONS MODAL ─────────────────────────── --}}
-                    <div x-show="aiModalOpen" x-cloak
+                    {{-- Teleported to <body>: this section sits inside a tab pane
+                         that is display:none on the default Overview tab, and a
+                         position:fixed child still can't escape a display:none
+                         ancestor. Teleporting keeps it bound to this component's
+                         state while rendering at the document root. --}}
+                    <template x-teleport="body"><div x-show="aiModalOpen" x-cloak
                          class="fixed inset-0 z-[60] flex items-center justify-center p-4"
                          style="background:rgba(0,0,0,0.55);"
                          @keydown.escape.window="aiModalOpen && closeAiModal()">
@@ -2156,7 +2161,7 @@
                                         style="background:var(--corex-accent,#33c4e0); color:#04222a;">Done</button>
                             </div>
                         </div>
-                    </div>
+                    </div></template>
 
                     {{-- ── SPACES ────────────────────────────────────────────── --}}
                     <div x-data="{ spacesInfoOpen: false }">
