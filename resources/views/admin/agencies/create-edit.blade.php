@@ -329,26 +329,14 @@
             <p class="text-xs" style="color:var(--text-muted);">Opt-in to advanced AI capabilities. These are billable mobile-app features — only enable for agencies on the relevant plan.</p>
 
             <label class="flex items-start gap-3 p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                <input type="hidden" name="ai_voice_enabled" value="0">
-                <input type="checkbox" name="ai_voice_enabled" value="1"
-                       {{ old('ai_voice_enabled', $agency->ai_voice_enabled ?? false) ? 'checked' : '' }}
+                <input type="hidden" name="ai_features_enabled" value="0">
+                <input type="checkbox" name="ai_features_enabled" value="1"
+                       {{ old('ai_features_enabled', ($agency->ai_voice_enabled ?? false) || ($agency->ai_image_recognition_enabled ?? false)) ? 'checked' : '' }}
                        class="w-4 h-4 mt-0.5 rounded cursor-pointer"
                        style="accent-color:var(--brand-icon, #0ea5e9);">
                 <span class="text-sm" style="color:var(--text-primary);">
-                    <span class="font-medium">Ellie Voice Commands</span>
-                    <span class="block text-xs mt-0.5" style="color:var(--text-muted);">Push-to-talk voice input on mobile. "Hey Ellie, schedule a viewing at 11" creates a calendar entry, tagged as AI-created.</span>
-                </span>
-            </label>
-
-            <label class="flex items-start gap-3 p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                <input type="hidden" name="ai_image_recognition_enabled" value="0">
-                <input type="checkbox" name="ai_image_recognition_enabled" value="1"
-                       {{ old('ai_image_recognition_enabled', $agency->ai_image_recognition_enabled ?? false) ? 'checked' : '' }}
-                       class="w-4 h-4 mt-0.5 rounded cursor-pointer"
-                       style="accent-color:var(--brand-icon, #0ea5e9);">
-                <span class="text-sm" style="color:var(--text-primary);">
-                    <span class="font-medium">AI Property Image Recognition</span>
-                    <span class="block text-xs mt-0.5" style="color:var(--text-muted);">Mobile-only. When agents upload property photos, the system detects features (pool, sea view, garden, etc.) and pre-ticks the feature checklist for confirmation.</span>
+                    <span class="font-medium">Advanced AI Features</span>
+                    <span class="block text-xs mt-0.5" style="color:var(--text-muted);">Enables the full mobile AI suite for this agency: Ellie Voice Commands (push-to-talk — "Hey Ellie, schedule a viewing at 11" creates a calendar entry, tagged as AI-created) and AI Property Image Recognition (photo uploads auto-detect features like pool, sea view, garden and pre-tick the feature checklist for confirmation).</span>
                 </span>
             </label>
 
