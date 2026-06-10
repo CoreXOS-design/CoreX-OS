@@ -10,7 +10,10 @@
     $photo  = $agent->profilePhotoUrl();
     $cover  = $article->coverImageUrl();
     $tags   = $article->tagList();
-    $shareUrl = route('corex.agents.article.preview', [$agent, $article, $article->previewSlug()]);
+    // $profileUrl / $shareUrl are supplied by the public route; fall back to the
+    // internal (auth-gated) preview routes when previewed from inside CoreX.
+    $profileUrl = $profileUrl ?? route('corex.agents.preview', $agent);
+    $shareUrl   = $shareUrl   ?? route('corex.agents.article.preview', [$agent, $article, $article->previewSlug()]);
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -44,7 +47,7 @@
     <div style="position:sticky; top:0; z-index:30; background:var(--brand-default); color:#fff;" class="px-4 py-2.5">
         <div style="max-width:760px; margin:0 auto;" class="flex items-center justify-between">
             <span class="text-xs" style="font-weight:700;">Article preview</span>
-            <a class="back" href="{{ route('corex.agents.preview', $agent) }}">← Back to agent page</a>
+            <a class="back" href="{{ $profileUrl }}">← Back to agent page</a>
         </div>
     </div>
 
@@ -97,7 +100,7 @@
             @endif
             <div style="font-weight:700; color:var(--brand-default); margin-top:.75rem;">{{ $agent->name }}</div>
             @if($agent->designation)<div class="text-sm" style="color:var(--text-muted);">{{ $agent->designation }}</div>@endif
-            <a href="{{ route('corex.agents.preview', $agent) }}" class="corex-btn-primary" style="margin-top:1rem;">View My Profile</a>
+            <a href="{{ $profileUrl }}" class="corex-btn-primary" style="margin-top:1rem;">View My Profile</a>
         </div>
     </div>
 </body>

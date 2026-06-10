@@ -74,14 +74,27 @@ No auth. Rate-limited 5/hour per slug per IP.
 
 Treat the returned `token` exactly like the token from `POST /client-auth/login` — store it in secure storage, set `Authorization: Bearer {token}` on subsequent requests, the `client` ability is already set.
 
-## QR code format
-The QR encodes a canonical web URL of the form:
+## QR code format (updated 2026-06-10)
+The QR encodes a canonical, human-readable public-profile URL of the form:
 ```
-https://corex.hfcoastal.co.za/r/a/{slug}
+https://corexos.co.za/corex/agents/{name-slug}/{slug}
 ```
-Where `{slug}` is 10 lowercase alphanumeric chars (Crockford-ish alphabet, no `0/o/1/i/l`). Extract `{slug}` from the URL path (last segment) — don't open the URL in a browser, just parse it.
+Where `{slug}` (the **last** path segment) is 10 lowercase alphanumeric chars
+(Crockford-ish alphabet, no `0/o/1/i/l`) and `{name-slug}` is a cosmetic name
+slug you can ignore. Extract `{slug}` from the URL path (last segment) — don't
+open the URL in a browser, just parse it.
 
-If the scanned payload is not a URL matching `/r/a/{slug}` on the CoreX host (or doesn't match the regex `/^[a-z0-9]{6,16}$/` after extraction), show "Not a CoreX agent QR code" and stay on the scanner.
+Match either pattern (both resolve the same slug):
+- New: `…/corex/agents/{name-slug}/{slug}`
+- Legacy (pre-2026-06-10 printed cards): `…/r/a/{slug}`
+
+If the scanned payload is not a CoreX agent URL on the CoreX host, or the
+extracted slug doesn't match `/^[a-z0-9]{6,16}$/`, show "Not a CoreX agent QR
+code" and stay on the scanner.
+
+> Note: opened in a normal browser (no app), the same URL now shows the agent's
+> public profile page instead of the old 404 — so a card scanned without the app
+> still does something useful.
 
 ## UX
 

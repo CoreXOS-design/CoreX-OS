@@ -200,8 +200,13 @@
             <h2 class="title" style="margin:.3rem 0 1.1rem;">{{ $isSelf ? 'My' : $agent->name."'s" }} Articles</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 @foreach($articles as $article)
-                    @php $ac = $article->coverImageUrl(); @endphp
-                    <a href="{{ route('corex.agents.article.preview', [$agent, $article, $article->previewSlug()]) }}" target="_blank" class="card lcard" style="text-decoration:none; color:inherit; display:block;">
+                    @php
+                        $ac = $article->coverImageUrl();
+                        $articleHref = ($isPublic ?? false)
+                            ? route('corex.agents.public.article', [$agent->nameSlug(), $publicTag, $article])
+                            : route('corex.agents.article.preview', [$agent, $article, $article->previewSlug()]);
+                    @endphp
+                    <a href="{{ $articleHref }}" target="_blank" class="card lcard" style="text-decoration:none; color:inherit; display:block;">
                         <div style="aspect-ratio:16/10; overflow:hidden; background:linear-gradient(135deg, var(--surface-2), color-mix(in srgb, var(--brand) 9%, var(--surface-2)));">
                             @if($ac)<img src="{{ $ac }}" alt="{{ $article->title }}" style="width:100%; height:100%; object-fit:cover;">@endif
                         </div>

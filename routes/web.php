@@ -562,6 +562,19 @@ Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowled
 Route::get('/corex/properties/{property}/preview/{slug?}', [\App\Http\Controllers\CoreX\PropertyController::class, 'livePreview'])
     ->name('corex.properties.preview');
 
+// ===== PUBLIC AGENT PROFILE (QR-code target, shareable, no auth required) =====
+// /corex/agents/{name-slug}/{qr_code_slug}. The 10-char slug constraint keeps
+// these from shadowing the auth-gated internal preview routes
+// (/corex/agents/{user}/preview/…) registered later. Spec: agent-qr-onboarding.
+Route::get('/corex/agents/{nameSlug}/{tag}/articles/{article}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'publicArticle'])
+    ->where('tag', '[a-z0-9]{10}')->name('corex.agents.public.article');
+Route::get('/corex/agents/{nameSlug}/{tag}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'publicShow'])
+    ->where('tag', '[a-z0-9]{10}')->name('corex.agents.public');
+
+// Backwards-compat: original QR URL (/r/a/{slug}) printed on cards in the wild.
+Route::get('/r/a/{slug}', [\App\Http\Controllers\CoreX\AgentPreviewController::class, 'legacyQrRedirect'])
+    ->where('slug', '[a-z0-9]{6,16}')->name('agent.qr.legacy');
+
 // ===== FAULT REPORTS =====
 Route::middleware(['auth'])->group(function () {
     Route::post('/admin/fault-reports/manual', [\App\Http\Controllers\FaultReportController::class, 'manualReport'])
