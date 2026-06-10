@@ -65,12 +65,22 @@
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="e.g. Subject to Viewing">
                 </div>
-                <div class="flex items-center gap-4 mt-5">
-                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
-                        <input type="hidden" name="is_global" value="0">
-                        <input type="checkbox" name="is_global" value="1" class="rounded-md" style="border-color: var(--border);"> Global (all branches)
-                    </label>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Category</label>
+                    <select name="category"
+                            class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
+                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        @foreach(\App\Models\Docuperfect\Clause::CATEGORIES as $key => $label)
+                            <option value="{{ $key }}" {{ $key === 'general' ? 'selected' : '' }}>{{ $label }}</option>
+                        @endforeach
+                    </select>
                 </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
+                    <input type="hidden" name="is_global" value="0">
+                    <input type="checkbox" name="is_global" value="1" class="rounded-md" style="border-color: var(--border);"> Global (all branches)
+                </label>
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Clause Text</label>
@@ -121,12 +131,18 @@
                 <div x-show="!editing">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
-                            <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ $clause->name }}</div>
+                            <div class="font-semibold text-sm flex items-center gap-2" style="color: var(--text-primary);">
+                                {{ $clause->name }}
+                                @if($clause->is_system)
+                                    <span class="ds-badge" style="background: var(--surface-2); color: var(--brand-icon);" title="CoreX system-default clause">CoreX</span>
+                                @endif
+                            </div>
                             <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                <span class="ds-badge" style="background: var(--surface-2);">{{ \App\Models\Docuperfect\Clause::CATEGORIES[\App\Models\Docuperfect\Clause::normaliseCategory($clause->category)] }}</span>
                                 @if($clause->is_global)
-                                    <span class="ds-badge ds-badge-success">Global</span>
+                                    &middot; <span class="ds-badge ds-badge-success">Global</span>
                                 @else
-                                    {{ $clause->branches->pluck('name')->join(', ') ?: 'No branches assigned' }}
+                                    &middot; {{ $clause->branches->pluck('name')->join(', ') ?: 'No branches assigned' }}
                                 @endif
                                 @if($clause->owner)
                                     &middot; by {{ $clause->owner->name }}
@@ -163,12 +179,22 @@
                                        class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
                                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             </div>
-                            <div class="flex items-center gap-4 mt-5">
-                                <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
-                                    <input type="hidden" name="is_global" value="0">
-                                    <input type="checkbox" name="is_global" value="1" {{ $clause->is_global ? 'checked' : '' }} class="rounded-md" style="border-color: var(--border);"> Global
-                                </label>
+                            <div>
+                                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Category</label>
+                                <select name="category"
+                                        class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
+                                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                    @foreach(\App\Models\Docuperfect\Clause::CATEGORIES as $key => $label)
+                                        <option value="{{ $key }}" {{ \App\Models\Docuperfect\Clause::normaliseCategory($clause->category) === $key ? 'selected' : '' }}>{{ $label }}</option>
+                                    @endforeach
+                                </select>
                             </div>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
+                                <input type="hidden" name="is_global" value="0">
+                                <input type="checkbox" name="is_global" value="1" {{ $clause->is_global ? 'checked' : '' }} class="rounded-md" style="border-color: var(--border);"> Global
+                            </label>
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Clause Text</label>

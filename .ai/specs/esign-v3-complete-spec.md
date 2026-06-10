@@ -1196,6 +1196,38 @@ Auto-filing works. No changes for V3.
 
 ### ES-9 — Insertable Conditions & Clause Library (NEW, REVISED post-audit)
 
+> ✅ ES-9 RESIDUE STATUS 2026-06-10 (branch AT-12-E-Sig) — fix audit:
+> `.ai/audits/es9-residue-fix-2026-06-10.md`. The marker pipeline, the 3 tables,
+> the JSON API, the builder picker and the agent review surface were already
+> built (per `esign-reconciliation-2026-06-10.md` §2). The three documented
+> residue gaps are now resolved as follows:
+> - **Clause schema (category + is_system): BUILT.** Migration
+>   `2026_06_24_000000_add_category_and_is_system_to_docuperfect_clauses.php`
+>   (`category` string nullable indexed; `is_system` boolean default false);
+>   `Clause::CATEGORIES` + `normaliseCategory()` (`app/Models/Docuperfect/Clause.php`).
+>   23 existing rows unaffected (verified up/rollback/re-apply on corex_dev).
+> - **System-default seed: BUILT.** `database/seeders/DocuperfectSystemClauseSeeder.php`
+>   (22 SA-correct clauses, is_system+is_global, categorised, bracket tokens for
+>   variables), registered in `DatabaseSeeder`. Idempotent + soft-delete-aware
+>   (matches `(name,is_system)` incl. trashed) — double-run proven: 23 system
+>   clauses both runs, 0 duplicates, all 7 categories populated.
+>   `ClauseController::listJson` now returns `category`/`category_label`/`is_system`;
+>   `store`/`update` accept+validate `category`; builder picker
+>   (`cds-builder.blade.php`) and clause manager (`clauses/index.blade.php`) group
+>   by category. (Recipient "Add condition" is free-text by design — 1B.6 FIX1 —
+>   so grouping is builder/agent-side, the only library-consuming surface.)
+> - **9.5 Pagination recalc + new-page initial slots: DEFERRED (legally grounded).**
+>   Pagination is browser-pixel-measured (client-only); the sole server page count
+>   is a heavy Puppeteer shell-out (`WebTemplatePdfService.php:120,261-287`); the
+>   focused initialing view has no page model. A precise synchronous "+N pages" and
+>   per-page-initial correctness on a re-paginated *signed mandate* (legally
+>   significant) cannot be verified without a real browser PDF-flatten, which is
+>   unavailable in this environment. Deferred with a concrete proper-fix proposal
+>   (re-trigger the existing `paginateDocument`+§19.4 re-anchor; bring a4-page-styles
+>   into the initialing view; source "+N pages" from a real render). Correctness in
+>   the normal flow is already preserved by the existing client re-pagination at the
+>   next render. Full reasoning: `.ai/audits/es9-residue-fix-2026-06-10.md` §3.
+
 **Scope:** §7.5 — complete implementation. **Schema is mostly already in place** — `signature_templates.other_conditions_text` exists, `docuperfect_clauses` table + CRUD + JSON API exists, marker pipeline already recognises three of four markers.
 
 - **9.1: CDS builder "Insert clause" affordance.** Slash-command or right-pane picker in the CDS builder that queries `GET /docuperfect/api/clauses` and inserts the clause text at the cursor as a regular paragraph (NOT as a tag). The JSON API is ready; this is pure UI work.

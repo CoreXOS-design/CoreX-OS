@@ -13,16 +13,43 @@ class Clause extends Model
 
     protected $table = 'docuperfect_clauses';
 
+    /**
+     * ES-9 — clause grouping categories (single source of truth). The picker
+     * UIs and the create/edit form read this list so the set is defined once.
+     * `general` is the default bucket for an uncategorised clause.
+     */
+    public const CATEGORIES = [
+        'bond'       => 'Bond / Finance',
+        'occupation' => 'Occupation',
+        'fittings'   => 'Fittings & Voetstoots',
+        'compliance' => 'Compliance Certificates',
+        'fees'       => 'Fees & Commission',
+        'notice'     => 'Notice & Termination',
+        'general'    => 'General',
+    ];
+
     protected $fillable = [
         'name',
         'text',
+        'category',
         'is_global',
+        'is_system',
         'owner_id',
     ];
 
     protected $casts = [
         'is_global' => 'boolean',
+        'is_system' => 'boolean',
     ];
+
+    /**
+     * Normalise a free/absent category to a valid key, defaulting to 'general'.
+     */
+    public static function normaliseCategory(?string $category): string
+    {
+        $key = strtolower(trim((string) $category));
+        return array_key_exists($key, self::CATEGORIES) ? $key : 'general';
+    }
 
     public function owner()
     {

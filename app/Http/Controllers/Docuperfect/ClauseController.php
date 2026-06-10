@@ -53,6 +53,7 @@ class ClauseController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'text' => 'required|string',
+            'category' => 'nullable|string|in:' . implode(',', array_keys(Clause::CATEGORIES)),
             'is_global' => 'boolean',
             'branch_ids' => 'nullable|array',
             'branch_ids.*' => 'exists:branches,id',
@@ -61,6 +62,7 @@ class ClauseController extends Controller
         $clause = Clause::create([
             'name' => $request->input('name'),
             'text' => $request->input('text'),
+            'category' => Clause::normaliseCategory($request->input('category')),
             'is_global' => $request->boolean('is_global'),
             'owner_id' => $user->id,
         ]);
@@ -83,6 +85,7 @@ class ClauseController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'text' => 'required|string',
+            'category' => 'nullable|string|in:' . implode(',', array_keys(Clause::CATEGORIES)),
             'is_global' => 'boolean',
             'branch_ids' => 'nullable|array',
             'branch_ids.*' => 'exists:branches,id',
@@ -91,6 +94,7 @@ class ClauseController extends Controller
         $clause->update([
             'name' => $request->input('name'),
             'text' => $request->input('text'),
+            'category' => Clause::normaliseCategory($request->input('category')),
             'is_global' => $request->boolean('is_global'),
         ]);
 
@@ -141,7 +145,15 @@ class ClauseController extends Controller
 
         $clauses = Clause::visibleTo($user)
             ->orderBy('name')
-            ->get(['id', 'name', 'text', 'is_global']);
+            ->get(['id', 'name', 'text', 'category', 'is_global', 'is_system'])
+            ->map(function (Clause $c) {
+                // Surface a normalised category key + UI label so the pickers
+                // can group without re-deriving the category map client-side.
+                $key = Clause::normaliseCategory($c->category);
+                $c->setAttribute('category', $key);
+                $c->setAttribute('category_label', Clause::CATEGORIES[$key]);
+                return $c;
+            });
 
         return response()->json($clauses);
     }

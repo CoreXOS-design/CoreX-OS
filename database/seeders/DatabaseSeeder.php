@@ -50,6 +50,11 @@ class DatabaseSeeder extends Seeder
             ProspectingSetupSeeder::class,
             SellerOutreachTemplatesSeeder::class,
             SuggestedActionThresholdsSeeder::class,
+            // ES-9 — system-default SA real-estate clause library (~22 clauses,
+            // is_system=true, is_global=true, categorised). Idempotent: matches
+            // on (name + is_system) incl. trashed, so re-runs update in place
+            // and never duplicate.
+            DocuperfectSystemClauseSeeder::class,
             // MIC Phase A2 — supported report types for the upload UI.
             // Idempotent (updateOrInsert by key); 11 V1 types per spec §3.2.3.
             MarketReportTypesSeeder::class,

@@ -393,12 +393,23 @@
                                 <template x-if="!clauseList.length">
                                     <div class="text-[10px] text-gray-400 px-2 py-2" x-text="clausesLoading ? 'Loading…' : 'No clauses match.'"></div>
                                 </template>
-                                <template x-for="c in clauseList" :key="c.id">
-                                    <button type="button" @click="insertClauseAtCursor(c)"
-                                            class="w-full text-left text-xs px-2 py-1.5 hover:bg-teal-50 border-b border-gray-50 last:border-b-0">
-                                        <div class="font-semibold text-gray-700" x-text="c.name"></div>
-                                        <div class="text-[10px] text-gray-500 line-clamp-2" x-text="(c.text || '').substring(0, 90)"></div>
-                                    </button>
+                                {{-- ES-9 — group the picker by clause category (system + agency
+                                     clauses bucketed; falls back to "General" when uncategorised). --}}
+                                <template x-for="group in groupedClauses" :key="group.key">
+                                    <div>
+                                        <div class="text-[9px] font-bold uppercase tracking-wide text-gray-400 bg-gray-50 px-2 py-1 sticky top-0"
+                                             x-text="group.label"></div>
+                                        <template x-for="c in group.items" :key="c.id">
+                                            <button type="button" @click="insertClauseAtCursor(c)"
+                                                    class="w-full text-left text-xs px-2 py-1.5 hover:bg-teal-50 border-b border-gray-50 last:border-b-0">
+                                                <div class="font-semibold text-gray-700 flex items-center gap-1">
+                                                    <span x-text="c.name"></span>
+                                                    <span x-show="c.is_system" class="text-[8px] px-1 rounded bg-teal-100 text-teal-700">CoreX</span>
+                                                </div>
+                                                <div class="text-[10px] text-gray-500 line-clamp-2" x-text="(c.text || '').substring(0, 90)"></div>
+                                            </button>
+                                        </template>
+                                    </div>
                                 </template>
                             </div>
                         </div>
@@ -1026,6 +1037,27 @@ function cdsEditor() {
                 this.clauseList = [];
             }
             this.clausesLoading = false;
+        },
+
+        // ES-9 — bucket the flat clause list by category for the grouped
+        // picker. Category order is fixed (matches Clause::CATEGORIES);
+        // unknown/legacy categories fall into "General" last.
+        get groupedClauses() {
+            const order = ['bond', 'occupation', 'fittings', 'compliance', 'fees', 'notice', 'general'];
+            const buckets = {};
+            for (const c of (this.clauseList || [])) {
+                const key = c.category || 'general';
+                if (!buckets[key]) {
+                    buckets[key] = { key, label: c.category_label || 'General', items: [] };
+                }
+                buckets[key].items.push(c);
+            }
+            return Object.keys(buckets)
+                .sort((a, b) => {
+                    const ia = order.indexOf(a), ib = order.indexOf(b);
+                    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+                })
+                .map(k => buckets[k]);
         },
 
         insertClauseAtCursor(clause) {
