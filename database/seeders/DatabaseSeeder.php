@@ -54,6 +54,13 @@ class DatabaseSeeder extends Seeder
             // MIC Phase A2 — supported report types for the upload UI.
             // Idempotent (updateOrInsert by key); 11 V1 types per spec §3.2.3.
             MarketReportTypesSeeder::class,
+            // Presentations — Executive Summary AI variants (direct / warm /
+            // confident). Without these seeded, the variant dropdown on the
+            // presentation page is empty and Generate fails with
+            // "Generation failed: unknown" because the controller's
+            // findOrFail() blows up on an absent variant id. Idempotent via
+            // updateOrCreate keyed on 'key'.
+            PresentationAiVariantsSeeder::class,
         ]);
     }
 }

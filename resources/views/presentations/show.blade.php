@@ -769,17 +769,36 @@
         <div style="display:grid;grid-template-columns:200px 1fr;gap:12px;align-items:start;margin-bottom:10px;">
             <div>
                 <label style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Variant</label>
-                <select id="ai-variant-select" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;">
-                    @foreach($aiVariants as $v)
-                        <option value="{{ $v->id }}" data-desc="{{ $v->description }}" {{ $latestVersion->ai_variant_id === $v->id ? 'selected' : '' }}>
-                            {{ $v->display_name }}
-                        </option>
-                    @endforeach
-                </select>
-                <div id="ai-variant-desc" style="font-size:0.6875rem;color:var(--text-muted);margin-top:4px;line-height:1.4;"></div>
-                <button type="button" id="ai-generate-btn" class="corex-btn-primary corex-btn-xs" style="margin-top:10px;width:100%;">
-                    {{ $currentSummary ? 'Regenerate' : 'Generate Summary' }}
-                </button>
+                @if($aiVariants->isEmpty())
+                    {{-- Bug-class fallback: if the presentation_ai_variants table is
+                         empty, the dropdown previously rendered as a blank control
+                         and Generate failed with "Generation failed: unknown".
+                         Now we show a disabled control + admin-actionable copy
+                         and disable Generate, so the agent sees the actual cause. --}}
+                    <select id="ai-variant-select" disabled
+                            style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);font-size:0.875rem;color:var(--text-muted);">
+                        <option>No variants configured</option>
+                    </select>
+                    <div id="ai-variant-desc" style="font-size:0.6875rem;color:var(--ds-amber,#d97706);margin-top:4px;line-height:1.4;">
+                        Summary variants haven't been seeded. Contact admin.
+                    </div>
+                    <button type="button" id="ai-generate-btn" class="corex-btn-primary corex-btn-xs" disabled
+                            style="margin-top:10px;width:100%;opacity:0.5;cursor:not-allowed;">
+                        Generate Summary
+                    </button>
+                @else
+                    <select id="ai-variant-select" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;">
+                        @foreach($aiVariants as $v)
+                            <option value="{{ $v->id }}" data-desc="{{ $v->description }}" {{ $latestVersion->ai_variant_id === $v->id ? 'selected' : '' }}>
+                                {{ $v->display_name }}
+                            </option>
+                        @endforeach
+                    </select>
+                    <div id="ai-variant-desc" style="font-size:0.6875rem;color:var(--text-muted);margin-top:4px;line-height:1.4;"></div>
+                    <button type="button" id="ai-generate-btn" class="corex-btn-primary corex-btn-xs" style="margin-top:10px;width:100%;">
+                        {{ $currentSummary ? 'Regenerate' : 'Generate Summary' }}
+                    </button>
+                @endif
             </div>
             <div>
                 <label style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Summary text (editable)</label>
