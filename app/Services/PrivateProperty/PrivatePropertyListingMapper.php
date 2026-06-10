@@ -565,7 +565,11 @@ class PrivatePropertyListingMapper
         $parts     = explode(' ', trim($user->name), 2);
         $firstName = $parts[0] ?? '';
         $lastName  = $parts[1] ?? $parts[0] ?? '';
-        $cellPhone = $user->cell ?? $user->phone ?? '';
+        // Canonicalise to PP's digits-only format — legacy/raw values that
+        // bypassed the User mutators (direct DB writes) still reach PP clean,
+        // so "076 901 7397" never triggers PP107. See App\Support\SaPhoneNumber.
+        $cellPhone = \App\Support\SaPhoneNumber::normalize($user->cell ?? $user->phone) ?? '';
+        $workPhone = \App\Support\SaPhoneNumber::normalize($user->phone) ?? $cellPhone;
 
         // AgentId prefers pp_external_ref (admin-set on PP) over user->id.
         return [
@@ -574,7 +578,7 @@ class PrivatePropertyListingMapper
             'LastName'              => $lastName,
             'Email'                 => $user->email ?? '',
             'TelCell'               => $cellPhone,
-            'TelWork'               => $user->phone ?? $cellPhone,
+            'TelWork'               => $workPhone,
             'TelHome'               => '', // PP only recognises TelCell + TelWork
             'Active'                => $active,
             'BranchId'              => PrivatePropertyConfig::for($user->agency ?? null)['branch_guid'],

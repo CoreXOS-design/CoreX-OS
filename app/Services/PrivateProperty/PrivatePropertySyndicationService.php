@@ -706,11 +706,14 @@ class PrivatePropertySyndicationService
         $firstName = $parts[0] ?? '';
         $lastName  = $parts[1] ?? $parts[0] ?? '';
 
-        // PP requires all phone fields in valid format — empty string fails PP107
-        $cellPhone = $user->cell ?? $user->phone ?? '';
+        // PP requires all phone fields in valid format — empty string fails PP107,
+        // and so does a formatted one ("076 901 7397"). Canonicalise to PP's
+        // digits-only format here so even raw/legacy values reach PP clean.
+        $cellPhone = \App\Support\SaPhoneNumber::normalize($user->cell ?? $user->phone) ?? '';
         if (empty($cellPhone)) {
             return 'Agent has no phone/cell number — required by Private Property';
         }
+        $workPhone = \App\Support\SaPhoneNumber::normalize($user->phone) ?? $cellPhone;
 
         $agentData = [
             'AgentId'               => (string) ($user->pp_external_ref ?: $user->id),
@@ -718,7 +721,7 @@ class PrivatePropertySyndicationService
             'LastName'              => $lastName,
             'Email'                 => $user->email ?? '',
             'TelCell'               => $cellPhone,
-            'TelWork'               => $user->phone ?? $cellPhone,
+            'TelWork'               => $workPhone,
             'TelHome'               => '', // PP only recognises TelCell + TelWork
             'Active'                => true,
             'BranchId'              => PrivatePropertyConfig::for($user->agency ?? null)['branch_guid'],

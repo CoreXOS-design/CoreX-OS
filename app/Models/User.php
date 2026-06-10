@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use App\Services\PermissionService;
+use App\Support\SaPhoneNumber;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -145,6 +146,28 @@ class User extends Authenticatable
         'dependents_count' => 'integer',
         'medical_aid_dependents_count' => 'integer',
     ];
+
+    /**
+     * Canonicalise SA phone numbers on write so every entry path — admin forms,
+     * profile updates, imports, console, Tinker — stores the digits-only,
+     * leading-zero format Private Property requires. A value typed as
+     * "076 901 7397" is stored as "0769017397", preventing PP107 format
+     * rejections downstream. See App\Support\SaPhoneNumber.
+     */
+    public function setPhoneAttribute($value): void
+    {
+        $this->attributes['phone'] = SaPhoneNumber::normalize($value === null ? null : (string) $value);
+    }
+
+    public function setCellAttribute($value): void
+    {
+        $this->attributes['cell'] = SaPhoneNumber::normalize($value === null ? null : (string) $value);
+    }
+
+    public function setFaxAttribute($value): void
+    {
+        $this->attributes['fax'] = SaPhoneNumber::normalize($value === null ? null : (string) $value);
+    }
 
     /**
      * Agency Admin Rule — every agency must keep ≥1 active Admin at all times.
