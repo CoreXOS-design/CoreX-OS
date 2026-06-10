@@ -49,4 +49,27 @@ return [
         'help_intro'   => 'Call the agent who sent this document. They can walk you through anything that is unclear.',
     ],
 
+    /*
+    |---------------------------------------------------------------------
+    | Document import (ES-6) — CDS import tunables
+    |---------------------------------------------------------------------
+    | The CDS import path (/import/cds) accepts Word and text-based PDF.
+    | All limits are env-overridable so an agency/environment can tune them
+    | without code changes. No hardcoded thresholds in the parser.
+    */
+    'import' => [
+        // Accepted upload extensions for the CDS import path.
+        'allowed_extensions' => ['docx', 'pdf'],
+
+        // Max upload size in kilobytes (Laravel `max:` rule unit). Default 20MB.
+        'max_upload_kb' => (int) env('DOCUPERFECT_IMPORT_MAX_KB', 20480),
+
+        // A PDF whose extractable text (trimmed) is below this character count
+        // is treated as image-only / scanned. Faithful OCR import of scanned
+        // legal documents is a documented deferral (fidelity-sensitive); such
+        // a PDF is rejected with guidance rather than producing a low-fidelity
+        // template. Tunable per environment.
+        'min_pdf_text_chars' => (int) env('DOCUPERFECT_IMPORT_MIN_PDF_TEXT_CHARS', 120),
+    ],
+
 ];

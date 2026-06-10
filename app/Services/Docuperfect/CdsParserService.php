@@ -55,6 +55,131 @@ class CdsParserService
     }
 
     /**
+     * ES-6 — parse a TEXT-BASED PDF into the SAME CDS structure that parse()
+     * produces from a .docx, so the PDF converges onto the identical
+     * CdsDraft → CDS builder → cdsGenerate → blade pipeline (no parallel
+     * generator). Text extraction is pure-PHP (smalot/pdfparser) and
+     * deterministic — no AI. The same `detectMarkers()` pass runs, so any
+     * literal ~~~~PURPOSE~~~~ / @@@@ / %%%% / #### markers in the PDF are
+     * recognised exactly as in Word.
+     *
+     * Image-only / scanned PDFs (no extractable text) are REJECTED with
+     * guidance — faithful OCR import of legal documents is a documented
+     * deferral (Document Fidelity is non-negotiable; an OCR'd legal body is
+     * fidelity-sensitive and cannot be auto-trusted). The threshold is
+     * configurable (`docuperfect.import.min_pdf_text_chars`).
+     *
+     * @throws \RuntimeException                      corrupt / unreadable PDF
+     * @throws \App\Exceptions\Docuperfect\ScannedPdfException  image-only PDF
+     */
+    public function parsePdf(string $filePath): array
+    {
+        if (!is_file($filePath)) {
+            throw new \RuntimeException("Cannot open PDF file: {$filePath}");
+        }
+
+        try {
+            $parser = new \Smalot\PdfParser\Parser();
+            $pdf    = $parser->parseFile($filePath);
+            $text   = (string) $pdf->getText();
+        } catch (\Throwable $e) {
+            throw new \RuntimeException(
+                'Could not read this PDF — it may be corrupt, encrypted or password-protected. '
+                . 'Please upload a standard PDF or the Word (.docx) version.'
+            );
+        }
+
+        // Scanned / image-only detection: no (or negligible) extractable text.
+        $probe = trim(preg_replace('/\s+/', ' ', $text) ?? '');
+        $min   = (int) config('docuperfect.import.min_pdf_text_chars', 120);
+        if (mb_strlen($probe) < max(1, $min)) {
+            throw new \App\Exceptions\Docuperfect\ScannedPdfException(
+                'This PDF appears to be scanned or image-only (no selectable text was found). '
+                . 'Faithful import of scanned legal documents requires OCR review and is not yet '
+                . 'enabled — please upload a text-based PDF or the Word (.docx) version of this document.'
+            );
+        }
+
+        $sections  = $this->buildSectionsFromText($text);
+        $sections  = $this->detectMarkers($sections);
+        $plainText = $this->extractFullPlainText($sections);
+
+        return [
+            'version'       => '1.0',
+            'title'         => $this->detectTitle($sections),
+            'extracted_at'  => now()->toIso8601String(),
+            'original_text' => $plainText,
+            'sections'      => $sections,
+            'source_format' => 'pdf',
+        ];
+    }
+
+    /**
+     * Build CDS `sections[]` from flat extracted PDF text. Blocks split on
+     * blank lines; soft single newlines reflow to spaces within a block.
+     * A short, mostly-uppercase, non-sentence line becomes a title/heading
+     * (mirrors the docx section shapes so downstream rendering is identical).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function buildSectionsFromText(string $text): array
+    {
+        $text   = str_replace(["\r\n", "\r"], "\n", $text);
+        // Prefer blank-line-delimited blocks. Some PDF text extractors flatten
+        // paragraphs (no blank lines) — fall back to single-line blocks so
+        // structure + title detection still work on those.
+        $blocks = preg_split('/\n{2,}/', $text) ?: [];
+        $nonEmpty = array_filter($blocks, fn ($b) => trim((string) $b) !== '');
+        if (count($nonEmpty) <= 1 && str_contains($text, "\n")) {
+            $blocks = preg_split('/\n+/', $text) ?: [];
+        }
+
+        $sections    = [];
+        $titleTaken  = false;
+        foreach ($blocks as $block) {
+            $value = trim((string) preg_replace('/\s*\n\s*/', ' ', $block));
+            if ($value === '') {
+                continue;
+            }
+
+            $isHeadingLike = mb_strlen($value) <= 80
+                && $value === mb_strtoupper($value)
+                && preg_match('/[A-Z]/', $value) === 1
+                && !str_ends_with($value, '.');
+
+            if ($isHeadingLike && !$titleTaken) {
+                $titleTaken = true;
+                $sections[] = [
+                    'type'    => 'title',
+                    'text'    => $value,
+                    'content' => [['type' => 'text', 'value' => $value]],
+                ];
+            } elseif ($isHeadingLike) {
+                $sections[] = [
+                    'type'    => 'heading',
+                    'level'   => 1,
+                    'text'    => $value,
+                    'content' => [['type' => 'text', 'value' => $value]],
+                ];
+            } else {
+                $sections[] = [
+                    'type'    => 'paragraph',
+                    'content' => [['type' => 'text', 'value' => $value]],
+                ];
+            }
+        }
+
+        if (empty($sections)) {
+            $sections[] = [
+                'type'    => 'paragraph',
+                'content' => [['type' => 'text', 'value' => trim($text)]],
+            ];
+        }
+
+        return $sections;
+    }
+
+    /**
      * Parse styles.xml to map style IDs to their types.
      * We care about: which styles are headings, and what level.
      */

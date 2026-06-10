@@ -347,6 +347,26 @@
                     </div>
                 </div>
 
+                {{-- ES-6.4 — surface insertable blocks detected during import
+                     (~~~~ markers in the source doc) for human confirmation
+                     before the template is generated. Read from the draft
+                     settings the importer persisted (collectInsertableBlocks). --}}
+                @php($detectedBlocks = $savedSettings['insertable_blocks'] ?? [])
+                @if(!empty($detectedBlocks))
+                    <div class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                        <p class="text-[11px] font-semibold text-amber-800 mb-1">
+                            &#9989; Detected {{ count($detectedBlocks) }} insertable block{{ count($detectedBlocks) === 1 ? '' : 's' }} on import — confirm placement before saving:
+                        </p>
+                        <div class="flex flex-wrap gap-1">
+                            @foreach($detectedBlocks as $b)
+                                <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                    {{ $b['label'] ?? ucwords(str_replace('_', ' ', $b['purpose'] ?? 'block')) }}
+                                </span>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
                 {{-- ===== ES-9: INSERT BLOCK + CLAUSES ===== --}}
                 {{-- Insert insertable-block placeholders + insert from the clause library
                      (data layer: GET /docuperfect/api/clauses, exists per CDS audit §1.6). --}}

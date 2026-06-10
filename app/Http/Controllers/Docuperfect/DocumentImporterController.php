@@ -76,17 +76,52 @@ class DocumentImporterController extends Controller
             abort(403);
         }
 
-        $request->validate(['document' => 'required|file|mimes:docx']);
+        // ES-6 — the CDS import path accepts Word AND text-based PDF. Limits
+        // are agency/environment-configurable (config/docuperfect.php), no
+        // hardcoded thresholds.
+        $allowed = config('docuperfect.import.allowed_extensions', ['docx', 'pdf']);
+        $maxKb   = (int) config('docuperfect.import.max_upload_kb', 20480);
+        $request->validate([
+            'document' => 'required|file|mimes:' . implode(',', $allowed) . '|max:' . $maxKb,
+        ], [
+            'document.mimes' => 'Please upload a Word (.docx) or PDF document.',
+            'document.max'   => 'That file is too large. The maximum size is ' . (int) round($maxKb / 1024) . ' MB.',
+        ]);
 
+        $file = $request->file('document');
+        $ext  = strtolower((string) $file->getClientOriginalExtension());
         $parser = app(CdsParserService::class);
-        $cds = $parser->parse($request->file('document')->getPathname());
 
-        // Create a CDS draft (DB-backed, no session)
+        // Parse BEFORE any write — a failed/rejected parse leaves nothing
+        // half-created. Clear, user-facing messages; no raw 500.
+        try {
+            $cds = $ext === 'pdf'
+                ? $parser->parsePdf($file->getPathname())
+                : $parser->parse($file->getPathname());
+        } catch (\App\Exceptions\Docuperfect\ScannedPdfException $e) {
+            return back()->withErrors(['document' => $e->getMessage()])->withInput();
+        } catch (\RuntimeException $e) {
+            return back()->withErrors(['document' => $e->getMessage()])->withInput();
+        }
+
+        // ES-6.3/6.4 — aggregate detected insertable blocks (the ~~~~ markers,
+        // SAME detectMarkers pipeline for docx + pdf) so the builder can
+        // surface them for confirmation. Persisted on the draft settings.
+        $insertableBlocks = $parser->collectInsertableBlocks($cds['sections'] ?? []);
+
+        // Cap the derived title to the column contract — an untitled/long
+        // document (common with flat PDF text) must never overflow
+        // cds_drafts.template_name. Always a non-empty value.
+        $title = trim((string) ($cds['title'] ?? ''));
+        $templateName = $title !== '' ? mb_substr($title, 0, 150) : 'Untitled Import';
+
+        // Create a CDS draft (DB-backed, no session). Single atomic insert.
         $draft = CdsDraft::create([
-            'user_id' => auth()->id(),
-            'agency_id' => auth()->user()->agency_id ?? null,
-            'template_name' => $cds['title'] ?? 'Untitled',
+            'user_id' => $user->id,
+            'agency_id' => $user->agency_id ?? null,
+            'template_name' => $templateName,
             'cds_json' => $cds,
+            'settings' => ['insertable_blocks' => $insertableBlocks],
             'status' => 'draft',
         ]);
 

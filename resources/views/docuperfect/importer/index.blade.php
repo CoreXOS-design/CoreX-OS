@@ -254,16 +254,20 @@
                 @csrf
                 <p class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Import with CoreX Document Engine</p>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">
-                    Uses the new CDS parser for structured document import with field detection.
+                    Uses the CDS parser for structured document import with field detection.
+                    Accepts Word (.docx) and text-based PDF.
                 </p>
+                @error('document')
+                    <p class="text-xs mb-3" style="color: var(--danger, #c0392b);">{{ $message }}</p>
+                @enderror
                 <div class="flex items-center gap-3">
                     <div class="flex-1">
-                        <input type="file" name="document" accept=".docx" class="hidden" x-ref="cdsFileInput"
+                        <input type="file" name="document" accept=".docx,.pdf" class="hidden" x-ref="cdsFileInput"
                                @change="cdsFile = $event.target.files[0]?.name || ''">
                         <div @click="$refs.cdsFileInput.click()"
                              class="cursor-pointer border border-dashed rounded-md px-4 py-2 text-center text-sm transition-colors"
                              style="border-color: var(--border); color: var(--text-secondary);">
-                            <span x-text="cdsFile || 'Choose .docx file...'"></span>
+                            <span x-text="cdsFile || 'Choose .docx or .pdf file...'"></span>
                         </div>
                     </div>
                     <button type="submit" :disabled="!cdsFile || cdsSubmitting"
