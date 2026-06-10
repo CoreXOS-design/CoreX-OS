@@ -43,6 +43,7 @@ final class SuggestedActionThresholds extends Model
         'stock_repitch_days',
         'colleague_claim_stale_days',
         'investigate_mid_min',
+        'new_listing_lookback_days',
     ];
 
     protected $casts = [
@@ -56,11 +57,16 @@ final class SuggestedActionThresholds extends Model
         'stock_repitch_days'         => 'integer',
         'colleague_claim_stale_days' => 'integer',
         'investigate_mid_min'        => 'integer',
+        'new_listing_lookback_days'  => 'integer',
     ];
 
     /**
      * Spec §7.2 defaults. Single source of truth — getOrCreateForAgency()
      * and the seeder both apply these.
+     *
+     * new_listing_lookback_days: MIC Work-tab `action_preset=new_today`
+     * filter window. 1 day default ≈ "today" — listings first seen in
+     * the last 24 hours. Agency can widen via settings.
      */
     public static function defaultsFor(int $agencyId): array
     {
@@ -76,6 +82,7 @@ final class SuggestedActionThresholds extends Model
             'stock_repitch_days'         => 30,
             'colleague_claim_stale_days' => 21,
             'investigate_mid_min'        => 5,
+            'new_listing_lookback_days'  => 1,
         ];
     }
 
