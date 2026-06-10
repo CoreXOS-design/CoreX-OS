@@ -3,17 +3,19 @@
 namespace App\Services\CommandCenter;
 
 use App\Models\CommandCenter\NotificationDispatchLog;
-use App\Models\DeviceToken;
 use App\Models\User;
 use App\Notifications\PillarEventNotification;
+use App\Services\Push\PushNotificationService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Notification as NotificationFacade;
 use Illuminate\Support\Str;
 
 class NotificationDispatcher
 {
-    public function __construct(private NotificationPreferenceService $prefs) {}
+    public function __construct(
+        private NotificationPreferenceService $prefs,
+        private PushNotificationService $push,
+    ) {}
 
     /**
      * Dispatch a pillar event notification respecting user preferences and idempotency.
@@ -87,9 +89,20 @@ class NotificationDispatcher
             ]);
         }
 
-        // 2) FCM push — best-effort, only if a transport class is installed.
+        // 2) FCM push — routed through the guarded PushNotificationService.
+        //    The idempotency key is STABLE per logical alert (user + event +
+        //    subject + threshold bucket), NOT the per-dispatch UUID — so even if
+        //    this path is reached twice for the same alert, the device is hit once.
         if (in_array('fcm', $channels, true)) {
-            $this->sendPush($user, $notification);
+            $idempotencyKey = sprintf(
+                'user:%s|%s|%s:%s|%s',
+                $user->id,
+                $eventKey,
+                $subjectType,
+                $subjectId,
+                $thresholdHit instanceof \Carbon\CarbonInterface ? $thresholdHit->format('YmdHi') : (string) $thresholdHit,
+            );
+            $this->push->sendToUser($user, $idempotencyKey, $notification->toFcmPayload());
         }
 
         foreach ($channels as $ch) {
@@ -106,22 +119,5 @@ class NotificationDispatcher
         }
 
         return true;
-    }
-
-    private function sendPush(User $user, PillarEventNotification $n): void
-    {
-        $tokens = DeviceToken::where('user_id', $user->id)->pluck('token')->all();
-        if (empty($tokens)) return;
-
-        // Soft hook: if the FCM transport service exists, call it. Otherwise, no-op.
-        // Mobile teams can plug in their own service (e.g. App\Services\Push\FcmService).
-        $serviceClass = '\\App\\Services\\Push\\FcmService';
-        if (class_exists($serviceClass)) {
-            try {
-                app($serviceClass)->send($tokens, $n->toFcmPayload());
-            } catch (\Throwable $e) {
-                Log::warning('FCM push failed', ['user' => $user->id, 'error' => $e->getMessage()]);
-            }
-        }
     }
 }

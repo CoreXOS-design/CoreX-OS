@@ -82,6 +82,27 @@ class AppServiceProvider extends ServiceProvider
         // Spec: .ai/specs/mic-complete-spec.md §4.8.
         $this->app->singleton(\App\Services\AI\AnthropicGateway::class);
         $this->app->singleton(\App\Services\AI\AICostAggregator::class);
+
+        // Push transport — the single funnel for every device push flows through
+        // App\Services\Push\PushNotificationService, which depends on this contract.
+        // Bind the real FCM (kreait) transport when Firebase credentials resolve;
+        // otherwise degrade to a no-op transport so local/CI never crash for lack
+        // of a push provider. The dispatch guards (idempotency, rate cap, token
+        // dedup, bounded retry) live in the service and run regardless of which
+        // transport is bound. See .ai/specs/push-notifications.md.
+        $this->app->singleton(\App\Services\Push\Contracts\PushTransport::class, function ($app) {
+            try {
+                if (! interface_exists(\Kreait\Firebase\Contract\Messaging::class)) {
+                    return new \App\Services\Push\NullPushTransport();
+                }
+                return new \App\Services\Push\FcmService(
+                    $app->make(\Kreait\Firebase\Contract\Messaging::class)
+                );
+            } catch (\Throwable $e) {
+                return new \App\Services\Push\NullPushTransport();
+            }
+        });
+        $this->app->singleton(\App\Services\Push\PushNotificationService::class);
     }
 
     public function boot(): void

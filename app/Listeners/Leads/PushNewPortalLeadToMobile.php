@@ -3,60 +3,55 @@
 namespace App\Listeners\Leads;
 
 use App\Events\Leads\NewPortalLeadReceived;
-use App\Models\DeviceToken;
 use App\Models\User;
-use Illuminate\Support\Facades\Log;
+use App\Services\Push\PushNotificationService;
 
 /**
- * Sends an FCM push to every device token belonging to a user in the lead's
- * agency. Best-effort: silently no-ops if the FCM transport class isn't
- * registered, mirroring NotificationDispatcher::sendPush().
+ * Sends an FCM push to every device of every user in the lead's agency.
  *
- * Spec: .ai/specs/portal-leads.md  (mobile push surface)
+ * Routed through PushNotificationService so the agency-wide fan-out is guarded:
+ * the idempotency key is the LEAD itself ("portal_lead:{id}"), so if this event
+ * is re-fired for the same lead — by the 5-minute P24 poller re-processing a
+ * batch, a re-saved row, or a re-import — each device is still buzzed at most
+ * once. The per-device rate cap is the hard backstop for a genuine burst of
+ * distinct leads. This was the primary push-storm surface: previously it called
+ * the FCM transport directly with zero guards.
+ *
+ * Spec: .ai/specs/portal-leads.md (mobile push surface)
+ *       .ai/specs/push-notifications.md (dispatch guards)
  */
 class PushNewPortalLeadToMobile
 {
+    public function __construct(private PushNotificationService $push) {}
+
     public function handle(NewPortalLeadReceived $event): void
     {
         $lead = $event->portalLead;
 
-        $tokens = DeviceToken::query()
-            ->whereIn('user_id',
-                User::query()->where('agency_id', $lead->agency_id)->pluck('id')
-            )
-            ->pluck('token')
+        $userIds = User::query()
+            ->where('agency_id', $lead->agency_id)
+            ->pluck('id')
             ->all();
 
-        if (empty($tokens)) return;
+        if (empty($userIds)) return;
 
-        $serviceClass = '\\App\\Services\\Push\\FcmService';
-        if (! class_exists($serviceClass)) return;
+        $payload = [
+            'notification' => [
+                'title' => sprintf('New %s lead', $lead->portalLabel()),
+                'body'  => trim(($lead->name ?: 'Unknown') . ($lead->listing_portal_ref ? ' — ' . $lead->listing_portal_ref : '')),
+            ],
+            'data' => [
+                'type'                => 'portal_lead',
+                'portal_lead_id'      => (string) $lead->id,
+                'portal'              => (string) $lead->portal,
+                'lead_type'           => (string) ($lead->lead_type ?? ''),
+                'listing_id'          => (string) ($lead->listing_id ?? ''),
+                'listing_portal_ref'  => (string) ($lead->listing_portal_ref ?? ''),
+                'received_at'         => optional($lead->received_at)->toIso8601String() ?? '',
+                'deep_link'           => '/portal-leads/' . $lead->id,
+            ],
+        ];
 
-        $title = sprintf('New %s lead', $lead->portalLabel());
-        $body  = trim(($lead->name ?: 'Unknown') . ($lead->listing_portal_ref ? ' — ' . $lead->listing_portal_ref : ''));
-
-        try {
-            app($serviceClass)->send($tokens, [
-                'notification' => [
-                    'title' => $title,
-                    'body'  => $body,
-                ],
-                'data' => [
-                    'type'                => 'portal_lead',
-                    'portal_lead_id'      => (string) $lead->id,
-                    'portal'              => (string) $lead->portal,
-                    'lead_type'           => (string) ($lead->lead_type ?? ''),
-                    'listing_id'          => (string) ($lead->listing_id ?? ''),
-                    'listing_portal_ref'  => (string) ($lead->listing_portal_ref ?? ''),
-                    'received_at'         => optional($lead->received_at)->toIso8601String() ?? '',
-                    'deep_link'           => '/portal-leads/' . $lead->id,
-                ],
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('Portal lead FCM push failed', [
-                'lead_id' => $lead->id,
-                'error'   => $e->getMessage(),
-            ]);
-        }
+        $this->push->sendToUserIds($userIds, 'portal_lead:' . $lead->id, $payload);
     }
 }
