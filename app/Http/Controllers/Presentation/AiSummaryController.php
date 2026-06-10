@@ -28,6 +28,20 @@ final class AiSummaryController extends Controller
     public function generate(Request $request, Presentation $presentation): JsonResponse
     {
         $this->guardAgency($request, $presentation);
+
+        // Bug-class guard: if the presentation_ai_variants table is empty (the
+        // seeder was never run, was wiped, or every variant got deactivated),
+        // every downstream step fails opaquely — the dropdown renders empty,
+        // the JS posts variant_id=NaN, validation/findOrFail explodes, and the
+        // user sees "Generation failed: unknown". Catch the system-state
+        // problem here so the message names the actual cause (an admin task,
+        // not a transient generation failure).
+        if (PresentationAiVariant::where('is_active', true)->count() === 0) {
+            return response()->json([
+                'error' => 'No summary variants configured. Contact admin.',
+            ], 422);
+        }
+
         $data = $request->validate(['variant_id' => 'required|integer|exists:presentation_ai_variants,id']);
 
         $version = $presentation->versions()->latest('id')->first();

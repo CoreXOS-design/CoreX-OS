@@ -1635,8 +1635,14 @@ class MarketIntelligenceController extends Controller
      *                    outcome-overdue window, no outcome logged yet
      *   my_claims      → active claim owned by $viewer
      *   expiring       → active claim owned by $viewer, no feedback, hours_left below threshold
+     *   new_today      → listings first seen within thresholds.new_listing_lookback_days
      *
-     * Unknown preset values are silently ignored.
+     * Unknown preset values are LOGGED (since the prior "silently ignored"
+     * behaviour caused the new_today orphan: the link emitted the preset for
+     * months while applyActionPreset had no matching case → the page rendered
+     * the entire canvass pool instead of new listings). The query is still
+     * returned unfiltered as the safe fallback, but the warning surfaces the
+     * orphan so the next reviewer notices.
      */
     protected function applyActionPreset(
         $query,
@@ -1701,8 +1707,22 @@ class MarketIntelligenceController extends Controller
                       ->whereNull('feedback_at')
                       ->where('last_updated_at', '<=', now()->subHours($hoursOlderThan));
                 });
+
+            case 'new_today':
+                // Listings first seen within the agency's configured lookback
+                // window (suggested_action_thresholds.new_listing_lookback_days,
+                // default 1 day ≈ today). Window is a rolling N-day cutoff;
+                // agencies can widen via settings. max(1, ...) guards against
+                // a 0 value rendering an empty page if an admin saves blank.
+                $lookbackDays = max(1, (int) $thresholds->new_listing_lookback_days);
+                return $query->where('first_seen_at', '>=', now()->subDays($lookbackDays));
         }
 
+        // Unknown preset: log + return unfiltered. See method doc-block above.
+        \Illuminate\Support\Facades\Log::warning(
+            'MarketIntelligenceController::applyActionPreset received unknown preset',
+            ['preset' => $preset, 'agency_id' => $agencyId, 'viewer_id' => $viewerId],
+        );
         return $query;
     }
 
