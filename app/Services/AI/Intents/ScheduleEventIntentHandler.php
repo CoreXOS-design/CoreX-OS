@@ -34,7 +34,13 @@ class ScheduleEventIntentHandler
         $duration    = max(15, (int) ($slots['duration_minutes'] ?? 60));
 
         try {
-            $eventDate = Carbon::parse($datetimeStr);
+            // Normalize to the app timezone (Africa/Johannesburg) before storing.
+            // The LLM may express the time as UTC ("09:00Z" == 11:00 SAST) or with
+            // a local offset ("11:00+02:00"); both denote the same instant. Eloquent
+            // stores a Carbon's own wall-clock without converting, so WITHOUT this
+            // setTimezone() a UTC-expressed time lands in the DB two hours early.
+            // This was the root cause of the "11 o'clock booked at 09:00" incident.
+            $eventDate = Carbon::parse($datetimeStr)->setTimezone(config('app.timezone'));
         } catch (\Throwable $e) {
             throw new \InvalidArgumentException('Could not parse datetime from voice command: ' . $datetimeStr);
         }

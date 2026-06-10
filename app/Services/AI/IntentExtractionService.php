@@ -98,7 +98,8 @@ Supported intents:
 - "schedule_event" — agent wants to create a calendar entry.
   slots: {
     "title": string — SHORT calendar label, max ~60 chars. Format: "<EventType> — <Property short ref>" when a property is mentioned, otherwise "<EventType> — <Contact name>", otherwise just "<EventType>". EventType is one of: Viewing, Meeting, Listing presentation, Call, Valuation, Inspection, Sign mandate, Offer presentation, Follow-up. Property short ref = street number + street name only (e.g. "12 Beach Road"), drop suburb/city. Do NOT cram attendees, topics, or times into the title.
-    "datetime": ISO 8601 with timezone offset (resolve relative phrases like "tomorrow at 11" against the current time above),
+    "datetime": ISO 8601 resolved against the current time above. ALWAYS express it in {$tz} local time with the literal "+02:00" offset — e.g. "2026-06-11T11:00:00+02:00". NEVER use a "Z"/UTC offset and NEVER convert the spoken hour to UTC: if the agent says "11", the datetime hour MUST read 11, not 09.,
+    "understood_time": string — the wall-clock time you resolved, in plain words, e.g. "11:00 AM" or "2:00 PM". This MUST match the hour you put in "datetime". Echoed back so the agent can catch a mistake.,
     "duration_minutes": int (default 60 if unspecified),
     "contact_name": string|null (the other party if mentioned by name),
     "property_ref": string|null (any address/erf/listing reference if mentioned — full text as spoken),
@@ -124,7 +125,7 @@ Supported intents:
 
 Rules:
 - If the utterance is ambiguous about WHAT or WHEN, return "unknown".
-- Use 24-hour ISO datetimes with the correct offset for {$tz}.
+- Datetimes are local {$tz} time with the "+02:00" offset, never UTC/"Z". The hour in "datetime" MUST equal the hour the agent spoke and MUST equal "understood_time". Do not shift it.
 - Never invent contact names or addresses that the agent did not say.
 - Output JSON only.
 PROMPT;

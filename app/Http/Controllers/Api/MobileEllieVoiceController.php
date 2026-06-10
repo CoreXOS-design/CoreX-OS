@@ -61,11 +61,31 @@ class MobileEllieVoiceController extends Controller
         // 2. Extract intent
         $intent = $this->intent->extract($transcript);
 
+        // Diagnostic trace — pins down which stage (STT vs LLM) produced a
+        // wrong time. Logs the transcript (STT output) alongside the model's
+        // raw extraction (LLM output) so the two can be compared per request.
+        // See .ai/specs/ellie-voice.md — added after the "11 → 7 o'clock"
+        // incident where neither stage's output was recoverable.
+        Log::info('EllieVoice: extraction trace', [
+            'user_id'         => $user->id,
+            'transcript'      => $transcript,
+            'intent'          => $intent['intent'] ?? 'unknown',
+            'slot_datetime'   => $intent['slots']['datetime'] ?? null,
+            'model_raw'       => $intent['raw'] ?? null,
+        ]);
+
         // 3. Dispatch
         if ($intent['intent'] === 'schedule_event') {
             try {
                 $result = $this->scheduleHandler->handle($intent['slots'], $user, $transcript);
                 $event  = $result['event'];
+
+                Log::info('EllieVoice: event created', [
+                    'event_id'      => $event->id,
+                    'user_id'       => $user->id,
+                    'slot_datetime' => $intent['slots']['datetime'] ?? null,
+                    'event_date'    => optional($event->event_date)->toIso8601String(),
+                ]);
 
                 return response()->json([
                     'transcript'   => $transcript,

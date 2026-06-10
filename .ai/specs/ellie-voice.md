@@ -172,6 +172,30 @@ The principle stays intact for the high-stakes pillars (Deals, Compliance, Docum
 
 ---
 
+## Known issues / follow-ups
+
+### Timezone — backend (FIXED 2026-06-10)
+Incident: a "tomorrow at 11" command (event 5741) was stored at 09:00. Root
+cause: the LLM expresses the time as UTC ("09:00Z" == 11:00 SAST), and Eloquent
+persists a Carbon's own wall-clock without converting, so the time landed two
+hours early. Fix: `ScheduleEventIntentHandler` now `setTimezone(config('app.timezone'))`
+on the parsed datetime, and the extraction prompt is hardened to always emit a
+"+02:00" offset (never "Z") plus an `understood_time` echo. Regression guard:
+`tests/Feature/AI/EllieVoiceTimezoneTest.php`. Per-request diagnostics
+(`transcript`, `model_raw`, `slot_datetime`, `event_date`) are logged from
+`MobileEllieVoiceController` for future incidents.
+
+### Timezone — mobile display (OPEN — not in this repo)
+Even with the backend storing 11:00 correctly, the agent reported seeing 07:00.
+The API returns `event_date` as `2026-06-11T09:00:00+02:00` (`toIso8601String()`);
+if the mobile client renders that ISO string in UTC (or a UTC-set device locale)
+it shows the wall-clock two hours early. This is a **client-side** rendering bug
+in the mobile app, not the Laravel backend. Owner of `resources/js/mobile/` /
+the PWA must ensure event times are rendered in `Africa/Johannesburg`, not the
+device/UTC zone. Tracked here so it is not lost.
+
+---
+
 ## Cost estimate (production, 10 agents, ~20 voice commands/day each = 200/day)
 
 | Component | Per call | Per day | Per month |
