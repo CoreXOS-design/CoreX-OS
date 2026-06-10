@@ -3432,8 +3432,11 @@ function externalSign() {
             if (this.completing) return;
             this.completing = true;
 
-            // Collect field values
-            const fieldValues = this.collectWebFieldValuesAll();
+            // Collect field values. ES-5 — use the identity-tagged collector
+            // (value + recipient identity + original field) so the server can
+            // authorise each value per-recipient and store it under the
+            // mangled data-field key, never colliding seller_1 with seller_2.
+            const fieldValues = this.collectWebFieldValues();
 
             try {
                 const resp = await fetch('/sign/' + this.token + '/complete-web', {

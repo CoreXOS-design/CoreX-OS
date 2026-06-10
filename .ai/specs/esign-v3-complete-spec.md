@@ -794,6 +794,40 @@ editable_by:
 
 Audit finding: Spec said §16 was "OBSOLETE." Verification needed. 7 templates have `editable_by` populated. Whether the end-to-end behavior actually works in the signing flow is untested.
 
+> ✅ ES-5 BUILT & VERIFIED 2026-06-10 (branch AT-12-E-Sig) — editable-at-signing
+> works end to end, including the multi-recipient (Seller 1 vs Seller 2) case.
+> Fix audit: `.ai/audits/es5-editable-at-signing-fix-2026-06-10.md`.
+>
+> - **Per-recipient surfacing + gating** (shipped earlier, recipient-loop B1–B3):
+>   role blocks duplicated per recipient with `data-recipient-identity={role}_{role_index}`
+>   and `data-field`→`{name}__r{role_index}` (`RoleBlockExpansionService.php:1652-1655`);
+>   editable gate `stampViewerEditability` (`:565-615`); `role_index` column
+>   (migration `2026_06_16_120700`), `role_identity` accessor
+>   (`SignatureRequest.php:197`).
+> - **Value persistence (this fix):** new
+>   `App\Services\Docuperfect\SigningFieldValueProjector::project()` re-lays saved
+>   values onto `[data-field]` surfaces, keyed by the **rendered `data-field`** —
+>   the SAME `{name}__r{role_index}` identity the loop and SigningSurfaceResolver
+>   already produce (no parallel keying). Wired in `SigningController::show()`
+>   (after expansion) and `::completeWeb()` (into `merged_html` + the filed
+>   `signed_paginated_html`, baking editable inputs to text so the flattened PDF
+>   carries them).
+> - **Collision fixed:** `authoriseWebFieldWrite` keys `accepted` by the rendered
+>   field key (`SigningController.php:1259/1277/1287`); edits persist under
+>   `web_template_data['signing_field_values']` (`saveWebFields`), so seller_1 and
+>   seller_2 never overwrite each other.
+> - **Verification:** php -l clean; `view:clear` OK; Tinker on corex_dev 20/20
+>   (surfacing both directions, multi-role editable_by, owner-only negative,
+>   no-collision, cross-signer visibility, filed-artifact bake, optional-empty
+>   absorbed, non-ASCII fidelity, fail-open). phpunit
+>   `EditableAtSigningValuePersistenceTest` ships as the pipeline-gate test diff;
+>   it runs under the MySQL schema-snapshot bootstrap on Johan's Windows env
+>   (no isolated test DB available on the Linux host).
+> - **Not built (by design):** `field_mappings` has no per-field `required` flag
+>   for editable text fields, so required-empty is not gated for them
+>   (optional-empty is absorbed); a builder-level required setting is a separate
+>   enhancement, out of ES-5 scope.
+
 ### 9.3 ES-5 — Verification & repair
 
 Walk each of the 7 templates that have `editable_by` populated. For each:

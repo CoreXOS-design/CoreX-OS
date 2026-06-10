@@ -341,6 +341,19 @@ class SigningController extends Controller
                     $signingRequest,
                     $fieldMappingsRaw,
                 );
+
+            // ES-5 — project previously-saved signing-time field values back
+            // onto the now-EXPANDED document so every signer sees prior
+            // signers' edits and their own editable fields pre-fill. Keyed by
+            // the rendered `data-field` (the mangled `__r{role_index}` form the
+            // expansion just stamped), so seller_1's and seller_2's values land
+            // on their own surfaces. Runs after expansion so per-recipient
+            // clones exist to receive the values.
+            $savedFieldValues = $webTemplateData['signing_field_values'] ?? [];
+            if (is_array($savedFieldValues) && !empty($savedFieldValues)) {
+                $webTemplateHtml = app(\App\Services\Docuperfect\SigningFieldValueProjector::class)
+                    ->project($webTemplateHtml, $savedFieldValues);
+            }
         }
 
         // Build page image URLs — use flattened images when available (PDF path)
@@ -1144,12 +1157,23 @@ class SigningController extends Controller
         $existingData = $document->web_template_data ?? [];
         $updated = false;
 
-        foreach ($authResult['accepted'] as $logicalName => $value) {
-            $existingData[$logicalName] = $value;
+        // ES-5 — persist signing-time edits into a dedicated, identity-keyed
+        // store (NOT flat top-level keys, which both collided across recipients
+        // and were never read back). The key is the rendered `data-field`
+        // (mangled `{name}__r{role_index}` for clones), so seller_1 and
+        // seller_2 never overwrite each other. SigningFieldValueProjector reads
+        // this store back onto the document at render + completion.
+        $signingFieldValues = $existingData['signing_field_values'] ?? [];
+        if (!is_array($signingFieldValues)) {
+            $signingFieldValues = [];
+        }
+        foreach ($authResult['accepted'] as $fieldKey => $value) {
+            $signingFieldValues[$fieldKey] = $value;
             $updated = true;
         }
 
         if ($updated) {
+            $existingData['signing_field_values'] = $signingFieldValues;
             $document->update(['web_template_data' => $existingData]);
         }
 
@@ -1183,7 +1207,13 @@ class SigningController extends Controller
      *        editable_by must include the viewer's canonical role token.
      *
      * Returns:
-     *   - `accepted` : map of logical field name → value to persist.
+     *   - `accepted` : map of STORAGE KEY → value to persist. The storage key
+     *     is the rendered `data-field` exactly as submitted — the mangled
+     *     `{name}__r{role_index}` form for a per-recipient clone, or the plain
+     *     name for non-cloned agent/legacy fields. Keying by the rendered field
+     *     (not the stripped logical name) is what keeps seller_1's and
+     *     seller_2's values from colliding, and lets SigningFieldValueProjector
+     *     match each value back to its surface (shared `role_index` keying).
      *   - `violation`: first denial seen, or null when every field is allowed.
      *
      * @param  array<string, mixed>                                         $incomingFields
@@ -1256,7 +1286,7 @@ class SigningController extends Controller
             if ($editableBy === null) {
                 $allowed = WebTemplateFieldPartyMap::getEditableFields($partyRole);
                 if (in_array($logicalName, $allowed, true)) {
-                    $accepted[$logicalName] = $value;
+                    $accepted[$fieldKey] = $value;
                     continue;
                 }
                 return [
@@ -1274,7 +1304,7 @@ class SigningController extends Controller
 
             if ($isAgent) {
                 if ($allowsAll || in_array('agent', $editableBy, true)) {
-                    $accepted[$logicalName] = $value;
+                    $accepted[$fieldKey] = $value;
                     continue;
                 }
             } elseif ($roleAllows) {
@@ -1284,7 +1314,7 @@ class SigningController extends Controller
                 // logical field to be assignable to the viewer's role
                 // and accept (Case B/legacy single-recipient path).
                 if ($claimedIdentity === '' || $claimedIdentity === $viewerIdentity) {
-                    $accepted[$logicalName] = $value;
+                    $accepted[$fieldKey] = $value;
                     continue;
                 }
             }
@@ -1351,12 +1381,39 @@ class SigningController extends Controller
             ],
         ]);
 
-        // Save field values into the document's web_template_data
+        // Save field values into the document's web_template_data.
         $webData = $document->web_template_data ?? [];
         $newFieldValues = $request->input('field_values', []);
-        if (!empty($newFieldValues)) {
-            $existingFieldValues = $webData['field_values'] ?? [];
-            $webData['field_values'] = array_merge($existingFieldValues, $newFieldValues);
+        if (!empty($newFieldValues) && is_array($newFieldValues)) {
+            // ES-5 — the completion payload is authorised through the SAME
+            // per-recipient gate as the autosave path (a recipient must not be
+            // able to post values for fields they cannot edit, nor under
+            // another recipient's identity). Accepted values are persisted into
+            // the identity-keyed signing_field_values store so the projector
+            // can lay them back onto the document.
+            $docTemplateForFields = $document->template;
+            $fieldMappingsForAuth = is_array($docTemplateForFields?->field_mappings ?? null)
+                ? $docTemplateForFields->field_mappings
+                : [];
+            $authResult = $this->authoriseWebFieldWrite(
+                $signingRequest,
+                $newFieldValues,
+                $fieldMappingsForAuth,
+            );
+            $signingFieldValues = $webData['signing_field_values'] ?? [];
+            if (!is_array($signingFieldValues)) {
+                $signingFieldValues = [];
+            }
+            foreach ($authResult['accepted'] as $fieldKey => $value) {
+                $signingFieldValues[$fieldKey] = $value;
+            }
+            $webData['signing_field_values'] = $signingFieldValues;
+            // Legacy mirror retained for backward compatibility / forensic
+            // context; it is no longer the authoritative store.
+            $webData['field_values'] = array_merge(
+                $webData['field_values'] ?? [],
+                $newFieldValues
+            );
         }
 
         // Save disclosure answers
@@ -1449,6 +1506,29 @@ class SigningController extends Controller
                 $html = $sigController->embedCeremonyValuesIntoHtml($html, $ceremonyValues);
             }
             $webData['merged_html'] = $html;
+        }
+
+        // ES-5 — project all accumulated signing-time field values onto the
+        // canonical merged_html. merged_html is un-expanded (one role block),
+        // so plain-keyed agent/single-recipient values match and bake in;
+        // per-recipient `__r{n}` keys simply find no matching span here and are
+        // no-ops (their home is the expanded signed_paginated_html below). This
+        // keeps the legacy/never-paginated fallback document carrying edits.
+        $accumulatedFieldValues = $webData['signing_field_values'] ?? [];
+        if (!empty($webData['merged_html']) && is_array($accumulatedFieldValues) && !empty($accumulatedFieldValues)) {
+            $webData['merged_html'] = app(\App\Services\Docuperfect\SigningFieldValueProjector::class)
+                ->project($webData['merged_html'], $accumulatedFieldValues);
+        }
+
+        // ES-5 — the posted paginated DOM is captured from the browser's
+        // innerHTML, which does NOT serialise live <input> values. Project the
+        // authoritative field values onto it (baking each editable input to a
+        // static text span) so the filed PDF — flattened from
+        // signed_paginated_html — carries every signer's edits, including
+        // earlier recipients' values that this signer's view rendered as text.
+        if (trim($paginatedHtml) !== '' && is_array($accumulatedFieldValues) && !empty($accumulatedFieldValues)) {
+            $paginatedHtml = app(\App\Services\Docuperfect\SigningFieldValueProjector::class)
+                ->project($paginatedHtml, $accumulatedFieldValues, bakeInputsToText: true);
         }
 
         // Two-write: canonical un-paginated merged_html (above) + the exact

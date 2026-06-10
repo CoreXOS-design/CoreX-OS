@@ -3467,10 +3467,18 @@ class ESignWizardController extends Controller
                     $usedFieldNames[$varName] = 1;
                 }
 
-                $editableBy = $m['filled_by'] ?? $m['editable_by'] ?? 'agent';
-                if (is_array($editableBy)) {
-                    $editableBy = $editableBy[0] ?? 'agent';
+                // Fix A (field-group parity) — preserve the full editable_by
+                // array as `editableBy` so Step 5 renders one chip per role
+                // (matching the named/manual field path); `assignedTo` keeps the
+                // legacy single-value contract for the older JS call sites.
+                $rawGroupEditableBy = $m['filled_by'] ?? $m['editable_by'] ?? 'agent';
+                $groupEditableByArray = is_array($rawGroupEditableBy)
+                    ? array_values(array_filter($rawGroupEditableBy, fn ($v) => is_string($v) && $v !== ''))
+                    : (is_string($rawGroupEditableBy) && $rawGroupEditableBy !== '' ? [$rawGroupEditableBy] : []);
+                if (empty($groupEditableByArray)) {
+                    $groupEditableByArray = ['agent'];
                 }
+                $editableBy = $groupEditableByArray[0];
 
                 $id = is_string($i) ? $i : ($m['id'] ?? ('mapping_' . $i));
 
@@ -3484,6 +3492,7 @@ class ESignWizardController extends Controller
                     'type'            => 'field_group_display',
                     'tag_type'        => 'field_group_display',
                     'assignedTo'      => $editableBy,
+                    'editableBy'      => $groupEditableByArray,
                     'source'          => 'field_group',
                     'mapping_type'    => 'field_group',
                     'field_group_id'  => (int) $fgId,
