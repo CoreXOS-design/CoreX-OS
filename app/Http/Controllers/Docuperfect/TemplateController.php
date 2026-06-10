@@ -476,7 +476,17 @@ class TemplateController extends Controller
             ? Template::find($draft->source_template_id)
             : null;
 
+        // ES-6.7 — extraction-fidelity flags for the human review gate
+        // (high-severity first). Surfaced for ratification before the template
+        // can be used in the e-sign wizard.
+        $extractionFlags = $draft->extractionFlags()
+            ->orderByRaw("FIELD(severity, 'high', 'low')")
+            ->orderBy('id')
+            ->get();
+
         return view('docuperfect.templates.cds-builder', [
+            'extractionFlags' => $extractionFlags,
+            'extractionStatus' => $draft->extraction_verification,
             'draftId' => $draft->id,
             'cds' => $draft->cds_json,
             'html' => $html,
@@ -584,6 +594,15 @@ class TemplateController extends Controller
         } else {
             $template = Template::create($templateData);
         }
+
+        // ES-6.7 — carry the import's extraction-fidelity flags + run state onto
+        // the generated template. The wizard gate reads the template's
+        // `extraction_verification`; a template with unresolved high-severity
+        // flags stays 'blocked' and is excluded from the wizard until a human
+        // clears them (resolution may happen before or after generate — the
+        // flags now point at the template either way).
+        $draft->extractionFlags()->whereNull('template_id')->update(['template_id' => $template->id]);
+        $template->update(['extraction_verification' => $draft->extraction_verification]);
 
         // Contract-driven recipient-loop — stamp `data-role-block`
         // attributes on every block-level ancestor of role-bearing

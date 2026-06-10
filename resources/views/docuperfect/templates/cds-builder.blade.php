@@ -347,6 +347,85 @@
                     </div>
                 </div>
 
+                {{-- ES-6.7 — AI extraction-fidelity review gate. For PDF imports
+                     the AI compares the original PDF against the extracted text
+                     and flags divergences. A human must clear every high-severity
+                     flag before the template can be used in the e-sign wizard. --}}
+                @isset($extractionFlags)
+                @if($extractionFlags->isNotEmpty() || in_array($extractionStatus, ['could_not_run','blocked','warnings'], true))
+                    <div class="mb-4 border rounded-lg overflow-hidden"
+                         style="border-color: var(--border);"
+                         x-data="fidelityReview({
+                            flags: {{ Illuminate\Support\Js::from($extractionFlags->map(fn($f) => [
+                                'id' => $f->id,
+                                'severity' => $f->severity,
+                                'type' => $f->divergence_type,
+                                'location' => $f->location,
+                                'description' => $f->description,
+                                'source' => $f->source_snippet,
+                                'extracted' => $f->extracted_snippet,
+                                'status' => $f->status,
+                            ])->values()) }},
+                            status: @js($extractionStatus),
+                            resolveUrlBase: '{{ url('import/fidelity-flag') }}',
+                            csrf: '{{ csrf_token() }}'
+                         })">
+                        <div class="px-3 py-2.5 flex items-center justify-between"
+                             :class="blockedCount > 0 ? 'bg-rose-50' : (status === 'could_not_run' ? 'bg-amber-50' : 'bg-emerald-50')">
+                            <span class="text-xs font-semibold flex items-center gap-1.5"
+                                  :class="blockedCount > 0 ? 'text-rose-800' : (status === 'could_not_run' ? 'text-amber-800' : 'text-emerald-800')">
+                                <span>&#128270;</span>
+                                <span x-text="headline"></span>
+                            </span>
+                        </div>
+                        <template x-if="status === 'could_not_run'">
+                            <p class="text-[11px] px-3 py-2 text-amber-800 bg-amber-50">
+                                Automated extraction-fidelity verification could not run for this import.
+                                Please review the extracted content against the original PDF manually before using this template.
+                            </p>
+                        </template>
+                        <div class="divide-y" style="border-color: var(--border);">
+                            <template x-for="f in flags" :key="f.id">
+                                <div class="px-3 py-2.5" :class="f.status !== 'pending' ? 'opacity-60' : ''">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded"
+                                              :class="f.severity === 'high' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'"
+                                              x-text="f.severity"></span>
+                                        <span class="text-[10px] text-gray-500" x-text="(f.type || '').replace(/_/g,' ')"></span>
+                                        <span class="text-[10px] text-gray-400" x-show="f.location" x-text="f.location"></span>
+                                        <span class="text-[10px] ml-auto font-semibold text-emerald-700" x-show="f.status !== 'pending'" x-text="'✓ ' + f.status"></span>
+                                    </div>
+                                    <p class="text-[11px] text-gray-700 mb-1" x-text="f.description"></p>
+                                    <div class="grid grid-cols-2 gap-2 mb-2" x-show="f.source || f.extracted">
+                                        <div class="text-[10px]">
+                                            <div class="font-semibold text-gray-400 uppercase text-[8px]">In PDF</div>
+                                            <div class="text-gray-600 italic" x-text="f.source || '—'"></div>
+                                        </div>
+                                        <div class="text-[10px]">
+                                            <div class="font-semibold text-gray-400 uppercase text-[8px]">Extracted</div>
+                                            <div class="text-gray-600 italic" x-text="f.extracted || '—'"></div>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-wrap gap-1.5" x-show="f.status === 'pending'">
+                                        <button type="button" @click="resolve(f, 'accept')"
+                                                class="text-[10px] px-2 py-1 rounded border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800">Accept (correct)</button>
+                                        <button type="button" @click="resolve(f, 'fix')"
+                                                class="text-[10px] px-2 py-1 rounded border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-800">Fix (I edited it)</button>
+                                        <button type="button" @click="resolve(f, 'acknowledge')" x-show="f.severity === 'low'"
+                                                class="text-[10px] px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700">Acknowledge</button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                        <div class="px-3 py-2 text-[10px] border-t" style="border-color: var(--border);"
+                             :class="blockedCount > 0 ? 'text-rose-700' : 'text-emerald-700'"
+                             x-text="blockedCount > 0
+                                ? (blockedCount + ' high-severity flag(s) must be cleared before this template can be used for signing.')
+                                : 'All high-severity flags cleared — this template can be used for signing.'"></div>
+                    </div>
+                @endif
+                @endisset
+
                 {{-- ES-6.4 — surface insertable blocks detected during import
                      (~~~~ markers in the source doc) for human confirmation
                      before the template is generated. Read from the draft
@@ -948,6 +1027,51 @@
 </style>
 
 <script>
+// ES-6.7 — extraction-fidelity review gate (self-contained Alpine component).
+function fidelityReview(cfg) {
+    return {
+        flags: cfg.flags || [],
+        status: cfg.status || null,
+        resolveUrlBase: cfg.resolveUrlBase,
+        csrf: cfg.csrf,
+        get blockedCount() {
+            return this.flags.filter(f => f.severity === 'high' && f.status === 'pending').length;
+        },
+        get headline() {
+            const b = this.blockedCount;
+            if (b > 0) return b + ' fidelity issue(s) need review before signing';
+            if (this.status === 'could_not_run') return 'Fidelity check could not run — review manually';
+            const pendingLow = this.flags.filter(f => f.status === 'pending').length;
+            if (pendingLow > 0) return pendingLow + ' minor extraction note(s)';
+            return 'Extraction verified';
+        },
+        async resolve(f, action) {
+            let corrected = null;
+            if (action === 'fix') {
+                corrected = window.prompt(
+                    'Optional: paste the corrected text for "' + (f.location || f.type) + '"\n' +
+                    '(leave blank if you already edited the document body above):', ''
+                );
+            }
+            try {
+                const r = await fetch(this.resolveUrlBase + '/' + f.id + '/resolve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf },
+                    body: JSON.stringify({ action: action, corrected_snippet: corrected }),
+                });
+                const data = await r.json();
+                if (r.ok && data.ok) {
+                    f.status = action === 'accept' ? 'accepted' : (action === 'fix' ? 'fixed' : 'acknowledged');
+                } else {
+                    alert(data.error || 'Could not resolve this flag. Please try again.');
+                }
+            } catch (e) {
+                alert('Network error resolving flag.');
+            }
+        },
+    };
+}
+
 function cdsEditor() {
     return {
         activeTool: null,

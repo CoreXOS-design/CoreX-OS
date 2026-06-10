@@ -2627,6 +2627,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/import', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'index'])->name('docuperfect.import.index');
     Route::post('/import/parse', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'parse'])->name('docuperfect.import.parse');
     Route::post('/import/cds', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'generateCdsTemplate'])->name('docuperfect.import.cds');
+    // ES-6.7 — human ratification of an AI extraction-fidelity flag.
+    Route::post('/import/fidelity-flag/{flag}/resolve', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'resolveFidelityFlag'])->name('docuperfect.import.fidelity.resolve');
     Route::get('/import/review', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'review'])->name('docuperfect.import.review');
     Route::post('/import/generate', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'generate'])->name('docuperfect.import.generate');
     Route::post('/import/review/mappings', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'saveMappings'])->name('docuperfect.import.review.mappings');

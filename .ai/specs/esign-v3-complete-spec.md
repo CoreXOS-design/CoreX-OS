@@ -1050,6 +1050,60 @@ Once enough templates exist across multiple agencies, AI can suggest common temp
 
 ---
 
+### 12.8 ES-6.7 — AI extraction-fidelity verification + human review gate
+
+> ✅ BUILT & VERIFIED 2026-06-10 (branch AT-12-E-Sig) — fix audit:
+> `.ai/audits/es6-fidelity-verification-2026-06-10.md`.
+
+**Why.** PDF text extraction can silently scramble paragraph order, drop clauses,
+merge columns, lose line breaks, or misplace `~~~~` markers — and a Tinker/text
+check won't catch it. This step gives AI-assisted confidence (NOT a guarantee)
+and narrows human review from "check every line" to "check these flagged spots."
+A human always ratifies. **Scanned/OCR is explicitly OUT OF SCOPE** and stays
+rejected (`ScannedPdfException`) — agencies always have an editable source.
+
+**Flow (PDF imports only — Word skips entirely to save cost):**
+1. After `parsePdf()` produces `cds_json`, `CdsExtractionVerifier::verify()` sends
+   the ORIGINAL PDF (native Anthropic document block, vision) AND the extracted
+   text to Claude in ONE `AnthropicGateway::generate()` call (NOT
+   `generateStructured`, which drops the `documents` payload — see audit), and
+   parses the structured divergence JSON defensively (fenced/preamble-tolerant;
+   malformed → could-not-run).
+2. Each divergence → a `cds_extraction_flags` row (soft-delete, audit-trailed),
+   linked to the `CdsDraft`, carried onto the generated `Template` at
+   `cdsGenerate`.
+3. **Fail-open:** any AI/transport/parse failure → run state `could_not_run`,
+   zero flags, import still succeeds, surfaced as a warning (never a silent pass).
+
+**Severity model (config-driven — `config/docuperfect.php` `import.fidelity`):**
+- `severity_map` maps each divergence type → `high`|`low`; config is authoritative
+  over the AI's own suggestion; unknown type → `default_severity` (fail-safe high).
+- **HIGH** (missing_clause, dropped/reordered content, merged columns, misplaced
+  marker, mangled table/numbers) → BLOCKS: the template's run state is `blocked`.
+- **LOW** (whitespace, lost line breaks, formatting) → WARN: allowed, surfaced;
+  run state `warnings`.
+
+**Run states** (`extraction_verification` on `cds_drafts` + `docuperfect_templates`):
+`null` (Word / pre-feature — not gated) · `passed` · `warnings` · `blocked` ·
+`cleared` (had high flags, all resolved) · `could_not_run`.
+
+**Human review gate (CDS builder):** flagged divergences render in the builder with
+severity, location, and source-vs-extracted snippets. Per flag the reviewer
+**Accepts** (extraction is fine), **Fixes** (edits the content — feeds the existing
+`field_corrections` learning loop), or **Acknowledges** (low-severity only; a high
+flag cannot be dismissed by acknowledge). Resolving recomputes the draft + template
+run state. **The e-sign wizard excludes any template whose
+`extraction_verification = 'blocked'`** (`ESignWizardController::create`) — a PDF
+import with unresolved high-severity flags cannot be selected for signing until a
+human clears them.
+
+**Data model:** `cds_extraction_flags` (id, cds_draft_id, template_id, severity,
+divergence_type, location, description, source_snippet, extracted_snippet, status,
+resolution_note, resolved_by, resolved_at, soft-deletes) +
+`extraction_verification` column on `cds_drafts` and `docuperfect_templates`.
+
+---
+
 ## 13. Audit Trail & Compliance
 
 ### 13.1 What gets logged

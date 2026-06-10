@@ -16,7 +16,13 @@ class CdsDraft extends Model
         'user_id', 'agency_id', 'template_name',
         'cds_json', 'tags', 'mappings', 'tagged_html',
         'settings', 'source_template_id', 'status',
+        'extraction_verification',
     ];
+
+    public function extractionFlags()
+    {
+        return $this->hasMany(CdsExtractionFlag::class, 'cds_draft_id');
+    }
 
     protected $casts = [
         'cds_json' => 'array',

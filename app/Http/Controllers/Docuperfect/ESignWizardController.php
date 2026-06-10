@@ -67,6 +67,14 @@ class ESignWizardController extends Controller
                     $q2->where('render_type', 'web')->whereNotNull('blade_view');
                 });
             })
+            // ES-6.7 — extraction-fidelity gate: a PDF-imported template with
+            // unresolved high-severity extraction flags is 'blocked' and must
+            // NOT be selectable until a human clears the flags. null (Word /
+            // pre-feature) and every other state remain selectable.
+            ->where(function ($q) {
+                $q->whereNull('extraction_verification')
+                  ->orWhere('extraction_verification', '!=', \App\Services\Docuperfect\CdsExtractionVerifier::STATUS_BLOCKED);
+            })
             ->with(['documentType', 'branches'])
             ->orderBy('name')
             ->get();

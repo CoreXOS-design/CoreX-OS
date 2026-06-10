@@ -70,6 +70,53 @@ return [
         // a PDF is rejected with guidance rather than producing a low-fidelity
         // template. Tunable per environment.
         'min_pdf_text_chars' => (int) env('DOCUPERFECT_IMPORT_MIN_PDF_TEXT_CHARS', 120),
+
+        /*
+        |-----------------------------------------------------------------
+        | ES-6.7 — AI extraction-fidelity verification (PDF imports only)
+        |-----------------------------------------------------------------
+        | After a PDF extracts to the CDS shape, an AI vision pass compares
+        | the original PDF against the extracted result and flags
+        | divergences for human ratification. Severity bands and the
+        | divergence-type → severity map are config-driven (not hardcoded),
+        | so an agency/environment can re-tune what blocks vs warns.
+        */
+        'fidelity' => [
+            // Master switch. When false, PDF imports skip verification
+            // entirely (extraction still works; state recorded as null).
+            'enabled' => (bool) env('DOCUPERFECT_IMPORT_FIDELITY_CHECK', true),
+
+            // Model tier for the vision compare ('quality' = Sonnet).
+            'model_alias' => env('DOCUPERFECT_IMPORT_FIDELITY_MODEL', 'quality'),
+
+            // Hard cap on flags persisted per import (runaway guard).
+            'max_flags' => (int) env('DOCUPERFECT_IMPORT_FIDELITY_MAX_FLAGS', 40),
+
+            // Authoritative divergence-type → severity map. The AI suggests a
+            // type + severity; THIS map decides the band (config wins). Unknown
+            // types fall to `default_severity` (fail-safe → high = needs review).
+            'severity_map' => [
+                'missing_clause'   => 'high',
+                'dropped_content'  => 'high',
+                'reordered'        => 'high',
+                'scrambled_order'  => 'high',
+                'merged_columns'   => 'high',
+                'misplaced_marker' => 'high',
+                'mangled_table'    => 'high',
+                'mangled_numbers'  => 'high',
+                'heading_absorbed' => 'low',
+                'lost_linebreaks'  => 'low',
+                'whitespace'       => 'low',
+                'formatting'       => 'low',
+                'minor'            => 'low',
+            ],
+
+            // Fail-safe band for an unrecognised divergence type.
+            'default_severity' => env('DOCUPERFECT_IMPORT_FIDELITY_DEFAULT_SEVERITY', 'high'),
+
+            // Which severities block wizard use until human-resolved.
+            'blocking_severities' => ['high'],
+        ],
     ],
 
 ];

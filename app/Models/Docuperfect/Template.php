@@ -35,6 +35,7 @@ class Template extends Model
         'allowed_delivery_modes',
         'security_tier',
         'insertable_blocks',
+        'extraction_verification',
         'owner_id',
         'archived_at',
     ];
@@ -52,6 +53,11 @@ class Template extends Model
         'is_esign' => 'boolean',
         'archived_at' => 'datetime',
     ];
+
+    public function extractionFlags()
+    {
+        return $this->hasMany(CdsExtractionFlag::class, 'template_id');
+    }
 
     public function owner()
     {

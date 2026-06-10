@@ -13,6 +13,7 @@ use App\Models\Docuperfect\Template;
 use App\Services\Docuperfect\CdsParserService;
 use App\Services\Docuperfect\DocumentTemplateGenerator;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class DocumentImporterController extends Controller
 {
@@ -115,17 +116,123 @@ class DocumentImporterController extends Controller
         $title = trim((string) ($cds['title'] ?? ''));
         $templateName = $title !== '' ? mb_substr($title, 0, 150) : 'Untitled Import';
 
-        // Create a CDS draft (DB-backed, no session). Single atomic insert.
-        $draft = CdsDraft::create([
-            'user_id' => $user->id,
-            'agency_id' => $user->agency_id ?? null,
-            'template_name' => $templateName,
-            'cds_json' => $cds,
-            'settings' => ['insertable_blocks' => $insertableBlocks],
-            'status' => 'draft',
-        ]);
+        // ES-6.7 — AI extraction-fidelity verification, PDF ONLY. Word
+        // extraction is reliable and skips entirely (cost). The verifier is
+        // fail-open: an AI/transport failure returns 'could_not_run' and the
+        // import still proceeds (surfaced as a warning, never a silent pass).
+        // The call is external (no DB writes) so it sits OUTSIDE the write txn.
+        $verification = ['status' => null, 'flags' => []];
+        if ($ext === 'pdf') {
+            $verification = app(\App\Services\Docuperfect\CdsExtractionVerifier::class)
+                ->verify($file->getPathname(), $cds);
+        }
+
+        // Create the draft + persist any fidelity flags atomically — a failure
+        // mid-write rolls back cleanly, never a half-created draft.
+        $draft = DB::transaction(function () use ($user, $templateName, $cds, $insertableBlocks, $verification) {
+            $draft = CdsDraft::create([
+                'user_id' => $user->id,
+                'agency_id' => $user->agency_id ?? null,
+                'template_name' => $templateName,
+                'cds_json' => $cds,
+                'settings' => ['insertable_blocks' => $insertableBlocks],
+                'status' => 'draft',
+                'extraction_verification' => $verification['status'],
+            ]);
+
+            foreach ($verification['flags'] as $flag) {
+                \App\Models\Docuperfect\CdsExtractionFlag::create($flag + [
+                    'cds_draft_id' => $draft->id,
+                    'status'       => \App\Models\Docuperfect\CdsExtractionFlag::STATUS_PENDING,
+                ]);
+            }
+
+            return $draft;
+        });
 
         return redirect()->route('docuperfect.cds.builder', $draft);
+    }
+
+    /**
+     * ES-6.7 — human ratification of an AI extraction-fidelity flag. The
+     * reviewer Accepts (extraction is fine), Fixes (corrected the content), or
+     * Acknowledges (low-severity only). Resolving a flag recomputes the
+     * owning draft + template run state so the wizard gate updates. A 'fix'
+     * with a corrected snippet feeds the existing field_corrections loop.
+     */
+    public function resolveFidelityFlag(Request $request, int $flag)
+    {
+        $user = $request->user();
+        if (!$user->hasPermission('manage_templates')) {
+            abort(403);
+        }
+
+        $record = \App\Models\Docuperfect\CdsExtractionFlag::findOrFail($flag);
+
+        $validated = $request->validate([
+            'action'            => 'required|in:accept,fix,acknowledge',
+            'note'              => 'nullable|string|max:2000',
+            'corrected_snippet' => 'nullable|string|max:65000',
+        ]);
+        $action = $validated['action'];
+
+        // A high-severity flag is a content/structure problem — it cannot be
+        // dismissed with a bare "acknowledge"; it must be Accepted (extraction
+        // verified correct) or Fixed.
+        if ($action === 'acknowledge'
+            && $record->severity === \App\Models\Docuperfect\CdsExtractionFlag::SEVERITY_HIGH) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'High-severity flags must be Accepted or Fixed, not just acknowledged.',
+            ], 422);
+        }
+
+        $statusFor = [
+            'accept'      => \App\Models\Docuperfect\CdsExtractionFlag::STATUS_ACCEPTED,
+            'fix'         => \App\Models\Docuperfect\CdsExtractionFlag::STATUS_FIXED,
+            'acknowledge' => \App\Models\Docuperfect\CdsExtractionFlag::STATUS_ACKNOWLEDGED,
+        ];
+
+        DB::transaction(function () use ($record, $action, $statusFor, $validated, $user) {
+            $record->update([
+                'status'          => $statusFor[$action],
+                'resolution_note' => $validated['note'] ?? null,
+                'resolved_by'     => $user->id,
+                'resolved_at'     => now(),
+            ]);
+
+            // Feed a corrected 'fix' into the existing learning loop.
+            if ($action === 'fix' && !empty($validated['corrected_snippet'])) {
+                FieldCorrection::create([
+                    'context'                => trim((string) ($record->divergence_type . ' @ ' . ($record->location ?? ''))),
+                    'claude_suggested_key'   => $record->divergence_type,
+                    'claude_suggested_label' => $record->extracted_snippet,
+                    'user_corrected_key'     => $record->divergence_type,
+                    'user_corrected_label'   => $validated['corrected_snippet'],
+                    'correction_reason'      => 'extraction_fidelity',
+                    'document_type'          => 'cds_import',
+                    'user_id'                => $user->id,
+                ]);
+            }
+
+            // Recompute run-level state on the owning draft AND template so the
+            // builder display + the wizard gate both reflect the resolution.
+            $verifier = app(\App\Services\Docuperfect\CdsExtractionVerifier::class);
+            if ($record->cds_draft_id) {
+                $draft = CdsDraft::find($record->cds_draft_id);
+                if ($draft) {
+                    $draft->update(['extraction_verification' => $verifier->statusFromLiveFlags($draft->extractionFlags()->get())]);
+                }
+            }
+            if ($record->template_id) {
+                $tpl = Template::find($record->template_id);
+                if ($tpl) {
+                    $tpl->update(['extraction_verification' => $verifier->statusFromLiveFlags($tpl->extractionFlags()->get())]);
+                }
+            }
+        });
+
+        return response()->json(['ok' => true]);
     }
 
     /**
