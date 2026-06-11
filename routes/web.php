@@ -1154,21 +1154,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/tasks/{task}/complete', [CommandCenterTaskController::class, 'complete'])->name('command-center.tasks.complete');
         Route::patch('/tasks/{task}/status', [CommandCenterTaskController::class, 'updateStatus'])->name('command-center.tasks.update-status');
 
-        // Market Intelligence
-        Route::get('/settings/market-intelligence', function () {
-            $records = \Illuminate\Support\Facades\DB::table('property_sold_records')->whereNull('property_id')->orderByDesc('sold_date')->paginate(25);
-            return view('command-center.settings.market-intelligence', ['records' => $records]);
-        })->middleware('permission:command_center.settings')->name('command-center.settings.market-intelligence');
-        Route::post('/settings/market-intelligence', function (\Illuminate\Http\Request $request) {
-            $data = $request->validate(['address' => 'required|string', 'suburb' => 'required|string', 'area' => 'nullable|string', 'sold_price' => 'required|numeric', 'sold_date' => 'required|date', 'property_type' => 'nullable|string', 'bedrooms' => 'nullable|integer', 'sqm' => 'nullable|numeric', 'source_reference' => 'required|string']);
-            \Illuminate\Support\Facades\DB::table('property_sold_records')->insert(array_merge($data, ['source' => 'manual', 'captured_by_user_id' => auth()->id(), 'captured_at' => now(), 'agency_id' => auth()->user()->effectiveAgencyId() ?? 1, 'created_at' => now(), 'updated_at' => now()]));
-            return back()->with('success', 'Market intelligence record added.');
-        })->middleware('permission:command_center.settings')->name('command-center.settings.market-intelligence.store');
-        Route::post('/settings/market-intelligence/{id}/verify', function (int $id) {
-            \Illuminate\Support\Facades\DB::table('property_sold_records')->where('id', $id)->update(['verified' => true, 'verified_by_user_id' => auth()->id(), 'verified_at' => now()]);
-            return back()->with('success', 'Record verified.');
-        })->middleware('permission:command_center.settings')->name('command-center.settings.market-intelligence.verify');
-
         // Buyer Portal Links — agent management
         Route::post('/buyers/portal-links/generate', function (\Illuminate\Http\Request $request) {
             $request->validate(['contact_id' => 'required|integer|exists:contacts,id']);

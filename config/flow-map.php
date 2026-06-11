@@ -343,16 +343,6 @@ return [
             'route' => 'command-center.settings.contact-governance', 'permission' => 'access_settings', 'icon' => 'contacts',
             'steps' => [], 'emits' => [], 'next' => [],
         ],
-        [
-            'key' => 'mi-settings', 'label' => 'Market Intelligence Settings',
-            'description' => 'Tune the suburb mapping, price bands and bedroom segments prospecting uses.',
-            'category' => 'config', 'pillar' => 'admin',
-            'route' => 'command-center.settings.market-intelligence', 'permission' => 'access_settings', 'icon' => 'radar',
-            'steps' => [],
-            'emits' => ['SuburbMappingChanged', 'PriceBandConfigured', 'BedroomSegmentConfigured', 'TownConfigured', 'PropertyTypeConfigured'],
-            'next' => ['prospecting'],
-        ],
-
         // ── System & Developer ─────────────────────────────────────────────
         [
             'key' => 'agency-management', 'label' => 'Agency Management',
