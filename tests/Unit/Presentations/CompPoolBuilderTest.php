@@ -24,13 +24,14 @@ class CompPoolBuilderTest extends TestCase
         return CompPoolBuilder::configForAgency(null);
     }
 
-    private function cand(int $price, string $type = 'House', ?int $size = null, ?float $lat = null, ?float $lng = null, bool $exempt = false, $key = null): array
+    private function cand(int $price, string $type = 'House', ?int $size = null, ?float $lat = null, ?float $lng = null, bool $exempt = false, $key = null, ?string $titleType = null): array
     {
         return [
             'key'           => $key ?? $price,
             'price'         => $price,
             'size_m2'       => $size,
             'property_type' => $type,
+            'title_type'    => $titleType,
             'lat'           => $lat,
             'lng'           => $lng,
             'exempt'        => $exempt,
@@ -117,17 +118,74 @@ class CompPoolBuilderTest extends TestCase
         $this->assertCount(5, $res['selected_keys']);
     }
 
-    public function test_shortlist_caps_at_max_count_but_keeps_exempt(): void
+    public function test_shortlist_caps_exempt_comps_to_max_count(): void
     {
+        // AT-22 round-1 (Johan, 11 Jun): exemption waives the PRICE band only;
+        // exempt comps NO LONGER bypass the shortlist cap. This is the PRES 87
+        // failure mode — 94 exempt comps must collapse to max_count (15), not
+        // persist wholesale.
         $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => null, 'lng' => null, 'erf_m2' => null];
         $candidates = [];
-        for ($i = 0; $i < 25; $i++) {
-            $candidates[] = $this->cand(2_400_000 + $i * 1_000, 'House', key: "c$i");
+        for ($i = 0; $i < 30; $i++) {
+            // All exempt, spread across a wide price range (mimics the leak).
+            $candidates[] = $this->cand(300_000 + $i * 100_000, 'House', exempt: true, key: "ex$i");
         }
-        $candidates[] = $this->cand(800_000, 'House', exempt: true, key: 'exempt');
         $res = $this->builder()->select($subject, $candidates, $this->config());
-        $this->assertLessThanOrEqual(15, count($res['selected_keys']));
-        $this->assertContains('exempt', $res['selected_keys'], 'Exempt comp survives the shortlist cap');
+        $this->assertCount(15, $res['selected_keys'], 'Exempt comps must still be capped at max_count');
+    }
+
+    public function test_exempt_waives_price_only_not_the_type_gate(): void
+    {
+        // An analyst-vetted (exempt) SECTIONAL comp must still be excluded from
+        // a freehold subject's pool — exemption does not wave it through type.
+        $subject = ['title_type' => \App\Services\TitleTypeClassifier::TITLE_FULL, 'property_type' => 'House', 'lat' => null, 'lng' => null, 'erf_m2' => null];
+        $candidates = [
+            $this->cand(2_400_000, 'House', key: 'h1'),
+            $this->cand(2_500_000, 'House', key: 'h2'),
+            $this->cand(2_300_000, 'House', key: 'h3'),
+            $this->cand(2_400_000, 'Residence', exempt: true, key: 'exempt_sectional', titleType: \App\Services\TitleTypeClassifier::TITLE_SECTIONAL),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        $this->assertNotContains('exempt_sectional', $res['selected_keys'], 'Exempt sectional comp must still fail the freehold type gate');
+    }
+
+    public function test_exempt_obeys_radius(): void
+    {
+        // Exempt comp far outside the radius must be dropped when near comps
+        // already satisfy min_count (exemption no longer bypasses radius).
+        $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => 0.0, 'lng' => 0.0, 'erf_m2' => null];
+        $candidates = [];
+        for ($i = 0; $i < 6; $i++) {
+            $candidates[] = $this->cand(2_400_000 + $i * 10_000, 'House', lat: 0.0, lng: 0.0005, key: "near$i"); // ~55m
+        }
+        // ~0.05 deg ≈ 5.5km — well outside the 3000m ceiling.
+        $candidates[] = $this->cand(2_400_000, 'House', lat: 0.0, lng: 0.05, exempt: true, key: 'exempt_far');
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        $this->assertNotContains('exempt_far', $res['selected_keys'], 'Exempt comp beyond the radius ceiling must be dropped');
+    }
+
+    public function test_subject_anchor_drives_the_band_not_the_pool_median(): void
+    {
+        // The §1.5 R1.1M trap: a pool dominated by sub-R1M sales. Without a
+        // subject anchor the band would centre ~R900k and KEEP them. With the
+        // subject asking (R2.9M) as anchor, the sub-R1M sales fall outside the
+        // ±25% band (R2.175M–R3.625M) and are excluded.
+        $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => null, 'lng' => null, 'erf_m2' => null, 'anchor_price' => 2_900_000];
+        $candidates = [
+            $this->cand(2_600_000, 'House', key: 'on_profile_1'),
+            $this->cand(2_900_000, 'House', key: 'on_profile_2'),
+            $this->cand(3_100_000, 'House', key: 'on_profile_3'),
+            $this->cand(620_000,  'House', key: 'cheap_1'),
+            $this->cand(800_000,  'House', key: 'cheap_2'),
+            $this->cand(900_000,  'House', key: 'cheap_3'),
+            $this->cand(960_000,  'House', key: 'cheap_4'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        foreach (['cheap_1', 'cheap_2', 'cheap_3', 'cheap_4'] as $k) {
+            $this->assertNotContains($k, $res['selected_keys'], "Sub-R1M sale $k must fall outside the asking-anchored band");
+        }
+        $this->assertContains('on_profile_2', $res['selected_keys']);
+        $this->assertSame(2_900_000, $res['diagnostics']['anchor_used'], 'Band must anchor on the subject value');
     }
 
     public function test_empty_when_no_usable_candidates(): void

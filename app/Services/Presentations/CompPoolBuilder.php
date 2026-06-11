@@ -89,12 +89,14 @@ final class CompPoolBuilder
      * Run the gate-then-rank pipeline.
      *
      * @param  array  $subject  ['title_type'=>?string, 'property_type'=>?string,
-     *                           'lat'=>?float, 'lng'=>?float, 'erf_m2'=>?int]
+     *                           'lat'=>?float, 'lng'=>?float, 'erf_m2'=>?int,
+     *                           'anchor_price'=>?int]  (anchor_price = subject
+     *                           asking / market estimate for the price band)
      * @param  list<array>  $candidates  each:
      *     ['key'=>mixed, 'price'=>int, 'size_m2'=>?int, 'property_type'=>?string,
-     *      'lat'=>?float, 'lng'=>?float, 'exempt'=>bool]
-     *     ('exempt' = same-subject report OR trusted-internal deal — exempt
-     *      from the price gate and never dropped by the shortlist.)
+     *      'title_type'=>?string, 'lat'=>?float, 'lng'=>?float, 'exempt'=>bool]
+     *     ('exempt' = same-subject report OR trusted-internal deal — waives the
+     *      PRICE band ONLY; still type-gated, radius-bound and shortlist-capped.)
      * @param  array  $config  output of configForAgency()
      * @return array{
      *   selected: list<array>,        // candidate rows that survived, ranked
@@ -113,6 +115,10 @@ final class CompPoolBuilder
         $sLat = $this->floatOrNull($subject['lat'] ?? null);
         $sLng = $this->floatOrNull($subject['lng'] ?? null);
         $sErf = $this->intOrNull($subject['erf_m2'] ?? null);
+        // AT-22 §1.5 — subject-derived band anchor (asking / market estimate).
+        // When present it anchors the price gate, so a pool polluted with
+        // off-profile sales cannot drag the band down (the R927k/R1.1M trap).
+        $sAnchorPrice = $this->intOrNull($subject['anchor_price'] ?? null);
 
         // Normalise candidates: attach category, kind, distance.
         $norm = [];
@@ -130,7 +136,7 @@ final class CompPoolBuilder
                 'key'        => $c['key'] ?? null,
                 'price'      => $price,
                 'size_m2'    => $this->intOrNull($c['size_m2'] ?? null),
-                'category'   => $this->category($classifier, null, $c['property_type'] ?? null),
+                'category'   => $this->category($classifier, $c['title_type'] ?? null, $c['property_type'] ?? null),
                 'kind'       => $this->kind($c['property_type'] ?? null),
                 'distance_m' => $dist,
                 'exempt'     => (bool) ($c['exempt'] ?? false),
@@ -143,12 +149,11 @@ final class CompPoolBuilder
         // ── Stage A.1 — TYPE hard-gate (never cross freehold ↔ sectional) ──
         // A candidate is dropped only when BOTH the subject and candidate
         // resolve to a known, DIFFERENT title category. Unknown/other on
-        // either side does not force a drop (the title gate already runs in
-        // the hydrator; this mirrors its fail-open-on-unknown posture).
+        // either side does not force a drop (fail-open-on-unknown posture).
+        // AT-22 round-1: exempt (analyst-vetted) comps are NO LONGER waved
+        // through the type gate — a vetted sectional comp must not pollute a
+        // freehold pool. Exemption waives the PRICE band only (Johan, 11 Jun).
         $typeGated = array_values(array_filter($norm, function ($c) use ($subjectCat) {
-            if ($c['exempt']) {
-                return true;
-            }
             if ($subjectCat === null || $c['category'] === null
                 || $subjectCat === TitleTypeClassifier::TITLE_OTHER
                 || $c['category'] === TitleTypeClassifier::TITLE_OTHER) {
@@ -162,16 +167,24 @@ final class CompPoolBuilder
             return $this->emptyResult($config, $diagnostics);
         }
 
-        // ── Stage A.2 — provisional robust anchor (median of type-gated) ──
-        // This is the §1.5 robust anchor: median of the cleaned, type-matched
-        // pool, NOT the raw all-comps median that produced R1.1M.
+        // ── Stage A.2 — band anchor ────────────────────────────────────────
+        // §1.5: prefer the SUBJECT-derived anchor (asking / market estimate)
+        // so a polluted pool can't drag the band down. Only when no subject
+        // anchor is supplied do we fall back to the type-gated median (which
+        // is itself reliable once the type gate has removed off-category
+        // sales). The raw all-comps median that produced R1.1M is never used.
         $anchorBroad = $this->median(array_map(fn ($c) => $c['price'], $typeGated));
-        $diagnostics['anchor_broad'] = $anchorBroad;
+        $bandAnchor  = ($sAnchorPrice !== null && $sAnchorPrice > 0) ? $sAnchorPrice : $anchorBroad;
+        $diagnostics['anchor_broad']   = $anchorBroad;
+        $diagnostics['anchor_subject'] = $sAnchorPrice;
+        $diagnostics['anchor_used']    = $bandAnchor;
 
-        // ── Stage A.3 — PRICE band gate (around the robust anchor) ─────────
+        // ── Stage A.3 — PRICE band gate (around the band anchor) ───────────
+        // Exempt (analyst-vetted) comps waive ONLY this price band — they are
+        // still type-gated above and radius/shortlist-bound below.
         $bandPct = (float) $config['price_band_pct'];
-        $low  = (int) floor($anchorBroad * (1 - $bandPct / 100));
-        $high = (int) ceil($anchorBroad * (1 + $bandPct / 100));
+        $low  = $bandAnchor !== null ? (int) floor($bandAnchor * (1 - $bandPct / 100)) : 0;
+        $high = $bandAnchor !== null ? (int) ceil($bandAnchor * (1 + $bandPct / 100)) : PHP_INT_MAX;
         $priceGated = array_values(array_filter($typeGated, function ($c) use ($low, $high) {
             return $c['exempt'] || ($c['price'] >= $low && $c['price'] <= $high);
         }));
@@ -231,8 +244,9 @@ final class CompPoolBuilder
     /**
      * Select price-gated comps within the radius ladder, widening until
      * min_count resolves or the ladder ends. Coord-less comps (distance
-     * null — matched by suburb) and exempt comps always count (the suburb
-     * fallback keeps rural/coord-less mandates resolvable, spec §1).
+     * null — matched by suburb) always count (the suburb fallback keeps
+     * rural/coord-less mandates resolvable, spec §1). Exempt comps are NO
+     * LONGER radius-exempt (AT-22 round-1) — exemption waives price only.
      *
      * @param  list<array>  $pool
      * @param  list<int>    $ladder
@@ -243,8 +257,11 @@ final class CompPoolBuilder
         $lastSelected = [];
         $lastRadius   = $ladder[0] ?? self::DEF_RADIUS_M;
         foreach ($ladder as $r) {
+            // AT-22 round-1: exempt comps no longer bypass radius — only
+            // coord-less comps (distance null, suburb-matched) still pass, to
+            // keep rural/coord-less mandates resolvable (spec §1).
             $sel = array_values(array_filter($pool, function ($c) use ($r) {
-                return $c['exempt'] || $c['distance_m'] === null || $c['distance_m'] <= $r;
+                return $c['distance_m'] === null || $c['distance_m'] <= $r;
             }));
             $lastSelected = $sel;
             $lastRadius   = $r;
@@ -350,13 +367,12 @@ final class CompPoolBuilder
         if ($maxCount <= 0 || count($ranked) <= $maxCount) {
             return $ranked;
         }
-        $exempt    = array_values(array_filter($ranked, fn ($c) => $c['exempt']));
-        $nonExempt = array_values(array_filter($ranked, fn ($c) => !$c['exempt']));
-        $slots     = max(0, $maxCount - count($exempt));
-        $kept      = array_merge($exempt, array_slice($nonExempt, 0, $slots));
-        // Re-sort the kept set by score for a stable ranked output.
-        usort($kept, fn ($a, $b) => $b['_score'] <=> $a['_score']);
-        return $kept;
+        // AT-22 round-1: exempt (analyst-vetted) comps no longer bypass the
+        // cap — they compete for the max_count slots by rank like any other
+        // comp. They still sort to the front via the +0.15 exemption boost in
+        // rank(), so a genuinely relevant vetted comp wins its slot; it just
+        // can't blow the pool past the cap (PRES 87: 94 exempt → capped to 15).
+        return array_slice($ranked, 0, $maxCount);
     }
 
     // ── Classification helpers ─────────────────────────────────────────────
