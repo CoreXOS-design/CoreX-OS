@@ -1308,6 +1308,49 @@ class SigningController extends Controller
                     continue;
                 }
             } elseif ($roleAllows) {
+                // [ES-5 cross-recipient write fix] Instance-ownership gate.
+                // The rendered field key carries the per-recipient instance as
+                // a "__r{N}" suffix (a bare name = instance 1). It MUST belong
+                // to THIS viewer (their role_index) — otherwise a seller could
+                // truthfully claim their own identity yet target another
+                // seller's "__r{N}" storage slot (the storage key is taken
+                // verbatim downstream, so authorising on logical-name + identity
+                // alone left the instance unchecked). Fail-safe: any malformed
+                // suffix, __r0, or instance mismatch is DENIED — never an
+                // ambiguous key gets authorised. Agent + legacy (static-map)
+                // lanes above are intentionally unaffected.
+                $viewerInstance = (int) ($signingRequest->role_index ?? 1);
+                if ($viewerInstance < 1) {
+                    $viewerInstance = 1;
+                }
+                if (preg_match('/__r(\d+)$/', $fieldKey, $rm)) {
+                    $keyInstance = (int) $rm[1];
+                } elseif (str_contains($fieldKey, '__r')) {
+                    // A "__r…" token that is not a clean "__r{positive int}"
+                    // (e.g. "__r", "__rX", "__r1x") is malformed — deny.
+                    return [
+                        'accepted'  => $accepted,
+                        'violation' => [
+                            'field'    => (string) $fieldKey,
+                            'identity' => $claimedIdentity,
+                            'reason'   => 'Malformed instance suffix on field ' . $fieldKey,
+                        ],
+                    ];
+                } else {
+                    $keyInstance = 1;
+                }
+                if ($keyInstance < 1 || $keyInstance !== $viewerInstance) {
+                    return [
+                        'accepted'  => $accepted,
+                        'violation' => [
+                            'field'    => (string) $fieldKey,
+                            'identity' => $claimedIdentity,
+                            'reason'   => 'Field instance ' . $keyInstance
+                                . ' not owned by viewer instance ' . $viewerInstance,
+                        ],
+                    ];
+                }
+
                 // Per-instance identity check: when the incoming payload
                 // claims an identity, the viewer's must match. When no
                 // identity is claimed (legacy client), require the

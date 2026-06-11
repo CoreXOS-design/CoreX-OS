@@ -207,4 +207,75 @@ final class EditableAtSigningValuePersistenceTest extends TestCase
         $this->assertStringContainsString($addr2, $signed, 'filed signed_paginated_html must carry the edited value');
         $this->assertStringNotContainsString('<input', $signed, 'editable inputs must be frozen to text in the filed artifact');
     }
+
+    // ── ES-5 cross-recipient write hole (Tinker-found) — instance-ownership gate ──
+
+    /**
+     * Post a raw payload with a caller-chosen original_field — lets a test
+     * craft the exact (storage key, claimed logical field) pair an attacker
+     * controls (the stripping saveField() helper can't express a clean
+     * original_field alongside a malformed key).
+     */
+    private function saveRawField(string $token, string $fieldKey, string $originalField, string $value, string $identity): \Illuminate\Testing\TestResponse
+    {
+        return $this->withoutMiddleware(ValidateCsrfToken::class)
+            ->postJson('/sign/' . $token . '/save-web-fields', [
+                'fields' => [
+                    $fieldKey => [
+                        'value'          => $value,
+                        'identity'       => $identity,
+                        'original_field' => $originalField,
+                    ],
+                ],
+            ]);
+    }
+
+    /** Fail-safe: a malformed "__r" suffix (non-numeric / empty) is denied, never authorised. */
+    public function test_malformed_instance_suffix_is_denied(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 2);
+        $seller1 = $this->recipient($session['recipients'], 'seller', 1);
+        // Truthful clean original_field, but a malformed mangled storage key.
+        $this->saveRawField($seller1->token, 'seller_address__rX', 'seller_address', 'x', 'seller_1')->assertStatus(403);
+        $this->saveRawField($seller1->token, 'seller_address__r', 'seller_address', 'x', 'seller_1')->assertStatus(403);
+    }
+
+    /** Fail-safe: __r0 (invalid instance index) is denied. */
+    public function test_instance_zero_suffix_is_denied(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 2);
+        $seller1 = $this->recipient($session['recipients'], 'seller', 1);
+        $this->saveRawField($seller1->token, 'seller_address__r0', 'seller_address', 'x', 'seller_1')->assertStatus(403);
+    }
+
+    /** Fail-safe: an instance beyond the viewer's own (incl. beyond party count) is denied. */
+    public function test_instance_beyond_viewer_is_denied(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 2);
+        $seller1 = $this->recipient($session['recipients'], 'seller', 1);
+        $this->saveRawField($seller1->token, 'seller_address__r9', 'seller_address', 'x', 'seller_1')->assertStatus(403);
+    }
+
+    /** A denied cross-recipient write is recorded in the immutable audit log. */
+    public function test_cross_recipient_write_is_audited(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 2);
+        $seller1 = $this->recipient($session['recipients'], 'seller', 1);
+        $before = \App\Models\Docuperfect\SignatureAuditLog::where('action', 'web_fields_save_denied')->count();
+        $this->saveRawField($seller1->token, 'seller_address__r2', 'seller_address', 'hijack', 'seller_1')->assertStatus(403);
+        $after = \App\Models\Docuperfect\SignatureAuditLog::where('action', 'web_fields_save_denied')->count();
+        $this->assertSame($before + 1, $after, 'a denied cross-recipient write must write a web_fields_save_denied audit row');
+    }
+
+    /** No regression: each seller still writes their OWN instance (the ES-5 flow dd1533c2 fixed). */
+    public function test_each_seller_can_still_write_own_instance(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 2);
+        $seller1 = $this->recipient($session['recipients'], 'seller', 1);
+        $seller2 = $this->recipient($session['recipients'], 'seller', 2);
+        $key1 = $this->editableFieldKey($this->extractRenderedDocumentHtml($this->asRecipient($seller1)), 'seller_address');
+        $key2 = $this->editableFieldKey($this->extractRenderedDocumentHtml($this->asRecipient($seller2)), 'seller_address');
+        $this->saveField($seller1->token, $key1, '1 Own Road', 'seller_1')->assertOk();
+        $this->saveField($seller2->token, $key2, '2 Own Road', 'seller_2')->assertOk();
+    }
 }
