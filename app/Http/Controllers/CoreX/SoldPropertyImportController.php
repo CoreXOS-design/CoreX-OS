@@ -103,7 +103,7 @@ class SoldPropertyImportController extends Controller
         }
 
         return view('corex.properties.import-sold', ['stage' => 'done', 'result' => $result])
-            ->with('success', "Imported {$result['created']} sold properties.");
+            ->with('success', "Import complete — {$result['created']} created, {$result['updated']} updated.");
     }
 
     /**

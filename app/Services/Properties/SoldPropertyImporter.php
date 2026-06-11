@@ -56,6 +56,12 @@ class SoldPropertyImporter
             if ($parsed === null) {
                 continue;
             }
+            $existing = $parsed['match_code']
+                ? Property::where('agency_id', $agencyId)
+                    ->where('p24_listing_number', $parsed['match_code'])
+                    ->exists()
+                : false;
+
             $rows[] = [
                 'row'                => $row,
                 'title'              => $parsed['data']['title'],
@@ -67,6 +73,7 @@ class SoldPropertyImporter
                 'matched_agent_name' => $parsed['detected']['primary_name'],
                 'second_agent_id'    => $parsed['detected']['second'],
                 'has_image'          => !empty($imageByRow[$row]),
+                'already_exists'     => $existing,
             ];
         }
         return $rows;
@@ -92,6 +99,7 @@ class SoldPropertyImporter
         $highestRow = $sheet->getHighestDataRow();
 
         $created    = 0;
+        $updated    = 0;
         $rowCount   = 0;
         $createdIds = [];
         $issues     = [];
@@ -115,17 +123,34 @@ class SoldPropertyImporter
             }
 
             try {
-                $data = $parsed['data'] + [
-                    'agent_id'           => $agentId,
-                    'pp_second_agent_id' => $secondAgentId,
-                    'agency_id'          => $agencyId,
-                    'branch_id'          => $branchId ?: $this->agentBranchId($agentId),
-                    'is_demo'            => false,
-                ];
+                // Match-or-create on the P24 Code within the agency (non-negotiable
+                // #10): never duplicate a listing CoreX already knows about — e.g.
+                // a P24/PP-synced property, or a row from a previous import run.
+                $existing = $parsed['match_code']
+                    ? Property::where('agency_id', $agencyId)
+                        ->where('p24_listing_number', $parsed['match_code'])
+                        ->first()
+                    : null;
 
-                $property = Property::create($data);
+                if ($existing) {
+                    $property = $this->updateExisting($existing, $parsed['data'], $agentId, $secondAgentId);
+                    $updated++;
+                } else {
+                    $data = $parsed['data'] + [
+                        'agent_id'           => $agentId,
+                        'pp_second_agent_id' => $secondAgentId,
+                        'agency_id'          => $agencyId,
+                        'branch_id'          => $branchId ?: $this->agentBranchId($agentId),
+                        'is_demo'            => false,
+                    ];
+                    $property = Property::create($data);
+                    $created++;
+                    $createdIds[] = $property->id;
+                }
 
-                if (!empty($imageByRow[$row])) {
+                // Primary photo — set only when the property has no image yet, so
+                // we never wipe a richer synced gallery.
+                if (!empty($imageByRow[$row]) && empty($property->images_json)) {
                     $url = $this->storeImage($imageByRow[$row], $property->id);
                     if ($url !== null) {
                         $property->images_json = [$url];
@@ -157,9 +182,6 @@ class SoldPropertyImporter
                     'occurred_at'       => now(),
                     'logged_by_user_id' => $actor->id,
                 ]);
-
-                $created++;
-                $createdIds[] = $property->id;
             } catch (\Throwable $e) {
                 $issues[] = "Row {$row}: " . $e->getMessage();
             }
@@ -167,10 +189,49 @@ class SoldPropertyImporter
 
         return [
             'created'    => $created,
+            'updated'    => $updated,
             'rows'       => $rowCount,
             'properties' => $createdIds,
             'issues'     => $issues,
         ];
+    }
+
+    /**
+     * Update an existing property (synced or previously imported) to reflect the
+     * sold export: mark sold, set the confirmed agent, and fill in any fields
+     * that are currently empty — without clobbering existing populated values.
+     */
+    private function updateExisting(Property $property, array $data, int $agentId, ?int $secondAgentId): Property
+    {
+        $property->status   = 'sold';
+        $property->agent_id = $agentId;
+        if ($secondAgentId) {
+            $property->pp_second_agent_id = $secondAgentId;
+        }
+
+        // Self-heal: external_id must be a UUID. Earlier buggy import runs wrote
+        // the sheet reference code here — replace any non-UUID value.
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', (string) $property->external_id)) {
+            $property->external_id = (string) \Illuminate\Support\Str::uuid();
+        }
+
+        // Fill-only: never overwrite a non-empty existing value.
+        foreach ($data as $key => $value) {
+            if (in_array($key, ['status'], true)) {
+                continue;
+            }
+            if ($value === null || $value === '' || $value === []) {
+                continue;
+            }
+            $current = $property->getAttribute($key);
+            if ($current === null || $current === '' || $current === 0 || $current === '0' || $current === []) {
+                $property->setAttribute($key, $value);
+            }
+        }
+
+        $property->save();
+
+        return $property;
     }
 
     // ── Row parsing (shared by preview + import) ────────────────────────────
@@ -224,16 +285,20 @@ class SoldPropertyImporter
             'levy'               => $this->parseFloat($get('levy')),
             'features_json'      => $this->parseFeatures($get('keywords')),
             'description'        => trim((string) $get('tags')) ?: null,
-            'external_id'        => trim((string) $get('reference_code')) ?: null,
+            // Do NOT set external_id: it is an auto-generated unique UUID
+            // (Property::creating). The sheet "Reference Code" is unreliable
+            // (repeats, junk values like "Prospect"/"canvas") and writing it here
+            // breaks the unique constraint. The P24 "Code" is the match key.
             'p24_listing_number' => trim((string) $get('code')) ?: null,
             'listed_date'        => $this->parseDate($get('listed')),
             'expiry_date'        => $this->parseDate($get('expire')),
         ];
 
         return [
-            'data'      => $data,
-            'detected'  => $agents,
-            'sold_date' => $soldDate,
+            'data'       => $data,
+            'detected'   => $agents,
+            'sold_date'  => $soldDate,
+            'match_code' => trim((string) $get('code')) ?: null,
         ];
     }
 

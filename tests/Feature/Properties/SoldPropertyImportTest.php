@@ -87,6 +87,7 @@ class SoldPropertyImportTest extends TestCase
         @unlink($path);
 
         $this->assertSame(2, $result['created']);
+        $this->assertSame(0, $result['updated']);
         $this->assertEmpty($result['issues']);
 
         // Auto-matched property
@@ -103,6 +104,10 @@ class SoldPropertyImportTest extends TestCase
         $this->assertSame('Open', $p->mandate_type);
         $this->assertNotEmpty($p->images_json);
 
+        // external_id must be an auto-generated UUID, NOT the sheet reference code.
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-/', (string) $p->external_id);
+        $this->assertSame('1541913', $p->p24_listing_number);
+
         $relative = str_replace('/storage/', '', parse_url($p->images_json[0], PHP_URL_PATH));
         Storage::disk('public')->assertExists($relative);
 
@@ -115,6 +120,26 @@ class SoldPropertyImportTest extends TestCase
         $this->assertNotNull($ghost);
         $this->assertSame('sold', $ghost->status);
         $this->assertSame($this->otherAgent->id, $ghost->agent_id);
+    }
+
+    public function test_reimport_matches_existing_on_p24_code_instead_of_duplicating(): void
+    {
+        Storage::fake('public');
+        $this->actingAs($this->owner);
+
+        $path1 = $this->buildSpreadsheet();
+        app(SoldPropertyImporter::class)->import($path1, $this->owner, [3 => $this->otherAgent->id]);
+        @unlink($path1);
+        $this->assertSame(2, Property::count());
+
+        // Re-import the same file → must update existing, not duplicate.
+        $path2 = $this->buildSpreadsheet();
+        $result = app(SoldPropertyImporter::class)->import($path2, $this->owner, [3 => $this->otherAgent->id]);
+        @unlink($path2);
+
+        $this->assertSame(0, $result['created']);
+        $this->assertSame(2, $result['updated']);
+        $this->assertSame(2, Property::count(), 'Re-import must not create duplicate properties.');
     }
 
     public function test_non_owner_cannot_access_import_route(): void
@@ -140,10 +165,10 @@ class SoldPropertyImportTest extends TestCase
         $rows = [
             ['addr' => "16 Winston road,\nUvongo Beach,\nMargate,\nKwaZulu Natal", 'price' => '1,245,000',
              'region' => 'Uvongo Beach, Margate, KwaZulu Natal', 'mandate' => 'Open',
-             'bed' => '3', 'agents' => 'Elize Reichel', 'image' => true],
+             'bed' => '3', 'agents' => 'Elize Reichel', 'code' => '1541913', 'image' => true],
             ['addr' => "99 Nowhere Street,\nGhost Town,\nKwaZulu Natal", 'price' => '500,000',
              'region' => 'Ghost Town, KwaZulu Natal', 'mandate' => 'Sole',
-             'bed' => '2', 'agents' => 'Nobody McMissing', 'image' => false],
+             'bed' => '2', 'agents' => 'Nobody McMissing', 'code' => '1525599', 'image' => false],
         ];
 
         $r = 2;
@@ -157,6 +182,7 @@ class SoldPropertyImportTest extends TestCase
             $sheet->setCellValue("H{$r}", $row['region']);
             $sheet->setCellValue("I{$r}", $row['mandate']);
             $sheet->setCellValue("J{$r}", $row['bed']);
+            $sheet->setCellValueExplicit("T{$r}", $row['code'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
             $sheet->setCellValue("X{$r}", $row['agents']);
 
             if ($row['image']) {

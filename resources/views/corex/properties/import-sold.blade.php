@@ -55,7 +55,10 @@
 
     {{-- ───────────── Step 2: Review & assign ───────────── --}}
     @if ($stage === 'review')
-        @php $unmatched = collect($rows)->whereNull('matched_agent_id')->count(); @endphp
+        @php
+            $unmatched = collect($rows)->whereNull('matched_agent_id')->count();
+            $existingCount = collect($rows)->where('already_exists', true)->count();
+        @endphp
         <form method="POST" action="{{ route('corex.properties.import-sold.run') }}" class="space-y-4">
             @csrf
             <input type="hidden" name="token" value="{{ $token }}">
@@ -66,6 +69,9 @@
                     <span style="color:#f59e0b;"><strong>{{ $unmatched }}</strong> have no matched agent — choose one for each (highlighted) before importing.</span>
                 @else
                     All agents auto-matched. Review and confirm.
+                @endif
+                @if ($existingCount > 0)
+                    <span style="color:var(--text-muted);"> <strong>{{ $existingCount }}</strong> already in CoreX → will be updated (marked sold + agent set), not duplicated.</span>
                 @endif
             </div>
 
@@ -86,7 +92,12 @@
                         @foreach ($rows as $r)
                             <tr style="border-top:1px solid var(--border); {{ $r['matched_agent_id'] ? '' : 'background:rgba(245,158,11,0.08);' }}">
                                 <td class="px-3 py-2" style="color:var(--text-muted);">{{ $loop->iteration }}</td>
-                                <td class="px-3 py-2" style="color:var(--text-primary);">{{ $r['title'] }}</td>
+                                <td class="px-3 py-2" style="color:var(--text-primary);">
+                                    {{ $r['title'] }}
+                                    @if (!empty($r['already_exists']))
+                                        <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);">update</span>
+                                    @endif
+                                </td>
                                 <td class="px-3 py-2" style="color:var(--text-muted);">{{ $r['suburb'] }}</td>
                                 <td class="px-3 py-2 text-right" style="color:var(--text-primary);">{{ $r['price'] ? 'R ' . number_format($r['price']) : '—' }}</td>
                                 <td class="px-3 py-2" style="color:var(--text-muted);">{{ $r['agents_text'] ?: '—' }}</td>
@@ -124,10 +135,14 @@
     @if ($stage === 'done' && !empty($result))
         <div class="rounded-md p-6 space-y-4" style="background:var(--surface);border:1px solid var(--border);">
             <h2 class="text-base font-bold" style="color:var(--text-primary);">Import Result</h2>
-            <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="grid grid-cols-3 gap-3 text-sm">
                 <div class="rounded-md px-4 py-3" style="background:var(--surface-2);">
                     <div class="text-2xl font-bold" style="color:var(--brand-icon,#0ea5e9);">{{ $result['created'] }}</div>
-                    <div style="color:var(--text-muted);">Properties created</div>
+                    <div style="color:var(--text-muted);">Created</div>
+                </div>
+                <div class="rounded-md px-4 py-3" style="background:var(--surface-2);">
+                    <div class="text-2xl font-bold" style="color:var(--text-primary);">{{ $result['updated'] ?? 0 }}</div>
+                    <div style="color:var(--text-muted);">Updated (already existed)</div>
                 </div>
                 <div class="rounded-md px-4 py-3" style="background:var(--surface-2);">
                     <div class="text-2xl font-bold" style="color:var(--text-primary);">{{ $result['rows'] }}</div>
