@@ -483,7 +483,12 @@
                 garages:      m.garages,
                 erf_m2:       m.erf_size_m2 ? Math.round(m.erf_size_m2) : null,
                 floor_m2:     m.property_size_m2 ? Math.round(m.property_size_m2) : null,
-                agent_name:   m.agent_name || m.agency_name || null,
+                // AT-22 item 2 (CRITICAL): no third-party agency/agent name on
+                // the seller-facing card. The row still CARRIES agency_name for
+                // internal/provenance surfaces (e.g. the comp-picker modal) —
+                // the seller card simply does not emit it. A competitor brand
+                // on a Home Finders seller report is unshippable.
+                agent_name:   null,
                 ref:          m.portal_ref || null,
                 click_url:    m.portal_url || null,
                 badges:       badges,

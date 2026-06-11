@@ -50,10 +50,21 @@ final class PresentationStaticMapService
     public const HTTP_TIMEOUT_SEC = 10;
 
     /**
+     * AT-22 item 3: comp markers now carry `label:N` numbered pins keyed to
+     * the same ordered legend the SVG path emits, so the static-image path
+     * gets an identical HTML legend. Subject stays `label:S`.
+     *
      * @param array{lat:float,lng:float,title?:string|null} $subject
-     * @param array<int, array{lat:float,lng:float,title_type?:string|null}> $soldComps
-     * @param array<int, array{latitude?:?float,longitude?:?float,address?:?string|null}> $competition
-     * @return ?string Base64 PNG data URI ("data:image/png;base64,...") or null on failure / no key.
+     * @param array<int, array{lat:float,lng:float,title?:string|null,title_type?:string|null,price?:?int,sale_date?:?string,layer?:?string}> $soldComps
+     * @param array<int, array{latitude?:?float,longitude?:?float,address?:?string|null,title?:string|null,price?:?int}> $competition
+     *
+     * @return array{data_uri: ?string, legend: array<int, array{index:int, title:string, price:?int, sale_date:?string, distance_m:?int, layer:string, colour:string}>}
+     *         `data_uri` is the base64 PNG ("data:image/png;base64,...") or
+     *         null on failure / no key (caller falls back to the SVG path).
+     *         `legend` is the ordered point list — index N ↔ the marker
+     *         labelled N on the map — for the caller's HTML legend. The
+     *         legend is built even when the fetch fails so the caller can
+     *         decide; it is only empty when there is no subject GPS.
      */
     public function renderBase64(
         array $subject,
@@ -61,15 +72,19 @@ final class PresentationStaticMapService
         array $competition = [],
         int $width  = self::DEFAULT_WIDTH,
         int $height = self::DEFAULT_HEIGHT,
-    ): ?string {
+    ): array {
         $key = (string) config('services.google.static_maps_api_key', '');
-        if ($key === '') return null;
+        if ($key === '') {
+            return ['data_uri' => null, 'legend' => []];
+        }
 
-        if (!isset($subject['lat'], $subject['lng'])) return null;
+        if (!isset($subject['lat'], $subject['lng'])) {
+            return ['data_uri' => null, 'legend' => []];
+        }
         $subjectLat = (float) $subject['lat'];
         $subjectLng = (float) $subject['lng'];
 
-        $url = $this->buildUrl($subjectLat, $subjectLng, $soldComps, $competition, $width, $height, $key);
+        [$url, $legend] = $this->buildUrl($subjectLat, $subjectLng, $soldComps, $competition, $width, $height, $key);
 
         try {
             $resp = Http::timeout(self::HTTP_TIMEOUT_SEC)->get($url);
@@ -78,27 +93,51 @@ final class PresentationStaticMapService
                     'status' => $resp->status(),
                     'body'   => mb_substr((string) $resp->body(), 0, 200),
                 ]);
-                return null;
+                return ['data_uri' => null, 'legend' => $legend];
             }
             $body = $resp->body();
-            if ($body === '' || $body === false) return null;
+            if ($body === '' || $body === false) {
+                return ['data_uri' => null, 'legend' => $legend];
+            }
             // Sanity check — must look like a PNG (8-byte magic).
             if (substr($body, 0, 4) !== "\x89PNG") {
                 Log::warning('PresentationStaticMapService: response not a PNG');
-                return null;
+                return ['data_uri' => null, 'legend' => $legend];
             }
-            return 'data:image/png;base64,' . base64_encode($body);
+            return ['data_uri' => 'data:image/png;base64,' . base64_encode($body), 'legend' => $legend];
         } catch (\Throwable $e) {
             Log::warning('PresentationStaticMapService: fetch failed', ['err' => $e->getMessage()]);
-            return null;
+            return ['data_uri' => null, 'legend' => $legend];
         }
     }
 
+    /** Layer → legend swatch colour (CSS hex, mirrors the SVG palette). */
+    private const LEGEND_COLOURS = [
+        'sold_comps'       => '#3b82f6',
+        'active_listings'  => '#f59e0b',
+        'competitor_stock' => '#f59e0b',
+    ];
+
     /**
-     * Build the Google Static Maps URL with the three marker layers.
-     * Cap total markers at MAX_MARKERS so the URL stays under the
-     * length limit. Subject always present (1 marker); soldComps +
-     * competition split the remainder evenly when over the cap.
+     * Build the Google Static Maps URL with numbered comp markers + an
+     * ordered legend keyed to the same indices.
+     *
+     * AT-22 item 3: each comp gets its own `markers=` block with
+     * `label:N` so the pin number and the HTML legend share ONE source
+     * of truth. The subject stays `label:S`. Sold comps are numbered
+     * first, then competition — the SAME order the SVG path uses (sold +
+     * active first, competition last) so both paths key identically.
+     *
+     * Google Static Maps `label:` accepts a single alphanumeric glyph
+     * only. We label markers 1–9 with the digit and 10–35 with A–Z; the
+     * legend carries both the numeric `index` and the rendered
+     * `label_glyph` so the HTML legend shows exactly what the pin shows.
+     *
+     * Cap total markers at MAX_MARKERS so the URL stays under the length
+     * limit. Subject always present (1 marker); soldComps + competition
+     * split the remainder proportionally when over the cap.
+     *
+     * @return array{0: string, 1: array<int, array{index:int, label_glyph:string, title:string, price:?int, sale_date:?string, distance_m:?int, layer:string, colour:string}>}
      */
     private function buildUrl(
         float $subjectLat,
@@ -108,7 +147,7 @@ final class PresentationStaticMapService
         int $width,
         int $height,
         string $key,
-    ): string {
+    ): array {
         $params = [
             'size'    => $width . 'x' . $height,
             'scale'   => 2,                                  // retina-quality
@@ -141,41 +180,69 @@ final class PresentationStaticMapService
 
         // Marker spec lines — Google Static Maps `markers=` repeated.
         $markerLines = [];
+        $legend      = [];
 
-        // Subject — teal hex stand-in (Google has no hex shape; use
-        // a distinct large green pin with label "S").
+        // Subject — teal stand-in, distinct large pin with label "S".
         $markerLines[] = sprintf(
             'color:0x00d4aa|label:S|size:mid|%s,%s',
             number_format($subjectLat, 6, '.', ''),
             number_format($subjectLng, 6, '.', ''),
         );
 
-        // Sold comps — colour by title_type (mirrors the review map
-        // palette as close as Google's predefined colours allow; Google
-        // Static Maps accepts hex via 0xRRGGBB).
+        // Ordered comp list: sold/active first, competition last (mirrors
+        // the SVG path ordering). Each marker numbered with its index.
+        $index = 0;
+
         foreach ($soldPlottable as $c) {
-            $tt = $c['title_type'] ?? 'full_title';
+            $index++;
+            $glyph  = $this->labelGlyph($index);
+            $tt     = $c['title_type'] ?? 'full_title';
             $colour = match ($tt) {
                 'sectional_title' => '0x7c3aed',
                 'vacant_land'     => '0x06b6d4',
                 default           => '0x0b2a4a',  // full_title + other
             };
             $markerLines[] = sprintf(
-                'color:%s|size:small|%s,%s',
+                'color:%s|label:%s|size:small|%s,%s',
                 $colour,
+                $glyph,
                 number_format((float) $c['lat'], 6, '.', ''),
                 number_format((float) $c['lng'], 6, '.', ''),
             );
+            $layer = $c['layer'] ?? 'sold_comps';
+            $legend[] = [
+                'index'       => $index,
+                'label_glyph' => $glyph,
+                'title'       => (string) ($c['title'] ?? ('Comp ' . $index)),
+                'price'       => isset($c['price']) && $c['price'] !== null ? (int) $c['price'] : null,
+                'sale_date'   => $c['sale_date'] ?? null,
+                'distance_m'  => isset($c['distance_m']) && $c['distance_m'] !== null ? (int) $c['distance_m'] : null,
+                'layer'       => $layer,
+                'colour'      => self::LEGEND_COLOURS[$layer] ?? '#64748b',
+            ];
         }
 
-        // Competition stock — amber, distinct label "C" to read as the
-        // different stratum the review-map orange diamond conveys.
+        // Competition stock — amber, numbered, read as the different
+        // stratum the review-map orange diamond conveys.
         foreach ($compPlottable as $c) {
+            $index++;
+            $glyph = $this->labelGlyph($index);
             $markerLines[] = sprintf(
-                'color:0xf59e0b|label:C|size:small|%s,%s',
+                'color:0xf59e0b|label:%s|size:small|%s,%s',
+                $glyph,
                 number_format((float) $c['latitude'],  6, '.', ''),
                 number_format((float) $c['longitude'], 6, '.', ''),
             );
+            $legend[] = [
+                'index'       => $index,
+                'label_glyph' => $glyph,
+                'title'       => (string) ($c['title'] ?? ($c['address'] ?? ('Listing ' . $index))),
+                'price'       => isset($c['price']) && $c['price'] !== null ? (int) $c['price'] : null,
+                'sale_date'   => null,
+                'distance_m'  => isset($c['distance_m']) && $c['distance_m'] !== null ? (int) $c['distance_m'] : null,
+                'layer'       => 'competitor_stock',
+                'colour'      => self::LEGEND_COLOURS['competitor_stock'],
+            ];
         }
 
         // Build the URL. `markers=` is repeated once per marker spec,
@@ -186,6 +253,23 @@ final class PresentationStaticMapService
             $query .= '&markers=' . rawurlencode($line);
         }
 
-        return 'https://maps.googleapis.com/maps/api/staticmap?' . $query;
+        return ['https://maps.googleapis.com/maps/api/staticmap?' . $query, $legend];
+    }
+
+    /**
+     * Map a 1-based index to a single alphanumeric glyph Google Static
+     * Maps `label:` accepts: 1–9 → "1".."9", 10–35 → "A".."Z". Beyond 35
+     * we wrap to "Z" (35 numbered markers already exceeds any real comp
+     * set; the legend still carries the true numeric index).
+     */
+    private function labelGlyph(int $index): string
+    {
+        if ($index >= 1 && $index <= 9) {
+            return (string) $index;
+        }
+        if ($index >= 10 && $index <= 35) {
+            return chr(ord('A') + ($index - 10));
+        }
+        return 'Z';
     }
 }

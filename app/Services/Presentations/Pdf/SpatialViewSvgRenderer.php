@@ -7,52 +7,100 @@ namespace App\Services\Presentations\Pdf;
 use App\Support\MarketAnalytics\HaversineDistance;
 
 /**
- * Phase 3g V2 Part D5 — render a "spatial view" SVG for PresentationPdfService.
+ * AT-22 item 3 — render a decluttered, legible "spatial view" SVG for
+ * PresentationPdfService.
  *
- * DomPDF can't rasterise Leaflet, so we build a deliberately-simple chart:
- * the subject sits at the centre of a square canvas; each comp is placed
- * relative to the subject by computed bearing + distance (Haversine). The
- * canvas radius represents whatever the maximum comp distance is (or 1km
- * minimum), so all comps fit. Dots are labelled with address + price; a
- * subtle compass + scale bar gives context.
+ * The subject sits at the centre of the canvas; each comp is placed
+ * relative to the subject by computed bearing + distance (Haversine).
+ * The canvas radius represents the maximum comp distance (or 1km
+ * minimum), so all comps fit. A subtle compass + scale bar + ring grid
+ * give context.
  *
- * Pure PHP, no external deps. Returns an SVG markup string that the PDF
- * pipeline embeds inline.
+ * REDESIGN (AT-22 §3): the old renderer painted a full two-line address
+ * label next to EVERY dot, then ran a collision loop that gave up after
+ * 8 steps and accepted overlapping labels — with ~13 clustered comps the
+ * labels totally overprinted and the map was unreadable at PDF scale.
+ *
+ * The new design draws PINS ONLY on the map face: each comp is a
+ * colour-coded circle (colour by layer) with its LEGEND INDEX NUMBER
+ * (1, 2, 3…) centred inside it. Numbers are 1–2 chars and never
+ * overprint the way addresses did. The subject is a visually distinct
+ * teal marker with a heavier ring and an "S" glyph. The full address /
+ * price / date detail lives in a keyed legend rendered by the caller
+ * (PresentationPdfService) — render() returns an ordered point list so
+ * the pin numbers and the legend share ONE source of truth.
+ *
+ * The PDF engine is Chromium/Puppeteer (scripts/html-to-pdf.mjs), so
+ * full SVG + HTML/CSS + web fonts are available.
+ *
+ * Pure PHP, no external deps.
  */
 final class SpatialViewSvgRenderer
 {
+    /** Layer → pin colour. Mirrors the web/review map palette. */
+    private const COLOURS = [
+        'sold_comps'       => '#3b82f6',
+        'active_listings'  => '#f59e0b',
+        'competitor_stock' => '#f59e0b',
+        'mic_subjects'     => '#64748b',
+        'scheme_owners'    => '#8b5cf6',
+        'hfc_listings'     => '#00d4aa',
+    ];
+
+    private const DEFAULT_COLOUR = '#64748b';
+
+    /** Subject marker colour (teal, distinct from all comp colours). */
+    private const SUBJECT_COLOUR = '#0d9488';
+
     /**
+     * Render the spatial view.
+     *
      * @param array{lat: float, lng: float, title: string|null} $subject
-     * @param array<int, array{lat: float, lng: float, title: string|null, subtitle: string|null, layer: string, price: int|null, sale_date: string|null}> $comps
+     * @param array<int, array{lat: float, lng: float, title: string|null, subtitle?: string|null, layer: string, price: int|null, sale_date: string|null}> $comps
+     *
+     * @return array{svg: string, legend: array<int, array{index:int, title:string, price:?int, sale_date:?string, distance_m:int, layer:string, colour:string}>}
+     *         `svg` is the inline <svg> markup (or a fallback <div> when the
+     *         subject has no GPS, in which case `legend` is empty). `legend`
+     *         is the ordered point list — index N corresponds to the pin
+     *         labelled N on the map face — for the caller's HTML legend.
      */
-    public function render(array $subject, array $comps, int $widthPx = 540, int $heightPx = 360): string
+    public function render(array $subject, array $comps, int $widthPx = 540, int $heightPx = 360): array
     {
         if (!isset($subject['lat'], $subject['lng'])) {
-            return '<div style="padding:12px;font-size:11px;color:#64748b;">Subject GPS not available — spatial view not rendered.</div>';
+            return [
+                'svg'    => '<div style="padding:12px;font-size:11px;color:#64748b;">Subject GPS not available — spatial view not rendered.</div>',
+                'legend' => [],
+            ];
         }
 
         $subjectLat = (float) $subject['lat'];
         $subjectLng = (float) $subject['lng'];
 
-        // Compute polar coords (distance metres + bearing radians) per comp.
+        // Compute polar coords (distance metres + bearing radians) per comp,
+        // in input order — this order IS the legend index order.
         $points = [];
         $maxDistance = 0;
         foreach ($comps as $comp) {
-            if (!isset($comp['lat'], $comp['lng'])) continue;
+            if (!isset($comp['lat'], $comp['lng'])) {
+                continue;
+            }
             $cLat = (float) $comp['lat'];
             $cLng = (float) $comp['lng'];
             $d = HaversineDistance::distanceMetres($subjectLat, $subjectLng, $cLat, $cLng);
             $bearing = $this->bearingRad($subjectLat, $subjectLng, $cLat, $cLng);
+            $layer = $comp['layer'] ?? 'sold_comps';
             $points[] = [
-                'distance' => $d,
-                'bearing'  => $bearing,
-                'layer'    => $comp['layer']    ?? 'sold_comps',
-                'title'    => $comp['title']    ?? null,
-                'subtitle' => $comp['subtitle'] ?? null,
-                'price'    => $comp['price']    ?? null,
-                'sale_date'=> $comp['sale_date']?? null,
+                'distance'  => $d,
+                'bearing'   => $bearing,
+                'layer'     => $layer,
+                'title'     => $comp['title'] ?? null,
+                'price'     => $comp['price'] ?? null,
+                'sale_date' => $comp['sale_date'] ?? null,
+                'colour'    => self::COLOURS[$layer] ?? self::DEFAULT_COLOUR,
             ];
-            if ($d > $maxDistance) $maxDistance = $d;
+            if ($d > $maxDistance) {
+                $maxDistance = $d;
+            }
         }
 
         // Scale: canvas radius = max(1km, maxDistance × 1.1) so even one
@@ -66,138 +114,98 @@ final class SpatialViewSvgRenderer
         $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' . $widthPx . ' ' . $heightPx
             . '" style="width:100%;max-width:' . $widthPx . 'px;height:auto;font-family:Helvetica,Arial,sans-serif;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;">';
 
-        // Background ring grid (250m / 500m / 1km bands when they fit).
+        // Background ring grid (distance bands).
         $svg .= $this->renderGrid($cx, $cy, $r, $radiusMetres);
 
-        // Subject pin in the middle.
-        $svg .= '<circle cx="' . $cx . '" cy="' . $cy . '" r="9" fill="#00d4aa" stroke="#fff" stroke-width="2.5"/>';
-        $svg .= '<circle cx="' . $cx . '" cy="' . $cy . '" r="14" fill="none" stroke="#00d4aa" stroke-width="1" opacity="0.45"/>';
-        $subjectLabel = $this->escape($subject['title'] ?? 'Subject');
-        $svg .= '<text x="' . $cx . '" y="' . ($cy + 26) . '" text-anchor="middle" font-size="9" font-weight="700" fill="#0f172a">' . $subjectLabel . '</text>';
+        // Comp connector lines + pins. Detect exact-coincidence pins (same
+        // x,y after projection) and apply a deterministic spiral jitter so
+        // overlapping numbers stay readable. Connectors drawn first so pins
+        // sit on top.
+        $pinRadius = 8.5;
+        $numFontSize = 9.5;
 
-        // Comp dots — colour per layer matches the web map. The new
-        // 'competitor_stock' layer (orange diamond on the review map)
-        // shares the amber palette with the legacy 'active_listings'
-        // — both represent "active stock competing with subject" and
-        // the agent doesn't need them visually distinct in the PDF.
-        $colours = [
-            'sold_comps'       => '#3b82f6',
-            'active_listings'  => '#f59e0b',
-            'competitor_stock' => '#f59e0b',
-            'mic_subjects'     => '#64748b',
-            'scheme_owners'    => '#8b5cf6',
-            'hfc_listings'     => '#00d4aa',
-        ];
-
-        // Label-collision avoidance — Build 8 wire-up. Each label's
-        // estimated bounding box is checked against $usedRects; on
-        // collision we step the label outward (radially from centre) by
-        // a fixed unit until clear, capped at 8 attempts. Connector
-        // line draws from the dot to the displaced label so the reader
-        // can match label-to-pin. Pre-fix the array existed but was
-        // never appended to — clustered comps overlapped illegibly.
-        $usedRects = [];
-
+        // First pass: project to pixel coords.
+        $projected = [];
         foreach ($points as $i => $p) {
-            // Convert polar → SVG cartesian (y inverted because SVG +y is down).
             $rPx = ($p['distance'] / $radiusMetres) * $r;
-            $x = $cx + $rPx * sin($p['bearing']);
-            $y = $cy - $rPx * cos($p['bearing']);
+            $px = $cx + $rPx * sin($p['bearing']);
+            $py = $cy - $rPx * cos($p['bearing']);
+            $projected[$i] = ['x' => $px, 'y' => $py];
+        }
 
-            $colour = $colours[$p['layer']] ?? '#64748b';
-            $svg .= '<line x1="' . $cx . '" y1="' . $cy . '" x2="' . round($x, 1) . '" y2="' . round($y, 1) . '" stroke="#cbd5e1" stroke-width="0.5" opacity="0.5"/>';
-            $svg .= '<circle cx="' . round($x, 1) . '" cy="' . round($y, 1) . '" r="5" fill="' . $colour . '" stroke="#fff" stroke-width="1.5"/>';
-
-            // Label: address (truncated to 24 chars) + price.
-            $title = $this->escape(mb_substr($p['title'] ?? 'Comp ' . ($i + 1), 0, 24));
-            $priceTxt = $p['price'] ? 'R ' . number_format($p['price'], 0, '.', ' ') : '';
-            $dateTxt  = $p['sale_date'] ? \Carbon\Carbon::parse($p['sale_date'])->format('M Y') : '';
-
-            $label1 = $title;
-            $label2 = trim($priceTxt . ($dateTxt ? ' · ' . $dateTxt : ''));
-
-            // Estimate bounding box: 7px font ≈ 4px char width, two-line
-            // labels are ~18px tall.
-            $charPx       = 4.0;
-            $labelChars   = max(mb_strlen($p['title'] ?? '') > 24 ? 24 : mb_strlen($p['title'] ?? ''), mb_strlen($label2));
-            $labelWidth   = max(20, $labelChars * $charPx + 6);
-            $labelHeight  = $label2 !== '' ? 18 : 10;
-
-            // Direction to step the label when it collides — outward from
-            // centre, along the bearing. For a dot at the centre (no
-            // distance) step straight down so two centre-stacked pins
-            // don't infinite-collide.
-            if ($p['distance'] > 1) {
-                $stepX =  sin($p['bearing']);
-                $stepY = -cos($p['bearing']);
-            } else {
-                $stepX = 0;
-                $stepY = 1;
+        // Deterministic coincidence jitter: group pins by rounded coords;
+        // within a group, fan members out on a small index-derived spiral.
+        $coincidence = [];
+        foreach ($projected as $i => $pos) {
+            $bucket = round($pos['x'], 0) . ',' . round($pos['y'], 0);
+            $coincidence[$bucket][] = $i;
+        }
+        foreach ($coincidence as $members) {
+            if (count($members) < 2) {
+                continue;
             }
-            $stepUnit = 14;
-
-            // Initial label baseline: below the dot when in the upper
-            // half (so the label doesn't run off the top), above when
-            // in the lower half.
-            $labelX = $x;
-            $labelY = $y > $cy ? $y + 14 : $y - 10;
-
-            $rect = null;
-            for ($attempt = 0; $attempt < 8; $attempt++) {
-                $cand = [
-                    'x1' => $labelX - $labelWidth / 2,
-                    'y1' => $labelY - 6,
-                    'x2' => $labelX + $labelWidth / 2,
-                    'y2' => $labelY + $labelHeight,
-                ];
-                $collides = false;
-                foreach ($usedRects as $existing) {
-                    if ($cand['x1'] < $existing['x2'] && $cand['x2'] > $existing['x1']
-                        && $cand['y1'] < $existing['y2'] && $cand['y2'] > $existing['y1']) {
-                        $collides = true;
-                        break;
-                    }
+            // Spiral: each subsequent member steps out by ~10px at a fixed
+            // golden-angle turn — fully deterministic (index-derived).
+            foreach ($members as $rank => $i) {
+                if ($rank === 0) {
+                    continue;
                 }
-                if (!$collides) {
-                    $rect = $cand;
-                    break;
-                }
-                $labelX += $stepX * $stepUnit;
-                $labelY += $stepY * $stepUnit;
-            }
-            if ($rect === null) {
-                // Cap reached — accept the last candidate; minor overlap
-                // beats an infinite loop or a missing label.
-                $rect = [
-                    'x1' => $labelX - $labelWidth / 2,
-                    'y1' => $labelY - 6,
-                    'x2' => $labelX + $labelWidth / 2,
-                    'y2' => $labelY + $labelHeight,
-                ];
-            }
-            $usedRects[] = $rect;
-
-            // Draw a thin connector from the dot to the displaced label
-            // so the reader can still pair them up.
-            $displaced = abs($labelX - $x) > 1 || abs($labelY - ($y > $cy ? $y + 14 : $y - 10)) > 1;
-            if ($displaced) {
-                $svg .= '<line x1="' . round($x, 1) . '" y1="' . round($y, 1)
-                    . '" x2="' . round($labelX, 1) . '" y2="' . round($labelY - 4, 1)
-                    . '" stroke="' . $colour . '" stroke-width="0.5" opacity="0.55"/>';
-            }
-
-            $svg .= '<text x="' . round($labelX, 1) . '" y="' . round($labelY, 1) . '" text-anchor="middle" font-size="7" font-weight="600" fill="#1e293b">' . $label1 . '</text>';
-            if ($label2 !== '') {
-                $svg .= '<text x="' . round($labelX, 1) . '" y="' . round($labelY + 8, 1) . '" text-anchor="middle" font-size="6.5" fill="#475569">' . $this->escape($label2) . '</text>';
+                $angle = $rank * 2.39996; // golden angle (radians)
+                $step  = 10 + 3 * $rank;
+                $projected[$i]['x'] += $step * cos($angle);
+                $projected[$i]['y'] += $step * sin($angle);
             }
         }
+
+        // Connectors from centre to each pin.
+        foreach ($points as $i => $p) {
+            $px = round($projected[$i]['x'], 1);
+            $py = round($projected[$i]['y'], 1);
+            $svg .= '<line x1="' . $cx . '" y1="' . $cy . '" x2="' . $px . '" y2="' . $py
+                . '" stroke="#cbd5e1" stroke-width="0.6" opacity="0.5"/>';
+        }
+
+        // Pins on top of connectors.
+        foreach ($points as $i => $p) {
+            $px = round($projected[$i]['x'], 1);
+            $py = round($projected[$i]['y'], 1);
+            $index = $i + 1;
+            $svg .= '<circle cx="' . $px . '" cy="' . $py . '" r="' . $pinRadius . '" fill="' . $p['colour']
+                . '" stroke="#fff" stroke-width="1.6"/>';
+            $svg .= '<text x="' . $px . '" y="' . round($py + ($numFontSize * 0.35), 1)
+                . '" text-anchor="middle" font-size="' . $numFontSize
+                . '" font-weight="700" fill="#fff">' . $index . '</text>';
+        }
+
+        // Subject marker — drawn last so it sits above any nearby comp pin.
+        // Distinct: heavier double ring + "S" glyph, teal.
+        $svg .= '<circle cx="' . $cx . '" cy="' . $cy . '" r="16" fill="none" stroke="' . self::SUBJECT_COLOUR . '" stroke-width="1.4" opacity="0.4"/>';
+        $svg .= '<circle cx="' . $cx . '" cy="' . $cy . '" r="11" fill="' . self::SUBJECT_COLOUR . '" stroke="#fff" stroke-width="3"/>';
+        $svg .= '<text x="' . $cx . '" y="' . round($cy + 4, 1)
+            . '" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">S</text>';
 
         // Compass + scale bar.
         $svg .= $this->renderCompass($widthPx, $heightPx);
         $svg .= $this->renderScaleBar($widthPx, $heightPx, $cx, $r, $radiusMetres);
 
         $svg .= '</svg>';
-        return $svg;
+
+        // Ordered legend list — index N ↔ pin N. ONE source of truth shared
+        // with the pin numbers above and the caller's HTML legend.
+        $legend = [];
+        foreach ($points as $i => $p) {
+            $legend[] = [
+                'index'      => $i + 1,
+                'title'      => (string) ($p['title'] ?? ('Comp ' . ($i + 1))),
+                'price'      => $p['price'] !== null ? (int) $p['price'] : null,
+                'sale_date'  => $p['sale_date'] ?? null,
+                'distance_m' => (int) round($p['distance']),
+                'layer'      => $p['layer'],
+                'colour'     => $p['colour'],
+            ];
+        }
+
+        return ['svg' => $svg, 'legend' => $legend];
     }
 
     /**
@@ -256,10 +264,5 @@ final class SpatialViewSvgRenderer
             . '<line x1="' . $bx . '" y1="' . ($by - 3) . '" x2="' . $bx . '" y2="' . ($by + 3) . '" stroke="#0f172a" stroke-width="1.5"/>'
             . '<line x1="' . ($bx + $barPx) . '" y1="' . ($by - 3) . '" x2="' . ($bx + $barPx) . '" y2="' . ($by + 3) . '" stroke="#0f172a" stroke-width="1.5"/>'
             . '<text x="' . ($bx + $barPx / 2) . '" y="' . ($by - 5) . '" text-anchor="middle" font-size="7" fill="#0f172a">' . $label . '</text>';
-    }
-
-    private function escape(string $s): string
-    {
-        return htmlspecialchars($s, ENT_QUOTES | ENT_XML1, 'UTF-8');
     }
 }

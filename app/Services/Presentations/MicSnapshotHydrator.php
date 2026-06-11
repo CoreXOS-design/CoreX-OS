@@ -80,17 +80,78 @@ final class MicSnapshotHydrator
             ->delete();
 
         // ── Sold comps ─────────────────────────────────────────────────────
+        // AT-22 §1 — collect candidates out to the radius ceiling so the
+        // CompPoolBuilder widen-if-thin ladder has room to work, then gate
+        // (type → price band → radius ladder → divergence → rank) before
+        // persisting. The prior path persisted every suburb match at a
+        // 1000m radius with no price/erf gate, pulling sub-R1M tiny-erf
+        // sales. Spec .ai/specs/at22-presentation-quality.md §1 / §1.5.
+        $poolConfig = CompPoolBuilder::configForAgency($presentation->agency);
+        $compCfg = array_merge($cfg, [
+            'radius_m' => max((int) $cfg['radius_m'], (int) $poolConfig['radius_max_m']),
+        ]);
         $compRows = $this->collectMatchedRows(
-            $presentation, $cfg, MarketReportCompRow::ROW_COMP,
+            $presentation, $compCfg, MarketReportCompRow::ROW_COMP,
         );
         $deduped = $this->deduplicate($compRows, isSold: true);
+
+        $candidates = [];
+        foreach ($deduped as $i => $row) {
+            $salePrice = OutlierGuard::price($row->sale_price);
+            if ($salePrice === null) {
+                continue; // guard couldn't validate — would corrupt averages
+            }
+            // Exempt = analyst-vetted same-subject report OR trusted-internal
+            // deal: exempt from the price gate, never shortlist-dropped (§1).
+            $exempt = !empty($cfg['source_reports'])
+                && in_array((int) $row->market_report_id, $cfg['source_reports'], true);
+            if (!$exempt && !empty($row->raw_row_json) && is_string($row->raw_row_json)) {
+                $decoded = json_decode($row->raw_row_json, true);
+                $exempt = is_array($decoded) && !empty($decoded['trusted_internal_source']);
+            }
+            $candidates[] = [
+                'key'           => $i,
+                'price'         => $salePrice,
+                'size_m2'       => OutlierGuard::extentM2($row->extent_m2),
+                'property_type' => $row->property_type,
+                'lat'           => $row->latitude,
+                'lng'           => $row->longitude,
+                'exempt'        => $exempt,
+                'row'           => $row,
+            ];
+        }
+
+        $isSectional   = ($cfg['title_type'] === \App\Services\TitleTypeClassifier::TITLE_SECTIONAL);
+        $subjectProfile = [
+            'title_type'    => $cfg['title_type'],
+            'property_type' => $presentation->property?->property_type,
+            'lat'           => $cfg['subject_lat'],
+            'lng'           => $cfg['subject_lng'],
+            'erf_m2'        => $isSectional
+                ? ($presentation->property?->size_m2 ?? $presentation->floor_area_m2)
+                : ($presentation->property?->erf_size_m2
+                    ?? $presentation->erf_size_m2
+                    ?? $presentation->property?->size_m2),
+        ];
+
+        $poolResult  = (new CompPoolBuilder())->select($subjectProfile, $candidates, $poolConfig);
+        $radiusUsed  = $poolResult['radius_used'];
+        $poolAnchor  = $poolResult['anchor'];
+
+        \Illuminate\Support\Facades\Log::info('[AT-22] comp pool gated', [
+            'presentation_id' => $presentation->id,
+            'radius_used_m'   => $radiusUsed,
+            'widened'         => $poolResult['widened'],
+            'anchor'          => $poolAnchor,
+            'diagnostics'     => $poolResult['diagnostics'],
+        ]);
+
         $soldInserted = 0;
-        foreach ($deduped as $row) {
-            // Phase 3e B — sanitise comp price/extent before persisting.
+        foreach ($poolResult['selected'] as $cand) {
+            $row       = $cand['row'];
             $salePrice = OutlierGuard::price($row->sale_price);
             $sizeM2    = OutlierGuard::extentM2($row->extent_m2);
             if ($salePrice === null) {
-                // Skip rows the guard couldn't validate — they'd corrupt averages.
                 continue;
             }
             try {

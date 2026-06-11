@@ -142,6 +142,18 @@ class Agency extends Model
         // Build 8b — CmaComputeService cleaning controls (recency + IQR).
         'cma_compute_recency_months',
         'cma_compute_iqr_multiplier',
+        // AT-22 §0.1/§1/§1.5/§5 — comp-selection gate-then-rank + range thresholds.
+        // Read by App\Services\Presentations\CompPoolBuilder::configForAgency().
+        'comp_price_band_pct',
+        'comp_erf_band_pct',
+        'comp_radius_m',
+        'comp_radius_widen_steps',
+        'comp_radius_max_m',
+        'comp_min_count',
+        'comp_max_count',
+        'anchor_divergence_pct',
+        'range_lower_pct',
+        'range_upper_pct',
         // Competitor Stock — agency-configurable scorer thresholds.
         'competitor_stock_default_beds_tolerance',
         'competitor_stock_default_price_tolerance_pct',
@@ -241,6 +253,17 @@ class Agency extends Model
         // Build 8b — CmaComputeService cleaning controls.
         'cma_compute_recency_months' => 'integer',
         'cma_compute_iqr_multiplier' => 'decimal:2',
+        // AT-22 — comp-selection + range thresholds. widen_steps stays a
+        // string (CSV ladder, parsed by CompPoolBuilder::parseSteps).
+        'comp_price_band_pct'   => 'decimal:2',
+        'comp_erf_band_pct'     => 'decimal:2',
+        'comp_radius_m'         => 'integer',
+        'comp_radius_max_m'     => 'integer',
+        'comp_min_count'        => 'integer',
+        'comp_max_count'        => 'integer',
+        'anchor_divergence_pct' => 'decimal:2',
+        'range_lower_pct'       => 'integer',
+        'range_upper_pct'       => 'integer',
         // Competitor Stock — agency-configurable scorer thresholds.
         'competitor_stock_default_beds_tolerance'      => 'integer',
         'competitor_stock_default_price_tolerance_pct' => 'integer',

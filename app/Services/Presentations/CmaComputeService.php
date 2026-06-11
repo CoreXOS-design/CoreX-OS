@@ -97,6 +97,14 @@ final class CmaComputeService
         $recencyMo    = (int) ($agency?->cma_compute_recency_months ?? self::DEFAULT_RECENCY_MONTHS);
         $iqrMult      = (float) ($agency?->cma_compute_iqr_multiplier ?? self::DEFAULT_IQR_MULTIPLIER);
 
+        // AT-22 §5 — agency-configurable range percentiles. The recommended
+        // range is the comp distribution P25–P75 (defaults) around the CMA
+        // mid; these tune the band edges. Spec §5.
+        $rangeLowerPct = (int) ($agency?->range_lower_pct ?? CompPoolBuilder::DEF_RANGE_LOWER_PCT);
+        $rangeUpperPct = (int) ($agency?->range_upper_pct ?? CompPoolBuilder::DEF_RANGE_UPPER_PCT);
+        $lowerFrac = max(0.0, min(1.0, $rangeLowerPct / 100));
+        $upperFrac = max(0.0, min(1.0, $rangeUpperPct / 100));
+
         // ── PRE-CLEAN POOL (Build 8a contract) ──────────────────────────
         $preCleanPrices       = $this->extractPrices($inPoolComps);
         $preCleanPricesWithSz = $this->extractPricesWithSize($inPoolComps);
@@ -109,11 +117,25 @@ final class CmaComputeService
         $cleanedPrices        = $this->extractPrices($cleanedComps);
         $cleanedPricesWithSz  = $this->extractPricesWithSize($cleanedComps);
 
-        // pool_stats — distribution on the FULL pre-clean pool (Build 8a
-        // contract preserved) + cleaning audit trail (Build 8b additions).
+        // AT-22 §5 — distribution (min / p25 / median / p75 / max) now
+        // computed on the CLEANED pool so the recommended range (cma_lower
+        // = p25 → cma_upper = p75) is consistent with cma_middle (the
+        // cleaned-pool median) and free of the sub-R1M tiny-erf sales that
+        // the gate + cleaning remove. Pre-AT-22 these came off the raw
+        // pre-clean pool, so lower/upper leaked outliers the middle didn't.
+        // n_total / n_with_size stay = the full pre-clean pool size (their
+        // established meaning); the pre-clean distribution is preserved under
+        // 'preclean' for diagnostics. New-generations / live-recompute only;
+        // frozen snapshots keep their issued values.
+        $nWithSizeCleaned = count($cleanedPricesWithSz);
         $poolStats = array_merge(
-            $this->poolStats($preCleanPrices, $nWithSizePre),
+            $this->poolStats($cleanedPrices, $nWithSizeCleaned, $lowerFrac, $upperFrac),
             [
+                'n_total'              => $nTotalPre,
+                'n_with_size'          => $nWithSizePre,
+                'n_cleaned'            => count($cleanedPrices),
+                'range_lower_pct'      => $rangeLowerPct,
+                'range_upper_pct'      => $rangeUpperPct,
                 'n_after_recency_cut'  => $cleaning['n_after_recency'],
                 'n_after_outlier_cut'  => $cleaning['n_after_outlier'],
                 'excluded_by_recency'  => $nTotalPre - $cleaning['n_after_recency'],
@@ -121,6 +143,7 @@ final class CmaComputeService
                 'cleaning_fallback'    => $cleaning['fallback'],  // null | 'outlier_too_thin' | 'recency_too_thin'
                 'recency_months_used'  => $recencyMo,
                 'iqr_multiplier_used'  => $iqrMult,
+                'preclean'             => $this->poolStats($preCleanPrices, $nWithSizePre),
             ]
         );
 
@@ -280,7 +303,7 @@ final class CmaComputeService
      * @param  int          $nWithSize
      * @return array
      */
-    private function poolStats(array $sortedPricesAsc, int $nWithSize): array
+    private function poolStats(array $sortedPricesAsc, int $nWithSize, float $lowerFrac = 0.25, float $upperFrac = 0.75): array
     {
         $n = count($sortedPricesAsc);
         if ($n === 0) {
@@ -294,13 +317,18 @@ final class CmaComputeService
                 'max'         => null,
             ];
         }
+        // p25/p75 are the recommended-range slots — the fraction is
+        // agency-configurable (AT-22 §5), defaulting to the textbook
+        // quartiles. The key names stay p25/p75 (consumers read those
+        // slots); range_lower_pct/range_upper_pct in pool_stats record
+        // the actual fractions used.
         return [
             'n_total'     => $n,
             'n_with_size' => $nWithSize,
             'min'         => $this->toInt($sortedPricesAsc[0]),
-            'p25'         => $this->toInt($this->percentile($sortedPricesAsc, 0.25)),
+            'p25'         => $this->toInt($this->percentile($sortedPricesAsc, $lowerFrac)),
             'median'      => $this->toInt($this->percentile($sortedPricesAsc, 0.5)),
-            'p75'         => $this->toInt($this->percentile($sortedPricesAsc, 0.75)),
+            'p75'         => $this->toInt($this->percentile($sortedPricesAsc, $upperFrac)),
             'max'         => $this->toInt($sortedPricesAsc[$n - 1]),
         ];
     }

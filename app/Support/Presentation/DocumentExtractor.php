@@ -290,9 +290,136 @@ class DocumentExtractor
             $fields['suburb.latest_low']          = (string) $best['low'];
             $fields['suburb.latest_high']         = (string) $best['high'];
             $fields['suburb.latest_max']          = (string) $best['max'];
+
+            return $fields;
         }
 
+        // Step 5: Footer-summary fallback (Home-Finders per-sale list layout).
+        // When neither tabular table matched, the report is the per-sale transfer
+        // list with a SUMMARY FOOTER, e.g.:
+        //   "Residential (Full title) sales in RAMSGATE SOUTH for the last 12 months
+        //    <per-sale lines each with a price 'R 1 450 000'>
+        //    No of sales: 18   Median price: R 1 590 000   Average price: R 1 670 778"
+        // Emits the SAME field keys the consumer reads — never new keys.
+        $this->parseSuburbFooterSummary($text, $fields);
+
         return $fields;
+    }
+
+    /**
+     * Footer-summary fallback for the per-sale Home-Finders suburb report layout.
+     *
+     * Only meaningful values are emitted; derives low/high/max from the per-sale
+     * price column when the footer carries no explicit Low/High/Max labels
+     * (locked decision 5: an evidence-based range beats a blank). Mutates $fields
+     * in place using the existing suburb.* key convention.
+     */
+    private function parseSuburbFooterSummary(string $text, array &$fields): void
+    {
+        // Sales count — "No of sales: 18" (tolerate Number/Total, NBSP, case).
+        if (preg_match('/\b(?:No(?:\.|\s+of)?|Number\s+of|Total)\s+sales\s*[:\-]?\s*(\d{1,4})/iu', $text, $m)) {
+            $count = (int) $m[1];
+            if ($count > 0 && $count < 100000) {
+                $fields['suburb.latest_sales_count'] = (string) $count;
+            }
+        }
+
+        // Median price — "Median price: R 1 590 000" (strip spaces + NBSP).
+        if (preg_match('/\bMedian\s+price\s*[:\-]?\s*R?\s*([\d][\d\s\x{00A0},]*\d)/iu', $text, $m)) {
+            $median = (int) preg_replace('/[\s\x{00A0},]/u', '', $m[1]);
+            if ($median >= 10000) {
+                $fields['suburb.latest_median_price'] = (string) $median;
+            }
+        }
+
+        // Explicit Low / High / Max footer labels take precedence over derivation.
+        $explicitLow  = $this->matchSuburbFooterPrice($text, '(?:Lowest|Low|Min(?:imum)?)\s+(?:price|sale)?');
+        $explicitHigh = $this->matchSuburbFooterPrice($text, '(?:High|Upper)\s+(?:price|sale)?');
+        $explicitMax  = $this->matchSuburbFooterPrice($text, '(?:Highest|Max(?:imum)?)\s+(?:price|sale)?');
+
+        // Collect every "R <digits>" sale price in the body for derivation.
+        $salePrices = [];
+        if (preg_match_all('/R\s*([\d][\d\s\x{00A0},]*\d)/u', $text, $pm)) {
+            foreach ($pm[1] as $raw) {
+                $value = (int) preg_replace('/[\s\x{00A0},]/u', '', $raw);
+                // Plausible residential sale prices only — filters out r/m² style figures.
+                if ($value >= 100000 && $value <= 500000000) {
+                    $salePrices[] = $value;
+                }
+            }
+        }
+
+        // Low / High / Max — prefer explicit labels, else derive from the column.
+        if ($explicitLow !== null) {
+            $fields['suburb.latest_low'] = (string) $explicitLow;
+        } elseif (!empty($salePrices)) {
+            $fields['suburb.latest_low'] = (string) min($salePrices);
+        }
+
+        if ($explicitMax !== null) {
+            $fields['suburb.latest_max'] = (string) $explicitMax;
+        } elseif (!empty($salePrices)) {
+            $fields['suburb.latest_max'] = (string) max($salePrices);
+        }
+
+        if ($explicitHigh !== null) {
+            $fields['suburb.latest_high'] = (string) $explicitHigh;
+        } elseif (!empty($salePrices)) {
+            // 75th percentile of the collected sale prices; max if too few to interpolate.
+            $fields['suburb.latest_high'] = (string) $this->percentile($salePrices, 75);
+        }
+
+        // Year — latest sale-date year present, else the "last 12 months" → current year.
+        if (preg_match_all('/\b(20\d{2})\b/', $text, $ym)) {
+            $years = array_filter(array_map('intval', $ym[1]), fn ($y) => $y >= 2000 && $y <= 2030);
+            if (!empty($years)) {
+                $fields['suburb.latest_year'] = (string) max($years);
+            }
+        }
+        if (!isset($fields['suburb.latest_year']) && preg_match('/last\s+12\s+months/i', $text)) {
+            $fields['suburb.latest_year'] = (string) ((int) date('Y'));
+        }
+    }
+
+    /**
+     * Match a labelled footer price ("Low price: R 1 200 000"), normalised to int rand.
+     * Returns null if the label is absent. Mirrors matchPrice() normalisation but
+     * tolerates the space-grouped / NBSP rand formatting of the footer layout.
+     */
+    private function matchSuburbFooterPrice(string $text, string $labelPattern): ?int
+    {
+        $pattern = '/\b' . $labelPattern . '\s*[:\-]?\s*R?\s*([\d][\d\s\x{00A0},]*\d)/iu';
+        if (preg_match($pattern, $text, $m)) {
+            $value = (int) preg_replace('/[\s\x{00A0},]/u', '', $m[1]);
+            if ($value >= 10000) {
+                return $value;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Linear-interpolated percentile of a numeric list (0–100). Returns max-style
+     * behaviour for tiny lists where interpolation is not meaningful.
+     */
+    private function percentile(array $values, float $p): int
+    {
+        if (empty($values)) {
+            return 0;
+        }
+        sort($values);
+        $count = count($values);
+        if ($count < 4) {
+            return (int) end($values);
+        }
+        $rank  = ($p / 100) * ($count - 1);
+        $low   = (int) floor($rank);
+        $high  = (int) ceil($rank);
+        if ($low === $high) {
+            return (int) $values[$low];
+        }
+        $frac = $rank - $low;
+        return (int) round($values[$low] + ($values[$high] - $values[$low]) * $frac);
     }
 
     // ── Vicinity Sales Parser ───────────────────────────────────────────────

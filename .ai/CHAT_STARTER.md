@@ -1,6 +1,6 @@
 # CoreX OS — Chat Starter
 > Auto-maintained by VS Code per CLAUDE.md rule. Paste into a new Claude chat to load context.
-> Last updated: 2026-06-06 by Soft Deletes Register (Admin → restore any archived record across all models)
+> Last updated: 2026-06-11 by AT-22 Presentation/CMA report-quality overhaul (comp gate-then-rank engine + agency-settings UI + spatial map + suburb-summary bind + competition image/branding fixes)
 
 <!-- ============================================================ -->
 <!-- STABLE SECTION — rarely changes                              -->
@@ -82,6 +82,7 @@ See CLAUDE.md "CoreX Operating Principle" section for the full version.
 
 ### 3.2 IN FLIGHT
 
+- **Branch `AT-22-presentation-quality`** — Presentation/CMA report-quality overhaul (7 items vs PRES 87 / 36 Grindewald). Built + landed: comp **gate-then-rank** engine (`CompPoolBuilder` — type hard-gate, ±25% price band on cleaned-pool anchor, 300m radius with widen-if-thin ladder, erf ranking), recommended range = **cleaned-pool P25–P75** (no asking leak), spatial map decluttered (numbered pins + legend), suburb price summary binds from upload (`DocumentExtractor`), competition image fix (`ListingImageValidator` + `prospecting:rehydrate-thumbnails` backfill of ~4032 orphaned thumbs), competitor-branding strip (no third-party logo/name on seller surface), title-type reclassification (item 6 — built early, **AT-26 to mark "done early"**). All 10 thresholds **agency-configurable** via Settings → Presentations → Comparable Selection Engine. STEP 2 approved verbally by Johan 11 Jun. **Next:** Staging deploy + live DB pull → regenerate PRES 87 for Johan's eyeball.
 - **Branch `feature/map-workspace-overhaul`** — MIC collision fix (A.3.4) + M22 test fix + universal-signature audit + small fixes (419 / CMA logo / Tools logo) + **complete Phase 9c trilogy** (PPRA per agency+branch, Information Officer appointments, Company Documents infrastructure with `/legal/{token}` public links) all shipped. **Module 6 (Activity Points Engine) M6.0 + M6.1 + M6.2 shipped:** investigation + schema foundation (scope/agency_id, point_state/source/calendar_event_id/override audit, Eloquent ActivityDefinition + DailyActivityEntry models, 41 defs backfilled system, 1,492 entries backfilled confirmed/manual) + per-agency mapping table `activity_definition_calendar_classes` with admin UI at `/admin/activity-mappings` (CRUD + toggle, permission `manage_activity_mappings`, `resolveForEvent()` helper for M6.3). M6.3 (observer + provisional points + anti-gaming + audit table), M6.4 (confirm hook + revoke command + override service), M6.5 (daily view + override UI) ahead in next session.
 - **Next:** Andre — Staging deploy + live DB pull. Figure-matching audit on staging.
 
