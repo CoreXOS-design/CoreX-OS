@@ -45,7 +45,7 @@ class CompPoolBuilderTest extends TestCase
         $this->assertSame(30.0, $c['erf_band_pct']);
         $this->assertSame(300, $c['radius_m']);
         $this->assertSame(3000, $c['radius_max_m']);
-        $this->assertSame(5, $c['min_count']);
+        $this->assertSame(10, $c['min_count']);
         $this->assertSame(15, $c['max_count']);
         $this->assertSame(25.0, $c['divergence_pct']);
         $this->assertSame(25, $c['range_lower_pct']);

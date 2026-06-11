@@ -58,7 +58,7 @@ These are **decisions, not proposals**. Investigation may refine *how* they're i
 | Radius widen steps | 300, 600, 1000, 1500, 3000 m | `comp_radius_widen_steps` |
 | Radius hard ceiling | 3000 m (rural mandates must resolve) | `comp_radius_max_m` |
 | Erf-size proximity | ±30% | `comp_erf_band_pct` |
-| Min comps before widening | 5 | `comp_min_count` |
+| Min comps before widening | 10 | `comp_min_count` (round-1: raised 5→10 so the ladder auto-widens 300→600→1000m to catch on-profile comps just outside 300m — Johan, 11 Jun) |
 | Max comps shortlisted | 15 (don't force-drop; PRES 87 curated 13) | `comp_max_count` |
 
 > Open question for STEP 2: confirm whether band/price anchor field is the CMA mid produced by `CmaComputeService` and that erf/type/coords are reliably present on the comp source rows.
