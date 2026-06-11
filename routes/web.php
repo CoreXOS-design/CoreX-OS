@@ -2053,6 +2053,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/',                        [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])->name('index');
         Route::get('/create',                  [\App\Http\Controllers\CoreX\PropertyController::class, 'create'])->name('create');
         Route::post('/',                       [\App\Http\Controllers\CoreX\PropertyController::class, 'store'])->name('store');
+
+        // Sold Properties Import — super-admin only (AT-24)
+        Route::middleware('super_admin')->group(function () {
+            Route::get('/import-sold',          [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'form'])->name('import-sold');
+            Route::post('/import-sold/preview', [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'preview'])->name('import-sold.preview');
+            Route::post('/import-sold/confirm', [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'run'])->name('import-sold.run');
+        });
+
         Route::get('/contacts/search',         [\App\Http\Controllers\CoreX\PropertyContactController::class, 'searchGlobal'])->name('contacts.search-global');
         // Upload Wizard (parallel path — does not replace /create)
         Route::get ('/wizard',                          [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'start'])->name('wizard');

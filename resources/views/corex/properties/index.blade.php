@@ -11,6 +11,14 @@
                 <p class="text-sm text-white/60">Manage listings and publish to website.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @if(auth()->user() && auth()->user()->isOwnerRole())
+                <a href="{{ route('corex.properties.import-sold') }}"
+                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
+                   style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
+                   title="Bulk-import sold listings from a spreadsheet">
+                    Import Sold
+                </a>
+                @endif
                 <a href="{{ route('corex.properties.create') }}"
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
                    style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
