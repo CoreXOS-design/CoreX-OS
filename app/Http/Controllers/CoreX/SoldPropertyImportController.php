@@ -73,6 +73,11 @@ class SoldPropertyImportController extends Controller
             'agents.*' => 'required|integer|exists:users,id',
         ]);
 
+        // Bulk admin import: parsing the workbook and downscaling one photo per
+        // row is legitimately long-running. The dominant cost (prospecting match)
+        // is now queued off-request, but give the synchronous remainder headroom.
+        @set_time_limit(300);
+
         $relative = self::STAGE_DIR . '/' . basename($data['token']);
         if (!Storage::disk('local')->exists($relative)) {
             return redirect()->route('corex.properties.import-sold')
