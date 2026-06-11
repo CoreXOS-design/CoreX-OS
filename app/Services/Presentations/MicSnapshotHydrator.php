@@ -80,17 +80,89 @@ final class MicSnapshotHydrator
             ->delete();
 
         // ── Sold comps ─────────────────────────────────────────────────────
+        // AT-22 §1 — collect candidates out to the radius ceiling so the
+        // CompPoolBuilder widen-if-thin ladder has room to work, then gate
+        // (type → price band → radius ladder → divergence → rank) before
+        // persisting. The prior path persisted every suburb match at a
+        // 1000m radius with no price/erf gate, pulling sub-R1M tiny-erf
+        // sales. Spec .ai/specs/at22-presentation-quality.md §1 / §1.5.
+        $poolConfig = CompPoolBuilder::configForAgency($presentation->agency);
+        $compCfg = array_merge($cfg, [
+            'radius_m' => max((int) $cfg['radius_m'], (int) $poolConfig['radius_max_m']),
+        ]);
         $compRows = $this->collectMatchedRows(
-            $presentation, $cfg, MarketReportCompRow::ROW_COMP,
+            $presentation, $compCfg, MarketReportCompRow::ROW_COMP,
         );
         $deduped = $this->deduplicate($compRows, isSold: true);
+
+        $candidates = [];
+        foreach ($deduped as $i => $row) {
+            $salePrice = OutlierGuard::price($row->sale_price);
+            if ($salePrice === null) {
+                continue; // guard couldn't validate — would corrupt averages
+            }
+            // Exempt = analyst-vetted same-subject report OR trusted-internal
+            // deal: exempt from the price gate, never shortlist-dropped (§1).
+            $exempt = !empty($cfg['source_reports'])
+                && in_array((int) $row->market_report_id, $cfg['source_reports'], true);
+            if (!$exempt && !empty($row->raw_row_json) && is_string($row->raw_row_json)) {
+                $decoded = json_decode($row->raw_row_json, true);
+                $exempt = is_array($decoded) && !empty($decoded['trusted_internal_source']);
+            }
+            $candidates[] = [
+                'key'           => $i,
+                'price'         => $salePrice,
+                'size_m2'       => OutlierGuard::extentM2($row->extent_m2),
+                'property_type' => $row->property_type,
+                // AT-22 item 6 — derive the title category from the sectional
+                // signal (scheme_name / section_number) so the type hard-gate
+                // can tell sectional units from freehold even when the source
+                // property_type is the generic "Residence"/"Residential".
+                'title_type'    => $this->deriveCompTitleType($row),
+                'lat'           => $row->latitude,
+                'lng'           => $row->longitude,
+                'exempt'        => $exempt,
+                'row'           => $row,
+            ];
+        }
+
+        $isSectional   = ($cfg['title_type'] === \App\Services\TitleTypeClassifier::TITLE_SECTIONAL);
+        $subjectProfile = [
+            'title_type'    => $cfg['title_type'],
+            'property_type' => $presentation->property?->property_type,
+            'lat'           => $cfg['subject_lat'],
+            'lng'           => $cfg['subject_lng'],
+            'erf_m2'        => $isSectional
+                ? ($presentation->property?->size_m2 ?? $presentation->floor_area_m2)
+                : ($presentation->property?->erf_size_m2
+                    ?? $presentation->erf_size_m2
+                    ?? $presentation->property?->size_m2),
+            // AT-22 §1.5 — subject-derived anchor for the PRICE band gate so a
+            // polluted pool can't drag the band down (the R927k/R1.1M trap).
+            // The displayed CMA range still derives from the cleaned pool's
+            // P25–P75 (CmaComputeService); this only governs which comps the
+            // gate admits. Asking is the expected-value input the agent gave.
+            'anchor_price'  => $this->resolveSubjectAnchorPrice($presentation),
+        ];
+
+        $poolResult  = (new CompPoolBuilder())->select($subjectProfile, $candidates, $poolConfig);
+        $radiusUsed  = $poolResult['radius_used'];
+        $poolAnchor  = $poolResult['anchor'];
+
+        \Illuminate\Support\Facades\Log::info('[AT-22] comp pool gated', [
+            'presentation_id' => $presentation->id,
+            'radius_used_m'   => $radiusUsed,
+            'widened'         => $poolResult['widened'],
+            'anchor'          => $poolAnchor,
+            'diagnostics'     => $poolResult['diagnostics'],
+        ]);
+
         $soldInserted = 0;
-        foreach ($deduped as $row) {
-            // Phase 3e B — sanitise comp price/extent before persisting.
+        foreach ($poolResult['selected'] as $cand) {
+            $row       = $cand['row'];
             $salePrice = OutlierGuard::price($row->sale_price);
             $sizeM2    = OutlierGuard::extentM2($row->extent_m2);
             if ($salePrice === null) {
-                // Skip rows the guard couldn't validate — they'd corrupt averages.
                 continue;
             }
             try {
@@ -660,6 +732,43 @@ final class MicSnapshotHydrator
         return array_values($byFingerprint);
     }
 
+    /**
+     * AT-22 item 6 — title category for a comp row. A populated scheme_name
+     * or section_number is an unambiguous sectional-title signal (a unit in a
+     * sectional scheme); it overrides the generic source property_type, which
+     * for portal/MIC data is almost always the catch-all "Residence" /
+     * "Residential" and cannot distinguish freehold from sectional. Without
+     * this, sectional units classify as freehold and leak into a freehold
+     * subject's type-gated pool (PRES 87: 57 sectional comps, 49 of them
+     * sub-R1M, on a R2.9M full-title subject).
+     */
+    private function deriveCompTitleType(object $row): ?string
+    {
+        $scheme  = trim((string) ($row->scheme_name ?? ''));
+        $section = trim((string) ($row->section_number ?? ''));
+        if ($scheme !== '' || $section !== '') {
+            return \App\Services\TitleTypeClassifier::TITLE_SECTIONAL;
+        }
+        // No sectional signal — defer to the property-type heuristic (may be
+        // null/full when the source type is generic; the gate fails open on
+        // null, which is the intended posture).
+        return app(\App\Services\TitleTypeClassifier::class)->fromPropertyType($row->property_type ?? null);
+    }
+
+    /**
+     * AT-22 §1.5 — the subject's expected value, used to anchor the comp
+     * price-band gate. Asking price is the figure the agent entered for THIS
+     * subject; it is the robust gate anchor (the displayed CMA range still
+     * comes from the cleaned pool, never from asking — spec §5). Returns null
+     * when no asking is set, in which case CompPoolBuilder falls back to the
+     * cleaned-pool median.
+     */
+    private function resolveSubjectAnchorPrice(Presentation $presentation): ?int
+    {
+        $asking = (int) ($presentation->asking_price_inc ?? 0);
+        return $asking > 0 ? $asking : null;
+    }
+
     private function fingerprint(object $row, bool $isSold): string
     {
         $scheme = trim((string) ($row->scheme_name ?? ''));
@@ -771,76 +880,66 @@ final class MicSnapshotHydrator
         $suburb = mb_strtolower(trim((string) ($presentation->suburb ?? '')));
         if ($suburb === '') return 0;
 
-        // Find the most recent year of data for this suburb.
-        $latest = DB::table('market_data_points')
-            ->whereNull('deleted_at')
-            ->where('metric_key', 'suburb_median_price_year')
-            ->where(function ($q) use ($suburb) {
-                $q->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-                  ->orWhereRaw('LOWER(suburb_normalised) LIKE ?', ['%' . $suburb . '%']);
-            })
-            ->orderByDesc('metric_date')
-            ->first(['metric_value_numeric', 'metric_date']);
-
-        // Fall back to the 12-month median if no per-year series.
-        if (!$latest) {
-            $latest = DB::table('market_data_points')
+        $pull = function (string $key, ?int $year = null) use ($suburb) {
+            $q = DB::table('market_data_points')
                 ->whereNull('deleted_at')
-                ->where('metric_key', 'suburb_median_price_12m')
-                ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-                ->orderByDesc('metric_date')
-                ->first(['metric_value_numeric', 'metric_date']);
-        }
-
-        if (!$latest) return 0;
-
-        $year = $latest->metric_date ? Carbon::parse($latest->metric_date)->year : (int) date('Y');
-
-        // Companion: sales count for the same year.
-        $countRow = DB::table('market_data_points')
-            ->whereNull('deleted_at')
-            ->where('metric_key', 'suburb_sales_count_year')
-            ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-            ->whereYear('metric_date', $year)
-            ->orderByDesc('metric_date')
-            ->first(['metric_value_numeric']);
-
-        $countFallback = DB::table('market_data_points')
-            ->whereNull('deleted_at')
-            ->where('metric_key', 'suburb_total_sales_12m')
-            ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-            ->orderByDesc('metric_date')
-            ->first(['metric_value_numeric']);
-
-        $writes = [
-            'suburb.latest_year'         => (string) $year,
-            'suburb.latest_median_price' => (string) (int) $latest->metric_value_numeric,
-            'suburb.latest_sales_count'  => $countRow
-                ? (string) (int) $countRow->metric_value_numeric
-                : ($countFallback ? (string) (int) $countFallback->metric_value_numeric : null),
-        ];
-
-        // Phase 3e A3 — low/high/max from the per-year Residential Price
-        // Ranges table (MSA parser writes suburb_low_year / suburb_high_year
-        // / suburb_max_year keys). Pull the same year as the median above so
-        // all four columns line up.
-        $rangeKeys = [
-            'suburb_low_year'  => 'suburb.latest_low',
-            'suburb_high_year' => 'suburb.latest_high',
-            'suburb_max_year'  => 'suburb.latest_max',
-        ];
-        foreach ($rangeKeys as $srcKey => $dstKey) {
-            $rangeRow = DB::table('market_data_points')
-                ->whereNull('deleted_at')
-                ->where('metric_key', $srcKey)
-                ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-                ->whereYear('metric_date', $year)
-                ->orderByDesc('metric_date')
-                ->first(['metric_value_numeric']);
-            if ($rangeRow) {
-                $writes[$dstKey] = (string) (int) $rangeRow->metric_value_numeric;
+                ->where('metric_key', $key)
+                ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb]);
+            if ($year !== null) {
+                $q->whereYear('metric_date', $year);
             }
+            return $q->orderByDesc('metric_date')->first(['metric_value_numeric', 'metric_date']);
+        };
+
+        // AT-22 R3 — robustness: anchor on the most recent YEAR that has ANY
+        // suburb-level datapoint (median OR sales-count OR price ranges), not
+        // just the median. The median is no longer mandatory — we surface
+        // latest_year + whatever metrics exist, so a suburb with (say)
+        // ranges-only data still populates the Market Overview instead of
+        // going entirely blank (the old code returned 0 the moment no median
+        // existed, discarding the ranges it had).
+        $anchor = DB::table('market_data_points')
+            ->whereNull('deleted_at')
+            ->whereIn('metric_key', [
+                'suburb_median_price_year', 'suburb_sales_count_year',
+                'suburb_low_year', 'suburb_high_year', 'suburb_max_year',
+            ])
+            ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
+            ->orderByDesc('metric_date')
+            ->first(['metric_date']);
+
+        if ($anchor && $anchor->metric_date) {
+            $year   = Carbon::parse($anchor->metric_date)->year;
+            $median = $pull('suburb_median_price_year', $year) ?: $pull('suburb_median_price_12m');
+            $count  = $pull('suburb_sales_count_year', $year)  ?: $pull('suburb_total_sales_12m');
+            $low    = $pull('suburb_low_year', $year);
+            $high   = $pull('suburb_high_year', $year);
+            $max    = $pull('suburb_max_year', $year);
+
+            $writes = array_filter([
+                'suburb.latest_year'         => (string) $year,
+                'suburb.latest_median_price' => $median ? (string) (int) $median->metric_value_numeric : null,
+                'suburb.latest_sales_count'  => $count  ? (string) (int) $count->metric_value_numeric  : null,
+                'suburb.latest_low'          => $low  ? (string) (int) $low->metric_value_numeric  : null,
+                'suburb.latest_high'         => $high ? (string) (int) $high->metric_value_numeric : null,
+                'suburb.latest_max'          => $max  ? (string) (int) $max->metric_value_numeric  : null,
+            ], fn ($v) => $v !== null);
+
+            return $this->upsertFields($presentation->id, $writes);
         }
+
+        // No per-year series at all — try the 12-month aggregates before
+        // giving up entirely.
+        $median12 = $pull('suburb_median_price_12m');
+        $count12  = $pull('suburb_total_sales_12m');
+        if (!$median12 && !$count12) {
+            return 0;
+        }
+        $writes = array_filter([
+            'suburb.latest_year'         => (string) (($median12 ?? $count12)->metric_date ? Carbon::parse(($median12 ?? $count12)->metric_date)->year : (int) date('Y')),
+            'suburb.latest_median_price' => $median12 ? (string) (int) $median12->metric_value_numeric : null,
+            'suburb.latest_sales_count'  => $count12  ? (string) (int) $count12->metric_value_numeric  : null,
+        ], fn ($v) => $v !== null);
 
         return $this->upsertFields($presentation->id, $writes);
     }

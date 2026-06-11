@@ -69,7 +69,7 @@
                     ['key'=>'feature-rentals',       'label'=>'Rentals',               'type'=>'section', 'keywords'=>'rental document types reminders'],
                     ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags'],
                     ['key'=>'feature-properties',    'label'=>'Properties & Listings', 'type'=>'section', 'keywords'=>'syndication portals marketing'],
-                    ['key'=>'feature-presentations', 'label'=>'Presentations',         'type'=>'section', 'keywords'=>'cma coverage thresholds comps period rich moderate thin'],
+                    ['key'=>'feature-presentations', 'label'=>'Presentations',         'type'=>'section', 'keywords'=>'cma coverage thresholds comps period rich moderate thin comparable selection price band radius erf percentile range widen anchor'],
                     ['key'=>'feature-matches',       'label'=>'Matches',               'type'=>'section', 'keywords'=>'whatsapp message'],
                     ['key'=>'feature-dashboard',     'label'=>'Dashboard',             'type'=>'section', 'keywords'=>'cockpit widgets'],
                     ['key'=>'notifications',         'label'=>'Notifications',         'type'=>'section', 'keywords'=>'reminders push email alerts overdue'],
@@ -2083,6 +2083,26 @@
                     $presFreshness = (int) ($presAgency->presentations_freshness_days              ?? 90);
                     $cmaRecency    = (int) ($presAgency->cma_compute_recency_months                ?? 36);
                     $cmaIqr        = (float) ($presAgency->cma_compute_iqr_multiplier              ?? 1.5);
+                    // AT-22 §0.1 — comp-selection + range thresholds. Defaults
+                    // mirror App\Services\Presentations\CompPoolBuilder DEF_*.
+                    $compPriceBand = (float)  ($presAgency->comp_price_band_pct      ?? 25);
+                    $compErfBand   = (float)  ($presAgency->comp_erf_band_pct        ?? 30);
+                    $compRadius    = (int)    ($presAgency->comp_radius_m            ?? 300);
+                    $compWiden     = (string) ($presAgency->comp_radius_widen_steps  ?? '300,600,1000,1500,3000');
+                    $compRadiusMax = (int)    ($presAgency->comp_radius_max_m        ?? 3000);
+                    $compMinCount  = (int)    ($presAgency->comp_min_count           ?? 10);
+                    $compMaxCount  = (int)    ($presAgency->comp_max_count           ?? 15);
+                    $anchorDiv     = (float)  ($presAgency->anchor_divergence_pct    ?? 25);
+                    $rangeLower    = (int)    ($presAgency->range_lower_pct          ?? 25);
+                    $rangeUpper    = (int)    ($presAgency->range_upper_pct          ?? 75);
+                    // AT-22 item 3 — holding-cost Tier-2 agency defaults.
+                    $hcOppPct    = (float) ($presAgency->presentations_default_opportunity_cost_pct      ?? 8);
+                    $hcRatesPM   = (int)   ($presAgency->presentations_default_rates_per_million_zar      ?? 800);
+                    $hcInsPM     = (int)   ($presAgency->presentations_default_insurance_per_million_zar  ?? 200);
+                    $hcUtil      = (int)   ($presAgency->presentations_default_utilities_zar              ?? 1200);
+                    $hcGarden    = (int)   ($presAgency->presentations_default_garden_zar                 ?? 800);
+                    $hcPool      = (int)   ($presAgency->presentations_default_pool_zar                   ?? 600);
+                    $hcSecurity  = (int)   ($presAgency->presentations_default_security_zar               ?? 1500);
                 @endphp
 
                 <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -2229,9 +2249,184 @@
                             </div>
                         </div>
 
+                        {{-- AT-22 §0.1/§1/§1.5/§5 — Comparable Selection Engine.
+                             The gate-then-rank pipeline (CompPoolBuilder) that
+                             builds the sold-comp pool and the recommended range.
+                             Every field falls back to the locked service default
+                             when blank, so legacy agencies keep working. --}}
+                        <div class="pt-4 mt-4" style="border-top:1px solid var(--border);">
+                            <div class="mb-3">
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Comparable Selection Engine</div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                                    Controls how CoreX gates and ranks sold comparables for the CMA, and how the recommended price range is derived.
+                                    Type is always a hard gate (freehold never mixes with sectional). Leave any field blank to use the locked default.
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Price band (± %)</label>
+                                    <input type="number" min="5" max="100" step="0.5" name="comp_price_band_pct"
+                                           value="{{ $compPriceBand }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Comps must fall within ± this % of the cleaned-pool CMA anchor (not asking). Default 25.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Erf-size proximity (± %)</label>
+                                    <input type="number" min="5" max="200" step="0.5" name="comp_erf_band_pct"
+                                           value="{{ $compErfBand }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Ranking factor (not a hard drop) — closer erf scores higher. Default 30.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Initial radius (metres)</label>
+                                    <input type="number" min="50" max="10000" step="50" name="comp_radius_m"
+                                           value="{{ $compRadius }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Tight default so comps cluster to the subject. Default 300.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Radius widen ladder (metres, CSV)</label>
+                                    <input type="text" name="comp_radius_widen_steps"
+                                           value="{{ $compWiden }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">When too few comps resolve, the radius steps up through these. Default 300,600,1000,1500,3000.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Radius hard ceiling (metres)</label>
+                                    <input type="number" min="100" max="10000" step="100" name="comp_radius_max_m"
+                                           value="{{ $compRadiusMax }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">The widen ladder never exceeds this. Default 3000 (rural mandates must resolve).</div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Min comps</label>
+                                        <input type="number" min="1" max="100" name="comp_min_count"
+                                               value="{{ $compMinCount }}"
+                                               class="w-full rounded-md px-3 py-2 text-sm"
+                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        <div class="text-[11px] mt-1" style="color:var(--text-muted);">Widen the radius until this many comps resolve. Default 10.</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Max comps</label>
+                                        <input type="number" min="1" max="100" name="comp_max_count"
+                                               value="{{ $compMaxCount }}"
+                                               class="w-full rounded-md px-3 py-2 text-sm"
+                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        <div class="text-[11px] mt-1" style="color:var(--text-muted);">Shortlist cap. Default 15.</div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Anchor divergence trigger (± %)</label>
+                                    <input type="number" min="5" max="100" step="1" name="anchor_divergence_pct"
+                                           value="{{ $anchorDiv }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">If the cleaned-pool estimate is more than this % off the vicinity average, widen the radius. Default 25.</div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Range lower (percentile)</label>
+                                        <input type="number" min="1" max="49" name="range_lower_pct"
+                                               value="{{ $rangeLower }}"
+                                               class="w-full rounded-md px-3 py-2 text-sm"
+                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        <div class="text-[11px] mt-1" style="color:var(--text-muted);">Lower bound. Default 25 (P25).</div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Range upper (percentile)</label>
+                                        <input type="number" min="51" max="99" name="range_upper_pct"
+                                               value="{{ $rangeUpper }}"
+                                               class="w-full rounded-md px-3 py-2 text-sm"
+                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        <div class="text-[11px] mt-1" style="color:var(--text-muted);">Upper bound. Default 75 (P75). Asking never widens the band.</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- AT-22 item 3 — Holding Cost defaults. These drive the
+                             per-presentation holding-cost panel (the figures the
+                             seller sees). They are Tier-2 fallbacks: a captured
+                             per-property value or a learned average wins first;
+                             these apply when neither exists. Surfaced here so the
+                             figures are transparent + tunable, not opaque. --}}
+                        <div class="pt-4 mt-4" style="border-top:1px solid var(--border);">
+                            <div class="mb-3">
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Holding Cost Defaults</div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                                    Default monthly holding-cost components used when a property has no captured value. Opportunity cost = asking × this % ÷ 12. Rates/Insurance scale with value (per R1m); the rest are flat monthly rand.
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Opportunity cost (% of asking, annual)</label>
+                                    <input type="number" min="0" max="30" step="0.25" name="presentations_default_opportunity_cost_pct"
+                                           value="{{ $hcOppPct }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Monthly = asking × this% ÷ 12. Default 8.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Rates (R per R1m of value, monthly)</label>
+                                    <input type="number" min="0" max="100000" name="presentations_default_rates_per_million_zar"
+                                           value="{{ $hcRatesPM }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">× (value ÷ R1,000,000). Default 800.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Insurance (R per R1m of value, monthly)</label>
+                                    <input type="number" min="0" max="100000" name="presentations_default_insurance_per_million_zar"
+                                           value="{{ $hcInsPM }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">× (value ÷ R1,000,000). Default 200.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Utilities (flat monthly R)</label>
+                                    <input type="number" min="0" max="1000000" name="presentations_default_utilities_zar"
+                                           value="{{ $hcUtil }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 1200.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Garden (flat monthly R, freehold)</label>
+                                    <input type="number" min="0" max="1000000" name="presentations_default_garden_zar"
+                                           value="{{ $hcGarden }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 800.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Pool (flat monthly R, freehold)</label>
+                                    <input type="number" min="0" max="1000000" name="presentations_default_pool_zar"
+                                           value="{{ $hcPool }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 600.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Security (flat monthly R, freehold)</label>
+                                    <input type="number" min="0" max="1000000" name="presentations_default_security_zar"
+                                           value="{{ $hcSecurity }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 1500.</div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="pt-2 flex items-center gap-2">
                             <button type="submit" class="prop-action-btn prop-action-btn-brand">Save Thresholds</button>
-                            <p class="text-[11px]" style="color:var(--text-muted);">Thresholds must satisfy: rich ≥ moderate ≥ thin ≥ 1.</p>
+                            <p class="text-[11px]" style="color:var(--text-muted);">Thresholds must satisfy: rich ≥ moderate ≥ thin ≥ 1; comp min ≤ max; range lower &lt; upper.</p>
                         </div>
                     </form>
                     @else

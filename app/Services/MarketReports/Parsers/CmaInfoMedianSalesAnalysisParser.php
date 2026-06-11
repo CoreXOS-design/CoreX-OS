@@ -119,6 +119,10 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
         // is the subject suburb column, second (when present) is the
         // municipality column. Indices are optional. This is far more tolerant
         // than the previous "all on one line" pattern.
+        // AT-22 R3 — track which years the Sales-Analysis triplet already
+        // produced a median for, so the Residential Price Ranges fallback
+        // below only fills the GAPS (no double-write).
+        $medianYears = [];
         if (preg_match_all('/(?:^|\n)(?<year>20\d{2})(?<body>.*?)(?=(?:\n20\d{2})|\nPlease|\Z)/su', $text, $blocks, PREG_SET_ORDER)) {
             foreach ($blocks as $block) {
                 $year = (int) $block['year'];
@@ -138,6 +142,7 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
 
                 // First triplet = subject column
                 $t1 = $triplets[0];
+                $medianYears[$year] = true; // covered — ranges fallback skips it
                 $points[] = ['metric_key' => 'suburb_median_price_year', 'metric_value_numeric' => $this->parsePrice($t1['m']), 'metric_date' => $metricDate, 'confidence' => 'high', 'suburb_normalised' => $suburbNorm, 'town' => $town];
                 $points[] = ['metric_key' => 'suburb_sales_count_year', 'metric_value_numeric' => (float) $t1['c'], 'metric_date' => $metricDate, 'confidence' => 'high', 'suburb_normalised' => $suburbNorm, 'town' => $town];
                 $points[] = ['metric_key' => 'suburb_annual_change_pct', 'metric_value_numeric' => (float) $t1['chg'], 'metric_date' => $metricDate, 'confidence' => 'medium', 'suburb_normalised' => $suburbNorm, 'town' => $town];
@@ -171,11 +176,31 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
                 $high   = $this->parsePriceBounded($rm[5], 'msa.suburb_high_year');
                 $max    = $this->parsePriceBounded($rm[6], 'msa.suburb_max_year');
 
-                foreach ([
-                    'suburb_low_year'    => $low,
-                    'suburb_high_year'   => $high,
-                    'suburb_max_year'    => $max,
-                ] as $key => $value) {
+                // AT-22 R3 — the Residential Price Ranges row is
+                // "<year> <count> R<low> R<median> R<high> R<max>", so it ALSO
+                // carries the sales count and the median. When the Sales-
+                // Analysis triplet above did NOT resolve a median for this year
+                // (e.g. the source omits the change-% column the triplet keys
+                // on), fall back to the ranges row for the median + count.
+                // Without this, suburb_median_price_year / suburb_sales_count_
+                // year were never produced and the presentation Market Overview
+                // could never populate (PRES 87 / Uvongo).
+                $rangeFallback = [
+                    'suburb_low_year'  => $low,
+                    'suburb_high_year' => $high,
+                    'suburb_max_year'  => $max,
+                ];
+                if (!isset($medianYears[$year])) {
+                    if ($median !== null) {
+                        $rangeFallback['suburb_median_price_year'] = $median;
+                    }
+                    $rangeCount = isset($rm['count']) ? (int) $rm['count'] : 0;
+                    if ($rangeCount > 0) {
+                        $rangeFallback['suburb_sales_count_year'] = $rangeCount;
+                    }
+                }
+
+                foreach ($rangeFallback as $key => $value) {
                     if ($value === null) continue;
                     $points[] = [
                         'metric_key'           => $key,
@@ -186,9 +211,6 @@ final class CmaInfoMedianSalesAnalysisParser extends AbstractCmaInfoParser
                         'town'                 => $town,
                     ];
                 }
-                // Touch $median to silence "unused" — Sales Analysis above is
-                // the authoritative median; we don't double-write.
-                unset($median);
             }
         }
 

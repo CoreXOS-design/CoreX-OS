@@ -931,6 +931,54 @@ class AnalysisDataService
         // Bond is independent of title type — always show.
         $components = array_values(array_unique(array_merge(['bond'], $components)));
 
+        // AT-22 item 3 — per-line provenance so the panel is no longer an
+        // opaque set of rand figures. Each line states HOW it was derived:
+        // the calculated opportunity-cost formula, the agency Tier-2 default
+        // (with its formula), or a captured/custom value when the stored
+        // figure diverges from the agency default. Derived from the agency
+        // config + asking — no estimator re-run, no stored breakdown needed.
+        $agency = $p->agency;
+        $asking = (float) ($p->asking_price_inc ?? 0);
+        $perM   = $asking / 1_000_000;
+        $oppPct = (float) ($agency?->presentations_default_opportunity_cost_pct ?? 8);
+        $defaults = [
+            'rates'     => (int) round(((int) ($agency?->presentations_default_rates_per_million_zar    ?? 800)) * $perM),
+            'insurance' => (int) round(((int) ($agency?->presentations_default_insurance_per_million_zar ?? 200)) * $perM),
+            'utilities' => (int) ($agency?->presentations_default_utilities_zar ?? 1200),
+            'garden'    => (int) ($agency?->presentations_default_garden_zar    ?? 800),
+            'pool'      => (int) ($agency?->presentations_default_pool_zar       ?? 600),
+            'security'  => (int) ($agency?->presentations_default_security_zar   ?? 1500),
+        ];
+        $defaultFormula = [
+            'rates'     => 'Agency default — R' . number_format((int) ($agency?->presentations_default_rates_per_million_zar ?? 800)) . '/million × value',
+            'insurance' => 'Agency default — R' . number_format((int) ($agency?->presentations_default_insurance_per_million_zar ?? 200)) . '/million × value',
+            'utilities' => 'Agency default (flat monthly)',
+            'garden'    => 'Agency default (flat monthly)',
+            'pool'      => 'Agency default (flat monthly)',
+            'security'  => 'Agency default (flat monthly)',
+        ];
+        $sourceFor = function (string $component, float $value) use ($asking, $oppPct, $defaults, $defaultFormula, $titleType) {
+            if ($component === 'opportunity_cost') {
+                return ['source' => 'calculated', 'detail' => 'Calculated — asking R' . number_format($asking) . ' × ' . rtrim(rtrim(number_format($oppPct, 2), '0'), '.') . '% ÷ 12'];
+            }
+            if ($component === 'bond') {
+                return $value > 0
+                    ? ['source' => 'agent', 'detail' => 'Entered by agent']
+                    : ['source' => 'unset', 'detail' => 'Not set — enter the monthly bond if relevant'];
+            }
+            if ($component === 'levy') {
+                return $titleType === \App\Services\TitleTypeClassifier::TITLE_FULL
+                    ? ['source' => 'na', 'detail' => 'Not applicable (freehold)']
+                    : ['source' => 'tiered', 'detail' => 'From the property levy, or agency default'];
+            }
+            if (isset($defaults[$component])) {
+                return abs($value - $defaults[$component]) <= 1.0
+                    ? ['source' => 'agency_default', 'detail' => $defaultFormula[$component]]
+                    : ['source' => 'custom', 'detail' => 'Captured from the property or set by the agent (differs from the agency default of R' . number_format($defaults[$component]) . ')'];
+            }
+            return ['source' => 'tiered', 'detail' => 'Derived'];
+        };
+
         $breakdown   = [];
         $components_meta = [];
         foreach ($components as $component) {
@@ -938,12 +986,15 @@ class AnalysisDataService
             $label = $componentMap[$component]['label'];
             $col   = $componentMap[$component]['col'];
             $value = (float) ($p->{$col} ?? 0);
+            $src   = $sourceFor($component, $value);
             $breakdown[$label] = $value;
             $components_meta[] = [
-                'component' => $component,
-                'label'     => $label,
-                'column'    => $col,
-                'value'     => $value,
+                'component'     => $component,
+                'label'         => $label,
+                'column'        => $col,
+                'value'         => $value,
+                'source'        => $src['source'],        // AT-22 item 3 — provenance tag
+                'source_detail' => $src['detail'],        // AT-22 item 3 — human formula/source
             ];
         }
 

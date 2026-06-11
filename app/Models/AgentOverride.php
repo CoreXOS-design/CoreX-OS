@@ -40,6 +40,8 @@ class AgentOverride extends Model
     // override_type constants — keep in sync with the migration enum.
     public const TYPE_COMP_EXCLUDED     = 'comp_excluded';
     public const TYPE_COMP_INCLUDED     = 'comp_included';
+    public const TYPE_COMP_BULK_SET     = 'comp_bulk_set';   // AT-22 — slider/select-all/bulk curation
+    public const TYPE_COMP_ADDED        = 'comp_added';      // AT-22 — pulled in from browse-beyond
     public const TYPE_CATEGORY_ADDED    = 'category_added';
     public const TYPE_CATEGORY_REMOVED  = 'category_removed';
     public const TYPE_CONDITION_CHANGED = 'condition_changed';

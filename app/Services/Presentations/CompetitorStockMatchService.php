@@ -8,6 +8,7 @@ use App\Models\Agency;
 use App\Models\ContactMatch;
 use App\Models\ListingStock;
 use App\Models\Property;
+use App\Services\Prospecting\ListingImageValidator;
 use App\Services\PropertyMatchScoringService;
 use App\Services\TitleTypeClassifier;
 use App\Support\Presentations\SuburbMatcher;
@@ -574,20 +575,40 @@ final class CompetitorStockMatchService
         // corex.market.thumbnail route for the review screen, plus
         // the absolute local-file path so DomPDF renders without
         // a remote fetch.
-        $thumbPath = $listing->thumbnail_path ?? null;
-        $thumbUrl  = null;
-        $thumbAbs  = null;
+        //
+        // AT-22 items 2 + 7 SHARED RENDER GATE: emit a thumbnail ONLY when
+        //   (a) the file EXISTS on disk, AND
+        //   (b) it passes ListingImageValidator::isGenuinePhoto (not a logo,
+        //       icon, tracker, .svg, pixel, or known agency brand).
+        // Otherwise leave thumbnail_url / thumbnail_abs_path null so the
+        // neutral "No photo" placeholder fires on both seller surfaces. A
+        // competitor LOGO is never shown (item 2); a missing file degrades to
+        // the placeholder rather than a broken image (item 7). agency_name is
+        // still returned below for internal/provenance surfaces.
+        $thumbPath  = $listing->thumbnail_path ?? null;
+        $thumbUrl   = null;
+        $thumbAbs   = null;
+        $imageValidator = new ListingImageValidator();
         if ($thumbPath) {
             try {
-                $thumbUrl = route('corex.market.thumbnail', ['listing' => $listing->id]);
-            } catch (\Throwable) {
-                $thumbUrl = null;
-            }
-            try {
                 $candidate = Storage::disk('local')->path($thumbPath);
-                if (is_file($candidate)) $thumbAbs = $candidate;
             } catch (\Throwable) {
-                $thumbAbs = null;
+                $candidate = null;
+            }
+
+            // Validate against BOTH the stored path and the original source
+            // URL (when known): a logo downloaded under a neutral filename
+            // would pass a path check but the source URL still flags it.
+            $genuine = $imageValidator->isGenuineStoredPhoto($candidate)
+                && $imageValidator->isGenuinePhoto($listing->thumbnail_source_url ?? null ?: $thumbPath);
+
+            if ($genuine) {
+                $thumbAbs = $candidate;
+                try {
+                    $thumbUrl = route('corex.market.thumbnail', ['listing' => $listing->id]);
+                } catch (\Throwable) {
+                    $thumbUrl = null;
+                }
             }
         }
 

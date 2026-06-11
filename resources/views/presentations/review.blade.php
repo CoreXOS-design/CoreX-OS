@@ -32,7 +32,13 @@
     .review-section-tag { width: 4px; height: 18px; background: #00d4aa; }
     .review-section-title { margin: 0; font-size: 13px; font-weight: 700; color: #0b2a4a; letter-spacing: 0.04em; text-transform: uppercase; }
     .review-warn-banner { padding: 10px 12px; background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent); border-radius: 4px; color: var(--ds-amber, #d97706); font-size: 12px; margin-bottom: 12px; }
-    .comp-row { display: grid; grid-template-columns: 28px minmax(120px, 1fr) 90px 100px 110px 70px 90px 28px; gap: 8px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .comp-row { display: grid; grid-template-columns: 28px minmax(110px, 1fr) 76px 98px 78px 56px 58px 60px 22px; gap: 8px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .comp-row .sortable { cursor: pointer; user-select: none; }
+    .comp-row .sortable:hover { color: var(--text-primary); }
+    .comp-row .sort-arrow { opacity: 0.5; font-size: 9px; }
+    .comp-row.hidden-by-filter { display: none; }
+    .comp-tool-btn { font-size: 11px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); cursor: pointer; }
+    .comp-tool-btn:hover { background: var(--surface-2); }
     /* Comp table + map side-by-side layout. Pre-fix the wrapper used
        minmax(0,1fr) on the left column, which let the table's fixed-
        width Type / R/m² / Title cells slide UNDER the map at narrower
@@ -295,27 +301,55 @@
 
         <div class="review-comps-layout">
             <div>
-                {{-- Comp table --}}
-                <div style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted);">
-                    <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-                        <input type="checkbox" id="show-excluded" checked>
-                        <span>Show excluded rows</span>
-                    </label>
-                    <span style="margin-left: auto;">
-                        Cross-type rows flagged
-                        <span class="tt-badge other" style="background:var(--ds-amber,#d97706);color:#0b2a4a;">!</span>
-                    </span>
+                {{-- AT-22 / AT-21 — curation toolkit. Sort any column, filter +
+                     select by price range, select-all/none/visible, bulk tick
+                     on the current view. All writes go to included_comp_ids_json
+                     via the batch endpoint (one source of truth). --}}
+                <div id="comp-toolkit" data-set-url="{{ route('presentations.review.set-comps', ['version' => $version->id]) }}"
+                     data-browse-url="{{ route('presentations.review.browse-comps', ['version' => $version->id]) }}"
+                     data-add-url="{{ route('presentations.review.add-comps', ['version' => $version->id]) }}"
+                     style="margin-bottom: 10px; display:flex; flex-direction:column; gap:8px;">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:11px; color:var(--text-muted);">
+                        <button type="button" class="comp-tool-btn" data-sel="all">Select all</button>
+                        <button type="button" class="comp-tool-btn" data-sel="none">Select none</button>
+                        <button type="button" class="comp-tool-btn" data-sel="visible">Select visible</button>
+                        <span style="width:1px;height:16px;background:var(--border);"></span>
+                        <button type="button" class="comp-tool-btn" data-bulk="include">Tick visible</button>
+                        <button type="button" class="comp-tool-btn" data-bulk="exclude">Untick visible</button>
+                        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin-left:auto;">
+                            <input type="checkbox" id="show-excluded" checked>
+                            <span>Show excluded</span>
+                        </label>
+                        <span><span id="comp-included-count">{{ collect($compRows)->where('is_included',true)->count() }}</span>/{{ count($compRows) }} included</span>
+                    </div>
+                    {{-- Price-range slider — drag to select comps within a band --}}
+                    @php
+                        $compPrices = collect($compRows)->pluck('sold_price_inc')->filter()->values();
+                        $priceFloor = (int) ($compPrices->min() ?? 0);
+                        $priceCeil  = (int) ($compPrices->max() ?? 0);
+                    @endphp
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:11px; color:var(--text-muted);">
+                        <span style="font-weight:600;">Price range</span>
+                        <input type="range" id="price-min" min="{{ $priceFloor }}" max="{{ $priceCeil }}" value="{{ $priceFloor }}" step="10000" style="flex:1; min-width:120px;">
+                        <input type="range" id="price-max" min="{{ $priceFloor }}" max="{{ $priceCeil }}" value="{{ $priceCeil }}" step="10000" style="flex:1; min-width:120px;">
+                        <span id="price-range-label" style="min-width:170px; text-align:right; font-variant-numeric:tabular-nums;"></span>
+                        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;">
+                            <input type="checkbox" id="price-selects" checked>
+                            <span>selects comps in range</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div id="comp-table" style="border: 1px solid var(--border); border-radius: 4px; overflow: hidden;">
                     <div class="comp-row" style="background: var(--surface-2); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
                         <div></div>
-                        <div>Address</div>
-                        <div>Sale date</div>
-                        <div style="text-align:right;">Sold price</div>
-                        <div>Type</div>
-                        <div style="text-align:right;">R/m²</div>
-                        <div>Title</div>
+                        <div class="sortable" data-sort="address">Address <span class="sort-arrow"></span></div>
+                        <div class="sortable" data-sort="saledate">Sale date <span class="sort-arrow"></span></div>
+                        <div class="sortable" data-sort="price" style="text-align:right;">Sold price <span class="sort-arrow"></span></div>
+                        <div class="sortable" data-sort="type">Type <span class="sort-arrow"></span></div>
+                        <div class="sortable" data-sort="rm2" style="text-align:right;">R/m² <span class="sort-arrow"></span></div>
+                        <div class="sortable" data-sort="titletype">Title <span class="sort-arrow"></span></div>
+                        <div class="sortable" data-sort="distance" style="text-align:right;">Dist <span class="sort-arrow"></span></div>
                         <div></div>
                     </div>
                     @foreach($compRows as $row)
@@ -325,7 +359,14 @@
                              data-cross-type="{{ $row['is_cross_type'] ? '1' : '0' }}"
                              data-lat="{{ $row['lat'] }}"
                              data-lng="{{ $row['lng'] }}"
-                             data-title-type="{{ $row['title_type'] }}">
+                             data-title-type="{{ $row['title_type'] }}"
+                             data-price="{{ (int) ($row['sold_price_inc'] ?? 0) }}"
+                             data-distance="{{ $row['distance_m'] ?? '' }}"
+                             data-size="{{ (int) ($row['size_m2'] ?? 0) }}"
+                             data-rm2="{{ (int) ($row['r_per_m2'] ?? 0) }}"
+                             data-type="{{ $row['property_type'] }}"
+                             data-saledate="{{ $row['sale_date'] ?? '' }}"
+                             data-address="{{ \Illuminate\Support\Str::lower($row['address']) }}">
                             <div>
                                 <input type="checkbox" class="comp-toggle" {{ $row['is_included'] ? 'checked' : '' }}>
                             </div>
@@ -345,12 +386,38 @@
                                     {{ substr(\App\Models\PropertySettingItem::TITLE_TYPES[$row['title_type']] ?? $row['title_type'], 0, 4) }}
                                 </span>
                             </div>
+                            <div style="text-align:right; color: var(--text-muted); font-size:11px;">
+                                {{ $row['distance_m'] !== null ? ($row['distance_m'] < 1000 ? $row['distance_m'].'m' : number_format($row['distance_m']/1000, 1).'km') : '—' }}
+                            </div>
                             <div title="{{ $row['is_cross_type'] ? 'Cross-title comparison — not recommended for valuation' : '' }}"
                                  style="font-size: 14px; color: {{ $row['is_cross_type'] ? 'var(--ds-amber,#d97706)' : 'transparent' }};">
                                 {{ $row['is_cross_type'] ? '!' : '' }}
                             </div>
                         </div>
                     @endforeach
+                </div>
+
+                {{-- AT-22 — browse & pull in freehold comps BEYOND the auto-pool.
+                     The gate stops at a tight, defensible set; this lets the
+                     agent reach genuine comparable sales a little further out
+                     (e.g. premium homes just past the auto radius) and add them. --}}
+                <div id="comp-browse" style="margin-top:12px; border:1px solid var(--border); border-radius:4px; padding:10px; background:var(--surface-2);">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:11px; color:var(--text-muted);">
+                        <span style="font-weight:600; color:var(--text-primary);">Browse more freehold comps</span>
+                        <label>within
+                            <input type="number" id="browse-radius" value="3000" min="100" max="20000" step="100" style="width:74px;"> m
+                        </label>
+                        <label>R
+                            <input type="number" id="browse-pmin" placeholder="min" min="0" step="50000" style="width:90px;">
+                        </label>
+                        <label>–
+                            <input type="number" id="browse-pmax" placeholder="max" min="0" step="50000" style="width:90px;">
+                        </label>
+                        <button type="button" class="comp-tool-btn" id="browse-search">Search</button>
+                        <button type="button" class="comp-tool-btn" id="browse-add" disabled>Add selected</button>
+                        <span id="browse-status" style="margin-left:auto;"></span>
+                    </div>
+                    <div id="browse-results" style="margin-top:8px; max-height:240px; overflow:auto; display:none;"></div>
                 </div>
             </div>
 
@@ -483,7 +550,12 @@
                 garages:      m.garages,
                 erf_m2:       m.erf_size_m2 ? Math.round(m.erf_size_m2) : null,
                 floor_m2:     m.property_size_m2 ? Math.round(m.property_size_m2) : null,
-                agent_name:   m.agent_name || m.agency_name || null,
+                // AT-22 item 2 (CRITICAL): no third-party agency/agent name on
+                // the seller-facing card. The row still CARRIES agency_name for
+                // internal/provenance surfaces (e.g. the comp-picker modal) —
+                // the seller card simply does not emit it. A competitor brand
+                // on a Home Finders seller report is unshippable.
+                agent_name:   null,
                 ref:          m.portal_ref || null,
                 click_url:    m.portal_url || null,
                 badges:       badges,
@@ -862,6 +934,131 @@
             }, 300);
         });
     });
+
+    // ── AT-22 / AT-21 — Comparable-sales curation toolkit ─────────────
+    // Sort any column, filter+select by price range, select-all/none/visible,
+    // bulk tick the current view, and browse+add freehold comps beyond the
+    // auto-pool. All selection writes the FULL included set once via the
+    // batch endpoint — one source of truth (included_comp_ids_json). Bulk ops
+    // set checkboxes programmatically (no 'change' event → the per-row
+    // toggleComp handler above does NOT double-fire).
+    (function compToolkit() {
+        const tk = document.getElementById('comp-toolkit');
+        const table = document.getElementById('comp-table');
+        if (!tk || !table) return;
+        const setUrl = tk.dataset.setUrl, browseUrl = tk.dataset.browseUrl, addUrl = tk.dataset.addUrl;
+        const countEl = document.getElementById('comp-included-count');
+        const rows = () => Array.from(table.querySelectorAll('.comp-row[data-comp-id]'));
+        const isVisible = (r) => r.style.display !== 'none';
+        const fmtR = (v) => 'R ' + Number(v || 0).toLocaleString('en-ZA');
+
+        function setRowIncluded(row, next) {
+            const id = parseInt(row.dataset.compId, 10);
+            const cb = row.querySelector('.comp-toggle');
+            if (cb) cb.checked = next;
+            row.dataset.included = next ? '1' : '0';
+            row.classList.toggle('excluded', !next);
+            const marker = (typeof markers !== 'undefined') ? markers.get(id) : null;
+            if (marker) { if (next) marker.addTo(map); else map.removeLayer(marker); }
+        }
+        function updateCount() {
+            if (countEl) countEl.textContent = rows().filter(r => r.dataset.included === '1').length;
+        }
+        let commitTimer = null;
+        function commitIncluded() {
+            updateCount();
+            clearTimeout(commitTimer);
+            commitTimer = setTimeout(() => {
+                const ids = rows().filter(r => r.dataset.included === '1').map(r => parseInt(r.dataset.compId, 10));
+                const body = new FormData();
+                body.append('_token', csrf);
+                ids.forEach(id => body.append('included_ids[]', id));
+                fetch(setUrl, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body, credentials: 'same-origin' })
+                    .then(r => r.json()).then(d => { if (d && d.ok) applyCmaUpdate(d); else toast('Could not save selection'); })
+                    .catch(() => toast('Network error saving selection'));
+            }, 350);
+        }
+
+        // Sorting — reorder the row elements in place.
+        let sortKey = null, sortDir = 1;
+        function sortBy(key) {
+            sortDir = (sortKey === key) ? -sortDir : 1;
+            sortKey = key;
+            const dk = (key === 'titletype') ? 'titleType' : key;
+            const numeric = ['price', 'distance', 'rm2', 'size'].includes(key);
+            const get = (r) => numeric ? (parseFloat(r.dataset[dk]) || 0) : (r.dataset[dk] || '').toString();
+            rows().sort((a, b) => { const x = get(a), y = get(b); return (x < y ? -1 : x > y ? 1 : 0) * sortDir; })
+                  .forEach(r => table.appendChild(r));
+            table.querySelectorAll('.sort-arrow').forEach(el => el.textContent = '');
+            const arr = table.querySelector('.sortable[data-sort="' + key + '"] .sort-arrow');
+            if (arr) arr.textContent = sortDir > 0 ? '▲' : '▼';
+        }
+        table.querySelectorAll('.sortable').forEach(h => h.addEventListener('click', () => sortBy(h.dataset.sort)));
+
+        // Price-range slider.
+        const pmin = document.getElementById('price-min'), pmax = document.getElementById('price-max');
+        const plabel = document.getElementById('price-range-label'), pselects = document.getElementById('price-selects');
+        function priceBounds() { const lo = Math.min(+pmin.value, +pmax.value), hi = Math.max(+pmin.value, +pmax.value); if (plabel) plabel.textContent = fmtR(lo) + ' – ' + fmtR(hi); return [lo, hi]; }
+        function applyPrice() {
+            const [lo, hi] = priceBounds();
+            if (!pselects || !pselects.checked) return;
+            rows().forEach(r => setRowIncluded(r, (+r.dataset.price || 0) >= lo && (+r.dataset.price || 0) <= hi));
+            commitIncluded();
+        }
+        if (pmin && pmax) { pmin.addEventListener('input', applyPrice); pmax.addEventListener('input', applyPrice); priceBounds(); }
+
+        // Select all / none / visible + bulk tick the visible view.
+        tk.querySelectorAll('[data-sel]').forEach(b => b.addEventListener('click', () => {
+            const mode = b.dataset.sel;
+            rows().forEach(r => { if (mode === 'all') setRowIncluded(r, true); else if (mode === 'none') setRowIncluded(r, false); else if (mode === 'visible') setRowIncluded(r, isVisible(r)); });
+            commitIncluded();
+        }));
+        tk.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', () => {
+            const inc = b.dataset.bulk === 'include';
+            rows().forEach(r => { if (isVisible(r)) setRowIncluded(r, inc); });
+            commitIncluded();
+        }));
+
+        // (Show/hide excluded rows is wired once, further below — not here,
+        // to avoid double-binding the #show-excluded checkbox.)
+
+        // Browse & add freehold comps beyond the auto-pool.
+        const bRadius = document.getElementById('browse-radius'), bMin = document.getElementById('browse-pmin'), bMax = document.getElementById('browse-pmax');
+        const bSearch = document.getElementById('browse-search'), bAdd = document.getElementById('browse-add');
+        const bStatus = document.getElementById('browse-status'), bResults = document.getElementById('browse-results');
+        if (bSearch) bSearch.addEventListener('click', () => {
+            bStatus.textContent = 'Searching…';
+            const url = new URL(browseUrl, window.location.origin);
+            url.searchParams.set('radius_m', bRadius.value || 3000);
+            if (bMin.value) url.searchParams.set('price_min', bMin.value);
+            if (bMax.value) url.searchParams.set('price_max', bMax.value);
+            fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+                .then(r => r.json()).then(d => {
+                    const cs = (d && d.candidates) || [];
+                    bStatus.textContent = cs.length + ' found' + (d && d.reason === 'subject_no_coords' ? ' (subject has no GPS)' : '');
+                    bResults.style.display = cs.length ? '' : 'none';
+                    bResults.innerHTML = cs.map(c => '<label style="display:grid;grid-template-columns:22px 1fr 96px 60px 56px;gap:6px;align-items:center;padding:4px 2px;border-bottom:1px solid var(--border);font-size:11px;">'
+                        + '<input type="checkbox" class="browse-cb" value="' + c.comp_row_id + '">'
+                        + '<span title="' + (c.address || '') + '" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (c.address || '—') + '</span>'
+                        + '<span style="text-align:right;font-weight:600;">R ' + Number(c.sold_price).toLocaleString('en-ZA') + '</span>'
+                        + '<span style="text-align:right;color:var(--text-muted);">' + (c.size_m2 ? c.size_m2 + 'm²' : '—') + '</span>'
+                        + '<span style="text-align:right;color:var(--text-muted);">' + (c.distance_m < 1000 ? c.distance_m + 'm' : (c.distance_m / 1000).toFixed(1) + 'km') + '</span>'
+                        + '</label>').join('');
+                    bAdd.disabled = cs.length === 0;
+                }).catch(() => { bStatus.textContent = 'Search failed'; });
+        });
+        if (bAdd) bAdd.addEventListener('click', () => {
+            const ids = Array.from(bResults.querySelectorAll('.browse-cb:checked')).map(cb => parseInt(cb.value, 10));
+            if (!ids.length) { toast('Select comps to add'); return; }
+            bStatus.textContent = 'Adding…'; bAdd.disabled = true;
+            const body = new FormData(); body.append('_token', csrf); ids.forEach(id => body.append('comp_row_ids[]', id));
+            fetch(addUrl, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body, credentials: 'same-origin' })
+                .then(r => r.json()).then(d => { if (d && d.ok) { bStatus.textContent = 'Added ' + d.added_count + ' — reloading…'; window.location.reload(); } else { bStatus.textContent = 'Add failed'; bAdd.disabled = false; } })
+                .catch(() => { bStatus.textContent = 'Network error'; bAdd.disabled = false; });
+        });
+
+        updateCount();
+    })();
 
     // ── Competitor Stock toggle (mirrors comp toggle pattern) ──────────
     // Event delegation — the Active Competition cards are JS-rendered
