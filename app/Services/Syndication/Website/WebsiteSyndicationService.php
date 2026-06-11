@@ -90,44 +90,69 @@ class WebsiteSyndicationService
      */
     public function bulkActivateActive(AgencyApiKey $key): array
     {
+        // "Active" = currently marketable. Statuses vary across data
+        // (active / for_sale / for_rent / to_let / on_show / under_offer …), so we
+        // exclude the clearly off-market ones rather than whitelist a single value.
+        return $this->bulkEnable($key, fn ($q) => $q->whereNotIn('status', ['draft', 'sold', 'withdrawn']));
+    }
+
+    /**
+     * "Push all Sold listings" — enable the website for every property with
+     * status = 'sold' in the key's agency, in one action. Idempotent
+     * (already-live rows are skipped). The website decides how to present sold
+     * stock (e.g. a "Sold" gallery / banner). Returns a summary; no silent caps.
+     *
+     * @return array{enabled:int, already_live:int, scanned:int}
+     */
+    public function bulkActivateSold(AgencyApiKey $key): array
+    {
+        return $this->bulkEnable($key, fn ($q) => $q->where('status', 'sold'));
+    }
+
+    /**
+     * Shared bulk-enable engine. $constrain narrows the property set (by status).
+     *
+     * @param  \Closure(\Illuminate\Database\Eloquent\Builder):\Illuminate\Database\Eloquent\Builder  $constrain
+     * @return array{enabled:int, already_live:int, scanned:int}
+     */
+    private function bulkEnable(AgencyApiKey $key, \Closure $constrain): array
+    {
         $enabled = 0;
         $alreadyLive = 0;
         $scanned = 0;
 
-        // "Active" = currently marketable. Statuses vary across data
-        // (active / for_sale / for_rent / to_let / on_show / under_offer …), so we
-        // exclude the clearly off-market ones rather than whitelist a single value.
-        Property::withoutGlobalScope(AgencyScope::class)
+        $query = Property::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $key->agency_id)
-            ->whereNotIn('status', ['draft', 'sold', 'withdrawn'])
-            ->with('agent')
-            ->chunkById(200, function ($properties) use ($key, &$enabled, &$alreadyLive, &$scanned) {
-                foreach ($properties as $property) {
-                    $scanned++;
-                    $row = PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
-                        ->firstOrNew(['property_id' => $property->id, 'agency_api_key_id' => $key->id]);
+            ->with('agent');
+        $constrain($query);
 
-                    if ($row->exists && $row->enabled) {
-                        $alreadyLive++;
-                        continue;
-                    }
+        $query->chunkById(200, function ($properties) use ($key, &$enabled, &$alreadyLive, &$scanned) {
+            foreach ($properties as $property) {
+                $scanned++;
+                $row = PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
+                    ->firstOrNew(['property_id' => $property->id, 'agency_api_key_id' => $key->id]);
 
-                    $row->agency_id        = $key->agency_id;
-                    $row->enabled          = true;
-                    $row->status           = PropertyWebsiteSyndication::STATUS_ACTIVE;
-                    $row->activated_at     = $row->activated_at ?: Carbon::now();
-                    $row->last_submitted_at = Carbon::now();
-                    $row->last_error       = null;
-                    $row->save();
-                    $enabled++;
-
-                    event(new \App\Events\Website\ListingSyndicationChanged(
-                        $property->loadMissing('agent'),
-                        'published',
-                        $key->id,
-                    ));
+                if ($row->exists && $row->enabled) {
+                    $alreadyLive++;
+                    continue;
                 }
-            });
+
+                $row->agency_id        = $key->agency_id;
+                $row->enabled          = true;
+                $row->status           = PropertyWebsiteSyndication::STATUS_ACTIVE;
+                $row->activated_at     = $row->activated_at ?: Carbon::now();
+                $row->last_submitted_at = Carbon::now();
+                $row->last_error       = null;
+                $row->save();
+                $enabled++;
+
+                event(new \App\Events\Website\ListingSyndicationChanged(
+                    $property->loadMissing('agent'),
+                    'published',
+                    $key->id,
+                ));
+            }
+        });
 
         return ['enabled' => $enabled, 'already_live' => $alreadyLive, 'scanned' => $scanned];
     }

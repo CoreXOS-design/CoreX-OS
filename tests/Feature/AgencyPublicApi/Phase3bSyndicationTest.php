@@ -119,6 +119,45 @@ class Phase3bSyndicationTest extends TestCase
             ->where('agency_api_key_id', $this->key->id)->where('enabled', true)->count());
     }
 
+    public function test_bulk_activate_sold_enables_only_sold_listings_and_is_idempotent(): void
+    {
+        $sold1   = $this->makeProperty('sold');
+        $sold2   = $this->makeProperty('sold');
+        $active  = $this->makeProperty('active');
+        $draft   = $this->makeProperty('draft');
+
+        $svc = app(WebsiteSyndicationService::class);
+
+        $first = $svc->bulkActivateSold($this->key);
+        $this->assertSame(2, $first['enabled']);
+
+        // Only sold listings enabled; active/draft untouched by this action.
+        $this->assertDatabaseHas('property_website_syndication', ['property_id' => $sold1->id, 'enabled' => 1]);
+        $this->assertDatabaseHas('property_website_syndication', ['property_id' => $sold2->id, 'enabled' => 1]);
+        $this->assertDatabaseMissing('property_website_syndication', ['property_id' => $active->id, 'enabled' => 1]);
+        $this->assertDatabaseMissing('property_website_syndication', ['property_id' => $draft->id, 'enabled' => 1]);
+
+        // Idempotent re-run.
+        $second = $svc->bulkActivateSold($this->key);
+        $this->assertSame(0, $second['enabled']);
+        $this->assertSame(2, $second['already_live']);
+    }
+
+    public function test_push_sold_to_website_via_company_settings_route(): void
+    {
+        $this->makeProperty('sold');
+        $this->makeProperty('sold');
+        $this->makeProperty('active');
+
+        $this->actingAs($this->user)
+            ->post(route('admin.company-settings.push-sold', $this->agency))
+            ->assertRedirect();
+
+        // Only the 2 sold listings are enabled on the agency's website key.
+        $this->assertSame(2, PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
+            ->where('agency_api_key_id', $this->key->id)->where('enabled', true)->count());
+    }
+
     public function test_bulk_activated_listings_appear_in_the_website_api(): void
     {
         $this->makeProperty('active');

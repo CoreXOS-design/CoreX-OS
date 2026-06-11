@@ -104,7 +104,8 @@
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; Set-Location \"c:\\\\Users\\\\USER-PC\\\\Documents\\\\Projects\\\\hfc-dash\"; & C:\\\\xampp\\\\php\\\\php.exe artisan tinker --execute=\"`$u = new App\\\\Models\\\\User\\(['name'=>'Andre Roets']\\); `$u->qr_code_slug='k7m2p9x4qd'; echo `$u->nameSlug\\(\\).PHP_EOL; echo `$u->publicProfileUrl\\(\\).PHP_EOL; echo `$u->qrCodeUrl\\(\\).PHP_EOL;\" 2>&1 | Select-Object -Last 6)",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; Set-Location \"c:\\\\Users\\\\USER-PC\\\\Documents\\\\Projects\\\\hfc-dash\"; & powershell -ExecutionPolicy Bypass -File scripts\\\\dev-check.ps1 2>&1 | Select-Object -Last 45)",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; Set-Location \"c:\\\\Users\\\\USER-PC\\\\Documents\\\\Projects\\\\hfc-dash\"; & C:\\\\xampp\\\\php\\\\php.exe artisan test --filter=AgentProfileArticlesTest 2>&1 | Select-Object -Last 15)",
-      "PowerShell($gh = \\(Get-Command gh -ErrorAction SilentlyContinue\\).Source; if \\($gh\\) { \"FOUND: $gh\" } else { \"gh not found\"; Test-Path \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" })"
+      "PowerShell($gh = \\(Get-Command gh -ErrorAction SilentlyContinue\\).Source; if \\($gh\\) { \"FOUND: $gh\" } else { \"gh not found\"; Test-Path \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" })",
+      "PowerShell(git stash pop 2>&1)"
     ]
   }
 }

@@ -332,13 +332,16 @@ class PropertyObserver
             }
         }
 
-        // Prospecting stock match — find prospects that match this property
+        // Prospecting stock match — find prospects that match this property.
+        // Queued (not inline): the matcher scans every prospect with regex and
+        // is too slow to run synchronously, especially during bulk creation
+        // (sold properties import). Dispatched to `default` like MatchPropertyJob.
         $stockMatchFields = ['address', 'suburb', 'street_name', 'street_number'];
         if ($property->wasRecentlyCreated || array_intersect(array_keys($property->getChanges()), $stockMatchFields)) {
             try {
-                app(\App\Services\Prospecting\ProspectingStockMatchService::class)->matchAllForProperty($property);
+                \App\Jobs\Prospecting\MatchPropertyProspectingJob::dispatch($property->id);
             } catch (\Throwable $e) {
-                Log::warning("Prospecting stock match failed for property #{$property->id}: {$e->getMessage()}");
+                Log::warning("Prospecting stock match dispatch failed for property #{$property->id}: {$e->getMessage()}");
             }
         }
 
