@@ -92,5 +92,6 @@
     Powered by CoreX OS
 </footer>
 
+@include('public.partials.privacy-footer')
 </body>
 </html>

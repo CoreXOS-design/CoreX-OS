@@ -150,5 +150,6 @@
             setTimeout(() => window.location.reload(), 500);
         }, 60000);
     </script>
+@include('public.partials.privacy-footer')
 </body>
 </html>

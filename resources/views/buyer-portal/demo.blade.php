@@ -11,4 +11,6 @@
         <div class="card p-4"><div class="text-sm font-semibold text-white">8 Dolphin Cres, Uvongo</div><div class="text-xs text-slate-400">R 2,400,000 · 4 bed</div><span class="text-[10px] px-1.5 py-0.5 rounded font-bold mt-2 inline-block" style="background:var(--brand-icon)20;color:var(--brand-icon);">82% Strong — missing: pool</span></div>
     </div>
     <div class="text-center pt-8 mt-8" style="border-top:1px solid #334155;"><p class="text-[10px] text-slate-600">Powered by CoreX OS</p></div>
-</div></body></html>
+</div>
+@include('public.partials.privacy-footer')
+</body></html>

@@ -25,8 +25,9 @@ class InformationOfficerAppointmentsController extends Controller
             'id_number'            => 'nullable|string|max:20',
             'cell'                 => 'nullable|string|max:50',
             'email'                => 'nullable|email|max:255',
-            'appointed_on'         => 'required|date',
-            'appointment_letter'   => 'nullable|file|mimes:pdf|max:10240',
+            'appointed_on'            => 'required|date',
+            'regulator_registered_on' => 'nullable|date',
+            'appointment_letter'      => 'nullable|file|mimes:pdf|max:10240',
             'notes'                => 'nullable|string|max:2000',
         ]);
 
@@ -49,6 +50,7 @@ class InformationOfficerAppointmentsController extends Controller
             'email'                   => $validated['email'],
             'title'                   => 'Information Officer',
             'appointed_on'            => $validated['appointed_on'],
+            'regulator_registered_on' => $validated['regulator_registered_on'] ?? null,
             'appointed_by'            => Auth::id(),
             'appointment_letter_path' => $letterPath,
             'notes'                   => $validated['notes'],

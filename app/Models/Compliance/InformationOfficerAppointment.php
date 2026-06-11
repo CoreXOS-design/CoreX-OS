@@ -37,6 +37,7 @@ class InformationOfficerAppointment extends Model
         'email',
         'title',
         'appointed_on',
+        'regulator_registered_on',
         'ended_on',
         'appointed_by',
         'appointment_letter_path',
@@ -44,8 +45,9 @@ class InformationOfficerAppointment extends Model
     ];
 
     protected $casts = [
-        'appointed_on' => 'date',
-        'ended_on'     => 'date',
+        'appointed_on'            => 'date',
+        'regulator_registered_on' => 'date',
+        'ended_on'                => 'date',
     ];
 
     protected static function booted(): void

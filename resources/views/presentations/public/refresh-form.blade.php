@@ -105,5 +105,6 @@
         </div>
     @endif
 </div>
+@include('public.partials.privacy-footer')
 </body>
 </html>

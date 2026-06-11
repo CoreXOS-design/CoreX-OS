@@ -49,5 +49,6 @@
     <main class="container-public">
         @yield('public-content')
     </main>
+@include('public.partials.privacy-footer')
 </body>
 </html>

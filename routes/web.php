@@ -65,6 +65,18 @@ Route::get('/legal/privacy/{token}', [\App\Http\Controllers\Public\PrivacyPolicy
     ->middleware('throttle:60,1')
     ->name('public.privacy-policy');
 
+// Phase 9c (AT-16) — canonical, always-available public privacy policy.
+// Generated POPIA content from structured agency fields (IO, PPRA, retention,
+// regulator, cross-border note) + the agency's authored markdown if present.
+// This is the URL linked from every public footer; the /legal/privacy/{token}
+// route above stays as the private pre-publish share link.
+Route::get('/privacy-policy/{agencySlug}', [\App\Http\Controllers\Public\PublicPrivacyPolicyController::class, 'show'])
+    ->middleware('throttle:60,1')
+    ->name('public.privacy.agency');
+Route::get('/privacy-policy', [\App\Http\Controllers\Public\PublicPrivacyPolicyController::class, 'index'])
+    ->middleware('throttle:60,1')
+    ->name('public.privacy');
+
 Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
     ->where('shortcode', '[A-Za-z0-9]{6}')
     ->middleware('throttle:10,60')

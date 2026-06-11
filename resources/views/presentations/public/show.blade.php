@@ -1391,5 +1391,6 @@ window.addEventListener('DOMContentLoaded', () => {
 })();
 </script>
 
+@include('public.partials.privacy-footer')
 </body>
 </html>

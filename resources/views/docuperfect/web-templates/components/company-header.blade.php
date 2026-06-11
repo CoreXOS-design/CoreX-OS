@@ -73,6 +73,9 @@ if (isset($logo_url)) $logoPath = $logo_url;
         <div style="text-align:right;">
             Fax No: {{ $d('fax') }}<br>
             FFC: {{ $d('ffc_no') }}<br>
+            @if($d('ppra_number'))
+                PPRA: {{ $d('ppra_number') }}<br>
+            @endif
             <br>
             FIC {{ $d('fic_no') }}<br>
             @if($d('phone_secondary'))

@@ -12,5 +12,6 @@
         <h1 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem;">This link is no longer active</h1>
         <p style="font-size: 0.875rem; color: #94a3b8;">This seller live link has been revoked or has expired. Please contact your agent for an updated link.</p>
     </div>
+@include('public.partials.privacy-footer')
 </body>
 </html>

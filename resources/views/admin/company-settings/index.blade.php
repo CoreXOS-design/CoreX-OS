@@ -109,6 +109,13 @@
                         <p class="text-[10px] mt-1" style="color:var(--text-muted);">The agency's per-entity registration with the Property Practitioners Regulatory Authority (separate from individual practitioner FFCs).</p>
                     </div>
                     <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">PPRA Registered On</label>
+                        <input type="date" name="ppra_registered_at" value="{{ old('ppra_registered_at', optional($agency->ppra_registered_at)->format('Y-m-d')) }}"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <p class="text-[10px] mt-1" style="color:var(--text-muted);">Date the agency was registered with the PPRA. Leave blank if unknown — it is then omitted from the privacy policy.</p>
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">FFC No</label>
                         <input type="text" name="ffc_no" value="{{ old('ffc_no', $agency->ffc_no) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"

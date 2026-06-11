@@ -696,6 +696,7 @@
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $currentInfoPrimary->full_name }}</div>
                             <div class="text-xs mt-0.5" style="color:var(--text-muted);">
                                 {{ $currentInfoPrimary->title }} — appointed {{ $currentInfoPrimary->appointed_on->format('d M Y') }}
+                                @if($currentInfoPrimary->regulator_registered_on) | Registered with Regulator {{ $currentInfoPrimary->regulator_registered_on->format('d M Y') }} @endif
                                 @if($currentInfoPrimary->id_number) | ID: {{ $currentInfoPrimary->id_number }} @endif
                             </div>
                         </div>
@@ -742,10 +743,15 @@
                                 <input type="email" name="email" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
                             </div>
                         </div>
-                        <div class="grid grid-cols-2 gap-3">
+                        <div class="grid grid-cols-3 gap-3">
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Appointed On *</label>
                                 <input type="date" name="appointed_on" value="{{ now()->format('Y-m-d') }}" required class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Registered with Regulator</label>
+                                <input type="date" name="regulator_registered_on" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                                <p class="text-[10px] mt-1" style="color:var(--text-muted);">Date registered with the Information Regulator (POPIA s55). Leave blank if not yet registered.</p>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Appointment Letter (PDF)</label>

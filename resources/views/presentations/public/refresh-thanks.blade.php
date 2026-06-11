@@ -48,5 +48,6 @@
         <p class="meta">You can close this window. We'll keep this share link active until the new one is ready.</p>
     @endif
 </div>
+@include('public.partials.privacy-footer')
 </body>
 </html>

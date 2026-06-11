@@ -50,4 +50,23 @@ return [
         'buyer_preferences_listener' => env('COREX_DEPRECATION_BUYER_PREFERENCES_LISTENER', true),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Privacy policy (POPIA)
+    |--------------------------------------------------------------------------
+    |
+    | Phase 9c (AT-16) — controls for the canonical, always-available public
+    | privacy policy at /privacy-policy[/{agencySlug}].
+    |
+    | draft_banner_enabled: while true, the page renders a visible "Draft —
+    | pending legal review" banner. The generated POPIA content is a sound
+    | baseline but has NOT been signed off by a lawyer. Once legal review is
+    | complete, flip this to false (env COREX_PRIVACY_POLICY_DRAFT_BANNER=false)
+    | and the banner disappears for the public. Default: true (unreviewed).
+    |
+    */
+    'privacy_policy' => [
+        'draft_banner_enabled' => env('COREX_PRIVACY_POLICY_DRAFT_BANNER', true),
+    ],
+
 ];

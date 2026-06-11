@@ -100,5 +100,6 @@
         <p class="text-[10px] text-slate-600">Powered by CoreX OS — {{ $agency->name ?? '' }}</p>
     </div>
 </div>
+@include('public.partials.privacy-footer')
 </body>
 </html>

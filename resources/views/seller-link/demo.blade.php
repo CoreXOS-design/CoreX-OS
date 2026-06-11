@@ -49,5 +49,6 @@
             <p class="text-[10px] text-slate-600">Powered by CoreX OS — The real estate operating system</p>
         </div>
     </div>
+@include('public.partials.privacy-footer')
 </body>
 </html>
