@@ -101,7 +101,11 @@ class AnalysisDataService
         return [
             'subject_property'   => $this->compileSubjectProperty($presentation, $fields, $askingPrice),
             'suburb_overview'    => $suburbOverview,
-            'comparable_sales'   => $this->compileComparableSales($soldComps, $presentation->property_address),
+            // AT-18 BUG-1: the recent-sales table AND the page-8 price
+            // distribution (PresentationPdfService reads comparable_sales.*.rows)
+            // must honour the agent's comp whitelist — pass $inPoolComps, not the
+            // unfiltered $soldComps. The CMA path (above) already uses $inPoolComps.
+            'comparable_sales'   => $this->compileComparableSales($inPoolComps, $presentation->property_address),
             'cma_valuation'      => $cmaValuation,
             'cma_computed'       => $cmaComputed,
             'competitor_stock'   => $this->compileCompetitorStock($presentation, $version),

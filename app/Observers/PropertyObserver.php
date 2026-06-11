@@ -152,6 +152,32 @@ class PropertyObserver
         } catch (\Throwable $e) {
             Log::warning("SPINE-3 PropertyCaptured dispatch failed on property #{$property->id}: {$e->getMessage()}");
         }
+
+        // AT-18 BUG-2: geocode on CREATE. updated() re-resolves GPS only on
+        // UPDATE, so a property created with a complete address in a single
+        // save never geocoded (lat/lng stay 0,0 → broken map + spatial view).
+        // created() fires exactly once on INSERT, so the wasRecentlyCreated
+        // lingering caveat the updated() docblock warns about does NOT apply
+        // here. Mirrors updated()'s address-field set + fail-safe try/catch.
+        try {
+            $hasAddress = !empty($property->address)
+                || !empty($property->street_number)
+                || !empty($property->street_name)
+                || !empty($property->suburb)
+                || !empty($property->town);
+            // Skip if lat/lng already set (e.g. map-drag on create) — never
+            // overwrite. Uses the geocoder's own "has GPS" definition (0.0 = unset).
+            $hasGps = $property->latitude !== null
+                && $property->longitude !== null
+                && (float) $property->latitude !== 0.0
+                && (float) $property->longitude !== 0.0;
+            if ($hasAddress && !$hasGps) {
+                (new \App\Services\Geocoding\PropertyGeoBackfillService())
+                    ->backfillProperty($property, batchId: null, force: true);
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Geocode-on-create failed for property #{$property->id}: {$e->getMessage()}");
+        }
     }
 
     /**
