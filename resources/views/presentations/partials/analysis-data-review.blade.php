@@ -817,8 +817,14 @@
                 <p class="text-xs mb-2 font-medium" style="color: var(--text-muted);">Monthly Breakdown</p>
                 <div class="space-y-1" id="hc-breakdown-list">
                     @foreach($hcComponents as $cmp)
-                        <div class="hc-row flex justify-between text-sm items-center" data-component="{{ $cmp['component'] }}" data-column="{{ $cmp['column'] }}">
-                            <span style="color: var(--text-secondary);">{{ $cmp['label'] }}</span>
+                        <div class="hc-row flex justify-between text-sm items-start" data-component="{{ $cmp['component'] }}" data-column="{{ $cmp['column'] }}">
+                            <span style="color: var(--text-secondary); display:flex; flex-direction:column;">
+                                {{ $cmp['label'] }}
+                                {{-- AT-22 item 3 — provenance so the figure isn't opaque --}}
+                                @if(!empty($cmp['source_detail']))
+                                    <span style="font-size:10px; color: var(--text-muted); line-height:1.2; margin-top:1px;">{{ $cmp['source_detail'] }}</span>
+                                @endif
+                            </span>
                             @if($hcUrl)
                                 <span class="hc-value-cell" style="display:inline-flex;align-items:center;gap:6px;">
                                     <span class="hc-value font-medium" style="color: var(--text-primary); cursor:pointer; padding:2px 6px; border-radius:4px;" title="Click to edit">

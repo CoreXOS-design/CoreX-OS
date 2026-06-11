@@ -381,6 +381,16 @@ class SettingsController extends Controller
             'anchor_divergence_pct'                     => ['nullable', 'numeric', 'min:5', 'max:100'],
             'range_lower_pct'                           => ['nullable', 'integer', 'min:1', 'max:49'],
             'range_upper_pct'                           => ['nullable', 'integer', 'min:51', 'max:99'],
+            // AT-22 item 3 — holding-cost Tier-2 agency defaults (were
+            // migration-only; now agency-editable so the figures are
+            // transparent + tunable, not opaque auto-fill).
+            'presentations_default_opportunity_cost_pct'     => ['nullable', 'numeric', 'min:0', 'max:30'],
+            'presentations_default_rates_per_million_zar'    => ['nullable', 'integer', 'min:0', 'max:100000'],
+            'presentations_default_insurance_per_million_zar'=> ['nullable', 'integer', 'min:0', 'max:100000'],
+            'presentations_default_utilities_zar'            => ['nullable', 'integer', 'min:0', 'max:1000000'],
+            'presentations_default_garden_zar'               => ['nullable', 'integer', 'min:0', 'max:1000000'],
+            'presentations_default_pool_zar'                 => ['nullable', 'integer', 'min:0', 'max:1000000'],
+            'presentations_default_security_zar'             => ['nullable', 'integer', 'min:0', 'max:1000000'],
         ]);
 
         if (

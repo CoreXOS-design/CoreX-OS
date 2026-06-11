@@ -92,7 +92,12 @@ final class PresentationReviewController extends Controller
         $subjectTitleType = $presentation->property?->title_type
             ?? ($presentation->property ? $classifier->forProperty($presentation->property) : null);
 
-        $compRows = $allComps->map(function ($c) use ($includedIds, $subjectTitleType, $classifier) {
+        // AT-22 — subject coords so each comp carries a distance (the toolkit
+        // sorts by distance, and the browse-beyond panel seeds off it).
+        $subjLat = $presentation->property?->latitude  ?? $presentation->property?->cma_gps_lat;
+        $subjLng = $presentation->property?->longitude ?? $presentation->property?->cma_gps_lng;
+
+        $compRows = $allComps->map(function ($c) use ($includedIds, $subjectTitleType, $classifier, $subjLat, $subjLng) {
             $raw = is_string($c->raw_row_json)
                 ? (json_decode($c->raw_row_json, true) ?: [])
                 : ((array) $c->raw_row_json ?: []);
@@ -123,6 +128,11 @@ final class PresentationReviewController extends Controller
                     ? (int) round($c->sold_price_inc / $c->size_m2) : null,
                 'lat'             => $raw['latitude'] ?? null,
                 'lng'             => $raw['longitude'] ?? null,
+                'distance_m'      => ($subjLat !== null && $subjLng !== null
+                    && isset($raw['latitude'], $raw['longitude']) && $raw['latitude'] !== null && $raw['longitude'] !== null)
+                    ? (int) round(\App\Support\MarketAnalytics\HaversineDistance::distanceMetres(
+                        (float) $subjLat, (float) $subjLng, (float) $raw['latitude'], (float) $raw['longitude']))
+                    : null,
                 'title_type'      => $compTitleType,
                 'is_included'     => in_array($c->id, $includedIds, true),
                 'is_cross_type'   => !$subjectMatchUsed
@@ -443,6 +453,221 @@ final class PresentationReviewController extends Controller
                 'pool_n'          => $cma['compute_pool_n']      ?? 0,
             ],
         ]);
+    }
+
+    /**
+     * AT-22 — single CMA payload shape shared by the curation endpoints, so
+     * the client's applyCmaUpdate() patches the valuation tiles identically
+     * whether the change came from a single toggle, the slider/bulk set, or a
+     * browse-add.
+     */
+    private function cmaPayload(PresentationVersion $version): array
+    {
+        $version->refresh();
+        $presentation = $version->presentation()->with('property')->first();
+        $analysis     = (new AnalysisDataService())->compile($presentation, $version);
+        $cma          = $analysis['cma_valuation'] ?? [];
+        return [
+            'cma' => [
+                'lower'           => $cma['cma_lower']           ?? null,
+                'middle'          => $cma['cma_middle']          ?? null,
+                'middle_baseline' => $cma['cma_middle_baseline'] ?? null,
+                'upper'           => $cma['cma_upper']           ?? null,
+                'pool_n'          => $cma['compute_pool_n']      ?? 0,
+            ],
+        ];
+    }
+
+    /**
+     * AT-22 (AT-21 fold-in) — batch include-set write for the curation toolkit
+     * (price-range slider / column sort / select-all / bulk tick). The client
+     * computes the full desired included-comp set and posts it once; we persist
+     * it in a SINGLE write + one audit row + one CMA recompute, instead of N
+     * per-comp round-trips. One source of truth: included_comp_ids_json.
+     */
+    public function setComps(Request $request, PresentationVersion $version): JsonResponse
+    {
+        $this->authoriseReviewer($request, $version);
+        $data = $request->validate([
+            'included_ids'   => 'present|array',
+            'included_ids.*' => 'integer',
+        ]);
+
+        $validIds = PresentationSoldComp::query()
+            ->where('presentation_id', $version->presentation_id)
+            ->whereNull('deleted_at')
+            ->pluck('id')->map(fn ($v) => (int) $v)->all();
+
+        $included = array_values(array_intersect(
+            array_values(array_unique(array_map('intval', $data['included_ids']))),
+            $validIds
+        ));
+
+        DB::transaction(function () use ($version, $included, $request) {
+            $version->forceFill(['included_comp_ids_json' => $included])->save();
+            AgentOverride::create([
+                'agency_id'               => $version->agency_id,
+                'presentation_version_id' => $version->id,
+                'user_id'                 => $request->user()->id,
+                'override_type'           => AgentOverride::TYPE_COMP_BULK_SET,
+                'target_id'               => 'bulk',
+                'before_value'            => null,
+                'after_value'             => ['count' => count($included), 'ids' => $included],
+            ]);
+        });
+
+        return response()->json(array_merge(
+            ['ok' => true, 'included_count' => count($included)],
+            $this->cmaPayload($version)
+        ));
+    }
+
+    /**
+     * AT-22 — browse freehold sold comps NEAR the subject that are NOT already
+     * in the pool, so the agent can pull in genuine comparables a little
+     * further out (e.g. premium sales just past the auto radius). Type-matched
+     * (freehold — mirrors the gate), bounded by an agent radius + price range.
+     */
+    public function browseComps(Request $request, PresentationVersion $version): JsonResponse
+    {
+        $this->authoriseReviewer($request, $version);
+        $data = $request->validate([
+            'radius_m'  => 'nullable|integer|min:100|max:20000',
+            'price_min' => 'nullable|integer|min:0',
+            'price_max' => 'nullable|integer|min:0',
+        ]);
+        $radius   = (int) ($data['radius_m']  ?? 3000);
+        $priceMin = (int) ($data['price_min'] ?? 0);
+        $priceMax = (int) ($data['price_max'] ?? 0);
+
+        $presentation = $version->presentation()->with('property')->first();
+        $prop = $presentation->property;
+        $sLat = $prop?->latitude ?? $prop?->cma_gps_lat;
+        $sLng = $prop?->longitude ?? $prop?->cma_gps_lng;
+        if ($sLat === null || $sLng === null) {
+            return response()->json(['ok' => true, 'candidates' => [], 'reason' => 'subject_no_coords']);
+        }
+        $sLat = (float) $sLat; $sLng = (float) $sLng;
+
+        // Already-materialised market rows — never offer a duplicate.
+        $haveRowIds = [];
+        foreach (PresentationSoldComp::where('presentation_id', $version->presentation_id)->whereNull('deleted_at')->get(['raw_row_json']) as $r) {
+            $raw = is_string($r->raw_row_json) ? json_decode($r->raw_row_json, true) : (array) $r->raw_row_json;
+            if (is_array($raw) && !empty($raw['mic_comp_row_id'])) {
+                $haveRowIds[(int) $raw['mic_comp_row_id']] = true;
+            }
+        }
+
+        $latDelta = $radius / 111000.0;
+        $lngDelta = $radius / (111000.0 * max(0.1, cos(deg2rad($sLat))));
+
+        $q = \App\Models\MarketReports\MarketReportCompRow::query()
+            ->where('row_type', \App\Models\MarketReports\MarketReportCompRow::ROW_COMP)
+            ->whereNotNull('sale_price')->where('sale_price', '>', 0)
+            ->whereNotNull('latitude')->whereNotNull('longitude')
+            ->whereBetween('latitude', [$sLat - $latDelta, $sLat + $latDelta])
+            ->whereBetween('longitude', [$sLng - $lngDelta, $sLng + $lngDelta])
+            // Freehold only — no sectional signal (mirrors the type gate).
+            ->where(fn ($w) => $w->whereNull('scheme_name')->orWhere('scheme_name', ''))
+            ->where(fn ($w) => $w->whereNull('section_number')->orWhere('section_number', ''));
+        if ($priceMin > 0) $q->where('sale_price', '>=', $priceMin);
+        if ($priceMax > 0) $q->where('sale_price', '<=', $priceMax);
+
+        $candidates = [];
+        foreach ($q->limit(400)->get() as $row) {
+            if (isset($haveRowIds[(int) $row->id])) continue;
+            $d = \App\Support\MarketAnalytics\HaversineDistance::distanceMetres($sLat, $sLng, (float) $row->latitude, (float) $row->longitude);
+            if ($d > $radius) continue;
+            $candidates[] = [
+                'comp_row_id' => $row->id,
+                'address'     => CompLabel::build($row->toArray(), $row->suburb_normalised ?? null, $row->id),
+                'sold_price'  => (int) $row->sale_price,
+                'size_m2'     => $row->extent_m2 ? (int) $row->extent_m2 : null,
+                'distance_m'  => (int) round($d),
+                'sale_date'   => optional($row->sale_date)->format('Y-m-d'),
+            ];
+        }
+        usort($candidates, fn ($a, $b) => $a['distance_m'] <=> $b['distance_m']);
+
+        return response()->json(['ok' => true, 'candidates' => array_slice($candidates, 0, 60)]);
+    }
+
+    /**
+     * AT-22 — pull selected browse candidates into the pool: materialise each
+     * MarketReportCompRow as a PresentationSoldComp (agent-tagged so a later
+     * re-hydration does NOT wipe it) and add it to included_comp_ids_json.
+     */
+    public function addComps(Request $request, PresentationVersion $version): JsonResponse
+    {
+        $this->authoriseReviewer($request, $version);
+        $data = $request->validate([
+            'comp_row_ids'   => 'required|array|min:1',
+            'comp_row_ids.*' => 'integer',
+        ]);
+        $presentation = $version->presentation()->with('property')->first();
+
+        $rows = \App\Models\MarketReports\MarketReportCompRow::query()
+            ->where('row_type', \App\Models\MarketReports\MarketReportCompRow::ROW_COMP)
+            ->whereIn('id', array_map('intval', $data['comp_row_ids']))
+            ->get();
+
+        $newIds = [];
+        DB::transaction(function () use ($rows, $presentation, $version, &$newIds, $request) {
+            foreach ($rows as $row) {
+                $price = (int) $row->sale_price;
+                if ($price <= 0) { continue; }
+                $raw = [
+                    'source'          => 'agent_browse',
+                    'mic_comp_row_id' => $row->id,
+                    'address'         => $row->address,
+                    'scheme_name'     => $row->scheme_name,
+                    'section_number'  => $row->section_number,
+                    'extent_m2'       => $row->extent_m2,
+                    'sale_date'       => optional($row->sale_date)->format('Y-m-d'),
+                    'sale_price'      => $price,
+                    'latitude'        => $row->latitude,
+                    'longitude'       => $row->longitude,
+                ];
+                $comp = PresentationSoldComp::create([
+                    'agency_id'       => $version->agency_id,
+                    'presentation_id' => $version->presentation_id,
+                    'sold_date'       => $row->sale_date,
+                    'sold_price_inc'  => $price,
+                    'suburb'          => $row->suburb_normalised ?? $presentation->suburb,
+                    'property_type'   => $row->property_type,
+                    'size_m2'         => $row->extent_m2 ? (int) $row->extent_m2 : null,
+                    'raw_row_json'    => json_encode($raw),
+                    'parser_version'  => 'agent_browse',
+                ]);
+                $newIds[] = (int) $comp->id;
+            }
+
+            // Newly-added comps must be INCLUDED. If the version had no explicit
+            // set yet (null = "all persisted"), make it explicit so both the
+            // existing default pool and the new comps are honoured.
+            $current = $version->included_comp_ids_json ?? PresentationSoldComp::query()
+                ->where('presentation_id', $version->presentation_id)
+                ->whereNull('deleted_at')
+                ->whereNotIn('id', $newIds)
+                ->pluck('id')->map(fn ($v) => (int) $v)->all();
+            $current = array_values(array_unique(array_merge(array_map('intval', $current), $newIds)));
+            $version->forceFill(['included_comp_ids_json' => $current])->save();
+
+            AgentOverride::create([
+                'agency_id'               => $version->agency_id,
+                'presentation_version_id' => $version->id,
+                'user_id'                 => $request->user()->id,
+                'override_type'           => AgentOverride::TYPE_COMP_ADDED,
+                'target_id'               => 'browse',
+                'before_value'            => null,
+                'after_value'             => ['added_ids' => $newIds],
+            ]);
+        });
+
+        return response()->json(array_merge(
+            ['ok' => true, 'added_count' => count($newIds), 'added_ids' => $newIds],
+            $this->cmaPayload($version)
+        ));
     }
 
     /**

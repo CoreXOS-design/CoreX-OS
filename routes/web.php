@@ -2319,6 +2319,18 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
     Route::post('/version/{version}/review/comps/{comp}/toggle',
         [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'toggleComp'])
         ->name('review.toggle-comp');
+    // AT-22 / AT-21 — comparable-sales curation toolkit: batch include-set
+    // (slider / sort / select-all / bulk), and browse-and-add freehold comps
+    // beyond the auto-gated pool.
+    Route::post('/version/{version}/review/comps/set',
+        [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'setComps'])
+        ->name('review.set-comps');
+    Route::get('/version/{version}/review/comps/browse',
+        [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'browseComps'])
+        ->name('review.browse-comps');
+    Route::post('/version/{version}/review/comps/add',
+        [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'addComps'])
+        ->name('review.add-comps');
     // Competitor Stock — toggle a scored prospecting_listings competitor on/off.
     Route::post('/version/{version}/review/competitors/{listingId}/toggle',
         [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'toggleCompetitor'])
