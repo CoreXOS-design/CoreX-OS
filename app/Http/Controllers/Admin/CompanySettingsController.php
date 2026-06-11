@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\PerformanceSetting;
+use App\Models\Property;
+use App\Models\Scopes\AgencyScope;
 use App\Models\User;
+use App\Services\Syndication\Website\WebsiteSyndicationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -249,6 +252,50 @@ class CompanySettingsController extends Controller
         return redirect()->route('admin.company-settings', ['agency' => $agency->id, 'tab' => 'website'])
             ->with('success', $publish ? 'Testimonial published to website.' : 'Testimonial removed from website.')
             ->withFragment('testimonials');
+    }
+
+    /**
+     * "Push all Sold to website" — enable website syndication for every SOLD
+     * listing in the agency, across all of its active websites (API keys), in
+     * one action. Reuses the same per-listing syndication path (and webhooks)
+     * as the property-level toggle. Sold-only; never touches active/draft stock.
+     */
+    public function pushSoldToWebsite(Request $request, Agency $agency, WebsiteSyndicationService $service)
+    {
+        $this->authorizeAccess();
+        $this->authorizeAgency($agency);
+
+        $back = redirect()
+            ->route('admin.company-settings', ['agency' => $agency->id, 'tab' => 'website'])
+            ->withFragment('website-sold');
+
+        $keys = $agency->apiKeys()->get()->filter->isActive();
+        if ($keys->isEmpty()) {
+            return $back->with('success', 'This agency has no active website yet — add one under API Access first.');
+        }
+
+        $soldCount = Property::withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $agency->id)
+            ->where('status', 'sold')
+            ->count();
+
+        if ($soldCount === 0) {
+            return $back->with('success', 'No sold listings to push.');
+        }
+
+        $enabled = 0;
+        $alreadyLive = 0;
+        foreach ($keys as $key) {
+            $summary = $service->bulkActivateSold($key);
+            $enabled += $summary['enabled'];
+            $alreadyLive += $summary['already_live'];
+        }
+
+        $siteWord = $keys->count() === 1 ? 'website' : "{$keys->count()} websites";
+        $message = "Pushed {$soldCount} sold listing(s) to {$siteWord}."
+            . ($alreadyLive > 0 ? " ({$enabled} newly added, {$alreadyLive} already live.)" : '');
+
+        return $back->with('success', $message);
     }
 
     private function authorizeAccess(): void

@@ -143,16 +143,17 @@ class Phase3bSyndicationTest extends TestCase
         $this->assertSame(2, $second['already_live']);
     }
 
-    public function test_bulk_activate_sold_via_admin_route(): void
+    public function test_push_sold_to_website_via_company_settings_route(): void
     {
         $this->makeProperty('sold');
         $this->makeProperty('sold');
         $this->makeProperty('active');
 
         $this->actingAs($this->user)
-            ->post(route('agencies.api-keys.bulk-activate-sold', [$this->agency, $this->key]))
+            ->post(route('admin.company-settings.push-sold', $this->agency))
             ->assertRedirect();
 
+        // Only the 2 sold listings are enabled on the agency's website key.
         $this->assertSame(2, PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
             ->where('agency_api_key_id', $this->key->id)->where('enabled', true)->count());
     }

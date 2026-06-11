@@ -1906,7 +1906,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{agency}/api-keys/{apiKey}/regenerate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'regenerate'])->name('api-keys.regenerate');
             Route::post('/{agency}/api-keys/{apiKey}/revoke',  [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'revoke'])->name('api-keys.revoke');
             Route::post('/{agency}/api-keys/{apiKey}/bulk-activate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'bulkActivate'])->name('api-keys.bulk-activate');
-            Route::post('/{agency}/api-keys/{apiKey}/bulk-activate-sold', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'bulkActivateSold'])->name('api-keys.bulk-activate-sold');
             Route::delete('/{agency}/api-keys/{apiKey}',       [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'destroy'])->name('api-keys.destroy');
         });
     });
@@ -1925,6 +1924,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         [\App\Http\Controllers\Admin\CompanySettingsController::class, 'updateWebsite'])
         ->middleware('permission:manage_performance_settings')
         ->name('admin.company-settings.website.update');
+    // Push every SOLD listing in the agency to its website(s) at once.
+    Route::post('/admin/company-settings/{agency}/push-sold',
+        [\App\Http\Controllers\Admin\CompanySettingsController::class, 'pushSoldToWebsite'])
+        ->middleware('permission:manage_performance_settings')
+        ->name('admin.company-settings.push-sold');
     // Testimonials — publish/unpublish a captured testimonial to the website.
     // Spec: .ai/specs/testimonials.md §7.
     Route::patch('/admin/company-settings/{agency}/testimonials/{testimonial}/publish',

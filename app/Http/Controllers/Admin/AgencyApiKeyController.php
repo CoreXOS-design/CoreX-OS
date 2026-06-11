@@ -127,25 +127,6 @@ class AgencyApiKeyController extends Controller
     }
 
     /**
-     * "Push all Sold listings" — enable this website for every SOLD listing in
-     * the agency, in one batched action. Mirrors bulkActivate but for sold stock.
-     */
-    public function bulkActivateSold(Request $request, Agency $agency, AgencyApiKey $apiKey): RedirectResponse
-    {
-        $this->ensureBelongs($agency, $apiKey);
-
-        $summary = app(\App\Services\Syndication\Website\WebsiteSyndicationService::class)
-            ->bulkActivateSold($apiKey);
-
-        $message = $summary['scanned'] === 0
-            ? "“{$apiKey->name}”: no sold listings to push."
-            : "“{$apiKey->name}”: {$summary['enabled']} sold listing(s) pushed to the website" .
-              ($summary['already_live'] > 0 ? ", {$summary['already_live']} already live" : '') . '.';
-
-        return $this->backToPanel($agency)->with('success', $message);
-    }
-
-    /**
      * "Show all agents on website" — set show_on_website=true for every active,
      * non-owner staff member in the agency. Agency-wide (agents aren't per-site),
      * so they appear on every website. Saving each fires the UserObserver →

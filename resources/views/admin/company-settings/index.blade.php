@@ -915,6 +915,34 @@
             </form>
 
             {{-- ============================================================
+                 SOLD LISTINGS — push every sold property to the website(s)
+                 ============================================================ --}}
+            @php
+                $soldCount = \App\Models\Property::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                    ->where('agency_id', $agency->id)
+                    ->where('status', 'sold')
+                    ->count();
+            @endphp
+            <div id="website-sold" class="ds-status-card p-4 space-y-3" style="margin-top:1rem;">
+                <h3 class="ds-section-header">Sold listings on website</h3>
+                <p class="text-xs" style="color:var(--text-muted);">
+                    Push every <strong>sold</strong> property to this agency's website(s) in one go. Only sold listings are
+                    sent — active and draft stock is untouched. Each becomes visible to the website's listings feed
+                    (where it can show as a “Sold” gallery). Re-running is safe; already-live listings are skipped.
+                </p>
+                <form method="POST" action="{{ route('admin.company-settings.push-sold', $agency) }}"
+                      onsubmit="return confirm('Push all {{ $soldCount }} sold {{ \Illuminate\Support\Str::plural('property', $soldCount) }} to the website? You can hide individual listings afterwards.');">
+                    @csrf
+                    <button type="submit" class="corex-btn-primary text-sm" {{ $soldCount === 0 ? 'disabled' : '' }}>
+                        Push all Sold to website{{ $soldCount > 0 ? " ({$soldCount})" : '' }}
+                    </button>
+                    @if($soldCount === 0)
+                        <span class="text-xs ml-2" style="color:var(--text-muted);">No sold properties yet.</span>
+                    @endif
+                </form>
+            </div>
+
+            {{-- ============================================================
                  TESTIMONIALS — publish captured testimonials to the website
                  Spec: .ai/specs/testimonials.md §6.2
                  ============================================================ --}}
