@@ -600,13 +600,10 @@ class PresentationPdfService
         // (Inflow / PropCon / Holding / Pricing Strategy / Scenarios).
         // Hoisted here from its former mid-heredoc location (was at the
         // old §7 PropCon close, between PropCon and Holding Cost) so it
-        // resolves BEFORE any of those blocks render — necessary because
-        // the buffer-and-replay refactor captures each block into a
-        // variable and emits in spec order; the locals used inside each
-        // capture must be defined upstream of the capture.
-        $sectionAfterInflow = 6;
-        if (!empty($inflow['has_data']))   $sectionAfterInflow++;
-        if (!empty($propcon['has_data']))  $sectionAfterInflow++;
+        // AT-22 R2 item 3 — section numbers are no longer computed here. Every
+        // section header emits a __SECNO__ placeholder and buildHtml() does a
+        // single document-order sweep at the end, numbering sections in reading
+        // order. The old $sectionAfterInflow offset machinery is gone.
 
         $compiledAt = $version->compiled_at?->format('d F Y') ?? now()->format('d F Y');
 
@@ -1342,7 +1339,7 @@ a:hover { text-decoration: underline; }
       // computed in buildSummaryPayload(). ?>
 <div class="page-break"></div>
 <div class="section-header">
-    <span class="section-number">1</span>
+    <span class="section-number">__SECNO__</span>
     <h2>Executive Summary</h2>
 </div>
 
@@ -1444,7 +1441,14 @@ a:hover { text-decoration: underline; }
         <?php elseif ($_subjPropLat !== null && $_subjPropLng !== null): ?>
             <div class="subject-card-map-placeholder">
                 Subject GPS on file (<?= number_format((float) $_subjPropLat, 5) ?>, <?= number_format((float) $_subjPropLng, 5) ?>).
-                Map render requires the agency's Google Static Maps key.
+                <?php /* AT-22 R2 item 5 — distinguish the two failure modes: a
+                         missing key vs a key that is set but whose Google Cloud
+                         project has not enabled the Maps Static API (HTTP 403). */ ?>
+                <?php if (empty(config('services.google.static_maps_api_key'))): ?>
+                    Static-location map unavailable — the Google Static Maps key is not configured.
+                <?php else: ?>
+                    Static-location map unavailable — the Google Static Maps key is configured, but the map did not render. Check that the <strong>Maps Static API</strong> is enabled on the key's Google Cloud project.
+                <?php endif ?>
             </div>
         <?php else: ?>
             <div class="subject-card-map-placeholder">
@@ -1469,7 +1473,7 @@ a:hover { text-decoration: underline; }
 <?php ob_start(); ?>
 <?php if ($sectionEnabled('market_overview')): ?>
 <div class="section-header">
-    <span class="section-number">2</span>
+    <span class="section-number">__SECNO__</span>
     <h2>Market Overview — <?= $suburbName ?></h2>
 </div>
 
@@ -1483,6 +1487,16 @@ a:hover { text-decoration: underline; }
 
 <div class="avoid-break">
 <h3 style="margin-bottom:8px;">Suburb Price Summary (<?= $esc((string) $suburbYear) ?>)</h3>
+<?php
+    // AT-22 R2 item 1 — the suburb summary binds from an uploaded suburb-stats
+    // report (parsed into suburb.latest_* fields). When NO report is attached
+    // the figures are genuinely absent — show an honest empty-state rather than
+    // a misleading row of zeros. We do NOT synthesise these from the comp pool:
+    // Market Overview is the broader suburb picture, not the comparable set.
+    $hasSuburbData = ($suburbSales !== null && (int) $suburbSales > 0)
+        || ($suburbMedian !== null && (int) $suburbMedian > 0);
+?>
+<?php if ($hasSuburbData): ?>
 <table>
     <thead>
         <tr>
@@ -1498,6 +1512,12 @@ a:hover { text-decoration: underline; }
         <tr><td>Maximum Sale Price</td><td class="num"><?= $zar($suburbMax) ?></td></tr>
     </tbody>
 </table>
+<?php else: ?>
+<div style="padding:14px 16px; border:1px dashed var(--border, #cbd5e1); border-radius:6px; color:#64748b; font-size:13px; background:#f8fafc;">
+    No suburb report uploaded for this presentation. Upload the suburb sales report on the
+    presentation's evidence step to populate the suburb price summary here.
+</div>
+<?php endif ?>
 </div>
 
 <?php if ($askingPrice && $suburbMedian && $suburbMedian > 0): ?>
@@ -1569,7 +1589,7 @@ a:hover { text-decoration: underline; }
 <?php if ($sectionEnabled('recent_sales')): ?>
 <div class="page-break"></div>
 <div class="section-header">
-    <span class="section-number">3</span>
+    <span class="section-number">__SECNO__</span>
     <h2>Recent Sales Near Your Property</h2>
 </div>
 
@@ -1957,8 +1977,12 @@ a:hover { text-decoration: underline; }
         if (empty($legend)) { return ''; }
         ob_start();
         ?>
+<?php /* AT-22 R2 item 4 — the legend can run long (subject + comps +
+         competition). Repeat the header on each page (table-header-group)
+         and keep each row intact (page-break-inside:avoid) so it flows
+         cleanly across a page boundary instead of splitting mid-row. */ ?>
 <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:10px;">
-    <thead>
+    <thead style="display:table-header-group;">
         <tr style="border-bottom:1px solid #e2e8f0;color:#64748b;text-align:left;">
             <th style="padding:3px 6px;width:28px;">#</th>
             <th style="padding:3px 6px;">Address</th>
@@ -1970,7 +1994,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody>
         <?php foreach ($legend as $_lg): ?>
-        <tr style="border-bottom:1px solid #f1f5f9;">
+        <tr style="border-bottom:1px solid #f1f5f9;page-break-inside:avoid;">
             <td style="padding:3px 6px;">
                 <span style="display:inline-block;width:16px;height:16px;line-height:16px;border-radius:50%;text-align:center;color:#fff;font-weight:700;background:<?= htmlspecialchars((string) ($_lg['colour'] ?? '#64748b'), ENT_QUOTES) ?>;"><?= htmlspecialchars((string) ($_lg['label_glyph'] ?? $_lg['index'] ?? ''), ENT_QUOTES) ?></span>
             </td>
@@ -2048,7 +2072,7 @@ a:hover { text-decoration: underline; }
 <div class="page-break"></div>
 <div class="beat-eyebrow">Section <?= $summary['section_index']['recommendation'] ?? 6 ?> · Beat 4 — Where You Should Be</div>
 <div class="section-header">
-    <span class="section-number">4</span>
+    <span class="section-number">__SECNO__</span>
     <h2>Comparative Market Analysis</h2>
 </div>
 
@@ -2253,7 +2277,7 @@ a:hover { text-decoration: underline; }
 <div class="page-break"></div>
 <div class="beat-eyebrow">Section <?= $summary['section_index']['competition'] ?? 5 ?> · Beat 3 — What's On The Market Now</div>
 <div class="section-header">
-    <span class="section-number">5</span>
+    <span class="section-number">__SECNO__</span>
     <h2>Active Competition</h2>
 </div>
 
@@ -2263,21 +2287,26 @@ a:hover { text-decoration: underline; }
     sit in this set directly shapes how quickly you attract serious interest — being the
     <strong>best-value option</strong> in the group is what moves a property.
 </div>
+<?php
+    // AT-22 R2 item 2 — unify the Active Competition table with the page-8
+    // cards, the spatial pins (21–30) and the headline count: ALL read the
+    // scored competitor stock (competitor_stock.visible, from prospecting_
+    // listings). The table previously read the stale active_competition.rows
+    // (legacy MIC/portal-capture pipeline), contradicting the rest of the
+    // report. Average is computed from the SAME visible set.
+    $compVisible = $data['competitor_stock']['visible'] ?? [];
+    $compPrices  = array_values(array_filter(array_map(fn ($c) => (int) ($c['price'] ?? 0), $compVisible), fn ($p) => $p > 0));
+    $compAvg     = count($compPrices) ? (int) round(array_sum($compPrices) / count($compPrices)) : null;
+?>
 <p style="font-size:10.5px;color:var(--text-muted);margin:0 0 12px 0;">
     Your home competes against
     <strong><?= $competingCount ?> active listing<?= $competingCount !== 1 ? 's' : '' ?></strong>
-    scored on price, suburb, type, and bedrooms.<?php if ($avgAskPrice): ?> Average asking price across the table below: <strong><?= $zar($avgAskPrice) ?></strong>.<?php endif ?>
+    scored on price, suburb, type, and bedrooms.<?php if ($compAvg): ?> Average asking price across the table below: <strong><?= $zar($compAvg) ?></strong>.<?php endif ?>
 </p>
 
-<?php if (!empty($activeRows)): ?>
-<?php // Build 8 — audit display. The N above is the scored
-      // competitor_stock canonical denominator (curated on the review
-      // screen). The table below is the legacy CMA-Info + portal-
-      // capture pipeline retained for audit. Framing label makes
-      // clear these are recent-and-portal-sourced listings on record,
-      // NOT the same number as the canonical headline. ?>
+<?php if (!empty($compVisible)): ?>
 <p style="font-size:9.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600;margin:14px 0 4px 0;">
-    Recent &amp; portal-sourced listings on record
+    Active listings on the market now
 </p>
 <table>
     <thead>
@@ -2291,30 +2320,32 @@ a:hover { text-decoration: underline; }
         </tr>
     </thead>
     <tbody>
-        <?php foreach ($activeRows as $listing): ?>
-        <?php if (!empty($listing['is_excluded'])) continue; ?>
-        <tr>
-            <td><?= $esc($listing['address'] ?? '—') ?></td>
-            <td><?= $esc($listing['property_type'] ?? '—') ?></td>
-            <td class="num"><?= isset($listing['extent_m2']) && $listing['extent_m2'] ? number_format((int) $listing['extent_m2']) : '—' ?></td>
-            <td><?= $esc($listing['list_date'] ?? '—') ?></td>
-            <td class="num"><?= $zar($listing['list_price'] ?? null) ?></td>
-            <td class="num"><?= $listing['days_on_market'] ?? '—' ?></td>
+        <?php foreach ($compVisible as $c): ?>
+        <tr style="page-break-inside:avoid;">
+            <td><?= $esc($c['address'] ?? ('Listing #' . ($c['listing_id'] ?? '—'))) ?></td>
+            <td><?= $esc($c['property_type'] ?? '—') ?></td>
+            <td class="num"><?php
+                $cErf = !empty($c['erf_size_m2']) ? (int) $c['erf_size_m2'] : (!empty($c['property_size_m2']) ? (int) $c['property_size_m2'] : null);
+                echo $cErf ? number_format($cErf) : '—';
+            ?></td>
+            <td><?= !empty($c['listed_date']) ? $esc($c['listed_date']) : (!empty($c['captured_at']) ? $esc(\Carbon\Carbon::parse($c['captured_at'])->format('Y-m-d')) : '—') ?></td>
+            <td class="num"><?= $zar($c['price'] ?? null) ?></td>
+            <td class="num"><?= $c['days_on_market'] ?? '—' ?></td>
         </tr>
         <?php endforeach ?>
     </tbody>
-    <?php if ($avgAskPrice): ?>
+    <?php if ($compAvg): ?>
     <tfoot>
         <tr class="table-summary">
             <td colspan="4"><strong>Average</strong></td>
-            <td class="num"><?= $zar($avgAskPrice) ?></td>
+            <td class="num"><?= $zar($compAvg) ?></td>
             <td class="num"></td>
         </tr>
     </tfoot>
     <?php endif ?>
 </table>
 <?php else: ?>
-<div class="callout callout-info">No active listing data available. Add Property24 links or portal captures to populate this section.</div>
+<div class="callout callout-info">No scored competitor stock for this property yet. Competitors are matched from prospecting listings on price, suburb, type and bedrooms.</div>
 <?php endif ?>
 
 <?php // CHART 5: Competition Price Bracket Bars ?>
@@ -2528,7 +2559,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <?php if ($sectionEnabled('inflow_absorption')): ?>
 <?php if (!empty($inflow['has_data'])): ?>
 <div class="section-header">
-    <span class="section-number">6</span>
+    <span class="section-number">__SECNO__</span>
     <h2>New Listing Inflow &amp; Absorption</h2>
 </div>
 
@@ -2701,7 +2732,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <?php if (!empty($propcon['has_data'])): ?>
 <div class="page-break"></div>
 <div class="section-header">
-    <span class="section-number"><?= !empty($inflow['has_data']) ? '7' : '6' ?></span>
+    <span class="section-number">__SECNO__</span>
     <h2>Listing Performance &mdash; Similar Properties</h2>
 </div>
 
@@ -2828,7 +2859,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <?php if ($sectionEnabled('holding_cost')): ?>
 <div class="beat-eyebrow">Section <?= $summary['section_index']['waiting'] ?? 7 ?> · Beat 5 — What Waiting Costs</div>
 <div class="section-header">
-    <span class="section-number"><?= $sectionAfterInflow ?></span>
+    <span class="section-number">__SECNO__</span>
     <h2>Holding Cost Analysis</h2>
 </div>
 
@@ -2842,7 +2873,10 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 </div>
 
 <?php if ($monthlyTotal > 0): ?>
-<div class="two-col">
+<?php /* AT-22 R2 item 4 — keep the holding-cost grid whole. The two tables
+         are short; protecting the grid container (not just the children) stops
+         Chromium splitting the grid track across pages 10–11. */ ?>
+<div class="two-col" style="page-break-inside:avoid;">
     <div class="avoid-break">
         <h3 style="margin-bottom:8px;">Monthly Breakdown</h3>
         <table>
@@ -2924,7 +2958,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <?php ob_start(); ?>
 <?php if ($sectionEnabled('pricing_strategy')): ?>
 <div class="section-header">
-    <span class="section-number"><?= $sectionAfterInflow + 1 ?></span>
+    <span class="section-number">__SECNO__</span>
     <h2>Pricing Strategy &amp; Recommendation</h2>
 </div>
 
@@ -3077,7 +3111,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 ?>
 <div class="page-break"></div>
 <div class="section-header">
-    <span class="section-number"><?= $sectionAfterInflow + 2 ?></span>
+    <span class="section-number">__SECNO__</span>
     <h2>Pricing Scenarios</h2>
 </div>
 
@@ -3311,6 +3345,20 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 </body>
 </html>
 <?php
-        return (string) ob_get_clean();
+        $html = (string) ob_get_clean();
+
+        // AT-22 R2 item 3 — assign section numbers in READING order. Each
+        // section header carries a __SECNO__ placeholder; the buffer-and-
+        // replay architecture echoes sections in reading order, so a single
+        // document-order sweep numbers them 1..N sequentially. This replaces
+        // the old per-section hardcoded literals (frozen to SOURCE order),
+        // which came out scrambled (1, 3, 2, 5, 4, …). Bullet markers use the
+        // same CSS class but render "•", not __SECNO__, so they're untouched.
+        $secNo = 0;
+        $html = preg_replace_callback('/__SECNO__/', static function () use (&$secNo) {
+            return (string) (++$secNo);
+        }, $html);
+
+        return $html;
     }
 }
