@@ -61,9 +61,10 @@ return [
 
     'anthropic' => [
         // Legacy key — kept for backwards compatibility with existing consumers
-        // (AiFieldMapperService, ClaudeVisionParserService, ImporterAiService,
-        // MarketingCopyService, AIExtractionService). DO NOT REMOVE without
+        // (MarketingCopyService, AIExtractionService). DO NOT REMOVE without
         // migrating those services to read `api_key` instead.
+        // (ES-6.5: AiFieldMapperService / ClaudeVisionParserService /
+        // ImporterAiService were retired with Path A.)
         'key'     => env('ANTHROPIC_API_KEY'),
         // Canonical name per MIC spec §4.8.
         'api_key' => env('ANTHROPIC_API_KEY'),

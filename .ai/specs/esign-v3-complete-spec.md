@@ -1005,7 +1005,7 @@ An agency onboarding 10 templates: **R20–50 in AI costs.** Versus hours of man
 > ✅ ES-6 STATUS 2026-06-10 (branch AT-12-E-Sig) — fix audit:
 > `.ai/audits/es6-import-fix-2026-06-10.md`. Goal: ONE import flow (Path B,
 > `/import/cds`) accepting Word AND PDF, producing an editable CDS web template
-> on the e-sign rails; Path A retirement PROPOSED (not executed).
+> on the e-sign rails; Path A retirement EXECUTED (ES-6.5, AT-12-E-Sig 2026-06-11).
 > - **ES-6.1 PDF into the CDS path — BUILT (text PDF) / DEFERRED (scanned).**
 >   `CdsParserService::parsePdf()` (new) extracts text via `smalot/pdfparser` →
 >   builds the SAME `cds_json {version,title,sections[]}` shape via
@@ -1027,11 +1027,23 @@ An agency onboarding 10 templates: **R20–50 in AI costs.** Versus hours of man
 > - **ES-6.4 review surfacing — BUILT.** CDS builder renders a "Detected N
 >   insertable block(s) — confirm before saving" banner from the draft settings
 >   (`cds-builder.blade.php`).
-> - **ES-6.5 path consolidation — DECIDED + PROPOSED (not executed).** Path B is
->   the one true import; Path A retirement is a full file:line dependency trace +
->   plan in the audit, with shared-service warnings (do NOT remove
->   NamedField/FieldGroup/AgencySigningParty/AnthropicGateway; `ImporterAiService`
->   owns the only AI PDF ingestion). Left for Johan to execute under review.
+> - **ES-6.5 path consolidation — EXECUTED (AT-12-E-Sig 2026-06-11, Johan-approved
+>   "full clean retirement").** Path B (`/import/cds`) is the one true import. Path A
+>   removed: routes (`/import/parse|review|generate|review/mappings|draft/save|draft/{id}|template/{id}/edit`),
+>   the Path A controller methods on `DocumentImporterController`, services
+>   `ClaudeVisionParserService`, `DocxParserService`, `ImporterAiService`,
+>   `DocumentTemplateGenerator`, `CorexDocumentRenderer`, `AiFieldMapperService`,
+>   job `ParseDocumentJob`, model `ImportDraft`, views `importer/review.blade.php`
+>   + the Path A card on `importer/index.blade.php` + the "Edit Document" re-edit
+>   button on `templates/edit-web.blade.php`. KEPT (shared, NOT Path-A-only):
+>   `NamedField`/`FieldGroup`/`AgencySigningParty`/`AnthropicGateway`, AND
+>   `FieldCorrection` + `field_corrections` (now used by ES-6.7 fidelity "fix"). Data
+>   tables `docuperfect_import_drafts` + `field_corrections` kept as archives
+>   (no-hard-delete). The `generateStructured` documents-drop bug is GONE with
+>   `ImporterAiService` — no remaining `generateStructured` caller passes a
+>   `documents` payload (verified: `ThisWeekTileBuilder`, `SpotCheckMarketReportJob`
+>   are text-only). Scanned-PDF AI ingestion is therefore unavailable until the
+>   proposed OCR-fidelity path (audit §D) is built — it never used these services.
 > - **ES-6.6 e2e test — PARTIAL (deterministic subset verified).** Word + text
 >   PDF → CDS draft → builder pipeline proven on corex_dev (15 Tinker checks,
 >   docx regression incl.); scanned-PDF live output + full browser click-through

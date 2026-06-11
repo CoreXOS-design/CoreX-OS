@@ -32,18 +32,9 @@
                class="text-xs px-3 py-1.5 border border-white/30 text-white/70 hover:bg-white/10 hover:text-white transition-colors">
                 Back
             </a>
-            <div x-data="{ submitting: false }">
-                <form method="POST" action="{{ route('docuperfect.import.template.edit', $template->id) }}" class="inline" @submit="submitting = true">
-                    @csrf
-                    <button type="submit"
-                            :disabled="submitting"
-                            :class="submitting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-500/20 hover:text-amber-100'"
-                            class="text-xs px-3 py-1.5 border border-amber-400/60 text-amber-300 transition-colors">
-                        <span x-show="!submitting">Edit Document</span>
-                        <span x-show="submitting">Opening...</span>
-                    </button>
-                </form>
-            </div>
+            {{-- ES-6.5: the Path A "Edit Document" re-open-in-importer affordance
+                 was retired with Path A (route docuperfect.import.template.edit
+                 removed). Field editing stays inline via Save below. --}}
             <button type="button" @click="save()" :disabled="saving"
                     class="text-xs px-4 py-1.5 font-medium transition-colors"
                     :class="saving ? 'opacity-60 cursor-wait' : 'hover:opacity-90'"

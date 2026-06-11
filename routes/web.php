@@ -2638,15 +2638,11 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
 
     // ===== DOCUMENT IMPORTER =====
     Route::get('/import', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'index'])->name('docuperfect.import.index');
-    Route::post('/import/parse', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'parse'])->name('docuperfect.import.parse');
+    // ES-6.5 — Path A (parse/review/generate/draft) retired; the CDS marker
+    // path (/import/cds, Word + text PDF) is the one true import.
     Route::post('/import/cds', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'generateCdsTemplate'])->name('docuperfect.import.cds');
     // ES-6.7 — human ratification of an AI extraction-fidelity flag.
     Route::post('/import/fidelity-flag/{flag}/resolve', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'resolveFidelityFlag'])->name('docuperfect.import.fidelity.resolve');
-    Route::get('/import/review', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'review'])->name('docuperfect.import.review');
-    Route::post('/import/generate', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'generate'])->name('docuperfect.import.generate');
-    Route::post('/import/review/mappings', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'saveMappings'])->name('docuperfect.import.review.mappings');
-    Route::post('/import/draft/save', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'saveDraft'])->name('docuperfect.import.draft.save');
-    Route::delete('/import/draft/{id}', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'destroyDraft'])->name('docuperfect.import.draft.destroy');
 
     // Signing party management (agency-level)
     Route::get('/import/parties', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'getParties'])->name('docuperfect.import.parties.index');
@@ -2654,7 +2650,6 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::put('/import/parties/{id}', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'updateParty'])->name('docuperfect.import.parties.update');
     Route::delete('/import/parties/{id}', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'destroyParty'])->name('docuperfect.import.parties.destroy');
     Route::post('/import/parties/reorder', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'reorderParties'])->name('docuperfect.import.parties.reorder');
-    Route::post('/import/template/{id}/edit', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'editFromTemplate'])->name('docuperfect.import.template.edit');
 
     // ===== ES-9 / ES-3 — Other Conditions + Strikethrough + Amendment Review =====
     // Add a condition or propose a strikethrough during signing or agent preparation

@@ -150,7 +150,6 @@ if ($Full) {
 $pipelineFiles = @(
     'app/Models/Docuperfect/Template.php',
     'app/Models/Docuperfect/CdsDraft.php',
-    'app/Services/Docuperfect/SurfaceNormalizer.php',
     'app/Services/Docuperfect/SignatureSurfaceNormalizer.php',
     'app/Services/Docuperfect/LetterheadRefresher.php',
     'app/Services/Docuperfect/InsertableBlockRenderer.php',
