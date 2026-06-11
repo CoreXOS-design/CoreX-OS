@@ -1513,9 +1513,20 @@ a:hover { text-decoration: underline; }
     </tbody>
 </table>
 <?php else: ?>
+<?php
+    // AT-22 R3 — the suburb price summary is pulled automatically from the
+    // shared Market Intelligence data by suburb. This empty-state shows ONLY
+    // when the MIC genuinely holds no data for this suburb yet — the fix is to
+    // import a suburb report into Market Intelligence (reusable across every
+    // presentation in the suburb), NOT to upload one to this presentation.
+    $_micCreateUrl = \Illuminate\Support\Facades\Route::has('market-intelligence.reports.create')
+        ? route('market-intelligence.reports.create')
+        : null;
+?>
 <div style="padding:14px 16px; border:1px dashed var(--border, #cbd5e1); border-radius:6px; color:#64748b; font-size:13px; background:#f8fafc;">
-    No suburb report uploaded for this presentation. Upload the suburb sales report on the
-    presentation's evidence step to populate the suburb price summary here.
+    No market data for <strong><?= $suburbName !== '' ? $suburbName : 'this suburb' ?></strong> yet.
+    Import a suburb report via <strong>Market Intelligence</strong><?php if ($_micCreateUrl): ?> (<a href="<?= $esc($_micCreateUrl) ?>" style="color:#2563eb;">import a report</a>)<?php endif ?>
+    and it will populate here automatically — and across every presentation in this suburb.
 </div>
 <?php endif ?>
 </div>

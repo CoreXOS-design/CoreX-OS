@@ -880,76 +880,66 @@ final class MicSnapshotHydrator
         $suburb = mb_strtolower(trim((string) ($presentation->suburb ?? '')));
         if ($suburb === '') return 0;
 
-        // Find the most recent year of data for this suburb.
-        $latest = DB::table('market_data_points')
-            ->whereNull('deleted_at')
-            ->where('metric_key', 'suburb_median_price_year')
-            ->where(function ($q) use ($suburb) {
-                $q->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-                  ->orWhereRaw('LOWER(suburb_normalised) LIKE ?', ['%' . $suburb . '%']);
-            })
-            ->orderByDesc('metric_date')
-            ->first(['metric_value_numeric', 'metric_date']);
-
-        // Fall back to the 12-month median if no per-year series.
-        if (!$latest) {
-            $latest = DB::table('market_data_points')
+        $pull = function (string $key, ?int $year = null) use ($suburb) {
+            $q = DB::table('market_data_points')
                 ->whereNull('deleted_at')
-                ->where('metric_key', 'suburb_median_price_12m')
-                ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-                ->orderByDesc('metric_date')
-                ->first(['metric_value_numeric', 'metric_date']);
-        }
-
-        if (!$latest) return 0;
-
-        $year = $latest->metric_date ? Carbon::parse($latest->metric_date)->year : (int) date('Y');
-
-        // Companion: sales count for the same year.
-        $countRow = DB::table('market_data_points')
-            ->whereNull('deleted_at')
-            ->where('metric_key', 'suburb_sales_count_year')
-            ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-            ->whereYear('metric_date', $year)
-            ->orderByDesc('metric_date')
-            ->first(['metric_value_numeric']);
-
-        $countFallback = DB::table('market_data_points')
-            ->whereNull('deleted_at')
-            ->where('metric_key', 'suburb_total_sales_12m')
-            ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-            ->orderByDesc('metric_date')
-            ->first(['metric_value_numeric']);
-
-        $writes = [
-            'suburb.latest_year'         => (string) $year,
-            'suburb.latest_median_price' => (string) (int) $latest->metric_value_numeric,
-            'suburb.latest_sales_count'  => $countRow
-                ? (string) (int) $countRow->metric_value_numeric
-                : ($countFallback ? (string) (int) $countFallback->metric_value_numeric : null),
-        ];
-
-        // Phase 3e A3 — low/high/max from the per-year Residential Price
-        // Ranges table (MSA parser writes suburb_low_year / suburb_high_year
-        // / suburb_max_year keys). Pull the same year as the median above so
-        // all four columns line up.
-        $rangeKeys = [
-            'suburb_low_year'  => 'suburb.latest_low',
-            'suburb_high_year' => 'suburb.latest_high',
-            'suburb_max_year'  => 'suburb.latest_max',
-        ];
-        foreach ($rangeKeys as $srcKey => $dstKey) {
-            $rangeRow = DB::table('market_data_points')
-                ->whereNull('deleted_at')
-                ->where('metric_key', $srcKey)
-                ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
-                ->whereYear('metric_date', $year)
-                ->orderByDesc('metric_date')
-                ->first(['metric_value_numeric']);
-            if ($rangeRow) {
-                $writes[$dstKey] = (string) (int) $rangeRow->metric_value_numeric;
+                ->where('metric_key', $key)
+                ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb]);
+            if ($year !== null) {
+                $q->whereYear('metric_date', $year);
             }
+            return $q->orderByDesc('metric_date')->first(['metric_value_numeric', 'metric_date']);
+        };
+
+        // AT-22 R3 — robustness: anchor on the most recent YEAR that has ANY
+        // suburb-level datapoint (median OR sales-count OR price ranges), not
+        // just the median. The median is no longer mandatory — we surface
+        // latest_year + whatever metrics exist, so a suburb with (say)
+        // ranges-only data still populates the Market Overview instead of
+        // going entirely blank (the old code returned 0 the moment no median
+        // existed, discarding the ranges it had).
+        $anchor = DB::table('market_data_points')
+            ->whereNull('deleted_at')
+            ->whereIn('metric_key', [
+                'suburb_median_price_year', 'suburb_sales_count_year',
+                'suburb_low_year', 'suburb_high_year', 'suburb_max_year',
+            ])
+            ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
+            ->orderByDesc('metric_date')
+            ->first(['metric_date']);
+
+        if ($anchor && $anchor->metric_date) {
+            $year   = Carbon::parse($anchor->metric_date)->year;
+            $median = $pull('suburb_median_price_year', $year) ?: $pull('suburb_median_price_12m');
+            $count  = $pull('suburb_sales_count_year', $year)  ?: $pull('suburb_total_sales_12m');
+            $low    = $pull('suburb_low_year', $year);
+            $high   = $pull('suburb_high_year', $year);
+            $max    = $pull('suburb_max_year', $year);
+
+            $writes = array_filter([
+                'suburb.latest_year'         => (string) $year,
+                'suburb.latest_median_price' => $median ? (string) (int) $median->metric_value_numeric : null,
+                'suburb.latest_sales_count'  => $count  ? (string) (int) $count->metric_value_numeric  : null,
+                'suburb.latest_low'          => $low  ? (string) (int) $low->metric_value_numeric  : null,
+                'suburb.latest_high'         => $high ? (string) (int) $high->metric_value_numeric : null,
+                'suburb.latest_max'          => $max  ? (string) (int) $max->metric_value_numeric  : null,
+            ], fn ($v) => $v !== null);
+
+            return $this->upsertFields($presentation->id, $writes);
         }
+
+        // No per-year series at all — try the 12-month aggregates before
+        // giving up entirely.
+        $median12 = $pull('suburb_median_price_12m');
+        $count12  = $pull('suburb_total_sales_12m');
+        if (!$median12 && !$count12) {
+            return 0;
+        }
+        $writes = array_filter([
+            'suburb.latest_year'         => (string) (($median12 ?? $count12)->metric_date ? Carbon::parse(($median12 ?? $count12)->metric_date)->year : (int) date('Y')),
+            'suburb.latest_median_price' => $median12 ? (string) (int) $median12->metric_value_numeric : null,
+            'suburb.latest_sales_count'  => $count12  ? (string) (int) $count12->metric_value_numeric  : null,
+        ], fn ($v) => $v !== null);
 
         return $this->upsertFields($presentation->id, $writes);
     }

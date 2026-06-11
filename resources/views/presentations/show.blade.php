@@ -873,9 +873,30 @@
         </ul>
     @endif
 
+    {{-- AT-22 R3 — MIC is the single source. Suburb stats (and comps) are
+         imported ONCE into Market Intelligence and reused across every
+         presentation in the suburb, pulled automatically by suburb. The
+         primary path is the MIC importer; the per-presentation upload below
+         is the LEGACY fallback only. --}}
     <div class="mt-4 pt-4 border-t border-slate-100">
+        <div class="rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 mb-3">
+            <div class="text-xs font-semibold text-blue-900">Suburb &amp; market data comes from Market Intelligence</div>
+            <p class="text-[11px] text-blue-800 mt-0.5">
+                Import a suburb / CMA report once into Market Intelligence and it populates this presentation —
+                and every other presentation in the suburb — automatically. No per-presentation upload needed.
+            </p>
+            @if(\Illuminate\Support\Facades\Route::has('market-intelligence.reports.create'))
+            <a href="{{ route('market-intelligence.reports.create') }}"
+               class="corex-btn-outline text-xs mt-2 inline-flex items-center gap-1">
+                Import via Market Intelligence →
+            </a>
+            @endif
+        </div>
+
+    <details class="mt-1">
+        <summary class="text-[11px] text-slate-400 cursor-pointer select-none">Legacy: upload a report to this presentation only (not reusable)</summary>
     <form method="POST" action="{{ route('presentations.upload', $presentation) }}"
-          enctype="multipart/form-data" class="space-y-2.5">
+          enctype="multipart/form-data" class="space-y-2.5 mt-2">
         @csrf
         <div class="flex gap-2 items-center">
             <select name="doc_type" class="pres-select text-xs" required>
@@ -891,7 +912,7 @@
                 Upload
             </button>
         </div>
-        <p class="text-[11px] text-slate-400">CMA Info PDFs are auto-detected by filename. Drop all 3 files at once — type is detected automatically.</p>
+        <p class="text-[11px] text-slate-400">Legacy per-presentation upload. Suburb data should be imported via Market Intelligence (above) so it's reusable. CMA Info PDFs are auto-detected by filename.</p>
         @error('doc_type')
             <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
         @enderror
@@ -902,6 +923,7 @@
             <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
         @enderror
     </form>
+    </details>
 
     </div>
 
