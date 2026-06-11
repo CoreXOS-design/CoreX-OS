@@ -92,9 +92,19 @@ class CmaCoverageService
             default                                => self::STATE_NONE,
         };
 
+        // AT-22 §1.5 — the robust market anchor for the Generate modal's
+        // "Suggestion based on suburb data" field. This is the cleaned,
+        // type/price/radius-gated median of the comp pool — NOT the asking
+        // price (the modal used to echo asking, which was meaningless).
+        // Computed only when comps exist; null otherwise. Spec §1.5.
+        $marketAnchor = $compCount > 0
+            ? $this->marketAnchor($suburb, $window, $thresholds['scope'], $thresholds['radius_m'], $subjectLat, $subjectLng, $subjectIsDemo, $agencyId, $propertyType)
+            : null;
+
         return [
             'state'           => $state,
             'comp_count'      => $compCount,
+            'market_anchor'   => $marketAnchor,
             'period_months'   => $window,
             'suburb'          => $suburb,
             'property_type'   => $propertyType,
@@ -236,6 +246,75 @@ class CmaCoverageService
         }
 
         return count($fingerprints);
+    }
+
+    /**
+     * AT-22 §1.5 — robust market anchor for the Generate modal.
+     *
+     * Gathers suburb-broad MIC comp candidates and runs them through
+     * CompPoolBuilder (type hard-gate → price band → radius ladder →
+     * divergence → rank). Returns the gated pool's median — the same
+     * defensible anchor the hydrator persists against, so the modal
+     * "Suggestion" and the generated CMA agree. Returns null when no
+     * usable comps resolve. Lightweight: one suburb-scoped query.
+     */
+    protected function marketAnchor(
+        string $suburb,
+        int $periodMonths,
+        string $scope,
+        int $radiusM,
+        ?float $subjectLat,
+        ?float $subjectLng,
+        bool $subjectIsDemo,
+        int $agencyId,
+        ?string $propertyType,
+    ): ?int {
+        if ($suburb === '') {
+            return null;
+        }
+        $dateFrom = Carbon::today()->subMonths($periodMonths)->toDateString();
+        $dateTo   = Carbon::today()->toDateString();
+
+        $rows = DB::table('market_report_comp_rows')
+            ->whereNull('deleted_at')
+            ->where('row_type', 'comp')
+            ->whereNotNull('sale_date')
+            ->whereNotNull('sale_price')
+            ->where('is_demo', $subjectIsDemo)
+            ->whereBetween('sale_date', [$dateFrom, $dateTo])
+            ->select(['sale_price', 'property_type', 'extent_m2', 'latitude', 'longitude', 'suburb_normalised'])
+            ->get();
+
+        // Collect suburb-broad candidates; CompPoolBuilder narrows by its
+        // own radius ladder (mirrors the hydrator's collect-broad-gate-down).
+        $candidates = [];
+        foreach ($rows as $i => $r) {
+            if (empty($r->suburb_normalised) || !SuburbMatcher::matches($r->suburb_normalised, $suburb)) {
+                continue;
+            }
+            $candidates[] = [
+                'key'           => $i,
+                'price'         => (int) $r->sale_price,
+                'size_m2'       => $r->extent_m2 !== null ? (int) $r->extent_m2 : null,
+                'property_type' => $r->property_type,
+                'lat'           => $r->latitude,
+                'lng'           => $r->longitude,
+                'exempt'        => false,
+            ];
+        }
+        if (empty($candidates)) {
+            return null;
+        }
+
+        $config  = CompPoolBuilder::configForAgency(\App\Models\Agency::find($agencyId));
+        $subject = [
+            'title_type'    => null,
+            'property_type' => $propertyType,
+            'lat'           => $subjectLat,
+            'lng'           => $subjectLng,
+            'erf_m2'        => null,
+        ];
+        return (new CompPoolBuilder())->select($subject, $candidates, $config)['anchor'];
     }
 
     /**

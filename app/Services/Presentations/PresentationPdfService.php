@@ -541,7 +541,9 @@ class PresentationPdfService
         $_subjPropLng = $presentation->property?->longitude;
         if ($_subjPropLat !== null && $_subjPropLng !== null) {
             try {
-                $_subjectMapDataUri = (new \App\Services\Presentations\Pdf\PresentationStaticMapService())
+                // AT-22 §3 — renderBase64() now returns ['data_uri'=>?, 'legend'=>[]].
+                // The subject hero map only needs the image, so unwrap data_uri.
+                $_subjectMapResult = (new \App\Services\Presentations\Pdf\PresentationStaticMapService())
                     ->renderBase64(
                         ['lat' => (float) $_subjPropLat, 'lng' => (float) $_subjPropLng,
                          'title' => (string) ($presentation->property_address ?? '')],
@@ -550,6 +552,7 @@ class PresentationPdfService
                         640,
                         360,
                     );
+                $_subjectMapDataUri = $_subjectMapResult['data_uri'] ?? null;
             } catch (\Throwable) {
                 $_subjectMapDataUri = null;
             }
@@ -1926,14 +1929,63 @@ a:hover { text-decoration: underline; }
         $_staticComp = [];
         foreach ($_svgComps as $_pt) {
             if (($_pt['layer'] ?? '') === 'competitor_stock') {
-                $_staticComp[] = ['latitude' => $_pt['lat'], 'longitude' => $_pt['lng']];
+                $_staticComp[] = [
+                    'latitude' => $_pt['lat'], 'longitude' => $_pt['lng'],
+                    'title' => $_pt['title'] ?? null, 'price' => $_pt['price'] ?? null,
+                ];
             } else {
-                $_staticSold[] = ['lat' => $_pt['lat'], 'lng' => $_pt['lng'], 'title_type' => $_pt['title_type'] ?? null];
+                $_staticSold[] = [
+                    'lat' => $_pt['lat'], 'lng' => $_pt['lng'],
+                    'title_type' => $_pt['title_type'] ?? null,
+                    'title' => $_pt['title'] ?? null, 'price' => $_pt['price'] ?? null,
+                    'sale_date' => $_pt['sale_date'] ?? null, 'layer' => $_pt['layer'] ?? 'sold_comps',
+                ];
             }
         }
-        $_staticMapDataUri = (new \App\Services\Presentations\Pdf\PresentationStaticMapService())
+        // AT-22 §3 — renderBase64() returns ['data_uri'=>?, 'legend'=>[...]].
+        $_staticResult = (new \App\Services\Presentations\Pdf\PresentationStaticMapService())
             ->renderBase64($_subjForStatic, $_staticSold, $_staticComp, 640, 480);
+        $_staticMapDataUri = $_staticResult['data_uri'] ?? null;
+        $_mapLegend = $_staticResult['legend'] ?? [];
     }
+    // AT-22 §3 — shared map-legend renderer. The map face carries numbered
+    // pins only (no overprinting address labels); this legend keys each
+    // number → address/price/date/distance/layer below the map. Engine is
+    // Chromium (HTML table renders cleanly). Used by both map paths.
+    $_mapLegend = $_mapLegend ?? [];
+    $_renderMapLegend = function (array $legend): string {
+        if (empty($legend)) { return ''; }
+        ob_start();
+        ?>
+<table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:10px;">
+    <thead>
+        <tr style="border-bottom:1px solid #e2e8f0;color:#64748b;text-align:left;">
+            <th style="padding:3px 6px;width:28px;">#</th>
+            <th style="padding:3px 6px;">Address</th>
+            <th style="padding:3px 6px;text-align:right;">Price</th>
+            <th style="padding:3px 6px;">Date</th>
+            <th style="padding:3px 6px;text-align:right;">Distance</th>
+            <th style="padding:3px 6px;">Layer</th>
+        </tr>
+    </thead>
+    <tbody>
+        <?php foreach ($legend as $_lg): ?>
+        <tr style="border-bottom:1px solid #f1f5f9;">
+            <td style="padding:3px 6px;">
+                <span style="display:inline-block;width:16px;height:16px;line-height:16px;border-radius:50%;text-align:center;color:#fff;font-weight:700;background:<?= htmlspecialchars((string) ($_lg['colour'] ?? '#64748b'), ENT_QUOTES) ?>;"><?= htmlspecialchars((string) ($_lg['label_glyph'] ?? $_lg['index'] ?? ''), ENT_QUOTES) ?></span>
+            </td>
+            <td style="padding:3px 6px;"><?= htmlspecialchars((string) ($_lg['title'] ?? ''), ENT_QUOTES) ?></td>
+            <td style="padding:3px 6px;text-align:right;"><?= isset($_lg['price']) && $_lg['price'] !== null ? 'R ' . number_format((int) $_lg['price'], 0, '.', ' ') : '—' ?></td>
+            <td style="padding:3px 6px;"><?= !empty($_lg['sale_date']) ? \Carbon\Carbon::parse($_lg['sale_date'])->format('M Y') : '—' ?></td>
+            <td style="padding:3px 6px;text-align:right;"><?= isset($_lg['distance_m']) && $_lg['distance_m'] !== null ? ((int) $_lg['distance_m'] >= 1000 ? number_format($_lg['distance_m'] / 1000, 1) . ' km' : (int) $_lg['distance_m'] . ' m') : '—' ?></td>
+            <td style="padding:3px 6px;"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) ($_lg['layer'] ?? ''))), ENT_QUOTES) ?></td>
+        </tr>
+        <?php endforeach; ?>
+    </tbody>
+</table>
+        <?php
+        return (string) ob_get_clean();
+    };
 ?>
 <?php if ($_subjLat !== null && $_subjLng !== null && $_staticMapDataUri !== null): ?>
 <?php // Static-image path — Google Static Maps PNG, embedded base64.
@@ -1942,10 +1994,12 @@ a:hover { text-decoration: underline; }
     <h3 style="margin-bottom:8px;">CMA Map — Subject + Sold Comps + Active Competition</h3>
     <img src="<?= $_staticMapDataUri ?>" alt="CMA map" style="width:100%;max-width:640px;height:auto;border:1px solid #e2e8f0;border-radius:6px;">
     <p style="font-size:10px;color:#64748b;margin-top:4px;">
+        Numbered pins keyed to the legend below ·
         Sold comps: <?= count($_svgComps) - (isset($_staticComp) ? count($_staticComp) : 0) ?> plotted ·
         Active competition: <?= isset($_staticComp) ? count($_staticComp) : 0 ?> plotted ·
-        Subject (S) green pin · Competition (C) amber pins.
+        Subject = S pin.
     </p>
+    <?= $_renderMapLegend($_mapLegend) ?>
 </div>
 <?php elseif ($_subjLat !== null && $_subjLng !== null && !empty($_svgComps)): ?>
 <?php // Radial SVG path — default + fallback. SpatialViewSvgRenderer now
@@ -1953,15 +2007,24 @@ a:hover { text-decoration: underline; }
       // map's orange diamond palette). ?>
 <div style="margin-top:18px;">
     <h3 style="margin-bottom:8px;">Spatial View — Subject + Comps + Competition</h3>
-    <?= (new \App\Services\Presentations\Pdf\SpatialViewSvgRenderer())->render(
-        ['lat' => (float) $_subjLat, 'lng' => (float) $_subjLng, 'title' => $address],
-        $_svgComps,
-        540, 360,
-    ) ?>
+    <?php
+        // AT-22 §3 — render() now returns ['svg'=>…, 'legend'=>[…]]. The
+        // map face has numbered pins only; the legend (below) carries the
+        // detail. No more overprinting address labels on the map.
+        $_svgResult = (new \App\Services\Presentations\Pdf\SpatialViewSvgRenderer())->render(
+            ['lat' => (float) $_subjLat, 'lng' => (float) $_subjLng, 'title' => $address],
+            $_svgComps,
+            540, 360,
+        );
+        $_mapLegend = $_svgResult['legend'] ?? [];
+    ?>
+    <?= $_svgResult['svg'] ?? '' ?>
     <p style="font-size:10px;color:#64748b;margin-top:4px;">
-        Subject at centre · <?= count($_svgComps) ?> data point<?= count($_svgComps) === 1 ? '' : 's' ?> within view ·
+        Numbered pins keyed to the legend below · Subject at centre ·
+        <?= count($_svgComps) ?> data point<?= count($_svgComps) === 1 ? '' : 's' ?> within view ·
         Distances Haversine-corrected · Compass: north up
     </p>
+    <?= $_renderMapLegend($_mapLegend) ?>
 </div>
 <?php elseif ($_subjLat === null || $_subjLng === null): ?>
 <?php // Empty state — subject property has no resolved GPS. Surface this
@@ -2872,14 +2935,19 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
     sure it's an informed one.
 </div>
 
-<?php if ($cmaMiddle && $cmaUpper): ?>
+<?php if ($cmaLower && $cmaUpper): ?>
 <div class="avoid-break" style="margin-bottom:18px;">
 <h3 style="margin-bottom:10px;color:var(--brand);">Recommended Price Band</h3>
 <div class="metric-grid" style="grid-template-columns: 1fr 1fr;">
     <div class="metric-card highlight">
         <div class="label">Recommended Range</div>
-        <div class="value" style="font-size:17px;"><?= $zar($cmaMiddle) ?> — <?= $zar($cmaUpper) ?></div>
-        <div class="sub">Based on CMA valuation + market conditions</div>
+        <?php /* AT-22 §5 — range is the comparable-sales P25–P75 band around
+                 the cleaned-pool CMA mid. Was $cmaMiddle—$cmaUpper (median→P75),
+                 which read "too wide" and let the subject's own high asking
+                 leak into the top via the polluted pool. Both bounds are now
+                 evidence-backed from the comp set; asking is a reference only. */ ?>
+        <div class="value" style="font-size:17px;"><?= $zar($cmaLower) ?> — <?= $zar($cmaUpper) ?></div>
+        <div class="sub">Comparable-sales range (P25–P75) around the CMA mid</div>
     </div>
     <?php if ($askingPrice): ?>
     <div class="metric-card <?= $askVsCmaPct !== null && $askVsCmaPct > 10 ? 'danger' : ($askVsCmaPct !== null && $askVsCmaPct > 5 ? 'warning' : 'success') ?>">
@@ -2897,11 +2965,27 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <table>
     <thead><tr><th>Evidence Source</th><th class="num">Indicated Value</th><th>Status</th></tr></thead>
     <tbody>
+        <?php /* AT-22 §5 — surface the band's own bounds so the range is
+                 self-justifying: P25 / P75 of the comparable-sales set. */ ?>
+        <?php if ($cmaLower): ?>
+        <tr>
+            <td>Comparable sales — lower quartile (P25)</td>
+            <td class="num"><?= $zar($cmaLower) ?></td>
+            <td><span class="cmp-badge cmp-success">Range floor</span></td>
+        </tr>
+        <?php endif ?>
         <?php if ($cmaMiddle): ?>
         <tr>
             <td>CMA Valuation (Middle)</td>
             <td class="num"><?= $zar($cmaMiddle) ?></td>
             <td><span class="cmp-badge cmp-success">Primary</span></td>
+        </tr>
+        <?php endif ?>
+        <?php if ($cmaUpper): ?>
+        <tr>
+            <td>Comparable sales — upper quartile (P75)</td>
+            <td class="num"><?= $zar($cmaUpper) ?></td>
+            <td><span class="cmp-badge cmp-success">Range ceiling</span></td>
         </tr>
         <?php endif ?>
         <?php if ($vicAvgPrice): ?>

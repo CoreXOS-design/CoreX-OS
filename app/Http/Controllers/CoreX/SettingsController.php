@@ -369,6 +369,18 @@ class SettingsController extends Controller
             // pool or the coverage-badge thresholds.
             'cma_compute_recency_months'                => ['nullable', 'integer', 'min:1', 'max:600'],
             'cma_compute_iqr_multiplier'                => ['nullable', 'numeric', 'min:0.5', 'max:5.0'],
+            // AT-22 §0.1/§1/§1.5/§5 — comp-selection gate-then-rank + range.
+            // Null on any → CompPoolBuilder service constant (locked defaults).
+            'comp_price_band_pct'                       => ['nullable', 'numeric', 'min:5', 'max:100'],
+            'comp_erf_band_pct'                         => ['nullable', 'numeric', 'min:5', 'max:200'],
+            'comp_radius_m'                             => ['nullable', 'integer', 'min:50', 'max:10000'],
+            'comp_radius_widen_steps'                   => ['nullable', 'string', 'max:120', 'regex:/^\s*\d{2,5}(\s*,\s*\d{2,5})*\s*$/'],
+            'comp_radius_max_m'                         => ['nullable', 'integer', 'min:100', 'max:10000'],
+            'comp_min_count'                            => ['nullable', 'integer', 'min:1', 'max:100'],
+            'comp_max_count'                            => ['nullable', 'integer', 'min:1', 'max:100'],
+            'anchor_divergence_pct'                     => ['nullable', 'numeric', 'min:5', 'max:100'],
+            'range_lower_pct'                           => ['nullable', 'integer', 'min:1', 'max:49'],
+            'range_upper_pct'                           => ['nullable', 'integer', 'min:51', 'max:99'],
         ]);
 
         if (
@@ -378,6 +390,28 @@ class SettingsController extends Controller
             return redirect()
                 ->route('corex.settings', ['s' => 'feature-presentations'])
                 ->withErrors(['presentations_coverage_rich_threshold' => 'Thresholds must satisfy: rich ≥ moderate ≥ thin.']);
+        }
+
+        // AT-22 cross-field guards — comp min ≤ max, range lower < upper.
+        if (($data['comp_min_count'] ?? 0) && ($data['comp_max_count'] ?? 0)
+            && $data['comp_min_count'] > $data['comp_max_count']) {
+            return redirect()
+                ->route('corex.settings', ['s' => 'feature-presentations'])
+                ->withErrors(['comp_min_count' => 'Minimum comps must be ≤ maximum comps.']);
+        }
+        if (($data['range_lower_pct'] ?? 0) && ($data['range_upper_pct'] ?? 0)
+            && $data['range_lower_pct'] >= $data['range_upper_pct']) {
+            return redirect()
+                ->route('corex.settings', ['s' => 'feature-presentations'])
+                ->withErrors(['range_lower_pct' => 'Range lower percentile must be below the upper percentile.']);
+        }
+        // Normalise the widen-steps CSV (strip spaces) so it round-trips clean
+        // through CompPoolBuilder::parseSteps and re-renders without padding.
+        if (!empty($data['comp_radius_widen_steps'])) {
+            $data['comp_radius_widen_steps'] = implode(',', array_map(
+                'trim',
+                explode(',', $data['comp_radius_widen_steps'])
+            ));
         }
 
         $agency->update($data);

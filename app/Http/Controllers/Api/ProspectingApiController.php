@@ -131,6 +131,23 @@ class ProspectingApiController extends Controller
                 $existing->portal_url       = $data['portal_url'];
 
                 $existing->save();
+
+                // AT-22 item 7 — dispatch-on-update. The download job
+                // historically only fired on the CREATE branch, so a listing
+                // first seen WITHOUT a thumbnail_url (then later captured with
+                // one) never retried, and rows orphaned by the Laravel 11
+                // disk-root move never re-fetched. Re-dispatch when we have a
+                // source URL AND no thumbnail is cached yet. Guarding on
+                // empty(thumbnail_path) keeps us from re-downloading on every
+                // capture of an already-thumbnailed row.
+                if (!empty($data['thumbnail_url']) && empty($existing->thumbnail_path)) {
+                    // thumbnail_source_url is fillable; set + save explicitly
+                    // here so the source URL persists for future rehydration.
+                    $existing->thumbnail_source_url = $data['thumbnail_url'];
+                    $existing->save();
+                    DownloadListingThumbnail::dispatch($existing, $data['thumbnail_url']);
+                }
+
                 $this->assignPropertyGroup($existing, $agencyId);
                 $tpId = $this->linkToTrackedProperty($existing, $agencyId, $user->id);
                 if ($tpId !== null) {
@@ -168,6 +185,12 @@ class ProspectingApiController extends Controller
                 }
 
                 if (!empty($data['thumbnail_url'])) {
+                    // Persist the source URL up-front (AT-22 item 7) so a
+                    // later rehydrate can re-fetch even if the job's own
+                    // write is lost. Direct attribute set + save() bypasses
+                    // $fillable for the new column.
+                    $listing->thumbnail_source_url = $data['thumbnail_url'];
+                    $listing->save();
                     DownloadListingThumbnail::dispatch($listing, $data['thumbnail_url']);
                 }
 

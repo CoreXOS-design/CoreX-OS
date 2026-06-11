@@ -28,11 +28,11 @@ DROP TABLE IF EXISTS `activity_definition_calendar_classes`;
 CREATE TABLE `activity_definition_calendar_classes` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `event_class` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `event_class` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `activity_definition_id` bigint unsigned NOT NULL,
-  `trigger_kind` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'calendar',
-  `slug` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `subject_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `trigger_kind` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'calendar',
+  `slug` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subject_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `value_per_event` int NOT NULL DEFAULT '1',
   `requires_feedback` tinyint(1) NOT NULL DEFAULT '1',
   `auto_revoke_after_hours` int DEFAULT '24',
@@ -163,6 +163,7 @@ CREATE TABLE `agencies` (
   `vat_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ffc_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_number` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ppra_registered_at` date DEFAULT NULL,
   `fic_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_agency_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_agency_label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -222,6 +223,16 @@ CREATE TABLE `agencies` (
   `presentations_freshness_days` smallint unsigned NOT NULL DEFAULT '90' COMMENT 'Build 5 — public view shows a "request revised analysis" CTA when the snapshot is older than this many days.',
   `cma_compute_recency_months` smallint unsigned DEFAULT '36' COMMENT 'Build 8b — recency window (months) for CmaComputeService input pool. Decoupled from presentations_default_period_months which drives the hydrator + coverage badge. Null falls back to service constant.',
   `cma_compute_iqr_multiplier` decimal(4,2) DEFAULT '1.50' COMMENT 'Build 8b — IQR multiplier for R/m² lower-bound outlier fence (median − multiplier × IQR). 1.5 is Tukey standard. Null falls back to service constant.',
+  `comp_price_band_pct` decimal(5,2) DEFAULT '25.00' COMMENT 'AT-22 §1 — comp price band ± % around the cleaned-pool CMA anchor (not asking). Null → CompPoolBuilder constant.',
+  `comp_erf_band_pct` decimal(5,2) DEFAULT '30.00' COMMENT 'AT-22 §1 — erf-size proximity ± % used as a ranking factor (not a hard drop). Null → constant.',
+  `comp_radius_m` smallint unsigned DEFAULT '300' COMMENT 'AT-22 §1 — initial comp radius (m). Default 300 (the prior presentations_default_radius_m 1000 was too wide). Null → constant.',
+  `comp_radius_widen_steps` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT '300,600,1000,1500,3000' COMMENT 'AT-22 §1 — CSV widen ladder for the radius when comps are thin. Null → constant ladder.',
+  `comp_radius_max_m` smallint unsigned DEFAULT '3000' COMMENT 'AT-22 §1 — hard ceiling for the radius widen ladder. Default 3000 (rural mandates must resolve). Null → constant.',
+  `comp_min_count` smallint unsigned DEFAULT '5' COMMENT 'AT-22 §1 — minimum comps before the widen ladder stops expanding. Null → constant.',
+  `comp_max_count` smallint unsigned DEFAULT '15' COMMENT 'AT-22 §1 — max comps shortlisted after ranking (PRES 87 curated 13; do not force-drop). Null → constant.',
+  `anchor_divergence_pct` decimal(5,2) DEFAULT '25.00' COMMENT 'AT-22 §1.5 — widen the radius when the cleaned-pool estimate diverges from the vicinity average by more than this %. Null → constant.',
+  `range_lower_pct` tinyint unsigned DEFAULT '25' COMMENT 'AT-22 §5 — lower percentile for the recommended range. Default 25 (P25). Null → constant.',
+  `range_upper_pct` tinyint unsigned DEFAULT '75' COMMENT 'AT-22 §5 — upper percentile for the recommended range. Default 75 (P75). Null → constant.',
   `competitor_stock_default_beds_tolerance` tinyint unsigned NOT NULL DEFAULT '1' COMMENT 'Competitor Stock — ± beds window for synthetic ContactMatch (Core Matches scorer).',
   `competitor_stock_default_price_tolerance_pct` tinyint unsigned NOT NULL DEFAULT '20' COMMENT 'Competitor Stock — ± percent price band for synthetic match (e.g. 20 = ±20%).',
   `competitor_stock_min_score` tinyint unsigned NOT NULL DEFAULT '50' COMMENT 'Competitor Stock — minimum match score (Core Matches 0-100) to include in section. 50 = Approximate tier floor.',
@@ -276,8 +287,13 @@ CREATE TABLE `agencies` (
   `website_social_youtube` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `website_contact_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `website_contact_phone` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `website_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `website_open_hours` json DEFAULT NULL,
   `website_show_agents` tinyint(1) NOT NULL DEFAULT '1',
   `website_show_listings` tinyint(1) NOT NULL DEFAULT '1',
+  `website_show_branches` tinyint(1) NOT NULL DEFAULT '0',
+  `website_agent_order_mode` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'alphabetical',
+  `website_branch_order_mode` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'alphabetical',
   PRIMARY KEY (`id`),
   UNIQUE KEY `agencies_slug_unique` (`slug`),
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
@@ -651,6 +667,32 @@ CREATE TABLE `agent_applications` (
   CONSTRAINT `agent_applications_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agent_articles`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_articles` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `slug` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `excerpt` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cover_image_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `body` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `link_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `tags` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_published` tinyint(1) NOT NULL DEFAULT '0',
+  `published_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `agent_articles_agency_id_user_id_index` (`agency_id`,`user_id`),
+  KEY `agent_articles_user_id_is_published_index` (`user_id`,`is_published`),
+  CONSTRAINT `agent_articles_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `agent_articles_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agent_cap_periods`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -913,6 +955,32 @@ CREATE TABLE `ai_narrative_cache` (
   CONSTRAINT `ai_narrative_cache_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Ellie narrative cache with token + cost tracking. agency_id nullable for global narratives.';
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_usage_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_usage_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `source` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Stable surface key — mic_narrative | mobile_voice | image_analysis | docuperfect_* | marketing_copy | presentation_evidence',
+  `surface_ref` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Correlation handle for drill-down — cache_key, analysis_id, template_id, etc.',
+  `model` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Resolved model id, e.g. claude-haiku-4-5-20251001. " (fallback)" suffix mirrors the cache convention.',
+  `input_tokens` int unsigned NOT NULL DEFAULT '0',
+  `output_tokens` int unsigned NOT NULL DEFAULT '0',
+  `cost_zar` decimal(10,4) NOT NULL DEFAULT '0.0000',
+  `cache_hit` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'True when served from cache (no API spend). Drives the exact cache-hit-rate metric.',
+  `fallback` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'True when the call degraded to fallback text (cost 0).',
+  `occurred_at` timestamp NOT NULL COMMENT 'When the call happened.',
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `ai_usage_events_user_id_foreign` (`user_id`),
+  KEY `idx_aue_agency_occurred` (`agency_id`,`occurred_at`),
+  KEY `idx_aue_source_occurred` (`source`,`occurred_at`),
+  KEY `idx_aue_occurred` (`occurred_at`),
+  CONSTRAINT `ai_usage_events_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ai_usage_events_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Append-only AI cost ledger — one row per Anthropic call, every surface. Source of truth for spend + budget.';
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `amendment_acceptances`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -1131,6 +1199,7 @@ CREATE TABLE `branches` (
   `privacy_policy_markdown` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `privacy_policy_token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `privacy_policy_published_at` timestamp NULL DEFAULT NULL,
+  `website_order` int unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `branches_privacy_policy_token_unique` (`privacy_policy_token`),
   KEY `branches_agency_id_foreign` (`agency_id`),
@@ -1688,12 +1757,43 @@ CREATE TABLE `cds_drafts` (
   `settings` json DEFAULT NULL,
   `source_template_id` bigint unsigned DEFAULT NULL,
   `status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `extraction_verification` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `cds_drafts_user_id_status_index` (`user_id`,`status`),
   CONSTRAINT `cds_drafts_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `cds_extraction_flags`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `cds_extraction_flags` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `cds_draft_id` bigint unsigned DEFAULT NULL,
+  `template_id` bigint unsigned DEFAULT NULL,
+  `severity` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'high',
+  `divergence_type` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'unknown',
+  `location` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source_snippet` text COLLATE utf8mb4_unicode_ci,
+  `extracted_snippet` text COLLATE utf8mb4_unicode_ci,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `resolution_note` text COLLATE utf8mb4_unicode_ci,
+  `resolved_by` bigint unsigned DEFAULT NULL,
+  `resolved_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `cds_flags_gate_idx` (`template_id`,`severity`,`status`),
+  KEY `cds_extraction_flags_resolved_by_foreign` (`resolved_by`),
+  KEY `cds_extraction_flags_cds_draft_id_index` (`cds_draft_id`),
+  KEY `cds_extraction_flags_template_id_index` (`template_id`),
+  CONSTRAINT `cds_extraction_flags_cds_draft_id_foreign` FOREIGN KEY (`cds_draft_id`) REFERENCES `cds_drafts` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `cds_extraction_flags_resolved_by_foreign` FOREIGN KEY (`resolved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `cds_extraction_flags_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `docuperfect_templates` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `client_access_logs`;
@@ -2576,6 +2676,38 @@ CREATE TABLE `contact_tags` (
   CONSTRAINT `contact_tags_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `contact_testimonials`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `contact_testimonials` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `agent_id` bigint unsigned DEFAULT NULL,
+  `body` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `display_name` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `rating` tinyint unsigned DEFAULT NULL,
+  `published` tinyint(1) NOT NULL DEFAULT '0',
+  `published_at` timestamp NULL DEFAULT NULL,
+  `published_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `contact_testimonials_agency_id_published_index` (`agency_id`,`published`),
+  KEY `contact_testimonials_contact_id_index` (`contact_id`),
+  KEY `contact_testimonials_user_id_foreign` (`user_id`),
+  KEY `contact_testimonials_published_by_user_id_foreign` (`published_by_user_id`),
+  KEY `contact_testimonials_agency_id_agent_id_index` (`agency_id`,`agent_id`),
+  KEY `contact_testimonials_agent_id_foreign` (`agent_id`),
+  CONSTRAINT `contact_testimonials_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_testimonials_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contact_testimonials_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_testimonials_published_by_user_id_foreign` FOREIGN KEY (`published_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contact_testimonials_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `contact_types`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -2608,6 +2740,7 @@ CREATE TABLE `contacts` (
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `birthday` date DEFAULT NULL,
+  `birthday_reminder` tinyint(1) NOT NULL DEFAULT '0',
   `id_number` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `id_number_captured_at` timestamp NULL DEFAULT NULL,
   `id_number_source` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -2729,7 +2862,7 @@ CREATE TABLE `daily_activity_entries` (
   `point_state` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'confirmed',
   `source` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
   `calendar_event_id` bigint unsigned DEFAULT NULL,
-  `subject_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subject_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `subject_id` bigint unsigned DEFAULT NULL,
   `confirmed_at` timestamp NULL DEFAULT NULL,
   `revoked_at` timestamp NULL DEFAULT NULL,
@@ -3709,13 +3842,16 @@ CREATE TABLE `docuperfect_clauses` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `category` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_global` tinyint(1) NOT NULL DEFAULT '0',
+  `is_system` tinyint(1) NOT NULL DEFAULT '0',
   `owner_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `docuperfect_clauses_owner_id_foreign` (`owner_id`),
+  KEY `docuperfect_clauses_category_index` (`category`),
   CONSTRAINT `docuperfect_clauses_owner_id_foreign` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -4020,9 +4156,11 @@ CREATE TABLE `docuperfect_templates` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   `sections` json DEFAULT NULL,
+  `extraction_verification` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `docuperfect_templates_owner_id_foreign` (`owner_id`),
   KEY `docuperfect_templates_document_type_id_foreign` (`document_type_id`),
+  KEY `docuperfect_templates_extraction_verification_index` (`extraction_verification`),
   CONSTRAINT `docuperfect_templates_document_type_id_foreign` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE SET NULL,
   CONSTRAINT `docuperfect_templates_owner_id_foreign` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4776,6 +4914,7 @@ CREATE TABLE `information_officer_appointments` (
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `title` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Information Officer',
   `appointed_on` date NOT NULL,
+  `regulator_registered_on` date DEFAULT NULL,
   `ended_on` date DEFAULT NULL,
   `appointed_by` bigint unsigned DEFAULT NULL,
   `appointment_letter_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -7629,6 +7768,7 @@ CREATE TABLE `property_image_analyses` (
   `cost_usd` decimal(8,5) DEFAULT NULL,
   `error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `processed_at` timestamp NULL DEFAULT NULL,
+  `reviewed_at` timestamp NULL DEFAULT NULL COMMENT 'When an agent reviewed/dismissed these AI suggestions in the property workspace',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -8077,6 +8217,7 @@ CREATE TABLE `prospecting_listings` (
   `agent_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `agency_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `thumbnail_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `thumbnail_source_url` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Original portal image URL the thumbnail was downloaded from — enables prospecting:rehydrate-thumbnails to re-fetch without a re-capture (AT-22 item 7).',
   `first_seen_at` datetime NOT NULL,
   `last_seen_at` datetime NOT NULL,
   `first_seen_email_date` timestamp NULL DEFAULT NULL,
@@ -9337,6 +9478,25 @@ CREATE TABLE `signed_document_versions` (
   CONSTRAINT `signed_document_versions_signature_request_id_foreign` FOREIGN KEY (`signature_request_id`) REFERENCES `signature_requests` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `soft_delete_restorations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `soft_delete_restorations` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `model_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `model_id` bigint unsigned NOT NULL,
+  `model_label` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `restored_by_user_id` bigint unsigned NOT NULL,
+  `restored_at` timestamp NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `soft_delete_restorations_model_type_model_id_index` (`model_type`,`model_id`),
+  KEY `soft_delete_restorations_agency_id_index` (`agency_id`),
+  KEY `soft_delete_restorations_restored_by_user_id_index` (`restored_by_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `staff_take_on_records`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -9395,7 +9555,7 @@ CREATE TABLE `suggested_action_thresholds` (
   `stock_repitch_days` smallint unsigned NOT NULL DEFAULT '30',
   `colleague_claim_stale_days` smallint unsigned NOT NULL DEFAULT '21',
   `investigate_mid_min` smallint unsigned NOT NULL DEFAULT '5',
-  `new_listing_lookback_days` smallint unsigned NOT NULL DEFAULT '1',
+  `new_listing_lookback_days` smallint unsigned NOT NULL DEFAULT '3',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -10119,6 +10279,7 @@ CREATE TABLE `users` (
   `ppra_status` enum('active','pending','expired','suspended') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_last_verified_at` date DEFAULT NULL,
   `website` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `about_me` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `theme` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'dark',
   `last_presentation_send_channel` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `last_presentation_send_mode` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -10153,6 +10314,11 @@ CREATE TABLE `users` (
   `medical_aid_main_member` tinyint(1) NOT NULL DEFAULT '0',
   `medical_aid_dependents_count` tinyint unsigned NOT NULL DEFAULT '0',
   `show_on_website` tinyint(1) NOT NULL DEFAULT '0',
+  `website_order` int unsigned DEFAULT NULL,
+  `website_social_facebook` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `website_social_instagram` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `website_social_linkedin` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `website_social_youtube` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `users_email_unique` (`email`),
   UNIQUE KEY `users_api_token_unique` (`api_token`),
@@ -11188,4 +11354,26 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (762,'2026_06_20_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (763,'2026_06_20_140000_relax_daily_activity_unique_for_calendar_events',124);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (764,'2026_06_20_160000_extend_activity_actions_for_instant',125);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (765,'2026_06_20_160100_make_event_class_nullable_for_instant_rows',125);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (766,'2026_06_10_120000_add_new_listing_lookback_days_to_suggested_action_thresholds',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (766,'2026_06_02_101001_add_website_agent_order_to_agencies_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (767,'2026_06_02_101002_add_website_order_to_users_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (768,'2026_06_06_100001_create_contact_testimonials_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (769,'2026_06_06_100002_add_agent_id_to_contact_testimonials_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (770,'2026_06_06_100003_add_agent_public_profile_and_articles',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (771,'2026_06_06_100004_add_media_to_agent_articles',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (772,'2026_06_06_120000_add_website_address_and_open_hours_to_agencies',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (773,'2026_06_21_000000_create_soft_delete_restorations_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (774,'2026_06_22_120000_add_website_show_branches_to_agencies',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (775,'2026_06_22_130000_add_birthday_reminder_to_contacts',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (776,'2026_06_23_000000_create_ai_usage_events_table',127);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (777,'2026_06_09_000000_add_reviewed_at_to_property_image_analyses',128);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (778,'2026_06_09_120001_add_website_branch_order_to_agencies_table',128);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (779,'2026_06_09_120002_add_website_order_to_branches_table',128);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (780,'2026_06_10_120000_add_new_listing_lookback_days_to_suggested_action_thresholds',129);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (782,'2026_06_10_000001_add_new_listing_lookback_days_to_suggested_action_thresholds',130);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (784,'2026_06_24_000000_add_category_and_is_system_to_docuperfect_clauses',131);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (785,'2026_06_25_000000_create_cds_extraction_flags_table',132);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (786,'2026_06_23_100000_add_ppra_registered_at_to_agencies',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (787,'2026_06_23_100100_add_regulator_registered_on_to_information_officer_appointments',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (788,'2026_06_11_180000_add_comp_selection_settings_to_agencies',134);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (789,'2026_06_11_180500_add_thumbnail_source_url_to_prospecting_listings',134);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_23_120000_normalize_user_phone_numbers',134);

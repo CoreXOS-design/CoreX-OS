@@ -412,6 +412,11 @@
                                     // Sync modal defaults with agency-resolved scope.
                                     if (this.coverage?.comp_scope) this.compScope = this.coverage.comp_scope;
                                     if (this.coverage?.comp_radius_m) this.compRadiusM = this.coverage.comp_radius_m;
+                                    // AT-22 §1.5 — the "Suggestion based on suburb data"
+                                    // shows the SYSTEM MARKET ANCHOR (cleaned-pool CMA
+                                    // estimate), never the asking price. The agent moves
+                                    // it by curating comps, not by dragging a number.
+                                    if (this.coverage?.market_anchor) this.suggestedPrice = this.coverage.market_anchor;
                                 } catch (e) {
                                     this.coverageError = 'Coverage check failed: ' + e.message;
                                 }
@@ -422,8 +427,14 @@
                                 // comp-scope toggle. Pre-fill price from listed_price
                                 // when available (one-click intent preserved — agent can
                                 // just hit Generate inside the modal without changes).
-                                this.suggestedPrice = config.listedPrice || null;
-                                this.askingPrice = this.suggestedPrice;
+                                // AT-22 §1.5 — DECOUPLED. suggestedPrice is the system
+                                // market anchor (from coverage.market_anchor, set in
+                                // loadCoverage) — NOT the asking price. askingPrice is the
+                                // agent's own input: pre-fill from the listed price so the
+                                // one-click intent is preserved, but it is independent of
+                                // the anchor (asking never widens the band — §5).
+                                this.suggestedPrice = this.coverage?.market_anchor ?? this.suggestedPrice ?? null;
+                                this.askingPrice = config.listedPrice || null;
                                 this.modalError = null;
                                 this.popupBlockedUrl = null;
                                 this.modalOpen = true;

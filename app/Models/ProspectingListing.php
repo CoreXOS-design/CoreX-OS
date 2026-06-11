@@ -33,6 +33,7 @@ class ProspectingListing extends Model
         'agent_name',
         'agency_name',
         'thumbnail_path',
+        'thumbnail_source_url',
         'first_seen_at',
         'last_seen_at',
         'price_changed_at',

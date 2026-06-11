@@ -60,7 +60,15 @@ class DownloadListingThumbnail implements ShouldQueue
 
             Storage::disk('local')->put($path, $jpegData);
 
-            $this->listing->update(['thumbnail_path' => $path]);
+            // Persist BOTH the stored path and the source URL it came from.
+            // thumbnail_source_url lets prospecting:rehydrate-thumbnails
+            // re-fetch this image later (e.g. after the Laravel 11 disk-root
+            // move orphaned the old files) without needing a fresh capture
+            // (AT-22 item 7). Set the attributes directly + save() so the
+            // write does not depend on $fillable containing the new column.
+            $this->listing->thumbnail_path = $path;
+            $this->listing->thumbnail_source_url = $this->thumbnailUrl;
+            $this->listing->save();
 
             Log::info("DownloadListingThumbnail: saved thumbnail for listing {$this->listing->id} at {$path}");
         } catch (\Throwable $e) {
