@@ -2090,7 +2090,7 @@
                     $compRadius    = (int)    ($presAgency->comp_radius_m            ?? 300);
                     $compWiden     = (string) ($presAgency->comp_radius_widen_steps  ?? '300,600,1000,1500,3000');
                     $compRadiusMax = (int)    ($presAgency->comp_radius_max_m        ?? 3000);
-                    $compMinCount  = (int)    ($presAgency->comp_min_count           ?? 5);
+                    $compMinCount  = (int)    ($presAgency->comp_min_count           ?? 10);
                     $compMaxCount  = (int)    ($presAgency->comp_max_count           ?? 15);
                     $anchorDiv     = (float)  ($presAgency->anchor_divergence_pct    ?? 25);
                     $rangeLower    = (int)    ($presAgency->range_lower_pct          ?? 25);
@@ -2303,7 +2303,7 @@
                                                value="{{ $compMinCount }}"
                                                class="w-full rounded-md px-3 py-2 text-sm"
                                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                        <div class="text-[11px] mt-1" style="color:var(--text-muted);">Widen until this many. Default 5.</div>
+                                        <div class="text-[11px] mt-1" style="color:var(--text-muted);">Widen the radius until this many comps resolve. Default 10.</div>
                                     </div>
                                     <div>
                                         <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Max comps</label>

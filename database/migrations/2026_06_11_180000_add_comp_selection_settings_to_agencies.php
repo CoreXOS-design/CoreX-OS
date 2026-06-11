@@ -76,9 +76,9 @@ return new class extends Migration {
             }
             if (!Schema::hasColumn('agencies', 'comp_min_count')) {
                 $table->unsignedSmallInteger('comp_min_count')
-                    ->nullable()->default(5)
+                    ->nullable()->default(10)
                     ->after('comp_radius_max_m')
-                    ->comment('AT-22 §1 — minimum comps before the widen ladder stops expanding. Null → constant.');
+                    ->comment('AT-22 §1 — minimum comps before the widen ladder stops expanding. Default 10 (round-1: auto-widen 300→600→1000m to catch on-profile comps just outside 300m). Null → constant.');
             }
             if (!Schema::hasColumn('agencies', 'comp_max_count')) {
                 $table->unsignedSmallInteger('comp_max_count')

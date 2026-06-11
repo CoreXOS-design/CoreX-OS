@@ -49,7 +49,7 @@ final class CompPoolBuilder
     public const DEF_RADIUS_M        = 300;
     public const DEF_RADIUS_STEPS    = [300, 600, 1000, 1500, 3000];
     public const DEF_RADIUS_MAX_M    = 3000;
-    public const DEF_MIN_COUNT       = 5;
+    public const DEF_MIN_COUNT       = 10;
     public const DEF_MAX_COUNT       = 15;
     public const DEF_DIVERGENCE_PCT  = 25.0;
     public const DEF_RANGE_LOWER_PCT = 25;
