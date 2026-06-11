@@ -661,6 +661,12 @@
                         @if(in_array(\App\Models\AgencyApiKey::SCOPE_WEBHOOKS_RECEIVE, $key->scopes ?? [], true))
                         <button type="button" @click="showDeliveries = !showDeliveries" class="corex-btn-outline text-xs" x-text="showDeliveries ? 'Hide deliveries' : 'Webhook deliveries'"></button>
                         @endif
+                        {{-- Push every SOLD listing in the agency to this website at once --}}
+                        <form method="POST" action="{{ route('agencies.api-keys.bulk-activate-sold', [$agency, $key]) }}"
+                              onsubmit="return confirm('Push all sold properties to “{{ $key->name }}”? Each sold listing becomes visible on the website.');">
+                            @csrf
+                            <button type="submit" class="corex-btn-outline text-xs" title="Enable every sold listing on this website">Push all Sold to website</button>
+                        </form>
                         <form method="POST" action="{{ route('agencies.api-keys.regenerate', [$agency, $key]) }}" onsubmit="return confirm('Regenerate the secret? The old secret stops working immediately.');">
                             @csrf
                             <button class="corex-btn-outline text-xs">Regenerate secret</button>
