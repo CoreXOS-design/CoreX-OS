@@ -48,3 +48,9 @@ storage/panel_*.html
 storage/p17_*.html
 storage/idx*.html
 .claude/scheduled_tasks.lock
+
+/backups/
+/storage/backups/
+bootstrap/cache/events.php
+/public/staging-imgs/
+staging-vs-main.txt
