@@ -193,7 +193,7 @@ final class CompPoolBuilder
 
         // ── Stage A.4 — RADIUS gate with widen-if-thin ladder ──────────────
         $ladder = $this->effectiveLadder($config);
-        [$selected, $radiusUsed] = $this->selectWithinRadius($priceGated, $ladder, (int) $config['min_count']);
+        [$selected, $radiusUsed] = $this->selectWithinRadius($priceGated, $ladder, (int) $config['min_count'], $low, $high);
         $diagnostics['radius_ladder'] = $ladder;
 
         // ── Stage A.5 — DIVERGENCE guard (widen once more if unrepresentative)
@@ -204,7 +204,7 @@ final class CompPoolBuilder
             if ($divergence > (float) $config['divergence_pct']) {
                 $next = $this->nextLadderStep($ladder, $radiusUsed, (int) $config['radius_max_m']);
                 if ($next > $radiusUsed) {
-                    [$selected, $radiusUsed] = $this->selectWithinRadius($priceGated, [$next], (int) $config['min_count']);
+                    [$selected, $radiusUsed] = $this->selectWithinRadius($priceGated, [$next], (int) $config['min_count'], $low, $high);
                     $anchorSel = $this->median(array_map(fn ($c) => $c['price'], $selected)) ?? $anchorBroad;
                     $widened = true;
                     $diagnostics['divergence_pct'] = round($divergence, 1);
@@ -250,9 +250,11 @@ final class CompPoolBuilder
      *
      * @param  list<array>  $pool
      * @param  list<int>    $ladder
+     * @param  ?int  $bandLow   price-band lower bound; only in-band comps count
+     * @param  ?int  $bandHigh  price-band upper bound (toward min_count stop)
      * @return array{0: list<array>, 1: int}  [selected, radius_used]
      */
-    private function selectWithinRadius(array $pool, array $ladder, int $minCount): array
+    private function selectWithinRadius(array $pool, array $ladder, int $minCount, ?int $bandLow = null, ?int $bandHigh = null): array
     {
         $lastSelected = [];
         $lastRadius   = $ladder[0] ?? self::DEF_RADIUS_M;
@@ -265,7 +267,17 @@ final class CompPoolBuilder
             }));
             $lastSelected = $sel;
             $lastRadius   = $r;
-            if (count($sel) >= $minCount) {
+            // AT-22 round-1 (premium-comp fix): the ladder stops only when
+            // enough PROFILE-MATCHING (in price-band) comps resolve — cheap
+            // exempt comps that waived the band must NOT halt the widen before
+            // the on-tier comps (which for a premium home sit further out) are
+            // reached. PRES 87: 22 sub-R1.8M sales satisfied the count at 600m
+            // and hid the 5 premium ≥R2M comps at 600–1000m. Falls back to
+            // total count when no band anchor is supplied.
+            $qualifying = ($bandLow === null || $bandHigh === null)
+                ? count($sel)
+                : count(array_filter($sel, fn ($c) => $c['price'] >= $bandLow && $c['price'] <= $bandHigh));
+            if ($qualifying >= $minCount) {
                 return [$sel, $r];
             }
         }
@@ -347,7 +359,14 @@ final class CompPoolBuilder
                 $pd = abs($c['price'] - $anchor) / $anchor;
                 $priceScore = max(0.0, 1.0 - $pd);
             }
-            $c['_score'] = 0.4 * $erfScore + 0.35 * $distScore + 0.25 * $priceScore + ($c['exempt'] ? 0.15 : 0.0);
+            // AT-22 round-1 (premium-comp fix): rank on PROFILE SIMILARITY —
+            // value-tier (price proximity to the subject anchor) and erf size
+            // dominate; raw distance is a tiebreaker, not the lead factor. The
+            // old weighting (dist 0.35 + a 0.15 exempt boost) let cheap, near,
+            // vetted sales out-rank genuine premium comps a little further out.
+            // Exemption no longer inflates rank — it only waives the price band
+            // for inclusion eligibility (Johan, 11 Jun).
+            $c['_score'] = 0.40 * $priceScore + 0.35 * $erfScore + 0.25 * $distScore;
         }
         unset($c);
         usort($pool, fn ($a, $b) => $b['_score'] <=> $a['_score']);
