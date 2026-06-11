@@ -73,9 +73,10 @@ final class CloneLabelRewriteTest extends TestCase
         // except the prepended block headers.
         $countSeller3 = substr_count($out, 'Seller 3');
         $countSeller4 = substr_count($out, 'Seller 4');
-        // Header only — exactly 1 occurrence each.
-        $this->assertSame(1, $countSeller3);
-        $this->assertSame(1, $countSeller4);
+        // Contract-driven renderer (968d5338) uses numberless "Seller - {name}"
+        // headers, so no "Seller N" token is injected anywhere in the body.
+        $this->assertSame(0, $countSeller3);
+        $this->assertSame(0, $countSeller4);
     }
 
     public function test_input_values_with_seller_word_are_not_rewritten(): void

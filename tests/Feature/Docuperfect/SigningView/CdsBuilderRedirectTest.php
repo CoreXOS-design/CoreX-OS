@@ -185,13 +185,20 @@ final class CdsBuilderRedirectTest extends TestCase
             'updated_at' => now(),
         ]);
         \App\Models\Role::clearCache();
+        // Self-seed the agency this user belongs to — a fresh RefreshDatabase
+        // has no agency id=1, so the users.agency_id FK fails otherwise. Tests
+        // must not assume globally-seeded data.
+        $agencyId = \App\Models\Agency::create([
+            'name' => 'Test Agency',
+            'slug' => 'test-agency-' . Str::random(8),
+        ])->id;
         $userId = (int) DB::table('users')->insertGetId([
             'name' => 'Agent Tester',
             'email' => 't-' . Str::random(8) . '@x.test',
             'password' => bcrypt('p'),
             'role' => 'test_template_owner',
             'is_admin' => 1,
-            'agency_id' => 1,
+            'agency_id' => $agencyId,
             'created_at' => now(),
             'updated_at' => now(),
         ]);

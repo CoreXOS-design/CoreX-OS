@@ -193,9 +193,10 @@ final class BlockRendererTest extends TestCase
         $this->assertStringContainsString('data-recipient-identity="seller_2"', $out);
         $this->assertStringContainsString('data-recipient-identity="seller_3"', $out);
         $this->assertStringNotContainsString('data-recipient-identity="seller_4"', $out);
-        $this->assertStringContainsString('Seller 1: Alice', $out);
-        $this->assertStringContainsString('Seller 2: Bob', $out);
-        $this->assertStringContainsString('Seller 3: Charlie', $out);
+        // Contract-driven renderer (968d5338): numberless "Seller - {name}" headers.
+        $this->assertStringContainsString('Seller - Alice', $out);
+        $this->assertStringContainsString('Seller - Bob', $out);
+        $this->assertStringContainsString('Seller - Charlie', $out);
     }
 
     public function test_case_c_single_block_single_recipient_no_index_header(): void
@@ -282,17 +283,20 @@ final class BlockRendererTest extends TestCase
 
         $this->assertStringContainsString('data-recipient-identity="seller_3"', $out);
         $this->assertStringContainsString('data-recipient-identity="seller_4"', $out);
-        $this->assertStringContainsString('Seller 3: C', $out);
-        $this->assertStringContainsString('Seller 4: D', $out);
+        $this->assertStringContainsString('Seller - C', $out);
+        $this->assertStringContainsString('Seller - D', $out);
     }
 
     public function test_case_a_dom_uniqueness_data_field_suffix(): void
     {
         // Every data-field in the rendered body must be unique (no
         // collisions from cloning) — the __r{n} suffix achieves that.
+        // Fields wrapped in labelled <p> so the renderer takes the per-recipient
+        // CLONING path (bare inline spans are now rendered as an opening-paragraph
+        // composite per e46f9689 — a different feature this test does not target).
         $html = '<div class="seller-section">'
-              . '<span data-field="seller_first_name">P</span>'
-              . '<span data-field="seller_address">P</span>'
+              . '<p>Name: <span data-field="seller_first_name">P</span></p>'
+              . '<p>Address: <span data-field="seller_address">P</span></p>'
               . '</div>';
         $recipients = $this->fakeRecipientsWithNames([
             ['party_role' => 'seller', 'signer_name' => 'A'],
@@ -333,10 +337,12 @@ final class BlockRendererTest extends TestCase
             'address' => '2 Banana Blvd', 'id_number' => 'B2',
         ]);
 
+        // Labelled <p> wrappers → per-recipient cloning path (bare inline spans
+        // now render as an opening-paragraph composite per e46f9689).
         $html = '<div class="seller-section">'
-              . '<span data-field="seller_first_name">P</span>'
-              . '<span data-field="seller_email">P</span>'
-              . '<span data-field="seller_address">P</span>'
+              . '<p>Name: <span data-field="seller_first_name">P</span></p>'
+              . '<p>Email: <span data-field="seller_email">P</span></p>'
+              . '<p>Address: <span data-field="seller_address">P</span></p>'
               . '</div>';
 
         $r1 = new SignatureRequest();
@@ -383,16 +389,18 @@ final class BlockRendererTest extends TestCase
         // buyer + agent render once each, no duplication.
         $this->assertSame(1, substr_count($out, 'data-role-token="buyer"'));
         $this->assertSame(1, substr_count($out, 'data-role-token="agent"'));
-        $this->assertStringContainsString('Seller 1: S1', $out);
-        $this->assertStringContainsString('Seller 2: S2', $out);
+        $this->assertStringContainsString('Seller - S1', $out);
+        $this->assertStringContainsString('Seller - S2', $out);
         $this->assertStringNotContainsString('Buyer 1', $out);
     }
 
     public function test_rentals_lessor_block_uses_lessor_labels(): void
     {
+        // Labelled <p> wrappers → per-recipient cloning path (bare inline spans
+        // now render as an opening-paragraph composite per e46f9689).
         $html = '<div class="lessor-section">'
-              . '<span data-field="lessor_first_name">P</span>'
-              . '<span data-field="lessor_phone">P</span>'
+              . '<p>Name: <span data-field="lessor_first_name">P</span></p>'
+              . '<p>Phone: <span data-field="lessor_phone">P</span></p>'
               . '</div>';
         $recipients = $this->fakeRecipientsWithNames([
             ['party_role' => 'lessor', 'signer_name' => 'Liam'],
@@ -407,8 +415,8 @@ final class BlockRendererTest extends TestCase
         $template = $this->buildRentalTemplate();
         $out = $svc->expandWithLooping($template, $html, $recipients);
 
-        $this->assertStringContainsString('Lessor 1: Liam', $out);
-        $this->assertStringContainsString('Lessor 2: Mary', $out);
+        $this->assertStringContainsString('Lessor - Liam', $out);
+        $this->assertStringContainsString('Lessor - Mary', $out);
     }
 
     // ── B2.5 helpers ──

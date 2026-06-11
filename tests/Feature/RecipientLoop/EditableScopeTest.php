@@ -41,7 +41,9 @@ final class EditableScopeTest extends TestCase
         $resp->assertJson(['ok' => true, 'saved' => 1]);
 
         $document = $tmpl->document->fresh();
-        $this->assertSame('1 Apple Ave', $document->web_template_data['seller_address'] ?? null);
+        // ES-5 (dd1533c2): signing-time edits persist in the identity-keyed
+        // signing_field_values store under the rendered key, not a flat top-level key.
+        $this->assertSame('1 Apple Ave', $document->web_template_data['signing_field_values']['seller_address__r1'] ?? null);
     }
 
     public function test_seller_1_token_writing_seller_2_field_is_403_and_audited(): void
@@ -90,7 +92,7 @@ final class EditableScopeTest extends TestCase
 
         $resp->assertOk();
         $document = $tmpl->document->fresh();
-        $this->assertSame('2 Steve Lane', $document->web_template_data['seller_address'] ?? null);
+        $this->assertSame('2 Steve Lane', $document->web_template_data['signing_field_values']['seller_address__r2'] ?? null);
     }
 
     public function test_agent_can_save_any_seller_field(): void
@@ -126,7 +128,8 @@ final class EditableScopeTest extends TestCase
 
         $resp->assertOk();
         $document = $tmpl->document->fresh();
-        $this->assertSame('legacy-flat-value', $document->web_template_data['seller_address'] ?? null);
+        // Legacy flat payload persists under the bare (un-mangled) key in the store.
+        $this->assertSame('legacy-flat-value', $document->web_template_data['signing_field_values']['seller_address'] ?? null);
     }
 
     // ── Helpers ──
