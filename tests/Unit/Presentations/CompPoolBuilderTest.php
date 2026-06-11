@@ -188,6 +188,29 @@ class CompPoolBuilderTest extends TestCase
         $this->assertSame(2_900_000, $res['diagnostics']['anchor_used'], 'Band must anchor on the subject value');
     }
 
+    public function test_premium_comps_surface_when_cheap_nearby_do_not_halt_the_ladder(): void
+    {
+        // AT-22 round-1 (Johan, 11 Jun): PRES 87 shape — a premium R2.9M
+        // subject with cheap EXEMPT sales very close, and the genuine premium
+        // comps a little further out. The cheap exempt sales must NOT satisfy
+        // the widen count (they're out of the price tier); the ladder must
+        // reach the premium comps and ranking must surface them.
+        $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => 0.0, 'lng' => 0.0, 'erf_m2' => 1375, 'anchor_price' => 2_900_000];
+        $candidates = [];
+        for ($i = 0; $i < 8; $i++) { // ~220m, R1.1M, exempt → waive band but out of tier
+            $candidates[] = $this->cand(1_100_000 + $i * 10_000, 'House', size: 900, lat: 0.0, lng: 0.002, exempt: true, key: "cheap$i");
+        }
+        for ($i = 0; $i < 6; $i++) { // ~780m, R2.5M, in-band → the real comparables
+            $candidates[] = $this->cand(2_500_000 + $i * 20_000, 'House', size: 1300, lat: 0.0, lng: 0.007, key: "premium$i");
+        }
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        $keys = $res['selected_keys'];
+        foreach (['premium0', 'premium3', 'premium5'] as $k) {
+            $this->assertContains($k, $keys, "Premium comp $k must surface despite cheaper, closer sales");
+        }
+        $this->assertGreaterThan(300, $res['radius_used'], 'Ladder must widen past 300m — cheap nearby exempt comps must not halt it');
+    }
+
     public function test_empty_when_no_usable_candidates(): void
     {
         $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => null, 'lng' => null, 'erf_m2' => null];
