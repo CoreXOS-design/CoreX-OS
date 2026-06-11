@@ -197,7 +197,10 @@ class CompPoolBuilderTest extends TestCase
         // reach the premium comps and ranking must surface them.
         $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => 0.0, 'lng' => 0.0, 'erf_m2' => 1375, 'anchor_price' => 2_900_000];
         $candidates = [];
-        for ($i = 0; $i < 8; $i++) { // ~220m, R1.1M, exempt → waive band but out of tier
+        // 14 cheap exempt comps ~220m away → with 6 premium that is 20 > the
+        // 15-cap, so the shortlist MUST choose: the ranking has to prefer the
+        // premium comps or they get dropped (this is what PRES 87 exposed).
+        for ($i = 0; $i < 14; $i++) { // ~220m, R1.1M, exempt → waive band but out of tier
             $candidates[] = $this->cand(1_100_000 + $i * 10_000, 'House', size: 900, lat: 0.0, lng: 0.002, exempt: true, key: "cheap$i");
         }
         for ($i = 0; $i < 6; $i++) { // ~780m, R2.5M, in-band → the real comparables
@@ -205,8 +208,8 @@ class CompPoolBuilderTest extends TestCase
         }
         $res = $this->builder()->select($subject, $candidates, $this->config());
         $keys = $res['selected_keys'];
-        foreach (['premium0', 'premium3', 'premium5'] as $k) {
-            $this->assertContains($k, $keys, "Premium comp $k must surface despite cheaper, closer sales");
+        foreach (['premium0', 'premium1', 'premium2', 'premium3', 'premium4', 'premium5'] as $k) {
+            $this->assertContains($k, $keys, "Premium comp $k must win a shortlist slot over cheaper, closer sales");
         }
         $this->assertGreaterThan(300, $res['radius_used'], 'Ladder must widen past 300m — cheap nearby exempt comps must not halt it');
     }

@@ -222,7 +222,15 @@ final class CompPoolBuilder
             }
         }
 
-        $ranked   = $this->rank($selected, $anchorSel, $sErf, (float) $config['erf_band_pct']);
+        // AT-22 round-1 (premium-comp fix): rank price-proximity against the
+        // SUBJECT band anchor (asking / market estimate), NOT the selected-pool
+        // median. Ranking on the pool median re-introduces the §1.5 trap inside
+        // the shortlist — a pool still containing cheap nearby sales has a low
+        // median, so cheap comps score "on-target" and the genuine premium
+        // comps sink. Targeting the subject value makes the on-tier comps win
+        // the 15 slots. Falls back to the pool median only when no anchor.
+        $rankTarget = ($bandAnchor !== null && $bandAnchor > 0) ? $bandAnchor : $anchorSel;
+        $ranked   = $this->rank($selected, $rankTarget, $sErf, (float) $config['erf_band_pct']);
         $shortlist = $this->shortlist($ranked, (int) $config['max_count']);
 
         $anchorFinal = $this->median(array_map(fn ($c) => $c['price'], $shortlist)) ?? $anchorSel;
