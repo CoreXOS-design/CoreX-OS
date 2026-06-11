@@ -78,4 +78,54 @@ class AgentPreviewTest extends TestCase
             ->assertSee('New Agent')
             ->assertSee('No listings yet.');
     }
+
+    public function test_public_profile_is_reachable_without_auth(): void
+    {
+        $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal']);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Margate']);
+        $agent = User::factory()->create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'super_admin',
+            'name' => 'Andre Roets', 'is_active' => true,
+        ]);
+        $slug = $agent->ensureQrSlug();
+
+        $this->get(route('corex.agents.public', [$agent->nameSlug(), $slug]))
+            ->assertOk()
+            ->assertSee('Andre Roets');
+
+        $this->assertSame('andre-roets', $agent->nameSlug());
+    }
+
+    public function test_public_profile_404_for_unknown_slug(): void
+    {
+        $this->get('/corex/agents/ghost-agent/zzzzzzzzzz')->assertNotFound();
+    }
+
+    public function test_public_profile_redirects_to_canonical_name_slug(): void
+    {
+        $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal']);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Margate']);
+        $agent = User::factory()->create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'super_admin',
+            'name' => 'Andre Roets', 'is_active' => true,
+        ]);
+        $slug = $agent->ensureQrSlug();
+
+        $this->get('/corex/agents/wrong-name/' . $slug)
+            ->assertRedirect(route('corex.agents.public', ['andre-roets', $slug]));
+    }
+
+    public function test_legacy_qr_url_redirects_to_public_profile(): void
+    {
+        $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal']);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Margate']);
+        $agent = User::factory()->create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'super_admin',
+            'name' => 'Andre Roets', 'is_active' => true,
+        ]);
+        $slug = $agent->ensureQrSlug();
+
+        $this->get('/r/a/' . $slug)
+            ->assertRedirect(route('corex.agents.public', ['andre-roets', $slug]));
+    }
 }

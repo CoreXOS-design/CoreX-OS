@@ -91,6 +91,13 @@ class DatabaseSeeder extends Seeder
             // trigger_kind='instant'. Per-agency rows; agencies inherit
             // the catalogue + can override value_per_event / is_active.
             ActivityInstantActionsSeeder::class,
+            // Presentations — Executive Summary AI variants (direct / warm /
+            // confident). Without these seeded, the variant dropdown on the
+            // presentation page is empty and Generate fails with
+            // "Generation failed: unknown" because the controller's
+            // findOrFail() blows up on an absent variant id. Idempotent via
+            // updateOrCreate keyed on 'key'.
+            PresentationAiVariantsSeeder::class,
         ]);
 
         // ════════════════════════════════════════════════════════════════

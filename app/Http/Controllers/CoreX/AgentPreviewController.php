@@ -35,10 +35,81 @@ class AgentPreviewController extends Controller
             'You can only preview your own agent page.'
         );
 
+        return view('corex.agents.live-preview', array_merge(
+            $this->agentPageData($user),
+            ['isSelf' => $user->id === $viewer->id, 'isPublic' => false]
+        ));
+    }
+
+    /**
+     * Public agent profile — the QR-code / shareable target. No auth: a
+     * prospect who scans an agent's card lands here. The agent is resolved by
+     * the trailing qr_code_slug ({tag}), which also follows the departed-agent
+     * reroute chain; the {nameSlug} segment is cosmetic and canonicalised via
+     * redirect on mismatch (e.g. after a rename).
+     *
+     * Spec: .ai/specs/agent-qr-onboarding.md
+     */
+    public function publicShow(Request $request, string $nameSlug, string $tag)
+    {
+        $agent = User::resolveByQrSlug($tag);
+        abort_unless($agent, 404);
+
+        // Keep the pretty URL honest — redirect to the canonical name slug.
+        if ($nameSlug !== $agent->nameSlug()) {
+            return redirect()->route('corex.agents.public', [$agent->nameSlug(), $tag]);
+        }
+
+        return view('corex.agents.live-preview', array_merge(
+            $this->agentPageData($agent),
+            ['isSelf' => false, 'isPublic' => true, 'publicTag' => $tag]
+        ));
+    }
+
+    /** Public single-article view, reached from the public profile page. */
+    public function publicArticle(Request $request, string $nameSlug, string $tag, AgentArticle $article)
+    {
+        $agent = User::resolveByQrSlug($tag);
+        abort_unless($agent, 404);
+        abort_unless((int) $article->user_id === (int) $agent->id && (bool) $article->is_published, 404);
+
+        if ($nameSlug !== $agent->nameSlug()) {
+            return redirect()->route('corex.agents.public.article', [$agent->nameSlug(), $tag, $article]);
+        }
+
+        $agent->load(['branch', 'agency']);
+
+        return view('corex.agents.article-preview', [
+            'agent'      => $agent,
+            'agency'     => $agent->agency,
+            'article'    => $article,
+            'profileUrl' => $agent->publicProfileUrl(),
+            'shareUrl'   => route('corex.agents.public.article', [$agent->nameSlug(), $tag, $article]),
+        ]);
+    }
+
+    /**
+     * Backwards-compat redirect for the original QR URL (/r/a/{slug}) printed
+     * on cards/signage in the wild. Resolves the slug and 301s to the canonical
+     * public profile so old codes never dead-end.
+     */
+    public function legacyQrRedirect(string $slug)
+    {
+        $agent = User::resolveByQrSlug($slug);
+        abort_unless($agent, 404);
+
+        return redirect()->route('corex.agents.public', [$agent->nameSlug(), $slug], 301);
+    }
+
+    /**
+     * Shared data set for the agent public page — the exact slice a website
+     * would pull: profile + listings (For Sale → Under Offer → Sold) +
+     * published testimonials + published articles.
+     */
+    private function agentPageData(User $user): array
+    {
         $user->load(['branch', 'agency']);
 
-        // The agent's listings as a website shows them: For Sale first, then
-        // Under Offer, then Sold (social proof). Each links to its live preview.
         $listings = Property::query()
             ->where('agent_id', $user->id)
             ->whereIn('status', ['active', 'pending', 'under_offer', 'sold'])
@@ -47,27 +118,24 @@ class AgentPreviewController extends Controller
             ->limit(60)
             ->get();
 
-        // Published testimonials tagged to this agent (the website set).
         $testimonials = ContactTestimonial::query()
             ->where('agent_id', $user->id)
             ->where('published', true)
             ->latest('published_at')
             ->get();
 
-        // The agent's published articles (their public website blog).
         $articles = $user->articles()
             ->where('is_published', true)
             ->latest('published_at')
             ->get();
 
-        return view('corex.agents.live-preview', [
+        return [
             'agent'        => $user,
             'agency'       => $user->agency,
             'listings'     => $listings,
             'testimonials' => $testimonials,
             'articles'     => $articles,
-            'isSelf'       => $user->id === $viewer->id,
-        ]);
+        ];
     }
 
     /** Full preview of a single article (the "click to read" view). */

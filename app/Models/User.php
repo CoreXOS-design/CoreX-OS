@@ -353,11 +353,38 @@ class User extends Authenticatable
     }
 
     /**
-     * Canonical web URL the agent's QR code encodes.
+     * URL-friendly slug of the agent's name (cosmetic segment of the public
+     * profile URL). Never used to resolve the agent — the qr_code_slug does
+     * that — so a rename only changes the pretty part and triggers a canonical
+     * redirect, never a broken link.
+     */
+    public function nameSlug(): string
+    {
+        return \Illuminate\Support\Str::slug((string) $this->name) ?: 'agent';
+    }
+
+    /**
+     * Canonical public profile URL — the agent's shareable "business card"
+     * page. Format: /corex/agents/{name-slug}/{qr_code_slug}. The qr_code_slug
+     * is the stable, unique ID tag that actually resolves the agent (and
+     * follows the departed-agent reroute chain).
+     * Spec: .ai/specs/agent-qr-onboarding.md
+     */
+    public function publicProfileUrl(): string
+    {
+        return rtrim(config('app.url'), '/')
+            . '/corex/agents/' . $this->nameSlug() . '/' . $this->ensureQrSlug();
+    }
+
+    /**
+     * Canonical web URL the agent's QR code encodes. Opened in a browser this
+     * lands on the public profile page; scanned in the CoreX app it triggers
+     * the client onboarding flow (the app matches the public-profile URL
+     * pattern and extracts the trailing slug).
      */
     public function qrCodeUrl(): string
     {
-        return rtrim(config('app.url'), '/') . '/r/a/' . $this->ensureQrSlug();
+        return $this->publicProfileUrl();
     }
 
     /**
