@@ -1,6 +1,14 @@
 # AT-22 — Presentation / CMA Report-Quality Overhaul
 
-**Status:** BUILD AUTHORIZED — STEP 2 investigation reviewed and **approved verbally by Johan 2026-06-11**; build of items 1, 3, 4, 5, 6, 7 authorized and landed on branch `AT-22-presentation-quality`. (STEP 1 gate passed earlier; four thresholds + modal-anchor correction locked.) Item 6 (comp type misclassification) was built + tested in this batch ahead of its own ticket — **AT-26 to be marked "done early"** by Johan. Remaining to verify: agency-settings UI for the §0.1 thresholds (built this pass), then regenerate PRES 87 on Staging for eyeball sign-off.
+**Status:** ROUND-1 ON STAGING — awaiting Johan's full eyeball. Build of items 1, 3, 4, 5, 6, 7 + agency-settings UI landed; then THREE rounds of Johan's Staging feedback on the comp engine were investigated-first and fixed (all verified on PRES 87). Item 6 built ahead of its ticket — **AT-26 = "done early"**. AT-21 (comp-table CRUD) folded into item 2's curation toolkit.
+
+**Round-1 comp-engine corrections (Johan, 11 Jun — all data-verified on PRES 87):**
+- **Exempt scope** — the `exempt` flag (any comp from one of the subject's source-reports) was bypassing the price band, radius AND the 15-shortlist, persisting 94 sub-R1M/sectional comps. Now exemption waives the **price band ONLY**; exempt comps are still type-gated, radius-bound and compete for the cap.
+- **Subject anchor** — the price band now anchors on the subject value (`asking_price_inc`) not the polluted-pool median (the §1.5 R1.1M trap, which had re-emerged in both the band and the ranking).
+- **Comp classification (item 6)** — comp `title_type` derived from the sectional signal (scheme_name/section_number) so the type gate drops sectional units the generic "Residence" property_type hid.
+- **Premium comps** — the widen ladder stopped on cheap nearby sales (min_count satisfied by the closest, regardless of profile); now it counts only **in-band** comps toward the stop, and ranks on **value-tier + erf (similarity) over raw proximity** (dropped the exempt rank boost). Default `comp_min_count` raised 5→10 to auto-widen 300→600→1000m. PRES 87: 94 → **15 clean freehold comps, 6 premium ≥R2M, ~10 usable ≥R1.665M**.
+- **Item 2 + AT-21 curation toolkit** — sortable columns, price-range slider, select-all/none/visible, bulk tick on the filtered view (one batch write to `included_comp_ids_json`), plus **browse-and-add freehold comps beyond the auto-pool** (radius + price search → materialise + include). Engine's clean default pool untouched.
+- **Item 3** — holding-cost lines now state provenance (Calculated/Agency-default/Captured/Not-set); the 8 Tier-2 defaults editable in Settings → Presentations → Holding Cost Defaults.
 **Date:** 2026-06-11
 **Author:** Claude + Johan
 **Jira:** [AT-22](https://corexos.atlassian.net/browse/AT-22) (Task, project AT) — status To Do
