@@ -2095,6 +2095,14 @@
                     $anchorDiv     = (float)  ($presAgency->anchor_divergence_pct    ?? 25);
                     $rangeLower    = (int)    ($presAgency->range_lower_pct          ?? 25);
                     $rangeUpper    = (int)    ($presAgency->range_upper_pct          ?? 75);
+                    // AT-22 item 3 — holding-cost Tier-2 agency defaults.
+                    $hcOppPct    = (float) ($presAgency->presentations_default_opportunity_cost_pct      ?? 8);
+                    $hcRatesPM   = (int)   ($presAgency->presentations_default_rates_per_million_zar      ?? 800);
+                    $hcInsPM     = (int)   ($presAgency->presentations_default_insurance_per_million_zar  ?? 200);
+                    $hcUtil      = (int)   ($presAgency->presentations_default_utilities_zar              ?? 1200);
+                    $hcGarden    = (int)   ($presAgency->presentations_default_garden_zar                 ?? 800);
+                    $hcPool      = (int)   ($presAgency->presentations_default_pool_zar                   ?? 600);
+                    $hcSecurity  = (int)   ($presAgency->presentations_default_security_zar               ?? 1500);
                 @endphp
 
                 <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -2339,6 +2347,79 @@
                                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         <div class="text-[11px] mt-1" style="color:var(--text-muted);">Upper bound. Default 75 (P75). Asking never widens the band.</div>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- AT-22 item 3 — Holding Cost defaults. These drive the
+                             per-presentation holding-cost panel (the figures the
+                             seller sees). They are Tier-2 fallbacks: a captured
+                             per-property value or a learned average wins first;
+                             these apply when neither exists. Surfaced here so the
+                             figures are transparent + tunable, not opaque. --}}
+                        <div class="pt-4 mt-4" style="border-top:1px solid var(--border);">
+                            <div class="mb-3">
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Holding Cost Defaults</div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                                    Default monthly holding-cost components used when a property has no captured value. Opportunity cost = asking × this % ÷ 12. Rates/Insurance scale with value (per R1m); the rest are flat monthly rand.
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Opportunity cost (% of asking, annual)</label>
+                                    <input type="number" min="0" max="30" step="0.25" name="presentations_default_opportunity_cost_pct"
+                                           value="{{ $hcOppPct }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Monthly = asking × this% ÷ 12. Default 8.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Rates (R per R1m of value, monthly)</label>
+                                    <input type="number" min="0" max="100000" name="presentations_default_rates_per_million_zar"
+                                           value="{{ $hcRatesPM }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">× (value ÷ R1,000,000). Default 800.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Insurance (R per R1m of value, monthly)</label>
+                                    <input type="number" min="0" max="100000" name="presentations_default_insurance_per_million_zar"
+                                           value="{{ $hcInsPM }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">× (value ÷ R1,000,000). Default 200.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Utilities (flat monthly R)</label>
+                                    <input type="number" min="0" max="1000000" name="presentations_default_utilities_zar"
+                                           value="{{ $hcUtil }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 1200.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Garden (flat monthly R, freehold)</label>
+                                    <input type="number" min="0" max="1000000" name="presentations_default_garden_zar"
+                                           value="{{ $hcGarden }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 800.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Pool (flat monthly R, freehold)</label>
+                                    <input type="number" min="0" max="1000000" name="presentations_default_pool_zar"
+                                           value="{{ $hcPool }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 600.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Security (flat monthly R, freehold)</label>
+                                    <input type="number" min="0" max="1000000" name="presentations_default_security_zar"
+                                           value="{{ $hcSecurity }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 1500.</div>
                                 </div>
                             </div>
                         </div>
