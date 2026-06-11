@@ -114,6 +114,11 @@ final class MicSnapshotHydrator
                 'price'         => $salePrice,
                 'size_m2'       => OutlierGuard::extentM2($row->extent_m2),
                 'property_type' => $row->property_type,
+                // AT-22 item 6 — derive the title category from the sectional
+                // signal (scheme_name / section_number) so the type hard-gate
+                // can tell sectional units from freehold even when the source
+                // property_type is the generic "Residence"/"Residential".
+                'title_type'    => $this->deriveCompTitleType($row),
                 'lat'           => $row->latitude,
                 'lng'           => $row->longitude,
                 'exempt'        => $exempt,
@@ -132,6 +137,12 @@ final class MicSnapshotHydrator
                 : ($presentation->property?->erf_size_m2
                     ?? $presentation->erf_size_m2
                     ?? $presentation->property?->size_m2),
+            // AT-22 §1.5 — subject-derived anchor for the PRICE band gate so a
+            // polluted pool can't drag the band down (the R927k/R1.1M trap).
+            // The displayed CMA range still derives from the cleaned pool's
+            // P25–P75 (CmaComputeService); this only governs which comps the
+            // gate admits. Asking is the expected-value input the agent gave.
+            'anchor_price'  => $this->resolveSubjectAnchorPrice($presentation),
         ];
 
         $poolResult  = (new CompPoolBuilder())->select($subjectProfile, $candidates, $poolConfig);
@@ -719,6 +730,43 @@ final class MicSnapshotHydrator
             }
         }
         return array_values($byFingerprint);
+    }
+
+    /**
+     * AT-22 item 6 — title category for a comp row. A populated scheme_name
+     * or section_number is an unambiguous sectional-title signal (a unit in a
+     * sectional scheme); it overrides the generic source property_type, which
+     * for portal/MIC data is almost always the catch-all "Residence" /
+     * "Residential" and cannot distinguish freehold from sectional. Without
+     * this, sectional units classify as freehold and leak into a freehold
+     * subject's type-gated pool (PRES 87: 57 sectional comps, 49 of them
+     * sub-R1M, on a R2.9M full-title subject).
+     */
+    private function deriveCompTitleType(object $row): ?string
+    {
+        $scheme  = trim((string) ($row->scheme_name ?? ''));
+        $section = trim((string) ($row->section_number ?? ''));
+        if ($scheme !== '' || $section !== '') {
+            return \App\Services\TitleTypeClassifier::TITLE_SECTIONAL;
+        }
+        // No sectional signal — defer to the property-type heuristic (may be
+        // null/full when the source type is generic; the gate fails open on
+        // null, which is the intended posture).
+        return app(\App\Services\TitleTypeClassifier::class)->fromPropertyType($row->property_type ?? null);
+    }
+
+    /**
+     * AT-22 §1.5 — the subject's expected value, used to anchor the comp
+     * price-band gate. Asking price is the figure the agent entered for THIS
+     * subject; it is the robust gate anchor (the displayed CMA range still
+     * comes from the cleaned pool, never from asking — spec §5). Returns null
+     * when no asking is set, in which case CompPoolBuilder falls back to the
+     * cleaned-pool median.
+     */
+    private function resolveSubjectAnchorPrice(Presentation $presentation): ?int
+    {
+        $asking = (int) ($presentation->asking_price_inc ?? 0);
+        return $asking > 0 ? $asking : null;
     }
 
     private function fingerprint(object $row, bool $isSold): string
