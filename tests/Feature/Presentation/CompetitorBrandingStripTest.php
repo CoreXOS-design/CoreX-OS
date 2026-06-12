@@ -84,7 +84,8 @@ final class CompetitorBrandingStripTest extends TestCase
         string $type,
         string $agencyName,
         ?string $thumbPath = null,
-        ?string $thumbSourceUrl = null
+        ?string $thumbSourceUrl = null,
+        ?string $thumbBlockedReason = null
     ): int {
         return (int) DB::table('prospecting_listings')->insertGetId([
             'agency_id'            => $agencyId,
@@ -102,8 +103,9 @@ final class CompetitorBrandingStripTest extends TestCase
             'property_type'        => $type,
             'agent_name'           => null,
             'agency_name'          => $agencyName,
-            'thumbnail_path'       => $thumbPath,
-            'thumbnail_source_url' => $thumbSourceUrl,
+            'thumbnail_path'           => $thumbPath,
+            'thumbnail_source_url'     => $thumbSourceUrl,
+            'thumbnail_blocked_reason' => $thumbBlockedReason,
             'first_seen_at'        => now(),
             'last_seen_at'         => now(),
             'is_active'            => 1,
@@ -147,6 +149,34 @@ final class CompetitorBrandingStripTest extends TestCase
         $this->assertNull($matches[0]['thumbnail_url'], 'logo must never become the card image');
 
         Storage::disk('local')->delete($logoPath);
+    }
+
+    public function test_content_blocked_row_is_not_emitted_even_with_genuine_path(): void
+    {
+        // AT-22 item 2 regression — the gap caught on Staging: a row whose
+        // FILE exists and whose PATH/URL look like a genuine photo, but which
+        // the content gate flagged (thumbnail_blocked_reason set), must NOT
+        // emit a thumbnail. This only holds if the candidate query SELECTs and
+        // adaptCandidateRow CARRIES thumbnail_blocked_reason — a column the
+        // original fix omitted, making the render gate silently inert.
+        [$subject, $agencyId] = $this->seedSubject(2_000_000, 3, 'Uvongo', 'House');
+
+        $photoPath = 'prospecting/thumbnails/p24_P24-BLOCKED-1.jpg';
+        Storage::disk('local')->put($photoPath, 'fake-but-present-bytes');
+
+        $this->seedListing(
+            $agencyId, 'Uvongo', 1_950_000, 3, 'House', 'Some Agency',
+            thumbPath: $photoPath,
+            thumbSourceUrl: 'https://images.prop24.com/247/looks-genuine.jpg',
+            thumbBlockedReason: 'brand:remax',
+        );
+
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
+        $this->assertNotEmpty($matches);
+        $this->assertNull($matches[0]['thumbnail_abs_path'], 'a content-blocked row must never become the card image');
+        $this->assertNull($matches[0]['thumbnail_url']);
+
+        Storage::disk('local')->delete($photoPath);
     }
 
     public function test_genuine_photo_present_on_disk_is_emitted(): void

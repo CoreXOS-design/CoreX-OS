@@ -328,6 +328,12 @@ final class CompetitorStockMatchService
                 'latitude', 'longitude',
                 'portal_url', 'portal_source', 'portal_ref',
                 'agent_name', 'agency_name', 'thumbnail_path',
+                // AT-22 item 2 — these two MUST be selected or the render gate
+                // in scoreAndMapRow goes inert: a null (unloaded) blocked_reason
+                // reads as "not blocked" and a competitor brand card / graphic
+                // leaks onto the card. (Caught on Staging: a blocked PP icon
+                // rendered because the column was never fetched.)
+                'thumbnail_source_url', 'thumbnail_blocked_reason',
                 'first_seen_at', 'last_seen_at',
             ])
             ->get();
@@ -750,6 +756,12 @@ final class CompetitorStockMatchService
                 'latitude', 'longitude',
                 'portal_url', 'portal_source', 'portal_ref',
                 'agent_name', 'agency_name', 'thumbnail_path',
+                // AT-22 item 2 — these two MUST be selected or the render gate
+                // in scoreAndMapRow goes inert: a null (unloaded) blocked_reason
+                // reads as "not blocked" and a competitor brand card / graphic
+                // leaks onto the card. (Caught on Staging: a blocked PP icon
+                // rendered because the column was never fetched.)
+                'thumbnail_source_url', 'thumbnail_blocked_reason',
                 'first_seen_at', 'last_seen_at',
             ])
             ->get();
@@ -844,6 +856,12 @@ final class CompetitorStockMatchService
             'agent_name'       => $row->agent_name,
             'agency_name'      => $row->agency_name,
             'thumbnail_path'   => $row->thumbnail_path,
+            // AT-22 item 2 — carry the content-gate inputs through to
+            // scoreAndMapRow, or the render gate cannot see them (see the
+            // matching note on the candidate SELECT). null-coalesced so a
+            // query that somehow omits them degrades safely.
+            'thumbnail_source_url'     => $row->thumbnail_source_url ?? null,
+            'thumbnail_blocked_reason' => $row->thumbnail_blocked_reason ?? null,
             'first_seen_at'    => $row->first_seen_at,
             'last_seen_at'     => $row->last_seen_at,
             'features_json'    => null,
