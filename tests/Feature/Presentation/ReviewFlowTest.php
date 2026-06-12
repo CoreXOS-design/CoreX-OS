@@ -208,6 +208,49 @@ final class ReviewFlowTest extends TestCase
             ->assertOk()->assertJson(['ok' => true, 'already' => true]);
     }
 
+    // ── AT-27 Phase A — Continue to Analysis ─────────────────────────
+
+    public function test_continue_to_analysis_sets_in_analysis_and_routes_to_analysis(): void
+    {
+        [$agencyId, $user] = $this->seedAgencyAndUser();
+        $version = $this->seedPresentationWithVersion($agencyId, $user->id, [
+            'review_status' => PresentationVersion::REVIEW_AWAITING,
+        ]);
+
+        $resp = $this->actingAs($user)
+            ->post(route('presentations.review.continue', $version->id))
+            ->assertOk()
+            ->assertJson(['ok' => true]);
+
+        // Routes the agent to the Analysis working surface — NOT Overview.
+        $this->assertStringContainsString(
+            "/presentations/{$version->presentation_id}/analysis",
+            $resp->json('redirect_url')
+        );
+
+        $fresh = $version->fresh();
+        // The version is NOW in-analysis and stays a mutable draft — NOT
+        // published, NO snapshot frozen (freeze moves to Analysis confirm).
+        $this->assertSame(PresentationVersion::REVIEW_IN_ANALYSIS, $fresh->review_status);
+        $this->assertNull($fresh->published_at);
+        $this->assertNull($fresh->snapshot_payload);
+    }
+
+    public function test_continue_to_analysis_does_not_demote_a_published_version(): void
+    {
+        [$agencyId, $user] = $this->seedAgencyAndUser();
+        $version = $this->seedPresentationWithVersion($agencyId, $user->id, [
+            'review_status' => PresentationVersion::REVIEW_PUBLISHED,
+            'published_at'  => now()->subMinute(),
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('presentations.review.continue', $version->id))
+            ->assertOk();
+
+        $this->assertSame(PresentationVersion::REVIEW_PUBLISHED, $version->fresh()->review_status);
+    }
+
     // ── revert ───────────────────────────────────────────────────────
 
     public function test_revert_archives_version_and_logs_override(): void
