@@ -41,6 +41,7 @@ class RehydrateProspectingThumbnails extends Command
     protected $signature = 'prospecting:rehydrate-thumbnails
         {--dry-run : Report what would be re-fetched without any network call or dispatch}
         {--derive-from-portal : For rows with no source_url, resolve the image from portal_url (og:image). Outbound; throttled.}
+        {--portal= : Only process rows from this portal_source (e.g. pp, p24). Lets a blocked/rate-limited portal be deferred and retried later.}
         {--sync : Run downloads synchronously in-process instead of queueing (no worker needed)}
         {--throttle-ms=1500 : Milliseconds to pause before each row that touches the network}
         {--limit=0 : Cap the number of network-touching rows processed this run (0 = no cap)}
@@ -56,6 +57,7 @@ class RehydrateProspectingThumbnails extends Command
         $throttleMs = max(0, (int) $this->option('throttle-ms'));
         $limit      = max(0, (int) $this->option('limit'));
         $chunkSize  = max(1, (int) $this->option('chunk'));
+        $portal     = trim((string) ($this->option('portal') ?? ''));
 
         $resolver = new PortalImageUrlResolver();
 
@@ -74,6 +76,7 @@ class RehydrateProspectingThumbnails extends Command
         ProspectingListing::query()
             ->whereNotNull('thumbnail_path')
             ->where('thumbnail_path', '!=', '')
+            ->when($portal !== '', fn ($q) => $q->where('portal_source', $portal))
             ->orderBy('id')
             ->chunkById($chunkSize, function ($listings) use (
                 $resolver, $dryRun, $derive, $sync, $throttleMs, $limit,
