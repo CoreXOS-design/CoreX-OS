@@ -8218,6 +8218,7 @@ CREATE TABLE `prospecting_listings` (
   `agency_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `thumbnail_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `thumbnail_source_url` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Original portal image URL the thumbnail was downloaded from — enables prospecting:rehydrate-thumbnails to re-fetch without a re-capture (AT-22 item 7).',
+  `thumbnail_blocked_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Why this thumbnail is blocked from seller surfaces (e.g. brand:remax, graphic). Set by ListingImageValidator content inspection. Null = not blocked (AT-22 item 2).',
   `first_seen_at` datetime NOT NULL,
   `last_seen_at` datetime NOT NULL,
   `first_seen_email_date` timestamp NULL DEFAULT NULL,
@@ -11378,3 +11379,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (788,'2026_06_11_18
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (789,'2026_06_11_180500_add_thumbnail_source_url_to_prospecting_listings',134);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_23_120000_normalize_user_phone_numbers',134);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_11_190000_add_comp_curation_override_types',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_12_090000_add_thumbnail_blocked_reason_to_prospecting_listings',136);

@@ -596,11 +596,25 @@ final class CompetitorStockMatchService
                 $candidate = null;
             }
 
-            // Validate against BOTH the stored path and the original source
-            // URL (when known): a logo downloaded under a neutral filename
-            // would pass a path check but the source URL still flags it.
-            $genuine = $imageValidator->isGenuineStoredPhoto($candidate)
-                && $imageValidator->isGenuinePhoto($listing->thumbnail_source_url ?? null ?: $thumbPath);
+            // THREE gates, all must pass (AT-22 item 2). The PRIMARY gate is
+            // the persisted content verdict: thumbnail_blocked_reason is set at
+            // ingress (DownloadListingThumbnail) / by prospecting:rescan-
+            // thumbnail-brands when OCR or the flat-graphic signal proved the
+            // pixels are a competitor card. This is the only gate that catches
+            // a brand whose URL/path carry no token — the PRES 87 / v175 leak,
+            // where a RE/MAX card was stored as pp_PP-T5391969.jpg with a null
+            // source URL and passed every substring check.
+            //
+            // The two URL/path gates remain as defence in depth: the file must
+            // exist and pass the path denylist, and when the source URL is known
+            // it must pass too. (The previous `?: $thumbPath` fallback re-checked
+            // the neutral stored path when the URL was null — a no-op that gave
+            // a false sense of validation; removed.)
+            $genuine = ($listing->thumbnail_blocked_reason ?? null) === null
+                && $imageValidator->isGenuineStoredPhoto($candidate)
+                && ($listing->thumbnail_source_url
+                    ? $imageValidator->isGenuinePhoto($listing->thumbnail_source_url)
+                    : true);
 
             if ($genuine) {
                 $thumbAbs = $candidate;

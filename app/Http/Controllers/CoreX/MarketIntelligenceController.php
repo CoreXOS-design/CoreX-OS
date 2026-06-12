@@ -2353,6 +2353,15 @@ class MarketIntelligenceController extends Controller
 
     public function thumbnail(ProspectingListing $listing)
     {
+        // AT-22 item 2 — never serve a thumbnail the content gate blocked
+        // (competitor brand card / non-photo graphic). Defence in depth: the
+        // seller-surface render gate already withholds the URL for blocked
+        // rows, but a direct hit on this route must 404 too so a leaked link
+        // can never resurface the branded asset.
+        if ($listing->thumbnail_blocked_reason !== null) {
+            abort(404);
+        }
+
         if (!$listing->thumbnail_path || !Storage::disk('local')->exists($listing->thumbnail_path)) {
             abort(404);
         }

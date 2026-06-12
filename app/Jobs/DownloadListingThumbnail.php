@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\ProspectingListing;
+use App\Services\Prospecting\ListingImageValidator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -40,6 +41,17 @@ class DownloadListingThumbnail implements ShouldQueue
                 return;
             }
 
+            // AT-22 item 2 — competitor-branding gate, run on the FULL-RES bytes
+            // (best OCR fidelity) BEFORE the 300px downscale. A captured "photo"
+            // that is in fact a RE/MAX / Pam Golding / Seeff card — uploaded by a
+            // competitor as the listing's primary image and served from a neutral
+            // portal CDN URL — carries no brand token in its URL or our generated
+            // filename; only its PIXELS betray it. Inspect them here so the verdict
+            // is cached once and the seller-surface render gate is a single column
+            // read. The file is still stored (audit / no hard delete); the reason
+            // column is what blanks it to the "No photo" placeholder.
+            $brandVerdict = (new ListingImageValidator())->inspectImageBytes($imageData);
+
             $origWidth = imagesx($source);
             $origHeight = imagesy($source);
             $newWidth = 300;
@@ -68,9 +80,14 @@ class DownloadListingThumbnail implements ShouldQueue
             // write does not depend on $fillable containing the new column.
             $this->listing->thumbnail_path = $path;
             $this->listing->thumbnail_source_url = $this->thumbnailUrl;
+            $this->listing->thumbnail_blocked_reason = $brandVerdict['reason']; // null = genuine
             $this->listing->save();
 
-            Log::info("DownloadListingThumbnail: saved thumbnail for listing {$this->listing->id} at {$path}");
+            if ($brandVerdict['reason'] !== null) {
+                Log::warning("DownloadListingThumbnail: BLOCKED branded/non-photo thumbnail for listing {$this->listing->id} ({$brandVerdict['reason']}) — stored for audit at {$path} but suppressed from seller surfaces.");
+            } else {
+                Log::info("DownloadListingThumbnail: saved thumbnail for listing {$this->listing->id} at {$path}");
+            }
         } catch (\Throwable $e) {
             Log::warning("DownloadListingThumbnail: error for listing {$this->listing->id} — {$e->getMessage()}");
         }

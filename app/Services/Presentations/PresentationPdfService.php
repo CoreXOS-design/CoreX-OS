@@ -770,6 +770,11 @@ body {
 /* ── PAGE BREAK HELPERS ──────────────────────────────────────────────── */
 .page-break { page-break-before: always; }
 .avoid-break { page-break-inside: avoid; }
+/* AT-22 item 4 — the closing CTA + footer travel together and carry NO
+   trailing margin, so the document's last box never spills a hair past the
+   page content-box and triggers chromium to emit an empty final page. */
+.report-tail { page-break-inside: avoid; }
+.report-tail > :last-child { margin-bottom: 0; }
 
 /* ── TYPOGRAPHY ──────────────────────────────────────────────────────── */
 h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
@@ -3334,7 +3339,10 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 
 <?php endif // end articles ?>
 
-<div style="margin-top:24px;padding:20px;background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;text-align:center;">
+<?php // AT-22 item 4 — closing CTA + footer wrapped as one no-break tail block
+      // with trimmed top margins so they never spill onto an empty final page. ?>
+<div class="report-tail">
+<div style="margin-top:18px;padding:20px;background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;text-align:center;">
     <p style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:6px;">
         Ready to discuss your pricing strategy?
     </p>
@@ -3345,12 +3353,13 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
     </p>
 </div>
 
-<div style="margin-top:30px;text-align:center;font-size:8.5px;color:var(--text-light);border-top:1px solid var(--border-light);padding-top:12px;">
+<div style="margin-top:16px;text-align:center;font-size:8.5px;color:var(--text-light);border-top:1px solid var(--border-light);padding-top:12px;">
     Prepared by <?= $esc($agentName) ?> &middot; Home Finders Coastal &middot; <?= $compiledAt ?>
     &middot; Version #<?= $version->id ?>
     <br>
     This report is based on publicly available data and independent CMA valuation.
     All values are in South African Rand (ZAR). Data sources include CMA Info and Property24.
+</div>
 </div>
 
 </body>

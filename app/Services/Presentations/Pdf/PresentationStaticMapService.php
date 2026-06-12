@@ -89,10 +89,27 @@ final class PresentationStaticMapService
         try {
             $resp = Http::timeout(self::HTTP_TIMEOUT_SEC)->get($url);
             if (!$resp->ok()) {
-                Log::warning('PresentationStaticMapService: HTTP non-OK', [
-                    'status' => $resp->status(),
-                    'body'   => mb_substr((string) $resp->body(), 0, 200),
-                ]);
+                $body = mb_substr((string) $resp->body(), 0, 200);
+                // AT-22 item 3/5 — make the actionable failure mode loud: a 403
+                // "not activated" means the Maps Static API is disabled on the
+                // GCP project, NOT that the key is missing. Silent fallback to
+                // the grey SVG is exactly what hid this on live. Run
+                // `php artisan presentations:check-static-maps` to confirm.
+                $blocked = $resp->status() === 403 && (
+                    stripos($body, 'not activated') !== false
+                    || stripos($body, 'not authorized') !== false
+                    || stripos($body, 'API restrictions') !== false
+                );
+                if ($blocked) {
+                    Log::error('PresentationStaticMapService: Maps Static API BLOCKED for this key (HTTP 403 — not enabled on the project, or excluded by the key’s API restrictions). Presentation maps are falling back to the grey SVG. Run `php artisan presentations:check-static-maps`.', [
+                        'body' => $body,
+                    ]);
+                } else {
+                    Log::warning('PresentationStaticMapService: HTTP non-OK', [
+                        'status' => $resp->status(),
+                        'body'   => $body,
+                    ]);
+                }
                 return ['data_uri' => null, 'legend' => $legend];
             }
             $body = $resp->body();

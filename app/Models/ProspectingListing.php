@@ -34,6 +34,7 @@ class ProspectingListing extends Model
         'agency_name',
         'thumbnail_path',
         'thumbnail_source_url',
+        'thumbnail_blocked_reason',
         'first_seen_at',
         'last_seen_at',
         'price_changed_at',
