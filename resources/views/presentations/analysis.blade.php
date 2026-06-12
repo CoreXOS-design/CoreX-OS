@@ -302,7 +302,10 @@
      EXTRACTED DATA REVIEW — 7 sections from AnalysisDataService
 ══════════════════════════════════════════════════════════════════════════ --}}
 <div id="analysis-results">
-@include('presentations.partials.analysis-data-review')
+{{-- AT-27 fix 2 — pass the draft version so the holding-cost inline edit
+     renders on Analysis (pre-confirm; the partial gates it read-only once the
+     version is confirmed/published). --}}
+@include('presentations.partials.analysis-data-review', ['version' => $latestVersion])
 </div>
 
 {{-- Scroll preservation + analysis selection JS --}}
