@@ -266,18 +266,27 @@ class PresentationGeneratorService
             $version->awaiting_review_at = now();
             $version->save();
 
-            // ── 5b. AUTO-GENERATE Executive Summary (PDF readiness gate) ──
-            // Every fresh version ships with a real default-tone summary so
-            // the PDF is downloadable immediately + the gate auto-passes.
-            // generateDefaultAndAccept NEVER throws — AI failures (budget,
-            // network, fallback) leave ai_summary_text null and the gate
-            // blocks the PDF until the agent regenerates from the panel.
-            // The transaction is safe regardless of AI outcome.
-            $user = \App\Models\User::find($agentUserId);
-            if ($user) {
-                $this->aiSummary->generateDefaultAndAccept($presentation, $version, $user);
-                $version->refresh();
-            }
+            // ── 5b. AT-27 Phase A — DEFER the Executive Summary ────────────
+            // The exec summary is NO LONGER generated here. It must narrate
+            // CONFIRMED numbers (never provisional), so it is generated only
+            // when the agent clicks "Confirm & Generate" on the Analysis
+            // screen (AT-27 Phase B), from the frozen confirmed snapshot.
+            //
+            // A fresh draft version therefore carries NO summary: clear any
+            // value the compiler copied forward from a previous version so the
+            // PDF readiness gate correctly blocks download until the agent
+            // confirms on Analysis. (Removing the auto-generate + carryover
+            // from the generate path is AT-27 decision 1/2.)
+            $version->forceFill([
+                'ai_summary_text'            => null,
+                'ai_summary_raw_text'        => null,
+                'ai_variant_id'              => null,
+                'ai_summary_edited_by_agent' => false,
+                'ai_summary_generated_at'    => null,
+                'ai_summary_model'           => null,
+                'ai_summary_prompt_hash'     => null,
+            ])->save();
+            $version->refresh();
 
             // ── 6. Fire event ──────────────────────────────────────────────
             PresentationGenerated::dispatch($presentation, $version);

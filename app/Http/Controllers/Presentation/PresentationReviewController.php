@@ -986,9 +986,48 @@ final class PresentationReviewController extends Controller
     }
 
     /**
+     * AT-27 Phase A — "Continue to Analysis" (replaces publish() as the
+     * review-screen forward action).
+     *
+     * Curation (comp include/exclude, section toggles) is already persisted by
+     * its own endpoints, so this does NOT freeze a snapshot and does NOT
+     * publish — the single draft version stays mutable. It marks the version
+     * in-analysis and hands the agent to the Analysis working surface, where
+     * the numbers are finalised and the exec summary is generated only at
+     * "Confirm & Generate" (AT-27 Phase B). The old publish()/freeze path below
+     * is retired when Phase B relocates the freeze to the Analysis-confirm step.
+     */
+    public function continueToAnalysis(Request $request, PresentationVersion $version): JsonResponse
+    {
+        $this->authoriseReviewer($request, $version);
+
+        // Advance a draft forward; never demote an already-published version
+        // (re-opening a published version for rework is a separate flow).
+        if (in_array($version->review_status, [
+            PresentationVersion::REVIEW_DRAFT,
+            PresentationVersion::REVIEW_AWAITING,
+            PresentationVersion::REVIEW_IN_ANALYSIS,
+        ], true)) {
+            $version->forceFill([
+                'review_status' => PresentationVersion::REVIEW_IN_ANALYSIS,
+            ])->save();
+        }
+
+        return response()->json([
+            'ok'           => true,
+            'redirect_url' => route('presentations.analysis', $version->presentation_id),
+        ]);
+    }
+
+    /**
      * Publish the version. Idempotent — re-publish is a no-op.
      * Returns JSON with the public/show URL for the JS to navigate
      * the (already-open) review tab to.
+     *
+     * AT-27 Phase A: NO LONGER the review-screen forward action — the
+     * "Continue to Analysis" button calls continueToAnalysis(). This method +
+     * its route remain only until Phase B relocates the snapshot freeze to the
+     * Analysis "Confirm & Generate" step, then it is retired.
      */
     public function publish(Request $request, PresentationVersion $version): JsonResponse
     {

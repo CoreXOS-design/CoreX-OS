@@ -78,6 +78,11 @@ class PresentationVersion extends Model
     // Build 2 — review_status states.
     public const REVIEW_DRAFT           = 'draft';
     public const REVIEW_AWAITING        = 'awaiting_review';
+    // AT-27 Phase A — the agent has left the review/curation screen and is
+    // working the numbers on the Analysis surface. The version stays a mutable
+    // DRAFT (one version through review+analysis) and is frozen + published
+    // only at "Confirm & Generate" on Analysis (AT-27 Phase B).
+    public const REVIEW_IN_ANALYSIS     = 'in_analysis';
     public const REVIEW_PUBLISHED       = 'published';
     public const REVIEW_ARCHIVED        = 'archived';
 

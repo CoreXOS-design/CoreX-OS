@@ -633,9 +633,9 @@
         </div>
 
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
-            <button id="btn-publish" type="button"
+            <button id="btn-continue" type="button"
                     style="background:#00d4aa;color:#0b2a4a;border:1px solid #00d4aa;padding:10px 20px;font-size:13px;font-weight:700;border-radius:4px;cursor:pointer;">
-                Generate Presentation
+                Continue to Analysis
             </button>
             <button id="btn-save" type="button"
                     style="background:transparent;color:#00d4aa;border:1px solid #00d4aa;padding:10px 16px;font-size:13px;font-weight:600;border-radius:4px;cursor:pointer;">
@@ -661,7 +661,7 @@
     const VERSION_ID = {{ $version->id }};
     const TOGGLE_TPL = @json(route('presentations.review.toggle-comp', ['version' => $version->id, 'comp' => '__COMP_ID__']));
     const COMPETITOR_TOGGLE_TPL = @json(route('presentations.review.toggle-competitor', ['version' => $version->id, 'listingId' => '__LISTING_ID__']));
-    const PUBLISH_URL = @json(route('presentations.review.publish', $version->id));
+    const CONTINUE_URL = @json(route('presentations.review.continue', $version->id));
     const REVERT_URL  = @json(route('presentations.review.revert',  $version->id));
     const CONDITION_URL = @json(route('presentations.review.condition', $version->id));
     const SECTION_URL   = @json(route('presentations.review.sections',  $version->id));
@@ -1121,22 +1121,24 @@
         });
     });
 
-    // ── Publish / Revert ─────────────────────────────────────────────
-    document.getElementById('btn-publish').addEventListener('click', async () => {
+    // ── Continue to Analysis / Revert ────────────────────────────────
+    // AT-27 Phase A — the forward action persists curation only and hands off
+    // to the Analysis working surface (no publish/freeze here).
+    document.getElementById('btn-continue').addEventListener('click', async () => {
         const body = new FormData(); body.append('_token', csrf);
         try {
-            const r = await fetch(PUBLISH_URL, {
+            const r = await fetch(CONTINUE_URL, {
                 method: 'POST',
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 body, credentials: 'same-origin',
             });
             const d = await r.json();
-            if (d?.ok && d.public_url) {
-                window.location.href = d.public_url;
+            if (d?.ok && d.redirect_url) {
+                window.location.href = d.redirect_url;
             } else {
-                toast('Publish failed — please retry');
+                toast('Could not continue — please retry');
             }
-        } catch (e) { toast('Network error publishing'); }
+        } catch (e) { toast('Network error'); }
     });
 
     document.getElementById('btn-revert').addEventListener('click', async () => {

@@ -16,7 +16,10 @@
                 @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
                     <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline text-sm">P24 Suburbs</a>
                 @endif
-                <a href="{{ route('presentations.create') }}" class="corex-btn-primary text-sm">New Presentation</a>
+                {{-- AT-27 Phase A / AT-17 — standalone "New Presentation" nav link removed:
+                     presentations are property-first (create the property, then Generate from it).
+                     The presentations.create route is kept one cycle, then removed by AT-17,
+                     which replaces it with an informational property-first redirect. --}}
             </div>
         </div>
     </div>

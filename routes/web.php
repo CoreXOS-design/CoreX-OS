@@ -2374,6 +2374,13 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
     Route::post('/version/{version}/review/sections',
         [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'toggleSection'])
         ->name('review.sections');
+    // AT-27 Phase A — review-screen forward action: persist curation only,
+    // hand off to the Analysis working surface (no freeze/publish here).
+    Route::post('/version/{version}/continue',
+        [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'continueToAnalysis'])
+        ->name('review.continue');
+    // AT-27 Phase A — retained until Phase B relocates the freeze to the
+    // Analysis "Confirm & Generate" step; no longer the review forward action.
     Route::post('/version/{version}/publish',
         [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'publish'])
         ->name('review.publish');
