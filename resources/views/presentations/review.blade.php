@@ -85,6 +85,14 @@
 @section('corex-content')
 <div style="max-width: 1400px; margin: 0 auto; padding: 16px 20px;">
 
+    {{-- AT-27 C1a — looped back from an Analysis subject edit with a refreshed comp set. --}}
+    @if(session('subject_refreshed'))
+        <div class="review-warn-banner" role="status"
+             style="border-left:3px solid #00d4aa; background:color-mix(in srgb, #00d4aa 8%, transparent);">
+            <strong>Comparable set refreshed.</strong> {{ session('subject_refreshed') }}
+        </div>
+    @endif
+
     {{-- Concurrent-reviewer banner. --}}
     @if($isLockedByOther)
         <div class="review-warn-banner">

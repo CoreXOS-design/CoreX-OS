@@ -56,7 +56,9 @@
                 @endif
             </div>
         @elseif($subjectEditUrl)
-            <p class="text-xs mb-3" style="color: var(--text-muted);">Edit any field below — the analysis recomputes on save.</p>
+            <p class="text-xs mb-3" style="color: var(--ds-amber, #d97706);">
+                &#9888; These are matching inputs — saving a change re-matches the comparables and returns you to the Review screen to re-check curation.
+            </p>
         @endif
         <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3 lg:grid-cols-4"
              id="subject-edit-grid" @if($subjectEditUrl) data-url="{{ $subjectEditUrl }}" data-csrf="{{ csrf_token() }}" @endif>
@@ -189,8 +191,9 @@
         </div>
     </div>
     @if($subjectEditUrl)
-    {{-- AT-27 Phase C1a — subject edit-in-place: save on change, then reload so
-         the full analysis cascade (comps, CMA, market overview) recomputes. --}}
+    {{-- AT-27 Phase C1a — subject fields are MATCHING INPUTS: saving one
+         re-matches the comps and LOOPS BACK to Review to re-curate (not an
+         in-place edit). The save action warns before doing so. --}}
     <script>
     (function () {
         var grid = document.getElementById('subject-edit-grid');
@@ -200,6 +203,10 @@
             var last = el.value;
             el.addEventListener('change', function () {
                 if (el.value === last) return;
+                if (!confirm('Saving this change re-matches the comparables for the new subject details and returns you to the Review screen to re-check your curation. Continue?')) {
+                    el.value = last;
+                    return;
+                }
                 last = el.value;
                 el.disabled = true; el.style.opacity = '0.6';
                 var body = new FormData();
@@ -209,7 +216,7 @@
                 fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: body, credentials: 'same-origin' })
                     .then(function (r) { return r.json(); })
                     .then(function (d) {
-                        if (d && d.ok) { window.location.reload(); }
+                        if (d && d.ok && d.redirect_url) { window.location.href = d.redirect_url; }
                         else { el.disabled = false; el.style.opacity = ''; alert((d && d.message) || 'Could not save.'); }
                     })
                     .catch(function () { el.disabled = false; el.style.opacity = ''; });
