@@ -26,6 +26,9 @@ use App\Services\Presentations\PresentationCompilerService;
 use App\Services\Presentations\PresentationNarrativeService;
 use App\Services\Presentations\PresentationReadinessService;
 use App\Services\Presentations\AnalysisDataService;
+use App\Services\Presentations\ConditionAdjustmentService;
+use App\Services\Presentations\AiSummaryService;
+use App\Models\PresentationVersion;
 use App\Services\Presentations\PricingSimulatorService;
 use App\Services\Presentations\RecommendationService;
 use App\Services\Presentations\PriceBandService;
@@ -370,8 +373,24 @@ class PresentationController extends Controller
         $latestVersion = $presentation->versions()->latest('compiled_at')->first();
         $readiness     = (new PresentationReadinessService())->evaluate($presentation);
 
+        // AT-27 Phase B.3 — the "What's in your presentation" section toggles
+        // live HERE now (inclusion decisions belong where the numbers are
+        // visible). Same data the review screen used; persisted per version via
+        // presentations.review.sections. Null version → empty (toggles render
+        // only once a draft version exists).
+        $sectionsCatalogue = PresentationVersion::SECTIONS_CATALOGUE;
+        $sectionFloor      = PresentationVersion::SECTION_FLOOR;
+        $sectionDeps       = PresentationVersion::SECTION_DEPENDENCIES;
+        $sectionSnapshot   = [];
+        if ($latestVersion) {
+            foreach ($sectionsCatalogue as $sKey => $_label) {
+                $sectionSnapshot[$sKey] = $latestVersion->isSectionEnabled($sKey);
+            }
+        }
+
         return view('presentations.analysis', compact(
-            'presentation', 'analysisData', 'latestSnapshot', 'latestVersion', 'readiness'
+            'presentation', 'analysisData', 'latestSnapshot', 'latestVersion', 'readiness',
+            'sectionsCatalogue', 'sectionFloor', 'sectionDeps', 'sectionSnapshot'
         ));
     }
 
@@ -405,8 +424,63 @@ class PresentationController extends Controller
             'generated_at'         => now(),
         ]);
 
+        // AT-27 Phase B — stay on the Analysis working surface after a re-run
+        // (the agent keeps editing here; Confirm & Generate is the forward step).
+        return redirect()->route('presentations.analysis', $presentation)
+            ->with('success', 'Analysis recomputed — review the numbers, then Confirm & Generate.');
+    }
+
+    /**
+     * AT-27 Phase B — "Confirm & Generate" on the Analysis surface.
+     *
+     * The single point where the presentation is finalised. After the agent has
+     * worked the numbers on Analysis, this:
+     *   1. recompiles the report from the confirmed presentation state,
+     *   2. takes the ONE snapshot freeze (resolved condition + full payload)
+     *      onto the current draft version — the freeze that used to live in the
+     *      review "publish" path (now retired), and
+     *   3. generates the Executive Summary from those CONFIRMED numbers (never
+     *      provisional), then publishes the version and sends the agent to the
+     *      Overview/dispatch screen.
+     */
+    public function confirmAndGenerate(Request $request, Presentation $presentation)
+    {
+        $this->authorizePresentation($presentation);
+
+        $version = $presentation->versions()->latest('compiled_at')->first();
+        if (!$version) {
+            return redirect()->route('presentations.analysis', $presentation)
+                ->with('error', 'Nothing to confirm yet — generate the presentation first.');
+        }
+
+        // 1 + 2. Single freeze (moved from the retired review publish path):
+        // snapshot the resolved condition, then freeze the full compiled payload
+        // so the seller/Overview always sees the confirmed numbers even if the
+        // underlying property / comps / suburb stats shift later.
+        $resolver = app(ConditionAdjustmentService::class);
+        $resolved = $resolver->resolveLive($version, $presentation);
+        $resolver->snapshotOnVersion($version, $resolved['level']);
+
+        $presentation->load(['property', 'fields', 'soldComps', 'activeListings']);
+        $payload = (new AnalysisDataService())->compile($presentation, $version);
+
+        $version->forceFill([
+            'review_status'     => PresentationVersion::REVIEW_PUBLISHED,
+            'published_at'      => $version->published_at ?? now(),
+            'snapshot_payload'  => $payload,
+            'snapshot_taken_at' => now(),
+        ])->save();
+
+        // 3. Executive Summary — generated NOW, from the confirmed/frozen data.
+        // generateDefaultAndAccept NEVER throws; an AI failure leaves
+        // ai_summary_text null and the PDF gate blocks until the agent
+        // regenerates from the Exec Summary panel.
+        if ($user = $request->user()) {
+            (new AiSummaryService())->generateDefaultAndAccept($presentation, $version, $user);
+        }
+
         return redirect()->route('presentations.show', $presentation)
-            ->with('success', 'Analysis complete — snapshot saved. Click "View Analysis" to review results.');
+            ->with('success', 'Presentation confirmed — your executive summary was generated from the confirmed numbers.');
     }
 
     /**

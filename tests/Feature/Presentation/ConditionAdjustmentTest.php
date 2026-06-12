@@ -278,8 +278,8 @@ final class ConditionAdjustmentTest extends TestCase
         $version = $this->seedPresentationWithVersion($agencyId, $user->id, $property);
 
         $this->actingAs($user)
-            ->post(route('presentations.review.publish', $version->id))
-            ->assertOk();
+            ->post(route('presentations.analysis.confirm', $version->presentation_id))
+            ->assertRedirect(route('presentations.show', $version->presentation_id));
 
         $fresh = $version->fresh();
         $this->assertSame($good->id, $fresh->condition_level_id);
@@ -300,8 +300,8 @@ final class ConditionAdjustmentTest extends TestCase
 
         // Publish snapshots Good @ 3%.
         $this->actingAs($user)
-            ->post(route('presentations.review.publish', $version->id))
-            ->assertOk();
+            ->post(route('presentations.analysis.confirm', $version->presentation_id))
+            ->assertRedirect(route('presentations.show', $version->presentation_id));
 
         // Agency later changes Good to 50%.
         $good->update(['adjustment_pct' => 50.0]);

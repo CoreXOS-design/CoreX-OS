@@ -1019,58 +1019,11 @@ final class PresentationReviewController extends Controller
         ]);
     }
 
-    /**
-     * Publish the version. Idempotent — re-publish is a no-op.
-     * Returns JSON with the public/show URL for the JS to navigate
-     * the (already-open) review tab to.
-     *
-     * AT-27 Phase A: NO LONGER the review-screen forward action — the
-     * "Continue to Analysis" button calls continueToAnalysis(). This method +
-     * its route remain only until Phase B relocates the snapshot freeze to the
-     * Analysis "Confirm & Generate" step, then it is retired.
-     */
-    public function publish(Request $request, PresentationVersion $version): JsonResponse
-    {
-        $this->authoriseReviewer($request, $version);
-
-        // Build 5 — republish: an already-published version that gets re-
-        // published refreshes the snapshot. Same URL, new content. This
-        // is Johan's explicit ruling — live edits override the prior
-        // snapshot, age resets to 0, the freshness CTA disappears.
-        $isRepublish = $version->review_status === PresentationVersion::REVIEW_PUBLISHED;
-
-        // Build 3 — snapshot the resolved condition on the version BEFORE
-        // status flips. The snapshot defends the PDF against future
-        // agency-settings drift; without it the agency could edit
-        // adjustment_pct after publish and silently change historic
-        // valuations.
-        $presentation = $version->presentation;
-        $resolver = app(ConditionAdjustmentService::class);
-        $resolved = $resolver->resolveLive($version, $presentation);
-        $resolver->snapshotOnVersion($version, $resolved['level']);
-
-        // Build 5 — freeze the full compiled report payload onto the
-        // version. The public view reads ONLY from this column, so the
-        // seller always sees what was true on publish day even if the
-        // underlying property / comps / suburb stats shift later.
-        // Republishes overwrite snapshot_payload + refresh
-        // snapshot_taken_at, restarting the freshness clock.
-        $freshPresentation = $version->presentation()->with(['property', 'fields', 'soldComps', 'activeListings'])->first();
-        $payload = (new AnalysisDataService())->compile($freshPresentation, $version);
-
-        $version->forceFill([
-            'review_status'     => PresentationVersion::REVIEW_PUBLISHED,
-            'published_at'      => $isRepublish ? $version->published_at : now(),
-            'snapshot_payload'  => $payload,
-            'snapshot_taken_at' => now(),
-        ])->save();
-
-        return response()->json([
-            'ok'         => true,
-            'already'    => $isRepublish, // legacy flag for the JS path
-            'public_url' => route('presentations.show', $version->presentation_id),
-        ]);
-    }
+    // AT-27 Phase B — publish() RETIRED. The snapshot freeze (resolved
+    // condition + full payload) it performed now lives in
+    // PresentationController::confirmAndGenerate, fired by the Analysis
+    // "Confirm & Generate" action, so the freeze happens once, after the agent
+    // has confirmed the numbers, alongside exec-summary generation.
 
     /**
      * Revert the version — soft-delete it and bounce the agent back

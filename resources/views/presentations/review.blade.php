@@ -586,51 +586,20 @@
     </script>
     @endif
 
-    {{-- ─────────── SECTION 3 — Generate ─────────── --}}
+    {{-- ─────────── SECTION 3 — Continue ─────────── --}}
+    {{-- AT-27 Phase B.3 — the "What's in your presentation" section toggles
+         moved to the Analysis screen (inclusion decisions belong where the
+         numbers are visible). Review keeps per-comp curation only. --}}
     <div class="review-card">
         <div class="review-section-header">
             <div class="review-section-tag"></div>
-            <h2 class="review-section-title">3 · What's in Your Presentation</h2>
+            <h2 class="review-section-title">3 · Continue</h2>
         </div>
 
-        {{-- Build 4 — section toggles. Floor sections are locked-on with
-             a Lock chip. Dependencies surface as small "requires X" tags.
-             Live page estimate updates on every toggle. --}}
-        <div id="section-toggles" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:8px; margin-bottom:14px;">
-            @foreach($sectionsCatalogue as $sKey => $sLabel)
-                @php
-                    $isFloor = in_array($sKey, $sectionFloor, true);
-                    $isOn    = (bool) ($sectionSnapshot[$sKey] ?? true);
-                    $deps    = $sectionDeps[$sKey] ?? [];
-                @endphp
-                <label class="section-toggle-row" data-section-key="{{ $sKey }}"
-                       style="{{ $isFloor ? 'opacity:0.8;' : 'cursor:pointer;' }}">
-                    <input type="checkbox" class="section-toggle"
-                           data-section-key="{{ $sKey }}"
-                           {{ $isOn ? 'checked' : '' }}
-                           {{ $isFloor ? 'disabled' : '' }}>
-                    <div style="flex:1; min-width:0;">
-                        <div class="section-name">
-                            {{ $sLabel }}
-                            @if($isFloor)
-                                <span class="section-floor-chip">Always shown</span>
-                            @endif
-                            @foreach($deps as $depKey)
-                                <span class="section-dep-chip" data-dep-of="{{ $sKey }}" data-needs="{{ $depKey }}">
-                                    needs {{ $sectionsCatalogue[$depKey] ?? $depKey }}
-                                </span>
-                            @endforeach
-                        </div>
-                    </div>
-                </label>
-            @endforeach
-        </div>
-
-        <div class="page-estimate-line">
-            Estimated final page count:
-            <strong id="page-estimate-value">~{{ $pageEstimate }} pages</strong>
-            <span class="page-estimate-sub">(cover + facts always included; layout may flex by a page either way).</span>
-        </div>
+        <p style="font-size:12px; color:var(--text-muted); margin:0 0 4px 0;">
+            Comp curation saves automatically. Continue to the Analysis screen to finalise the
+            numbers and choose which sections appear, then Confirm &amp; Generate.
+        </p>
 
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
             <button id="btn-continue" type="button"
@@ -664,7 +633,7 @@
     const CONTINUE_URL = @json(route('presentations.review.continue', $version->id));
     const REVERT_URL  = @json(route('presentations.review.revert',  $version->id));
     const CONDITION_URL = @json(route('presentations.review.condition', $version->id));
-    const SECTION_URL   = @json(route('presentations.review.sections',  $version->id));
+    {{-- AT-27 Phase B.3 — SECTION_URL moved with the toggles to Analysis. --}}
     const SECTION_LABELS = @json($sectionsCatalogue);
 
     // Subject GPS comes from the linked property record (presentations
@@ -1216,56 +1185,9 @@
         }
     };
 
-    // ── Build 4 — section toggles ────────────────────────────────────
-    const pageEstimateEl = document.getElementById('page-estimate-value');
-    document.querySelectorAll('.section-toggle').forEach(cb => {
-        cb.addEventListener('change', async () => {
-            const key  = cb.dataset.sectionKey;
-            const next = cb.checked;
-            const row  = cb.closest('.section-toggle-row');
-
-            // Optimistic UI — flip immediately; rollback on failure.
-            const rollback = () => { cb.checked = !next; };
-
-            const body = new FormData();
-            body.append('_token', csrf);
-            body.append('section_key', key);
-            body.append('enabled', next ? '1' : '0');
-
-            try {
-                const r = await fetch(SECTION_URL, {
-                    method: 'POST',
-                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                    body, credentials: 'same-origin',
-                });
-                const d = await r.json();
-                if (!d?.ok) { rollback(); toast('Could not save section toggle.'); return; }
-
-                // Update sibling checkboxes for cascaded keys.
-                if (d.cascaded && Object.keys(d.cascaded).length > 0) {
-                    Object.entries(d.cascaded).forEach(([cKey, cVal]) => {
-                        const cb2 = document.querySelector('.section-toggle[data-section-key="' + cKey + '"]');
-                        if (cb2) cb2.checked = !!cVal;
-                    });
-                    // Toast explaining the cascade — e.g. enabling Pricing
-                    // Strategy auto-enabled CMA.
-                    const labels = Object.entries(d.cascaded)
-                        .map(([k, v]) => (v ? 'enabled ' : 'disabled ') + (SECTION_LABELS[k] || k))
-                        .join('; ');
-                    toast('Auto-' + labels + ' (dependency).');
-                } else {
-                    toast(next ? 'Section enabled.' : 'Section disabled.');
-                }
-
-                if (pageEstimateEl && d.page_estimate) {
-                    pageEstimateEl.textContent = '~' + d.page_estimate + ' pages';
-                }
-            } catch (e) {
-                rollback();
-                toast('Network error saving section toggle.');
-            }
-        });
-    });
+    // AT-27 Phase B.3 — section-toggle handler MOVED to the Analysis screen
+    // (resources/views/presentations/analysis.blade.php). Review keeps per-comp
+    // curation only.
 
     if (condEl) {
         condEl.addEventListener('change', async () => {

@@ -54,8 +54,8 @@ final class SnapshotAndRevisionTest extends TestCase
         $version = $this->seedVersion($agencyId, $user->id);
 
         $this->actingAs($user)
-            ->post(route('presentations.review.publish', $version->id))
-            ->assertOk();
+            ->post(route('presentations.analysis.confirm', $version->presentation_id))
+            ->assertRedirect(route('presentations.show', $version->presentation_id));
 
         $fresh = $version->fresh();
         $this->assertSame(PresentationVersion::REVIEW_PUBLISHED, $fresh->review_status);
@@ -76,8 +76,8 @@ final class SnapshotAndRevisionTest extends TestCase
 
         // Publish — snapshot frozen at 1_500_000 Middle.
         $this->actingAs($user)
-            ->post(route('presentations.review.publish', $version->id))
-            ->assertOk();
+            ->post(route('presentations.analysis.confirm', $version->presentation_id))
+            ->assertRedirect(route('presentations.show', $version->presentation_id));
 
         // Move the underlying CMA fields. If the public view recomputed
         // live, Middle would shift.
@@ -105,8 +105,8 @@ final class SnapshotAndRevisionTest extends TestCase
         $this->seedCmaFields($version->presentation_id, $agencyId, 1_000_000, 1_500_000, 2_000_000);
 
         $this->actingAs($user)
-            ->post(route('presentations.review.publish', $version->id))
-            ->assertOk();
+            ->post(route('presentations.analysis.confirm', $version->presentation_id))
+            ->assertRedirect(route('presentations.show', $version->presentation_id));
 
         $firstSnapshotAt = $version->fresh()->snapshot_taken_at;
         $this->assertNotNull($firstSnapshotAt);
@@ -116,8 +116,8 @@ final class SnapshotAndRevisionTest extends TestCase
 
         // Republish.
         $this->actingAs($user)
-            ->post(route('presentations.review.publish', $version->id))
-            ->assertOk();
+            ->post(route('presentations.analysis.confirm', $version->presentation_id))
+            ->assertRedirect(route('presentations.show', $version->presentation_id));
 
         $republished = $version->fresh();
         $this->assertNotNull($republished->snapshot_taken_at);
@@ -136,7 +136,7 @@ final class SnapshotAndRevisionTest extends TestCase
 
         $version = $this->seedVersion($agencyId, $user->id);
         $this->seedCmaFields($version->presentation_id, $agencyId, 1_000_000, 1_500_000, 2_000_000);
-        $this->actingAs($user)->post(route('presentations.review.publish', $version->id))->assertOk();
+        $this->actingAs($user)->post(route('presentations.analysis.confirm', $version->presentation_id))->assertRedirect(route('presentations.show', $version->presentation_id));
 
         $version = $version->fresh();
         // Backdate snapshot to 100 days ago — past the 90-day window.
@@ -154,7 +154,7 @@ final class SnapshotAndRevisionTest extends TestCase
         [$agencyId, $user] = $this->seedAgencyAndUser();
         $version = $this->seedVersion($agencyId, $user->id);
         $this->seedCmaFields($version->presentation_id, $agencyId, 1_000_000, 1_500_000, 2_000_000);
-        $this->actingAs($user)->post(route('presentations.review.publish', $version->id))->assertOk();
+        $this->actingAs($user)->post(route('presentations.analysis.confirm', $version->presentation_id))->assertRedirect(route('presentations.show', $version->presentation_id));
 
         $link = $this->seedShareLink($agencyId, $user->id, $version->fresh());
 
@@ -168,7 +168,7 @@ final class SnapshotAndRevisionTest extends TestCase
         \App\Models\Agency::where('id', $agencyId)->update(['presentations_freshness_days' => 90]);
         $version = $this->seedVersion($agencyId, $user->id);
         $this->seedCmaFields($version->presentation_id, $agencyId, 1_000_000, 1_500_000, 2_000_000);
-        $this->actingAs($user)->post(route('presentations.review.publish', $version->id))->assertOk();
+        $this->actingAs($user)->post(route('presentations.analysis.confirm', $version->presentation_id))->assertRedirect(route('presentations.show', $version->presentation_id));
 
         $version = $version->fresh();
         $version->forceFill(['snapshot_taken_at' => now()->subDays(45)])->save();
@@ -221,7 +221,7 @@ final class SnapshotAndRevisionTest extends TestCase
         \App\Models\Agency::where('id', $agencyId)->update(['presentations_freshness_days' => 90]);
         $version = $this->seedVersion($agencyId, $user->id);
         $this->seedCmaFields($version->presentation_id, $agencyId, 1_000_000, 1_500_000, 2_000_000);
-        $this->actingAs($user)->post(route('presentations.review.publish', $version->id))->assertOk();
+        $this->actingAs($user)->post(route('presentations.analysis.confirm', $version->presentation_id))->assertRedirect(route('presentations.show', $version->presentation_id));
         $version = $version->fresh();
         $version->forceFill(['snapshot_taken_at' => now()->subDays(60)])->save();
 
