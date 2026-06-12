@@ -77,15 +77,8 @@
     .cma-adj-line[hidden] { display: none; }
     .cma-no-cond-banner { margin-top: 8px; padding: 6px 10px; background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 25%, transparent); border-radius: 3px; font-size: 11px; color: var(--ds-amber, #d97706); }
     .cma-no-cond-banner[hidden] { display: none; }
-    /* Build 4 — section toggles. */
-    .section-toggle-row { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:4px; }
-    .section-toggle-row input[type="checkbox"] { margin-top:2px; accent-color:#00d4aa; width:16px; height:16px; }
-    .section-name { font-size:12px; font-weight:600; color:var(--text-primary); }
-    .section-floor-chip { display:inline-block; margin-left:6px; padding:1px 6px; background:color-mix(in srgb, #00d4aa 18%, transparent); color:#0b2a4a; border-radius:2px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; }
-    .section-dep-chip { display:inline-block; margin-left:6px; padding:1px 6px; background:color-mix(in srgb, var(--ds-amber, #d97706) 14%, transparent); color:var(--ds-amber, #d97706); border-radius:2px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; }
-    .page-estimate-line { padding:8px 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:4px; font-size:12px; color:var(--text-muted); }
-    .page-estimate-line strong { color:#0b2a4a; }
-    .page-estimate-sub { font-size:11px; color:var(--text-muted); margin-left:6px; }
+    {{-- AT-27 Phase B.3 — section-toggle + page-estimate styles removed with the
+         toggle UI (moved to the Analysis screen). --}}
 </style>
 @endpush
 
