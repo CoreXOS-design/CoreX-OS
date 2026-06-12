@@ -803,6 +803,21 @@
             <p class="text-xs mb-3 italic" style="color: var(--text-muted);">
                 Tap any value to edit. Your numbers help CoreX predict holding costs for similar properties in future presentations.
             </p>
+        @elseif($hcConfirmed)
+            {{-- AT-27 — section-level NON-SILENT LOCK (platform rule): say why
+                 it's read-only and offer the way forward. --}}
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2"
+                 style="background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent);">
+                <span class="text-xs" style="color: var(--text-secondary);">
+                    &#128274; Locked — confirmed snapshot. Re-open the presentation to edit holding costs, then Confirm &amp; Generate.
+                </span>
+                @isset($presentation)
+                <form method="POST" action="{{ route('presentations.analysis.reopen', $presentation) }}" class="inline">
+                    @csrf
+                    <button type="submit" class="corex-btn-outline text-xs">Re-open to edit</button>
+                </form>
+                @endisset
+            </div>
         @endif
         <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
             {{-- Monthly breakdown --}}

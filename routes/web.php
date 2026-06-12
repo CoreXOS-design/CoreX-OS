@@ -2426,6 +2426,10 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
     // summary from confirmed numbers → Overview. Replaces the review publish path.
     Route::post('/{presentation}/analysis/confirm', [\App\Http\Controllers\Presentation\PresentationController::class, 'confirmAndGenerate'])
         ->name('analysis.confirm');
+    // AT-27 — re-open a confirmed/published version to a mutable draft so the
+    // agent can edit after confirming (the "edit after confirm" path).
+    Route::post('/{presentation}/analysis/reopen', [\App\Http\Controllers\Presentation\PresentationController::class, 'reopenForEditing'])
+        ->name('analysis.reopen');
     Route::patch('/{presentation}/analysis-selections', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateAnalysisSelections'])
         ->name('analysis-selections.update');
 
