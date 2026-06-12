@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Presentation;
 
 use App\Http\Controllers\Controller;
 use App\Models\Property;
+use App\Services\MarketReports\MarketReportIngestService;
 use App\Services\Presentations\CmaCoverageService;
 use App\Services\Presentations\PresentationGeneratorService;
 use Illuminate\Http\JsonResponse;
@@ -59,7 +60,37 @@ class PresentationGeneratorController extends Controller
             // Phase 3b — per-presentation scope override.
             'comp_scope'    => ['nullable', 'in:radius_all,suburb_only'],
             'comp_radius_m' => ['nullable', 'integer', 'min:50', 'max:5000'],
+            // AT-27 Phase D / AT-19 — optional in-modal CMA/market report upload.
+            'report_files'   => ['nullable', 'array', 'max:10'],
+            'report_files.*' => ['file', 'mimes:pdf', 'max:20480'], // 20MB each
         ]);
+
+        // AT-27 Phase D — synchronous in-modal report import. Uploaded reports
+        // are stored + PARSED NOW (blocking) so their rows land in
+        // market_report_comp_rows BEFORE generateForProperty hydrates the
+        // presentation. Suburb/town seeded from the subject property so the MIC
+        // hydrator's suburb branch matches the report to this presentation. A
+        // single bad file is logged and skipped — it never fails the generate.
+        if ($request->hasFile('report_files')) {
+            $ingest = app(MarketReportIngestService::class);
+            foreach ((array) $request->file('report_files') as $file) {
+                try {
+                    $ingest->ingest(
+                        $file,
+                        (int) $property->agency_id,
+                        $user->id,
+                        $property->suburb,
+                        $property->city ?? $property->town ?? null,
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning('Generate-modal report ingest failed', [
+                        'property_id' => $property->id,
+                        'file'        => $file->getClientOriginalName(),
+                        'error'       => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
 
         $startedAt = microtime(true);
 

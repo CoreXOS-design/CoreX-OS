@@ -326,6 +326,24 @@
                                     <p class="text-[11px] mt-1" style="color:var(--text-muted);">Defaults to your agency setting. Override applies to this presentation only.</p>
                                 </div>
 
+                                {{-- AT-27 Phase D / AT-19 — in-modal CMA/market report upload.
+                                     Files are parsed synchronously before generation, so they
+                                     feed this presentation's comps directly (no MIC round-trip). --}}
+                                <div class="mt-4 pt-3" style="border-top:1px solid var(--border);">
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-muted);">Import CMA reports (optional)</label>
+                                    <input type="file" multiple accept="application/pdf"
+                                           @change="reportFiles = Array.from($event.target.files)"
+                                           :disabled="generating"
+                                           class="block w-full text-xs"
+                                           style="color:var(--text-secondary);">
+                                    <p class="text-[11px] mt-1" style="color:var(--text-primary);" x-show="reportFiles.length" x-cloak>
+                                        <span x-text="reportFiles.length"></span>
+                                        <span x-text="reportFiles.length === 1 ? 'report' : 'reports'"></span>
+                                        will be uploaded &amp; parsed before generating.
+                                    </p>
+                                    <p class="text-[11px] mt-1" style="color:var(--text-muted);">PDF only. Parsed straight into this presentation's comps — no separate import step.</p>
+                                </div>
+
                                 <p class="text-[11px] mt-1" style="color:var(--text-muted);" x-show="modalError" x-text="modalError"></p>
 
                                 {{-- Popup-blocked fallback: the browser blocked the new tab.
@@ -355,7 +373,7 @@
                                             :disabled="generating"
                                             class="prop-action-btn prop-action-btn-brand"
                                             :class="generating ? 'opacity-60 cursor-wait' : ''">
-                                        <span x-text="generating ? 'Generating…' : 'Generate'"></span>
+                                        <span x-text="generating ? (reportFiles.length ? 'Uploading &amp; parsing…' : 'Generating…') : 'Generate'"></span>
                                     </button>
                                 </div>
                             </div>
@@ -373,6 +391,7 @@
                             askingPrice: null,
                             suggestedPrice: null,
                             generating: false,
+                            reportFiles: [],   // AT-27 Phase D — in-modal CMA uploads
                             compScope: 'radius_all',   // Phase 3b — initialised from coverage response
                             compRadiusM: 1000,
                             // When the browser blocks the new-tab popup, the
@@ -461,6 +480,9 @@
                                 }
                                 if (this.compScope) body.append('comp_scope', this.compScope);
                                 if (this.compRadiusM) body.append('comp_radius_m', String(this.compRadiusM));
+                                // AT-27 Phase D — attach uploaded CMA reports; the
+                                // server parses them synchronously before generating.
+                                (this.reportFiles || []).forEach(f => body.append('report_files[]', f));
                                 try {
                                     const r = await fetch(config.generateUrl, {
                                         method: 'POST',

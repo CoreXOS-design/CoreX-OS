@@ -181,31 +181,46 @@ final class ReviewFlowTest extends TestCase
 
     // ── 6 — publish ──────────────────────────────────────────────────
 
-    public function test_publish_sets_status_and_published_at(): void
+    // AT-27 Phase B — the freeze + publish moved from review.publish to the
+    // Analysis "Confirm & Generate" action (presentations.analysis.confirm).
+
+    public function test_confirm_publishes_freezes_and_redirects_to_overview(): void
     {
         [$agencyId, $user] = $this->seedAgencyAndUser();
         $version = $this->seedPresentationWithVersion($agencyId, $user->id, [
-            'review_status' => PresentationVersion::REVIEW_AWAITING,
+            'review_status' => PresentationVersion::REVIEW_IN_ANALYSIS,
         ]);
 
-        $this->actingAs($user)->post(route('presentations.review.publish', $version->id))
-            ->assertOk()->assertJson(['ok' => true]);
+        $this->actingAs($user)
+            ->post(route('presentations.analysis.confirm', $version->presentation_id))
+            ->assertRedirect(route('presentations.show', $version->presentation_id));
 
         $fresh = $version->fresh();
         $this->assertSame(PresentationVersion::REVIEW_PUBLISHED, $fresh->review_status);
         $this->assertNotNull($fresh->published_at);
+        // The single freeze: the confirmed payload is frozen onto the version.
+        $this->assertNotNull($fresh->snapshot_payload);
+        $this->assertNotNull($fresh->snapshot_taken_at);
     }
 
-    public function test_publish_is_idempotent(): void
+    public function test_confirm_preserves_published_at_on_reconfirm(): void
     {
         [$agencyId, $user] = $this->seedAgencyAndUser();
+        $first = now()->subMinute();
         $version = $this->seedPresentationWithVersion($agencyId, $user->id, [
             'review_status' => PresentationVersion::REVIEW_PUBLISHED,
-            'published_at'  => now()->subMinute(),
+            'published_at'  => $first,
         ]);
 
-        $this->actingAs($user)->post(route('presentations.review.publish', $version->id))
-            ->assertOk()->assertJson(['ok' => true, 'already' => true]);
+        $this->actingAs($user)
+            ->post(route('presentations.analysis.confirm', $version->presentation_id))
+            ->assertRedirect(route('presentations.show', $version->presentation_id));
+
+        // Re-confirm refreshes the snapshot but keeps the original publish date.
+        $this->assertSame(
+            $first->toDateTimeString(),
+            $version->fresh()->published_at->toDateTimeString()
+        );
     }
 
     // ── AT-27 Phase A — Continue to Analysis ─────────────────────────

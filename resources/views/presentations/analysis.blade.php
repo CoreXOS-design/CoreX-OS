@@ -125,40 +125,52 @@
 {{-- ══════════════════════════════════════════════════════════════════════════
      ACTION BUTTONS
 ══════════════════════════════════════════════════════════════════════════ --}}
+@php
+    // AT-27 Phase B — the dispatch/download actions are CONFIRMED-only. A
+    // presentation is "confirmed" once its current version has been frozen +
+    // its exec summary generated via Confirm & Generate (review_status =
+    // published). No half-states: a not-yet-usable action is HIDDEN, not shown
+    // disabled. Pre-confirm, the only forward action is Confirm & Generate.
+    $isConfirmed = isset($latestVersion) && $latestVersion
+        && $latestVersion->review_status === \App\Models\PresentationVersion::REVIEW_PUBLISHED;
+@endphp
 <div class="flex flex-wrap items-center gap-3 mb-6">
-    {{-- Compile Pack --}}
-    @if(isset($readiness) && $readiness['can_compile'])
-    <form method="POST" action="{{ route('presentations.compile', $presentation) }}" class="inline">
-        @csrf
-        <button type="submit" class="corex-btn-primary" style="background:#059669;">
-            Compile Pack
-        </button>
-    </form>
+    @unless($isConfirmed)
+        {{-- The single forward action. Recompiles from the confirmed edits,
+             freezes the snapshot, and generates the exec summary from those
+             confirmed numbers, then lands on the Overview/dispatch screen.
+             Replaces the old "Compile Pack" path. --}}
+        <form method="POST" action="{{ route('presentations.analysis.confirm', $presentation) }}" class="inline">
+            @csrf
+            <button type="submit" class="corex-btn-primary" style="background:#059669;">
+                Confirm &amp; Generate
+            </button>
+        </form>
     @else
-    <button disabled class="px-4 py-2 text-sm font-medium rounded-md" style="background: var(--surface-2); color: var(--text-muted); cursor: not-allowed;" title="Complete readiness checklist first">
-        Compile Pack
-    </button>
-    @endif
-
-    {{-- Download PDF --}}
-    @if(isset($latestVersion) && $latestVersion)
-    <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
-       class="corex-btn-primary">
-        Download PDF
-    </a>
-    <a href="{{ route('presentations.versions.complete-pack', [$presentation, $latestVersion]) }}"
-       class="corex-btn-primary" style="background:#00b4d8;">
-        Complete Pack (ZIP)
-    </a>
-    @endif
-
-    {{-- Pricing Simulator --}}
-    @if(config('features.pricing_simulator_v1'))
-    <a href="{{ route('presentations.pricing-simulator', $presentation) }}"
-       class="corex-btn-primary">
-        Pricing Simulator
-    </a>
-    @endif
+        {{-- Confirmed: the report is frozen and the exec summary exists, so the
+             dispatch/download actions are now available. --}}
+        <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
+           class="corex-btn-primary">
+            Download PDF
+        </a>
+        <a href="{{ route('presentations.versions.complete-pack', [$presentation, $latestVersion]) }}"
+           class="corex-btn-primary" style="background:#00b4d8;">
+            Complete Pack (ZIP)
+        </a>
+        @if(config('features.pricing_simulator_v1'))
+        <a href="{{ route('presentations.pricing-simulator', $presentation) }}"
+           class="corex-btn-primary">
+            Pricing Simulator
+        </a>
+        @endif
+        {{-- Re-confirm after further edits — re-freezes + regenerates the summary. --}}
+        <form method="POST" action="{{ route('presentations.analysis.confirm', $presentation) }}" class="inline">
+            @csrf
+            <button type="submit" class="corex-btn-outline">
+                Re-confirm &amp; Regenerate
+            </button>
+        </form>
+    @endunless
 
     {{-- Back to Overview --}}
     <a href="{{ route('presentations.show', $presentation) }}"
@@ -166,6 +178,82 @@
         &larr; Back to Overview
     </a>
 </div>
+
+{{-- ══════════════════════════════════════════════════════════════════════════
+     AT-27 Phase B.3 — WHAT'S IN YOUR PRESENTATION (section toggles)
+     Moved here from the review screen: inclusion decisions belong where the
+     numbers are visible. Persists per version via presentations.review.sections.
+══════════════════════════════════════════════════════════════════════════ --}}
+@if($latestVersion)
+<div class="ds-status-card mb-6">
+    <h2 class="ds-section-header mb-1">What's in your presentation</h2>
+    <p class="text-xs mb-3" style="color: var(--text-muted);">
+        Choose which sections appear in the generated report. Always-shown sections are locked.
+    </p>
+    <div id="analysis-section-toggles" class="grid gap-2"
+         style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));"
+         data-section-url="{{ route('presentations.review.sections', $latestVersion->id) }}">
+        @foreach($sectionsCatalogue as $sKey => $sLabel)
+            @php
+                $isFloor = in_array($sKey, $sectionFloor, true);
+                $isOn    = (bool) ($sectionSnapshot[$sKey] ?? true);
+                $deps    = $sectionDeps[$sKey] ?? [];
+            @endphp
+            <label class="flex items-start gap-2 p-2 rounded-md border"
+                   style="background: var(--surface-2); border-color: var(--border); {{ $isFloor ? 'opacity:0.8;' : 'cursor:pointer;' }}"
+                   data-section-key="{{ $sKey }}">
+                <input type="checkbox" class="analysis-section-toggle mt-0.5"
+                       style="accent-color:#00d4aa; width:16px; height:16px;"
+                       data-section-key="{{ $sKey }}"
+                       {{ $isOn ? 'checked' : '' }} {{ $isFloor ? 'disabled' : '' }}>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium" style="color: var(--text-primary);">
+                        {{ $sLabel }}
+                        @if($isFloor)
+                            <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background: var(--surface-3); color: var(--text-muted);">Always shown</span>
+                        @endif
+                        @foreach($deps as $depKey)
+                            <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background: var(--surface-3); color: var(--text-muted);">needs {{ $sectionsCatalogue[$depKey] ?? $depKey }}</span>
+                        @endforeach
+                    </div>
+                </div>
+            </label>
+        @endforeach
+    </div>
+    <p id="analysis-section-save-state" class="mt-2 text-xs" style="color: var(--text-muted); min-height:1em;"></p>
+</div>
+<script>
+(function () {
+    const wrap = document.getElementById('analysis-section-toggles');
+    if (!wrap) return;
+    const url   = wrap.dataset.sectionUrl;
+    const csrf  = document.querySelector('meta[name="csrf-token"]')?.content || '{{ csrf_token() }}';
+    const state = document.getElementById('analysis-section-save-state');
+    wrap.querySelectorAll('.analysis-section-toggle').forEach((cb) => {
+        cb.addEventListener('change', async () => {
+            if (state) state.textContent = 'Saving…';
+            try {
+                const body = new FormData();
+                body.append('_token', csrf);
+                body.append('section_key', cb.dataset.sectionKey);
+                body.append('enabled', cb.checked ? '1' : '0');
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body, credentials: 'same-origin',
+                });
+                const d = await r.json();
+                if (d && d.ok) { if (state) state.textContent = 'Saved.'; }
+                else { cb.checked = !cb.checked; if (state) state.textContent = 'Could not save — reverted.'; }
+            } catch (e) {
+                cb.checked = !cb.checked;
+                if (state) state.textContent = 'Network error — reverted.';
+            }
+        });
+    });
+})();
+</script>
+@endif
 
 {{-- ══════════════════════════════════════════════════════════════════════════
      READINESS CHECKLIST — reads from presentation record

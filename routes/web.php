@@ -2379,11 +2379,8 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
     Route::post('/version/{version}/continue',
         [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'continueToAnalysis'])
         ->name('review.continue');
-    // AT-27 Phase A — retained until Phase B relocates the freeze to the
-    // Analysis "Confirm & Generate" step; no longer the review forward action.
-    Route::post('/version/{version}/publish',
-        [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'publish'])
-        ->name('review.publish');
+    // AT-27 Phase B — review.publish RETIRED. The snapshot freeze now lives in
+    // PresentationController::confirmAndGenerate (presentations.analysis.confirm).
     Route::post('/version/{version}/revert',
         [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'revert'])
         ->name('review.revert');
@@ -2425,6 +2422,10 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
     Route::get('/{presentation}/deliveries',                            [\App\Http\Controllers\Presentation\PresentationDeliveryController::class, 'index'])
         ->name('deliveries.index');
     Route::post('/{presentation}/analysis/run',[\App\Http\Controllers\Presentation\PresentationController::class, 'runAnalysis'])  ->name('analysis.run');
+    // AT-27 Phase B — the single finalise point: recompile → freeze → exec
+    // summary from confirmed numbers → Overview. Replaces the review publish path.
+    Route::post('/{presentation}/analysis/confirm', [\App\Http\Controllers\Presentation\PresentationController::class, 'confirmAndGenerate'])
+        ->name('analysis.confirm');
     Route::patch('/{presentation}/analysis-selections', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateAnalysisSelections'])
         ->name('analysis-selections.update');
 
