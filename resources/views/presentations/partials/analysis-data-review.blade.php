@@ -800,8 +800,8 @@
          @if($hcUrl) data-url="{{ $hcUrl }}" data-csrf="{{ $hcCsrf }}" @endif>
         <h3 class="ds-section-header">6. Holding Cost Impact</h3>
         @if($hcUrl)
-            <p class="text-xs mb-3 italic" style="color: var(--text-muted);">
-                Tap any value to edit. Your numbers help CoreX predict holding costs for similar properties in future presentations.
+            <p class="text-xs mb-3" style="color: var(--text-muted);">
+                Edit any field below — totals recompute as you go. Your numbers help CoreX predict holding costs for similar properties in future presentations.
             </p>
         @elseif($hcConfirmed)
             {{-- AT-27 — section-level NON-SILENT LOCK (platform rule): say why
@@ -834,10 +834,27 @@
                                 @endif
                             </span>
                             @if($hcUrl)
+                                {{-- AT-27 — VISIBLE editable field (No Invisible Edits): a
+                                     bordered, right-aligned input with a pencil icon so it
+                                     is obviously editable at a glance, no hint needed.
+                                     Saves + recomputes on change (see JS below). --}}
                                 <span class="hc-value-cell" style="display:inline-flex;align-items:center;gap:6px;">
-                                    <span class="hc-value font-medium" style="color: var(--text-primary); cursor:pointer; padding:2px 6px; border-radius:4px;" title="Click to edit">
-                                        R <span class="hc-value-amount">{{ number_format($cmp['value']) }}</span>
+                                    <span style="color: var(--text-muted); font-size:13px;">R</span>
+                                    <span style="position:relative; display:inline-flex; align-items:center;">
+                                        <input type="number" min="0" step="1"
+                                               class="hc-input"
+                                               data-component="{{ $cmp['component'] }}"
+                                               value="{{ (int) $cmp['value'] }}"
+                                               aria-label="Edit {{ $cmp['label'] }} (monthly, ZAR)"
+                                               title="Edit — saves on change"
+                                               style="width:108px; padding:5px 26px 5px 9px; border:1px solid var(--border); border-radius:6px; font-size:13px; font-weight:600; text-align:right; background: var(--surface); color: var(--text-primary);">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position:absolute; right:8px; color: var(--text-muted); pointer-events:none;">
+                                            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                                        </svg>
                                     </span>
+                                    {{-- hidden mirror so the cascade in applyHoldingCostUpdate
+                                         can still address this row's value. --}}
+                                    <span class="hc-value-amount" style="display:none;">{{ number_format($cmp['value']) }}</span>
                                 </span>
                             @else
                                 <span class="font-medium" style="color: var(--text-primary);">R {{ number_format($cmp['value']) }}</span>
@@ -907,67 +924,52 @@
                     if (!row) return;
                     var amt = row.querySelector('.hc-value-amount');
                     if (amt) amt.textContent = fmt(c.value);
+                    // Keep cascaded input fields in sync (but never clobber the
+                    // field the user is actively typing in).
+                    var inp = row.querySelector('.hc-input');
+                    if (inp && document.activeElement !== inp) inp.value = String(Math.round(c.value));
                 });
             }
         }
 
-        card.querySelectorAll('.hc-row .hc-value').forEach(function (valEl) {
-            valEl.addEventListener('click', function () {
-                if (valEl.dataset.editing === '1') return;
-                valEl.dataset.editing = '1';
-
-                var row = valEl.closest('.hc-row');
-                var component = row.dataset.component;
-                var amtEl = valEl.querySelector('.hc-value-amount');
-                var current = parseInt(String(amtEl.textContent).replace(/[^\d]/g, ''), 10) || 0;
-
-                var input = document.createElement('input');
-                input.type = 'number'; input.min = '0'; input.step = '1';
-                input.value = String(current);
-                input.style.width = '90px';
-                input.style.padding = '2px 6px';
-                input.style.border = '1px solid var(--border)';
-                input.style.borderRadius = '4px';
-                input.style.fontSize = '13px';
-                input.style.textAlign = 'right';
-
-                var cell = valEl.parentElement;
-                valEl.style.display = 'none';
-                cell.insertBefore(input, valEl);
-                input.focus();
-                input.select();
-
-                function commit() {
-                    var nextVal = parseInt(input.value, 10);
-                    if (isNaN(nextVal) || nextVal < 0) nextVal = 0;
-                    input.disabled = true;
-                    var body = new FormData();
-                    body.append('_token', csrf);
-                    body.append('component', component);
-                    body.append('monthly_value_zar', String(nextVal));
-                    fetch(url, {
-                        method: 'POST',
-                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                        body: body, credentials: 'same-origin',
-                    }).then(function (r) { return r.json(); }).then(function (d) {
-                        if (d && d.ok) {
-                            amtEl.textContent = fmt(d.value);
-                            applyHoldingCostUpdate(d.holding_cost);
-                        }
-                        cleanup();
-                    }).catch(function () { cleanup(); });
+        // AT-27 — visible-input edit (No Invisible Edits). Each component is an
+        // always-visible field; saving + recompute fire on change (commit on
+        // blur / Enter), preserving the exact recompute-on-save behaviour.
+        function save(input) {
+            var component = input.dataset.component;
+            var next = parseInt(input.value, 10);
+            if (isNaN(next) || next < 0) { next = 0; input.value = '0'; }
+            input.disabled = true; input.style.opacity = '0.6';
+            var body = new FormData();
+            body.append('_token', csrf);
+            body.append('component', component);
+            body.append('monthly_value_zar', String(next));
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: body, credentials: 'same-origin',
+            }).then(function (r) { return r.json(); }).then(function (d) {
+                if (d && d.ok) {
+                    var row = input.closest('.hc-row');
+                    var amt = row && row.querySelector('.hc-value-amount');
+                    if (amt) amt.textContent = fmt(d.value);
+                    if (typeof d.value !== 'undefined' && document.activeElement !== input) {
+                        input.value = String(Math.round(d.value));
+                    }
+                    applyHoldingCostUpdate(d.holding_cost);
                 }
-                function cancel() { cleanup(); }
-                function cleanup() {
-                    if (input.parentElement) input.parentElement.removeChild(input);
-                    valEl.style.display = '';
-                    delete valEl.dataset.editing;
-                }
-                input.addEventListener('blur',  commit);
-                input.addEventListener('keydown', function (e) {
-                    if (e.key === 'Enter')  { e.preventDefault(); commit(); }
-                    if (e.key === 'Escape') { e.preventDefault(); cancel(); }
-                });
+                input.disabled = false; input.style.opacity = '';
+            }).catch(function () { input.disabled = false; input.style.opacity = ''; });
+        }
+
+        card.querySelectorAll('.hc-input').forEach(function (input) {
+            var last = input.value;
+            input.addEventListener('focus', function () { input.select(); });
+            input.addEventListener('change', function () {
+                if (input.value !== last) { last = input.value; save(input); }
+            });
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
             });
         });
     })();

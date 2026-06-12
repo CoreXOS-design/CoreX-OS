@@ -45,6 +45,9 @@ Every record that has a status (listing, deal, document, compliance item) must d
 ### No Silent Locks — Read-Only States Must Explain & Offer A Way Forward
 Any read-only / locked / disabled state anywhere in CoreX must (1) SAY why it is locked, and (2) offer the action that unlocks it. Never render a surface silently uneditable — and never link to a screen promising an edit that the destination then refuses. Example: a confirmed (frozen) presentation locks editing; the Analysis screen shows a "Locked — confirmed snapshot. Re-open to edit, then Confirm & Generate" banner with a Re-open button, both page-level and on each locked section. A blocked/hidden action is hidden (no dead buttons); a locked-but-recoverable state is shown WITH its unlock path.
 
+### No Invisible Edits — Editable State Must Be Visually Self-Evident
+The sibling of No Silent Locks. When a value IS editable, it must look editable at a glance — without the user reading any hint text. Plain text + an italic "tap to edit" line is NOT an affordance. Render editable values as real form controls: a bordered input box, right-aligned value, a pencil (or equivalent) icon. A user must recognise instantly that these are fields they can change. This is the standard for every edit-in-place section (e.g. the holding-cost components on Analysis, and all Phase C edit-in-place sections). Keep the save/recompute behaviour whatever it is; only the affordance must be self-evident.
+
 ### Loading States
 Every async operation must show a loading indicator. No blank screens, no silent waits.
 
