@@ -509,6 +509,68 @@ class PresentationController extends Controller
     }
 
     /**
+     * AT-27 Phase C1a — edit a subject-property field in place on the Analysis
+     * screen (pre-confirm), then recompute.
+     *
+     * The subject DISPLAY reads from the presentation while comp-matching reads
+     * from the linked Property (and their column names diverge: presentation
+     * `bedrooms` vs property `beds`), so an edit writes to BOTH, keeping the
+     * subject correction consistent across every downstream path. The analysis
+     * is recompiled LIVE by AnalysisDataService on the next page render, so the
+     * client just reloads after a successful save to show the full cascade.
+     *
+     * Editable only while the draft is unconfirmed — a published version is
+     * locked (server guard; the UI shows the non-silent lock + Re-open).
+     */
+    public function updateSubjectField(Request $request, Presentation $presentation): JsonResponse
+    {
+        $this->authorizePresentation($presentation);
+
+        $version = $presentation->versions()->latest('compiled_at')->first();
+        if ($version && $version->review_status === PresentationVersion::REVIEW_PUBLISHED) {
+            return response()->json([
+                'ok'      => false,
+                'locked'  => true,
+                'message' => 'This presentation is confirmed. Re-open it to edit.',
+            ], 423);
+        }
+
+        $validated = $request->validate([
+            'field' => ['required', 'string', 'in:property_type,bedrooms,erf_size_m2,property_address,suburb'],
+            'value' => ['nullable', 'string', 'max:255'],
+        ]);
+        $field = $validated['field'];
+        $raw   = $validated['value'];
+
+        // Normalise numeric fields; blank → null.
+        $value = $raw;
+        if (in_array($field, ['bedrooms', 'erf_size_m2'], true)) {
+            $value = ($raw === null || $raw === '') ? null : (int) $raw;
+        } elseif ($raw === '') {
+            $value = null;
+        }
+
+        // Persist to the presentation (subject display) AND the linked property
+        // (comp-matching) with the diverging column names mapped.
+        $presentation->forceFill([$field => $value])->save();
+
+        $propertyColumn = [
+            'property_type'    => 'property_type',
+            'bedrooms'         => 'beds',
+            'erf_size_m2'      => 'erf_size_m2',
+            'property_address' => 'address',
+            'suburb'           => 'suburb',
+        ][$field] ?? null;
+        if ($propertyColumn && ($property = $presentation->property)) {
+            $property->forceFill([$propertyColumn => $value])->save();
+        }
+
+        // No snapshot here — AnalysisDataService::compile() recomputes live on
+        // the next render, so the client reloads to reflect the cascade.
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * AJAX: save analysis selection changes (CMA range, vicinity range, excluded listings).
      */
     public function updateAnalysisSelections(Request $request, Presentation $presentation)
