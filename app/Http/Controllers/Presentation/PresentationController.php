@@ -366,6 +366,16 @@ class PresentationController extends Controller
                 ->with('error', 'Add the following before running analysis: ' . $missing);
         }
 
+        // AT-27 C1a — the property is the single source of truth. If it was
+        // edited since these comps were hydrated, re-hydrate + reset curation
+        // and loop the agent to Review to re-curate (the notice shows there).
+        if (app(\App\Services\Presentations\PresentationCompFreshnessService::class)->refreshIfStale($presentation)) {
+            $draft = $presentation->versions()->latest('compiled_at')->first();
+            if ($draft) {
+                return redirect()->route('presentations.review.show', $draft->id);
+            }
+        }
+
         // Compile extracted-data review (all computation in service, not Blade)
         // AnalysisDataService reads asking_price directly from the presentation record
         $analysisData = (new AnalysisDataService())->compile($presentation);
@@ -508,102 +518,11 @@ class PresentationController extends Controller
             ->with('success', 'Re-opened for editing — make your changes, then Confirm & Generate to re-freeze the snapshot.');
     }
 
-    /**
-     * AT-27 Phase C1a — edit a subject-property MATCHING INPUT, then LOOP BACK
-     * to Review with a refreshed comp set.
-     *
-     * Subject fields (type, beds, extent, address, suburb) drive comp matching,
-     * so changing one invalidates both the comp hydration and the review-step
-     * curation. This writes to BOTH the presentation (display) and the linked
-     * property (matching) — their columns diverge (presentation `bedrooms` vs
-     * property `beds`) — then re-runs hydration, resets the now-stale curation
-     * whitelists, and returns the agent to Review to re-curate. NOT edit-in-
-     * place: recompute-on-reload would leave stale curation downstream.
-     *
-     * Editable only while the draft is unconfirmed — a published version is
-     * locked (server guard; the UI shows the non-silent lock + Re-open).
-     */
-    public function updateSubjectField(Request $request, Presentation $presentation): JsonResponse
-    {
-        $this->authorizePresentation($presentation);
-
-        $version = $presentation->versions()->latest('compiled_at')->first();
-        if ($version && $version->review_status === PresentationVersion::REVIEW_PUBLISHED) {
-            return response()->json([
-                'ok'      => false,
-                'locked'  => true,
-                'message' => 'This presentation is confirmed. Re-open it to edit.',
-            ], 423);
-        }
-
-        $validated = $request->validate([
-            'field' => ['required', 'string', 'in:property_type,bedrooms,erf_size_m2,property_address,suburb'],
-            'value' => ['nullable', 'string', 'max:255'],
-        ]);
-        $field = $validated['field'];
-        $raw   = $validated['value'];
-
-        // Normalise numeric fields; blank → null.
-        $value = $raw;
-        if (in_array($field, ['bedrooms', 'erf_size_m2'], true)) {
-            $value = ($raw === null || $raw === '') ? null : (int) $raw;
-        } elseif ($raw === '') {
-            $value = null;
-        }
-
-        // Persist to the presentation (subject display) AND the linked property
-        // (comp-matching) with the diverging column names mapped.
-        $presentation->forceFill([$field => $value])->save();
-
-        $propertyColumn = [
-            'property_type'    => 'property_type',
-            'bedrooms'         => 'beds',
-            'erf_size_m2'      => 'erf_size_m2',
-            'property_address' => 'address',
-            'suburb'           => 'suburb',
-        ][$field] ?? null;
-        if ($propertyColumn && ($property = $presentation->property)) {
-            $property->forceFill([$propertyColumn => $value])->save();
-        }
-
-        // AT-27 C1a — subject fields are MATCHING INPUTS, so a change invalidates
-        // the comp hydration AND the downstream review-step curation (those
-        // decisions were made for the OLD subject). Recompute-on-reload is not
-        // enough: this LOOPS BACK to Review with a refreshed comp set.
-        //   1. cascade (done above)
-        //   2. re-run comp hydration so the comp evidence reflects the new subject
-        //   3. reset this draft version's curation whitelists (stale — built for
-        //      the old subject); the agent re-curates from the fresh set
-        //   4. redirect to Review with a notice
-        $presentation->refresh();
-        try {
-            app(\App\Services\Presentations\MicSnapshotHydrator::class)
-                ->hydrateForPresentation($presentation);
-        } catch (\Throwable $e) {
-            \Log::warning('Subject-edit re-hydration failed', [
-                'presentation_id' => $presentation->id,
-                'error'           => $e->getMessage(),
-            ]);
-        }
-
-        if ($version) {
-            $version->forceFill([
-                'included_comp_ids_json'       => null,
-                'included_competitor_ids_json' => null,
-            ])->save();
-        }
-
-        session()->flash(
-            'subject_refreshed',
-            'Subject details changed — the comparable set was refreshed. Re-check your curation, then Continue to Analysis.'
-        );
-
-        $reviewUrl = $version
-            ? route('presentations.review.show', $version->id)
-            : route('presentations.analysis', $presentation);
-
-        return response()->json(['ok' => true, 'redirect_url' => $reviewUrl]);
-    }
+    // AT-27 C1a (option 1) — subject editing REMOVED. The property is the single
+    // source of truth; a presentation never mutates it. Wrong subject details are
+    // corrected on the property edit screen; PresentationCompFreshnessService then
+    // re-hydrates + resets curation on the agent's return (see analysis() above /
+    // PresentationReviewController::show).
 
     /**
      * AJAX: save analysis selection changes (CMA range, vicinity range, excluded listings).

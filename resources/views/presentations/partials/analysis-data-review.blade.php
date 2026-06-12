@@ -33,50 +33,41 @@
     </div>
 
     @php
-        // AT-27 Phase C1 — shared edit gating for the in-place sections. A
-        // published version is locked (read-only); pre-confirm it is editable.
-        $presLocked     = isset($version) && $version
+        // AT-27 Phase C1 — gating. A published version is LOCKED (read-only);
+        // pre-confirm it is curatable (C1b active-competition include/exclude).
+        // Subject details are NOT editable here — the property is the single
+        // source of truth, corrected on the property edit screen (option 1).
+        $presLocked = isset($version) && $version
             && $version->review_status === \App\Models\PresentationVersion::REVIEW_PUBLISHED;
-        $subjectEditUrl = (!$presLocked && isset($version) && $version && isset($presentation))
-            ? route('presentations.analysis.subject-field', $presentation) : null;
-        $reopenUrl      = ($presLocked && isset($presentation))
+        $canCurate  = !$presLocked && isset($version) && $version;
+        $reopenUrl  = ($presLocked && isset($presentation))
             ? route('presentations.analysis.reopen', $presentation) : null;
+        $propertyEditUrl = (!$presLocked && isset($presentation) && $presentation->property_id
+                && \Illuminate\Support\Facades\Route::has('corex.properties.edit'))
+            ? route('corex.properties.edit', $presentation->property_id) : null;
     @endphp
 
-    {{-- ── 1. SUBJECT PROPERTY SUMMARY ──────────────────────────────────── --}}
+    {{-- ── 1. SUBJECT PROPERTY SUMMARY (read-only — property is the source) ── --}}
     <div class="ds-status-card mb-4" style="border-left-color: var(--ds-cyan);">
         <h3 class="ds-section-header">1. Subject Property</h3>
-        @if($presLocked)
-            {{-- AT-27 — non-silent lock (platform rule). --}}
-            <div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2"
-                 style="background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent);">
-                <span class="text-xs" style="color: var(--text-secondary);">&#128274; Locked — confirmed snapshot. Re-open the presentation to edit the subject, then Confirm &amp; Generate.</span>
-                @if($reopenUrl)
-                <form method="POST" action="{{ $reopenUrl }}" class="inline">@csrf<button type="submit" class="corex-btn-outline text-xs">Re-open to edit</button></form>
-                @endif
-            </div>
-        @elseif($subjectEditUrl)
-            <p class="text-xs mb-3" style="color: var(--ds-amber, #d97706);">
-                &#9888; These are matching inputs — saving a change re-matches the comparables and returns you to the Review screen to re-check curation.
+        @if($propertyEditUrl)
+            {{-- AT-27 C1a (option 1) — subject is read-only; the property record is
+                 the single source of truth. No silent dead-end (STANDARDS): a clear
+                 affordance to correct the details on the property itself. --}}
+            <p class="text-xs mb-3" style="color: var(--text-muted);">
+                Subject details come from the property record.
+                <a href="{{ $propertyEditUrl }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">Wrong details? Edit the property &rarr;</a>
+                — the comparables refresh automatically when you return.
             </p>
         @endif
-        <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3 lg:grid-cols-4"
-             id="subject-edit-grid" @if($subjectEditUrl) data-url="{{ $subjectEditUrl }}" data-csrf="{{ csrf_token() }}" @endif>
+        <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3 lg:grid-cols-4">
             <div>
                 <span class="text-xs" style="color: var(--text-muted);">Address</span>
-                @if($subjectEditUrl)
-                    <input type="text" class="subj-input pres-input w-full text-sm" data-field="property_address" value="{{ $subject['address'] ?? '' }}">
-                @else
-                    <p class="font-medium" style="color: var(--text-primary);">{{ $subject['address'] ?? '—' }}</p>
-                @endif
+                <p class="font-medium" style="color: var(--text-primary);">{{ $subject['address'] ?? '—' }}</p>
             </div>
             <div>
                 <span class="text-xs" style="color: var(--text-muted);">Suburb</span>
-                @if($subjectEditUrl)
-                    <input type="text" class="subj-input pres-input w-full text-sm" data-field="suburb" value="{{ $subject['suburb'] ?? '' }}">
-                @else
-                    <p class="font-medium" style="color: var(--text-primary);">{{ $subject['suburb'] ?? '—' }}</p>
-                @endif
+                <p class="font-medium" style="color: var(--text-primary);">{{ $subject['suburb'] ?? '—' }}</p>
             </div>
             <div>
                 <span class="text-xs" style="color: var(--text-muted);">Erf Number</span>
@@ -84,17 +75,13 @@
             </div>
             <div>
                 <span class="text-xs" style="color: var(--text-muted);">Extent (erf m&sup2;)</span>
-                @if($subjectEditUrl)
-                    <input type="number" min="0" step="1" class="subj-input pres-input w-full text-sm" data-field="erf_size_m2" value="{{ $subject['extent_m2'] ? (int) $subject['extent_m2'] : '' }}">
-                @else
-                    <p class="font-medium" style="color: var(--text-primary);">
-                        @if($subject['extent_m2'])
-                            {{ number_format($subject['extent_m2']) }} m&sup2;
-                        @else
-                            —
-                        @endif
-                    </p>
-                @endif
+                <p class="font-medium" style="color: var(--text-primary);">
+                    @if($subject['extent_m2'])
+                        {{ number_format($subject['extent_m2']) }} m&sup2;
+                    @else
+                        —
+                    @endif
+                </p>
             </div>
             <div>
                 <span class="text-xs" style="color: var(--text-muted);">GPS</span>
@@ -102,24 +89,11 @@
             </div>
             <div>
                 <span class="text-xs" style="color: var(--text-muted);">Property Type</span>
-                @if($subjectEditUrl)
-                    @php $stype = strtolower((string) ($subject['property_type'] ?? '')); @endphp
-                    <select class="subj-input pres-input w-full text-sm" data-field="property_type">
-                        @foreach(['house'=>'House','townhouse'=>'Townhouse','apartment'=>'Apartment','duplex'=>'Duplex','vacant_land'=>'Vacant Land','farm'=>'Farm','other'=>'Other'] as $tv => $tl)
-                            <option value="{{ $tv }}" {{ $stype === $tv ? 'selected' : '' }}>{{ $tl }}</option>
-                        @endforeach
-                    </select>
-                @else
-                    <p class="font-medium" style="color: var(--text-primary);">{{ \Illuminate\Support\Str::humanType($subject['property_type'] ?? null) }}</p>
-                @endif
+                <p class="font-medium" style="color: var(--text-primary);">{{ \Illuminate\Support\Str::humanType($subject['property_type'] ?? null) }}</p>
             </div>
             <div>
                 <span class="text-xs" style="color: var(--text-muted);">Bedrooms</span>
-                @if($subjectEditUrl)
-                    <input type="number" min="0" step="1" class="subj-input pres-input w-full text-sm" data-field="bedrooms" value="{{ $subject['bedrooms'] !== null ? (int) $subject['bedrooms'] : '' }}">
-                @else
-                    <p class="font-medium" style="color: var(--text-primary);">{{ $subject['bedrooms'] ?? '—' }}</p>
-                @endif
+                <p class="font-medium" style="color: var(--text-primary);">{{ $subject['bedrooms'] ?? '—' }}</p>
             </div>
             <div>
                 <span class="text-xs" style="color: var(--text-muted);">Purchase Date</span>
@@ -190,41 +164,6 @@
             </div>
         </div>
     </div>
-    @if($subjectEditUrl)
-    {{-- AT-27 Phase C1a — subject fields are MATCHING INPUTS: saving one
-         re-matches the comps and LOOPS BACK to Review to re-curate (not an
-         in-place edit). The save action warns before doing so. --}}
-    <script>
-    (function () {
-        var grid = document.getElementById('subject-edit-grid');
-        if (!grid || !grid.dataset.url) return;
-        var url = grid.dataset.url, csrf = grid.dataset.csrf;
-        grid.querySelectorAll('.subj-input').forEach(function (el) {
-            var last = el.value;
-            el.addEventListener('change', function () {
-                if (el.value === last) return;
-                if (!confirm('Saving this change re-matches the comparables for the new subject details and returns you to the Review screen to re-check your curation. Continue?')) {
-                    el.value = last;
-                    return;
-                }
-                last = el.value;
-                el.disabled = true; el.style.opacity = '0.6';
-                var body = new FormData();
-                body.append('_token', csrf);
-                body.append('field', el.dataset.field);
-                body.append('value', el.value);
-                fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: body, credentials: 'same-origin' })
-                    .then(function (r) { return r.json(); })
-                    .then(function (d) {
-                        if (d && d.ok && d.redirect_url) { window.location.href = d.redirect_url; }
-                        else { el.disabled = false; el.style.opacity = ''; alert((d && d.message) || 'Could not save.'); }
-                    })
-                    .catch(function () { el.disabled = false; el.style.opacity = ''; });
-            });
-        });
-    })();
-    </script>
-    @endif
 
     {{-- ── 2. SUBURB MARKET OVERVIEW ────────────────────────────────────── --}}
     @if($suburb['latest_year'])
@@ -817,14 +756,14 @@
         @else
             <p class="text-xs mb-2" style="color: var(--text-muted);">
                 Active listings your property competes against — scored on price, suburb, type and bedrooms, type-gated and sold-excluded.
-                @if($subjectEditUrl)<strong>Untick a comp to exclude it</strong> from the set.@else Curate which comps appear on the review screen.@endif
+                @if($canCurate)<strong>Untick a comp to exclude it</strong> from the set.@else Curate which comps appear on the review screen.@endif
             </p>
         @endif
         <div class="overflow-x-auto">
             <table class="w-full text-sm" id="active-competition-table">
                 <thead>
                     <tr class="text-left text-xs border-b" style="color: var(--text-muted); border-color: var(--border);">
-                        @if($subjectEditUrl)<th class="pb-2 pr-2 font-medium text-center" style="width:36px;">Incl.</th>@endif
+                        @if($canCurate)<th class="pb-2 pr-2 font-medium text-center" style="width:36px;">Incl.</th>@endif
                         <th class="pb-2 pr-3 font-medium">Address</th>
                         <th class="pb-2 pr-3 font-medium">Type</th>
                         <th class="pb-2 pr-3 font-medium text-center">Beds</th>
@@ -842,7 +781,7 @@
                         $cListDate5 = $row['listed_date'] ?? (!empty($row['first_seen_at']) ? \Illuminate\Support\Carbon::parse($row['first_seen_at'])->format('Y-m-d') : null);
                     @endphp
                     <tr class="comp-row transition-all" onmouseenter="this.style.background='var(--surface-2)'" onmouseleave="this.style.background=''">
-                        @if($subjectEditUrl)
+                        @if($canCurate)
                         <td class="py-2 pr-2 text-center">
                             <input type="checkbox" class="comp-incl" checked
                                    data-url="{{ route('presentations.review.toggle-competitor', [$version->id, $row['listing_id'] ?? 0]) }}"
@@ -868,7 +807,7 @@
                 </tbody>
                 <tfoot>
                     <tr class="border-t-2 font-semibold text-xs" style="border-color: var(--border);">
-                        <td class="pt-2" colspan="{{ $subjectEditUrl ? 6 : 5 }}" style="color: var(--text-secondary);">
+                        <td class="pt-2" colspan="{{ $canCurate ? 6 : 5 }}" style="color: var(--text-secondary);">
                             {{ count($compVisible5) }} {{ count($compVisible5) === 1 ? 'property' : 'properties' }}
                         </td>
                         <td class="pt-2"></td>
@@ -879,7 +818,7 @@
             </table>
         </div>
     </div>
-    @if($subjectEditUrl)
+    @if($canCurate)
     {{-- AT-27 Phase C1b — active-competition include/exclude on the unified set:
          untick a comp → toggle it off the version's competitor whitelist →
          reload so the competition set + every dependent stat recomputes. --}}

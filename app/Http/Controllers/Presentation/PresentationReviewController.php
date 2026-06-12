@@ -46,6 +46,14 @@ final class PresentationReviewController extends Controller
     {
         $this->authoriseReviewer($request, $version);
 
+        // AT-27 C1a — if the source property changed since the comps were
+        // hydrated, re-hydrate + reset curation, then reload so the refreshed
+        // set + the "comparable set refreshed" banner render this request.
+        if (app(\App\Services\Presentations\PresentationCompFreshnessService::class)
+                ->refreshIfStale($version->presentation)) {
+            return redirect()->route('presentations.review.show', $version->id);
+        }
+
         // Build 2 robustness — re-validate the comp set against
         // soft-deleted rows in case anything was archived between
         // compile and review. Excluded comps are auto-logged with

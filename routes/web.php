@@ -2430,9 +2430,8 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
     // agent can edit after confirming (the "edit after confirm" path).
     Route::post('/{presentation}/analysis/reopen', [\App\Http\Controllers\Presentation\PresentationController::class, 'reopenForEditing'])
         ->name('analysis.reopen');
-    // AT-27 Phase C1a — subject-property edit-in-place (pre-confirm).
-    Route::post('/{presentation}/analysis/subject-field', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateSubjectField'])
-        ->name('analysis.subject-field');
+    // AT-27 C1a (option 1) — subject editing removed; the property is the single
+    // source of truth (corrected on the property edit screen).
     Route::patch('/{presentation}/analysis-selections', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateAnalysisSelections'])
         ->name('analysis-selections.update');
 
