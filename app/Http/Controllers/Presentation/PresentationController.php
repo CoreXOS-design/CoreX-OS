@@ -510,15 +510,16 @@ class PresentationController extends Controller
     }
 
     /**
-     * AT-27 Phase C1a — edit a subject-property field in place on the Analysis
-     * screen (pre-confirm), then recompute.
+     * AT-27 Phase C1a — edit a subject-property MATCHING INPUT, then LOOP BACK
+     * to Review with a refreshed comp set.
      *
-     * The subject DISPLAY reads from the presentation while comp-matching reads
-     * from the linked Property (and their column names diverge: presentation
-     * `bedrooms` vs property `beds`), so an edit writes to BOTH, keeping the
-     * subject correction consistent across every downstream path. The analysis
-     * is recompiled LIVE by AnalysisDataService on the next page render, so the
-     * client just reloads after a successful save to show the full cascade.
+     * Subject fields (type, beds, extent, address, suburb) drive comp matching,
+     * so changing one invalidates both the comp hydration and the review-step
+     * curation. This writes to BOTH the presentation (display) and the linked
+     * property (matching) — their columns diverge (presentation `bedrooms` vs
+     * property `beds`) — then re-runs hydration, resets the now-stale curation
+     * whitelists, and returns the agent to Review to re-curate. NOT edit-in-
+     * place: recompute-on-reload would leave stale curation downstream.
      *
      * Editable only while the draft is unconfirmed — a published version is
      * locked (server guard; the UI shows the non-silent lock + Re-open).
@@ -566,9 +567,43 @@ class PresentationController extends Controller
             $property->forceFill([$propertyColumn => $value])->save();
         }
 
-        // No snapshot here — AnalysisDataService::compile() recomputes live on
-        // the next render, so the client reloads to reflect the cascade.
-        return response()->json(['ok' => true]);
+        // AT-27 C1a — subject fields are MATCHING INPUTS, so a change invalidates
+        // the comp hydration AND the downstream review-step curation (those
+        // decisions were made for the OLD subject). Recompute-on-reload is not
+        // enough: this LOOPS BACK to Review with a refreshed comp set.
+        //   1. cascade (done above)
+        //   2. re-run comp hydration so the comp evidence reflects the new subject
+        //   3. reset this draft version's curation whitelists (stale — built for
+        //      the old subject); the agent re-curates from the fresh set
+        //   4. redirect to Review with a notice
+        $presentation->refresh();
+        try {
+            app(\App\Services\Presentations\MicSnapshotHydrator::class)
+                ->hydrateForPresentation($presentation);
+        } catch (\Throwable $e) {
+            \Log::warning('Subject-edit re-hydration failed', [
+                'presentation_id' => $presentation->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
+
+        if ($version) {
+            $version->forceFill([
+                'included_comp_ids_json'       => null,
+                'included_competitor_ids_json' => null,
+            ])->save();
+        }
+
+        session()->flash(
+            'subject_refreshed',
+            'Subject details changed — the comparable set was refreshed. Re-check your curation, then Continue to Analysis.'
+        );
+
+        $reviewUrl = $version
+            ? route('presentations.review.show', $version->id)
+            : route('presentations.analysis', $presentation);
+
+        return response()->json(['ok' => true, 'redirect_url' => $reviewUrl]);
     }
 
     /**
