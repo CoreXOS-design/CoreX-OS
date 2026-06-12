@@ -556,71 +556,9 @@
         });
     }
 
-    // ── Active listing checkboxes ────────────────────────────────────────
-    var checkAll = document.getElementById('active-check-all');
-    if (checkAll) {
-        checkAll.addEventListener('change', function () {
-            var checked = checkAll.checked;
-            document.querySelectorAll('.active-listing-check').forEach(function (cb) {
-                cb.checked = checked;
-                updateRowStyle(cb);
-            });
-            recalcActiveStats();
-            saveExcludedIndices();
-        });
-    }
-
-    document.querySelectorAll('.active-listing-check').forEach(function (cb) {
-        cb.addEventListener('change', function () {
-            updateRowStyle(cb);
-            recalcActiveStats();
-            saveExcludedIndices();
-        });
-    });
-
-    function updateRowStyle(cb) {
-        var row = cb.closest('tr');
-        if (!row) return;
-        if (cb.checked) {
-            row.classList.remove('opacity-50');
-            row.querySelectorAll('td').forEach(function (td) { td.classList.remove('line-through'); });
-        } else {
-            row.classList.add('opacity-50');
-            // Only strikethrough the address cell
-            var addressTd = row.querySelector('td:nth-child(2)');
-            if (addressTd) addressTd.classList.add('line-through');
-        }
-    }
-
-    function recalcActiveStats() {
-        var included = 0;
-        var total = 0;
-        var priceSum = 0;
-        var priceCount = 0;
-
-        document.querySelectorAll('.active-listing-row').forEach(function (row) {
-            total++;
-            var cb = row.querySelector('.active-listing-check');
-            if (cb && cb.checked) {
-                included++;
-                var price = parseInt(row.dataset.price, 10);
-                if (price > 0) { priceSum += price; priceCount++; }
-            }
-        });
-
-        var countEl = document.getElementById('active-count');
-        var avgEl   = document.getElementById('active-avg-price');
-        if (countEl) countEl.textContent = included;
-        if (avgEl) avgEl.textContent = priceCount > 0 ? fmtZar(Math.round(priceSum / priceCount)) : '';
-    }
-
-    function saveExcludedIndices() {
-        var excluded = [];
-        document.querySelectorAll('.active-listing-check').forEach(function (cb) {
-            if (!cb.checked) excluded.push(parseInt(cb.dataset.rowIndex, 10));
-        });
-        saveSelection({ excluded_active_listing_indices: excluded });
-    }
+    // AT-27 fix 1 — the Active-Competition exclusion checkboxes are removed.
+    // Section 5 now displays the unified competitor_stock set; per-comp curation
+    // lives on the review screen, and unified-set edit-in-place is Phase C-C1.
 })();
 </script>
 

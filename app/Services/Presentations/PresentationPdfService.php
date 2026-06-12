@@ -1887,42 +1887,13 @@ a:hover { text-decoration: underline; }
                 'sale_date' => $_sc->sold_date ? $_sc->sold_date->toDateString() : null,
             ];
         }
-        foreach ($presentation->activeListings as $_al) {
-            $_raw = is_string($_al->raw_row_json) ? (json_decode($_al->raw_row_json, true) ?: []) : ((array) $_al->raw_row_json ?: []);
-            $_lat = $_raw['latitude'] ?? null;
-            $_lng = $_raw['longitude'] ?? null;
-            $_compRowId = $_raw['mic_comp_row_id'] ?? null;
-            $_schemeName = $_raw['scheme_name'] ?? null;
-            if (($_lat === null || $_lng === null) && $_compRowId) {
-                $_gps = \Illuminate\Support\Facades\DB::table('market_report_comp_rows')
-                    ->where('id', $_compRowId)
-                    ->first(['latitude', 'longitude', 'scheme_name']);
-                if ($_gps) {
-                    if ($_gps->latitude !== null && $_gps->longitude !== null) {
-                        $_lat = (float) $_gps->latitude; $_lng = (float) $_gps->longitude;
-                    }
-                    $_schemeName = $_schemeName ?: $_gps->scheme_name;
-                }
-            }
-            // Scheme-name fallback — inherit from any matching subject report.
-            if (($_lat === null || $_lng === null) && $_schemeName) {
-                $_mr = \Illuminate\Support\Facades\DB::table('market_reports')
-                    ->whereRaw('LOWER(subject_scheme_name) = ?', [mb_strtolower($_schemeName)])
-                    ->whereNotNull('subject_latitude')->whereNotNull('subject_longitude')
-                    ->orderByDesc('id')
-                    ->first(['subject_latitude', 'subject_longitude']);
-                if ($_mr) { $_lat = (float) $_mr->subject_latitude; $_lng = (float) $_mr->subject_longitude; }
-            }
-            if ($_lat === null || $_lng === null) continue;
-            $_svgComps[] = [
-                'lat'       => (float) $_lat,
-                'lng'       => (float) $_lng,
-                'title'     => CompLabel::build($_raw, $_al->suburb ?? null, $_al->id ?? null),
-                'layer'     => 'active_listings',
-                'price'     => $_al->list_price_inc ? (int) $_al->list_price_inc : null,
-                'sale_date' => null,
-            ];
-        }
+        // AT-27 fix 1 — the separate MIC-fed 'active_listings' map layer is
+        // REMOVED. It plotted presentation_active_listings (market_report_comp_
+        // rows), which is NOT type-gated and NOT sold-excluded, so it leaked
+        // sold + wrong-type "Residence" rows (the J/K Claverhouse/Topanga pins)
+        // that every other surface had already discarded. Active competition is
+        // now ONE set: the unified, type-gated, sold-excluded competitor_stock
+        // layer plotted just below.
 
         // CMA-map — Active Competition layer (Build's new orange diamond
         // on the review screen). Reads competitor_stock.visible from the

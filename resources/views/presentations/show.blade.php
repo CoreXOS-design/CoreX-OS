@@ -1897,83 +1897,41 @@
      still accepts asking_price_inc for non-UI callers like the analysis
      edit form; the show screen just doesn't expose it.) --}}
 
-{{-- ── HOLDING COST INPUTS (P15) ─────────────────────────────────────────── --}}
+{{-- ── HOLDING COST INPUTS (read-only on Overview) ───────────────────────────
+     AT-27 fix 2 — holding costs are edited on the ANALYSIS screen, PRE-CONFIRM,
+     while the version is still a mutable draft. Editing them here (post-confirm,
+     after the snapshot freeze) would defeat the confirm model — confirmed means
+     final — so the Overview shows them READ-ONLY with a link back to Analysis. --}}
 <div class="mb-8" id="holding-costs">
     <div class="ds-status-card">
-        <h2 class="ds-section-header mb-3">Holding Cost Inputs (monthly, ZAR)</h2>
-        <div>
-        <form method="POST" action="{{ route('presentations.holding-cost.update', $presentation) }}" class="space-y-4">
-            @csrf
-            @method('PATCH')
-
-            <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1.5 font-medium">Bond payment</label>
-                    <input type="number" name="monthly_bond" min="0" step="0.01"
-                           value="{{ $presentation->monthly_bond ?? '' }}"
-                           placeholder="0"
-                           class="pres-input w-full">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1.5 font-medium">Rates</label>
-                    <input type="number" name="monthly_rates" min="0" step="0.01"
-                           value="{{ $presentation->monthly_rates ?? '' }}"
-                           placeholder="0"
-                           class="pres-input w-full">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1.5 font-medium">Levies</label>
-                    <input type="number" name="monthly_levies" min="0" step="0.01"
-                           value="{{ $presentation->monthly_levies ?? '' }}"
-                           placeholder="0"
-                           class="pres-input w-full">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1.5 font-medium">Insurance</label>
-                    <input type="number" name="monthly_insurance" min="0" step="0.01"
-                           value="{{ $presentation->monthly_insurance ?? '' }}"
-                           placeholder="0"
-                           class="pres-input w-full">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1.5 font-medium">Utilities</label>
-                    <input type="number" name="monthly_utilities" min="0" step="0.01"
-                           value="{{ $presentation->monthly_utilities ?? '' }}"
-                           placeholder="0"
-                           class="pres-input w-full">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1.5 font-medium">Opportunity cost</label>
-                    <input type="number" name="monthly_opportunity_cost" min="0" step="0.01"
-                           value="{{ $presentation->monthly_opportunity_cost ?? '' }}"
-                           placeholder="0"
-                           class="pres-input w-full">
-                </div>
-            </div>
-
-            <div class="flex items-center gap-3 pt-2">
-                <button type="submit"
-                        class="corex-btn-primary text-xs">
-                    Save Holding Cost
-                </button>
-                @php
-                    $hcTotal = collect([
-                        $presentation->monthly_bond,
-                        $presentation->monthly_rates,
-                        $presentation->monthly_levies,
-                        $presentation->monthly_insurance,
-                        $presentation->monthly_utilities,
-                        $presentation->monthly_opportunity_cost,
-                    ])->sum();
-                @endphp
-                @if($hcTotal > 0)
-                    <span class="text-xs text-slate-500 font-medium bg-slate-50 px-2.5 py-1 rounded-lg">
-                        Monthly total: R{{ number_format($hcTotal, 0) }}
-                    </span>
-                @endif
-            </div>
-        </form>
+        @php
+            $hcRows = [
+                'Bond payment'     => $presentation->monthly_bond,
+                'Rates'            => $presentation->monthly_rates,
+                'Levies'           => $presentation->monthly_levies,
+                'Insurance'        => $presentation->monthly_insurance,
+                'Utilities'        => $presentation->monthly_utilities,
+                'Opportunity cost' => $presentation->monthly_opportunity_cost,
+            ];
+            $hcTotal = collect($hcRows)->sum();
+        @endphp
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="ds-section-header">Holding Cost Inputs (monthly, ZAR)</h2>
+            <a href="{{ route('presentations.analysis', $presentation) }}" class="corex-btn-outline text-xs">Edit on Analysis</a>
         </div>
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            @foreach($hcRows as $label => $val)
+            <div>
+                <div class="text-xs text-slate-500 mb-1 font-medium">{{ $label }}</div>
+                <div class="text-sm font-semibold" style="color: var(--text-primary);">{{ $val ? 'R ' . number_format($val, 0) : '—' }}</div>
+            </div>
+            @endforeach
+        </div>
+        @if($hcTotal > 0)
+        <div class="pt-3 mt-2 border-t" style="border-color: var(--border);">
+            <span class="text-xs text-slate-500 font-medium">Monthly total: <strong style="color: var(--text-primary);">R{{ number_format($hcTotal, 0) }}</strong></span>
+        </div>
+        @endif
     </div>
 </div>
 

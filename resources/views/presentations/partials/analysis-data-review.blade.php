@@ -706,16 +706,29 @@
     @endif
 
     {{-- ── 5. ACTIVE MARKET COMPETITION ─────────────────────────────────── --}}
-    @if(($active['total_count'] ?? $active['count']) > 0)
+    @php
+        // AT-27 fix 1 — Section 5 reads the UNIFIED, type-gated, sold-excluded
+        // competitor_stock set (the same set the cards, counts, pins and PDF
+        // use) — NOT the legacy MIC-fed active_competition, which leaked sold +
+        // wrong-type "Residence" rows (the J/K Claverhouse/Topanga listings).
+        // Per-comp curation lives on the review screen; unified-set edit-in-
+        // place is Phase C-C1.
+        $compStock5   = $analysisData['competitor_stock'] ?? [];
+        $compVisible5 = $compStock5['visible'] ?? [];
+        $compPrices5  = array_values(array_filter(array_map(fn ($c) => (int) ($c['price'] ?? 0), $compVisible5), fn ($p) => $p > 0));
+        $compAvg5     = count($compPrices5) ? (int) round(array_sum($compPrices5) / count($compPrices5)) : null;
+    @endphp
+    @if(!empty($compVisible5))
     <div class="ds-status-card mb-4" style="border-left-color: var(--ds-cyan);">
         <h3 class="ds-section-header">5. Active Market Competition</h3>
+        <p class="text-xs mb-2" style="color: var(--text-muted);">
+            Active listings your property competes against — scored on price, suburb, type and bedrooms,
+            type-gated to the subject and sold-excluded. Curate which comps appear on the review screen.
+        </p>
         <div class="overflow-x-auto">
-            <table class="w-full text-sm" id="active-listings-table">
+            <table class="w-full text-sm" id="active-competition-table">
                 <thead>
                     <tr class="text-left text-xs border-b" style="color: var(--text-muted); border-color: var(--border);">
-                        <th class="pb-2 pr-2 font-medium text-center" style="width:32px">
-                            <input type="checkbox" id="active-check-all" checked title="Include/exclude all">
-                        </th>
                         <th class="pb-2 pr-3 font-medium">Address</th>
                         <th class="pb-2 pr-3 font-medium">Type</th>
                         <th class="pb-2 pr-3 font-medium text-center">Beds</th>
@@ -727,61 +740,36 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y" style="border-color: var(--border);">
-                    @foreach($active['rows'] as $row)
-                    <tr class="active-listing-row transition-all duration-300 {{ !empty($row['is_excluded']) ? 'opacity-50' : '' }}" onmouseenter="this.style.background='var(--surface-2)'" onmouseleave="this.style.background=''"
-                        data-row-index="{{ $row['row_index'] ?? $loop->index }}"
-                        data-price="{{ $row['list_price'] ?? 0 }}">
-                        <td class="py-2 pr-2 text-center">
-                            <input type="checkbox" class="active-listing-check"
-                                   data-row-index="{{ $row['row_index'] ?? $loop->index }}"
-                                   {{ empty($row['is_excluded']) ? 'checked' : '' }}>
-                        </td>
-                        <td class="py-2 pr-3 text-xs max-w-[200px] truncate {{ !empty($row['is_excluded']) ? 'line-through' : '' }}" style="color: var(--text-primary);">
-                            @if(!empty($row['url']))
-                                <a href="{{ $row['url'] }}" target="_blank" class="hover:underline" style="color: var(--brand-icon, #0ea5e9);" title="{{ $row['address'] ?? '' }}">{{ $row['address'] ?? '—' }}</a>
+                    @foreach($compVisible5 as $row)
+                    @php
+                        $cErf5 = !empty($row['erf_size_m2']) ? (int) $row['erf_size_m2'] : (!empty($row['property_size_m2']) ? (int) $row['property_size_m2'] : null);
+                        $cListDate5 = $row['listed_date'] ?? (!empty($row['first_seen_at']) ? \Illuminate\Support\Carbon::parse($row['first_seen_at'])->format('Y-m-d') : null);
+                    @endphp
+                    <tr class="transition-all" onmouseenter="this.style.background='var(--surface-2)'" onmouseleave="this.style.background=''">
+                        <td class="py-2 pr-3 text-xs max-w-[200px] truncate" style="color: var(--text-primary);">
+                            @if(!empty($row['portal_url']))
+                                <a href="{{ $row['portal_url'] }}" target="_blank" class="hover:underline" style="color: var(--brand-icon, #0ea5e9);" title="{{ $row['address'] ?? '' }}">{{ $row['address'] ?? '—' }}</a>
                             @else
                                 {{ $row['address'] ?? '—' }}
                             @endif
-                            @if(!empty($row['is_multi_agency']))
-                                <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium" title="{{ $row['listing_ids_in_group'] }} agencies list this property">{{ $row['listing_ids_in_group'] }}x</span>
-                            @endif
                         </td>
                         <td class="py-2 pr-3 text-xs" style="color: var(--text-secondary);">{{ $row['property_type'] ?? '—' }}</td>
-                        <td class="py-2 pr-3 text-center" style="color: var(--text-secondary);">{{ $row['beds'] ?? '—' }}</td>
-                        <td class="py-2 pr-3 text-center" style="color: var(--text-secondary);">{{ $row['baths'] ?? '—' }}</td>
-                        <td class="py-2 pr-3 text-right" style="color: var(--text-secondary);">{{ $row['extent_m2'] ? number_format($row['extent_m2']) : '—' }}</td>
-                        <td class="py-2 pr-3" style="color: var(--text-secondary);">{{ $row['list_date'] ?? '—' }}</td>
-                        <td class="py-2 pr-3 text-right font-medium" style="color: var(--text-primary);">
-                            @if($row['list_price'])
-                                R {{ number_format($row['list_price']) }}
-                            @else
-                                —
-                            @endif
-                        </td>
+                        <td class="py-2 pr-3 text-center" style="color: var(--text-secondary);">{{ $row['bedrooms'] ?? '—' }}</td>
+                        <td class="py-2 pr-3 text-center" style="color: var(--text-secondary);">{{ $row['bathrooms'] ?? '—' }}</td>
+                        <td class="py-2 pr-3 text-right" style="color: var(--text-secondary);">{{ $cErf5 ? number_format($cErf5) : '—' }}</td>
+                        <td class="py-2 pr-3" style="color: var(--text-secondary);">{{ $cListDate5 ?? '—' }}</td>
+                        <td class="py-2 pr-3 text-right font-medium" style="color: var(--text-primary);">{{ !empty($row['price']) ? 'R ' . number_format($row['price']) : '—' }}</td>
                         <td class="py-2 text-right" style="color: var(--text-secondary);">{{ $row['days_on_market'] ?? '—' }}</td>
                     </tr>
                     @endforeach
                 </tbody>
                 <tfoot>
-                    <tr class="border-t-2 font-semibold text-xs" id="active-summary" style="border-color: var(--border);">
-                        <td class="pt-2" colspan="2"></td>
+                    <tr class="border-t-2 font-semibold text-xs" style="border-color: var(--border);">
                         <td class="pt-2" colspan="5" style="color: var(--text-secondary);">
-                            <span id="active-count">{{ $active['count'] }}</span> unique
-                            {{ $active['count'] === 1 ? 'property' : 'properties' }}
-                            @if(($active['raw_listing_count'] ?? 0) > ($active['total_count'] ?? $active['count']))
-                                <span style="color: var(--text-muted);">({{ ($active['raw_listing_count'] ?? 0) - ($active['total_count'] ?? $active['count']) }} multi-agency dupes removed)</span>
-                            @endif
-                            @if(($active['total_count'] ?? $active['count']) > $active['count'])
-                                <span style="color: var(--text-muted);">&middot; {{ ($active['total_count'] ?? $active['count']) - $active['count'] }} excluded</span>
-                            @endif
+                            {{ count($compVisible5) }} {{ count($compVisible5) === 1 ? 'property' : 'properties' }}
                         </td>
-                        <td class="pt-2 pr-3 text-right" style="color: var(--text-primary);">
-                            <span id="active-avg-price">
-                            @if($active['avg_asking_price'])
-                                R {{ number_format($active['avg_asking_price']) }}
-                            @endif
-                            </span>
-                        </td>
+                        <td class="pt-2"></td>
+                        <td class="pt-2 pr-3 text-right" style="color: var(--text-primary);">@if($compAvg5) R {{ number_format($compAvg5) }} @endif</td>
                         <td></td>
                     </tr>
                 </tfoot>
@@ -796,7 +784,12 @@
         // context via the route). When $version isn't present (e.g.
         // pre-version analysis tab) the URL renders empty and the
         // edit-on-click degrades to a read-only display.
-        $hcUrl = isset($version) && $version
+        // AT-27 fix 2 — holding costs are editable ONLY pre-confirm (mutable
+        // draft). Once the version is confirmed/published the snapshot is frozen
+        // and the edit degrades to read-only (confirmed means final).
+        $hcConfirmed = isset($version) && $version
+            && $version->review_status === \App\Models\PresentationVersion::REVIEW_PUBLISHED;
+        $hcUrl = (isset($version) && $version && ! $hcConfirmed)
             ? route('presentations.review.holding-cost-component', ['version' => $version->id])
             : null;
         $hcCsrf = csrf_token();
