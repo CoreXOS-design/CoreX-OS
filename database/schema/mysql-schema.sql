@@ -7338,7 +7338,7 @@ CREATE TABLE `presentation_versions` (
   `reviewer_user_id` bigint unsigned DEFAULT NULL,
   `reviewer_locked_at` timestamp NULL DEFAULT NULL,
   `blueprint_version` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'v1',
-  `review_status` enum('draft','awaiting_review','published','archived') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `review_status` enum('draft','awaiting_review','in_analysis','published','archived') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `analytics_run_id` bigint unsigned DEFAULT NULL,
   `probability_run_id` bigint unsigned DEFAULT NULL,
   `data_snapshot_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -11380,3 +11380,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (789,'2026_06_11_18
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_23_120000_normalize_user_phone_numbers',134);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_11_190000_add_comp_curation_override_types',135);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_12_090000_add_thumbnail_blocked_reason_to_prospecting_listings',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (793,'2026_06_24_000000_add_in_analysis_to_presentation_versions_review_status',137);
