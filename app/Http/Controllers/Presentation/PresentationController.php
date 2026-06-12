@@ -484,6 +484,31 @@ class PresentationController extends Controller
     }
 
     /**
+     * AT-27 — re-open a CONFIRMED (published) version back to a mutable draft.
+     *
+     * The confirm model is "confirmed means final", so editing is locked once a
+     * version is published. This is the explicit "edit after confirm" path: it
+     * un-freezes the version (review_status → in_analysis) so the agent can
+     * edit holding costs / comps / sections again, WITHOUT discarding the frozen
+     * snapshot_payload — the seller keeps seeing the prior confirmed snapshot
+     * until the next Confirm & Generate overwrites it. No silent locks: every
+     * locked surface points the agent here.
+     */
+    public function reopenForEditing(Request $request, Presentation $presentation)
+    {
+        $this->authorizePresentation($presentation);
+
+        $version = $presentation->versions()->latest('compiled_at')->first();
+        if ($version && $version->review_status === PresentationVersion::REVIEW_PUBLISHED) {
+            // Keep snapshot_payload / published_at — re-confirm overwrites them.
+            $version->forceFill(['review_status' => PresentationVersion::REVIEW_IN_ANALYSIS])->save();
+        }
+
+        return redirect()->route('presentations.analysis', $presentation)
+            ->with('success', 'Re-opened for editing — make your changes, then Confirm & Generate to re-freeze the snapshot.');
+    }
+
+    /**
      * AJAX: save analysis selection changes (CMA range, vicinity range, excluded listings).
      */
     public function updateAnalysisSelections(Request $request, Presentation $presentation)

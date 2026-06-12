@@ -42,6 +42,9 @@ Any action that archives, removes, or irreversibly changes data must show a conf
 ### Status Always Visible
 Every record that has a status (listing, deal, document, compliance item) must display that status clearly on its card/row. Users should never have to open a record to find out where it stands.
 
+### No Silent Locks — Read-Only States Must Explain & Offer A Way Forward
+Any read-only / locked / disabled state anywhere in CoreX must (1) SAY why it is locked, and (2) offer the action that unlocks it. Never render a surface silently uneditable — and never link to a screen promising an edit that the destination then refuses. Example: a confirmed (frozen) presentation locks editing; the Analysis screen shows a "Locked — confirmed snapshot. Re-open to edit, then Confirm & Generate" banner with a Re-open button, both page-level and on each locked section. A blocked/hidden action is hidden (no dead buttons); a locked-but-recoverable state is shown WITH its unlock path.
+
 ### Loading States
 Every async operation must show a loading indicator. No blank screens, no silent waits.
 

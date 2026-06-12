@@ -134,6 +134,31 @@
     $isConfirmed = isset($latestVersion) && $latestVersion
         && $latestVersion->review_status === \App\Models\PresentationVersion::REVIEW_PUBLISHED;
 @endphp
+@if($isConfirmed)
+{{-- AT-27 — NON-SILENT LOCK (platform rule: every read-only state must say why
+     it's locked AND offer the way forward). The version is confirmed (frozen +
+     summary generated), so editing is locked. Re-open returns it to a mutable
+     draft without discarding the frozen snapshot. --}}
+<div class="ds-status-card mb-4 flex flex-wrap items-center justify-between gap-3"
+     style="border-left-color: var(--ds-amber, #d97706); background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent);">
+    <div class="flex items-start gap-2">
+        <span aria-hidden="true" style="font-size:16px; line-height:1.2;">&#128274;</span>
+        <div>
+            <div class="text-sm font-semibold" style="color: var(--text-primary);">This presentation is confirmed (locked)</div>
+            <div class="text-xs" style="color: var(--text-secondary);">
+                The numbers are frozen and the executive summary is generated. To change anything —
+                holding costs, comps, sections — re-open it for editing, then Confirm &amp; Generate to re-freeze.
+            </div>
+        </div>
+    </div>
+    <form method="POST" action="{{ route('presentations.analysis.reopen', $presentation) }}" class="inline">
+        @csrf
+        <button type="submit" class="corex-btn-primary" style="background:#d97706;">
+            Re-open for editing
+        </button>
+    </form>
+</div>
+@endif
 <div class="flex flex-wrap items-center gap-3 mb-6">
     @unless($isConfirmed)
         {{-- The single forward action. Recompiles from the confirmed edits,
@@ -163,13 +188,9 @@
             Pricing Simulator
         </a>
         @endif
-        {{-- Re-confirm after further edits — re-freezes + regenerates the summary. --}}
-        <form method="POST" action="{{ route('presentations.analysis.confirm', $presentation) }}" class="inline">
-            @csrf
-            <button type="submit" class="corex-btn-outline">
-                Re-confirm &amp; Regenerate
-            </button>
-        </form>
+        {{-- AT-27 — to edit after confirm, use "Re-open for editing" in the
+             locked banner above; editing then re-enables the normal
+             "Confirm & Generate" which re-freezes the snapshot. --}}
     @endunless
 
     {{-- Back to Overview --}}
