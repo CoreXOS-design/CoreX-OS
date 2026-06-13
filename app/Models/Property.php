@@ -767,6 +767,75 @@ class Property extends Model
         );
     }
 
+    /**
+     * Single source of truth for the data the Ad Manager injects into a
+     * template — used by both the generator (ad.blade.php) and the
+     * property-linked builder live preview (ad-builder.blade.php).
+     * Spec: ad-manager.md §3, §7. Keys match the builder field catalogue.
+     *
+     * Image URLs are stripped to a host-relative path then re-`asset()`ed so
+     * html2canvas' crossorigin="anonymous" works regardless of which hostname
+     * the app is reached on.
+     */
+    public function adData(): array
+    {
+        $toRelative = fn ($url) => $url ? (parse_url($url, PHP_URL_PATH) ?: $url) : null;
+        $imgs       = $this->allImages();
+        $img        = function (int $i) use ($imgs, $toRelative) {
+            $rel = $toRelative($imgs[$i] ?? null);
+            return $rel ? asset($rel) : null;
+        };
+
+        $agent   = $this->agent;
+        $branch  = $this->branch;
+        $agency  = $this->agency;
+
+        $logoPath = $branch?->logo_path ?: $agency?->logo_path;
+        $logoUrl  = $logoPath ? asset('storage/' . $logoPath) : null;
+
+        $beds    = $this->beds;
+        $baths   = $this->baths;
+        $garages = $this->garages;
+        $size    = $this->size_m2 ? number_format($this->size_m2) . ' M²' : null;
+
+        // Status badge — honest label derived from the listing, never fabricated.
+        $statusBadge = match (true) {
+            in_array($this->status, ['sold', 'transferred'], true)       => 'SOLD',
+            in_array($this->status, ['under_offer', 'pending'], true)    => 'UNDER OFFER',
+            ($this->listing_type === 'rental' || $this->listing_type === 'to_let') => 'TO LET',
+            default                                                      => 'FOR SALE',
+        };
+
+        return [
+            'image_1'           => $img(0),
+            'image_2'           => $img(1),
+            'image_3'           => $img(2),
+            'image_4'           => $img(3),
+            'image_5'           => $img(4),
+            'price'             => $this->formattedPrice(),
+            'title'             => strtoupper((string) $this->title),
+            'suburb'            => strtoupper((string) $this->suburb) . ($this->city ? ', ' . strtoupper((string) $this->city) : ''),
+            'property_type'     => strtoupper(str_replace('_', ' ', (string) $this->property_type)),
+            'features'          => trim(($beds ? $beds . ' Bed' : '') . ($baths ? ' · ' . $baths . ' Bath' : '') . ($garages ? ' · ' . $garages . ' Garage' : ''), ' · '),
+            'beds'              => (string) ($beds ?? ''),
+            'baths'             => (string) ($baths ?? ''),
+            'garages'           => (string) ($garages ?? ''),
+            'size_m2'           => $size,
+            'reference'         => $this->external_id ?: ('REF ' . $this->id),
+            'address'           => $this->street_address ?: $this->address ?: null,
+            'status_badge'      => $statusBadge,
+            'agent_name'        => strtoupper((string) ($agent?->name ?? '')),
+            'agent_email'       => $agent?->email ?? '',
+            'agent_phone'       => $agent?->mobile ?: $agent?->phone ?: '',
+            'agent_designation' => $agent?->designation ?? 'Property Practitioner',
+            'agent_avatar'      => $agent?->avatar_url ?? null,
+            'agency_name'       => $agency?->name ?? '',
+            'website'           => $agency?->website_url ?: '',
+            'logo'              => $logoUrl,
+            'watermark'         => strtoupper((string) ($agency?->name ?? '')),
+        ];
+    }
+
     // ── Whistleblower complaints ──
 
     public function whistleblowComplaints(): HasMany

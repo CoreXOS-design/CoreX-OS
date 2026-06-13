@@ -254,6 +254,7 @@ return [
         ['key' => 'properties.create',           'label' => 'Create',                      'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 11],
         ['key' => 'properties.edit',             'label' => 'Edit',                        'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 12],
         ['key' => 'properties.archive',          'label' => 'Archive',                     'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 13],
+        ['key' => 'properties.ad_templates.manage', 'label' => 'Manage Others\' Ad Templates', 'section' => 'properties',    'type' => 'action',  'module' => 'properties',       'sort_order' => 14],
 
         // ── Contacts ──
         ['key' => 'access_contacts',             'label' => 'Access Contacts',             'section' => 'contacts',         'type' => 'access',  'module' => 'contacts',         'sort_order' => 1],
@@ -505,6 +506,8 @@ return [
                 'agency_api.view', 'agency_api.manage',
                 // Testimonials — admins curate which testimonials go on the website
                 'testimonials.publish',
+                // Ad Manager — admins can edit/delete any agency member's ad template
+                'properties.ad_templates.manage',
                 // Module 6 Activity Points — admin manages the calendar-class →
                 // activity-definition mappings that drive auto-credit.
                 // (super_admin gets it via the '*' wildcard above; branch_manager
@@ -565,7 +568,7 @@ return [
                 'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'create_properties', 'publish_properties', 'delete_properties',
-                'properties.view', 'properties.create', 'properties.edit',
+                'properties.view', 'properties.create', 'properties.edit', 'properties.ad_templates.manage',
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email',

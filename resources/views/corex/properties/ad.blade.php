@@ -10,13 +10,14 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     @php
-        // Strip scheme+host from any legacy absolute URLs so crossorigin="anonymous" works
-        // regardless of which hostname the app is accessed from.
-        $toRelative = fn($url) => $url ? (parse_url($url, PHP_URL_PATH) ?: $url) : null;
+        // Single source of truth for the data injected into every template.
         $images     = $property->allImages();
-        $img1       = $toRelative($images[0] ?? null);
-        $img2       = $toRelative($images[1] ?? null);
-        $img3       = $toRelative($images[2] ?? null);
+        $toRelative = fn($url) => $url ? (parse_url($url, PHP_URL_PATH) ?: $url) : null;
+        $img1 = ($r = $toRelative($images[0] ?? null)) ? $r : null;
+        $img2 = ($r = $toRelative($images[1] ?? null)) ? $r : null;
+        $img3 = ($r = $toRelative($images[2] ?? null)) ? $r : null;
+        $img4 = ($r = $toRelative($images[3] ?? null)) ? $r : null;
+        $img5 = ($r = $toRelative($images[4] ?? null)) ? $r : null;
         $agent      = $property->agent;
         $initial    = strtoupper(substr($agent?->name ?? 'A', 0, 1));
         $agentName  = strtoupper($agent?->name ?? '');
@@ -30,136 +31,102 @@
         $baths      = $property->baths;
         $garages    = $property->garages;
         $size       = $property->size_m2 ? number_format($property->size_m2) . ' M²' : null;
+
+        // Branding — branch logo → agency logo → CoreX wordmark fallback (handled in partial).
+        $logoPath   = $property->branch?->logo_path ?: $property->agency?->logo_path;
+        $logoUrl    = $logoPath ? asset('storage/' . $logoPath) : null;
+        $agencyName = strtoupper($property->agency?->name ?? '');
+        $website    = strtoupper($property->agency?->website_url ?? '');
+        $statusBadge = match (true) {
+            in_array($property->status, ['sold', 'transferred'], true)    => 'SOLD',
+            in_array($property->status, ['under_offer', 'pending'], true) => 'UNDER OFFER',
+            ($property->listing_type === 'rental' || $property->listing_type === 'to_let') => 'TO LET',
+            default                                                       => 'FOR SALE',
+        };
+
+        // Pre-built catalogue — one row drives both the picker cards and the generator blocks.
+        $prebuilt = [
+            ['key' => 'power',          'name' => 'Power',          'desc' => 'Bold 3-photo collage with high-contrast price strip and structured info bar.'],
+            ['key' => 'luxe',           'name' => 'Luxe',           'desc' => 'Full-bleed hero with cinematic gradient overlay. Sophisticated, editorial feel.'],
+            ['key' => 'split',          'name' => 'Split',          'desc' => 'Dark info panel left, dramatic full-height images right. Clean, architectural.'],
+            ['key' => 'just_listed',    'name' => 'Just Listed',    'desc' => 'Announcement ribbon over a single hero. Maximum "new to market" impact.'],
+            ['key' => 'open_house',     'name' => 'Open House',     'desc' => 'Viewing call-out block over the hero — invite buyers to book a viewing.'],
+            ['key' => 'editorial',      'name' => 'Editorial',      'desc' => 'Minimalist luxury on a light canvas. Large hero, generous type, quiet confidence.'],
+            ['key' => 'feature_grid',   'name' => 'Feature Grid',   'desc' => 'Four-photo mosaic showcasing every room. Great for feature-rich homes.'],
+            ['key' => 'price_spotlight','name' => 'Price Spotlight','desc' => 'Oversized price with a NEW PRICE tag. Built to stop the scroll on value.'],
+            ['key' => 'coming_soon',    'name' => 'Coming Soon',    'desc' => 'Teaser with a dimmed hero and a COMING SOON banner. Build anticipation.'],
+            ['key' => 'sold',           'name' => 'Sold / Under Offer','desc' => 'Celebration stamp over the hero. Proof of performance for your pipeline.'],
+            ['key' => 'for_rent',       'name' => 'For Rent',       'desc' => 'Rental-focused layout with per-month price emphasis and quick features.'],
+            ['key' => 'agent_spotlight','name' => 'Agent Spotlight','desc' => 'Your headshot and name front and centre over the hero. Personal brand builder.'],
+            ['key' => 'showcase',       'name' => 'Showcase',       'desc' => 'Five-photo filmstrip carousel-style strip. Tell the whole story in one frame.'],
+        ];
+
+        // Thumbnail scale to fit a 380-ish wide × 199 tall card from a 1200×628 source.
+        $thumbScale = 0.3167;
+
+        $propertyData = $property->adData();
     @endphp
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Figtree', sans-serif; background: #060f1c; color: #f1f5f9; min-height: 100vh; overflow-x: hidden; }
         [x-cloak] { display: none !important; }
-
-        /* ─── Template card hover ─── */
         .tpl-card { cursor: pointer; border-radius: 18px; border: 1.5px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); overflow: hidden; transition: all 0.18s ease; }
         .tpl-card:hover { border-color: rgba(0,180,216,0.55); background: rgba(255,255,255,0.07); transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
-
-        /* ─── Platform btn ─── */
         .plat-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55); transition: all 0.12s; white-space: nowrap; }
         .plat-btn:hover { border-color: rgba(255,255,255,0.25); color: #fff; }
         .plat-btn.active { background: #00b4d8; border-color: #00b4d8; color: #fff; }
-
-        /* ─── Custom template cards ─── */
         .custom-tpl-card { cursor:pointer; border-radius:12px; border:1.5px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03); overflow:hidden; transition:all 0.18s; display:flex; align-items:center; gap:12px; padding:12px 16px; }
         .custom-tpl-card:hover { border-color:rgba(0,180,216,0.55); background:rgba(255,255,255,0.07); }
-        .custom-tpl-thumb { width:100px; height:52px; background:#071325; border-radius:6px; overflow:hidden; position:relative; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10px; color:rgba(255,255,255,0.25); }
+        .custom-tpl-thumb { width:100px; height:52px; background:#071325; border-radius:6px; overflow:hidden; position:relative; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; color:rgba(255,255,255,0.45); }
         .custom-tpl-badge { font-size:9px;font-weight:700;background:rgba(0,180,216,0.15);color:#00b4d8;border-radius:4px;padding:2px 6px;letter-spacing:0.06em;text-transform:uppercase; }
-
-        /* ─── Ad canvas shared ─── */
         .ad-root { position: absolute; inset: 0; font-family: 'Figtree', Arial, sans-serif; }
         .ad-img-fit { width: 100%; height: 100%; object-fit: cover; display: block; }
         .ad-placeholder { width: 100%; height: 100%; background: linear-gradient(135deg, #0b2a4a 0%, #143d6e 100%); }
     </style>
 </head>
-@php
-$propertyData = [
-    'image_1'           => $img1 ? asset($img1) : null,
-    'image_2'           => $img2 ? asset($img2) : null,
-    'image_3'           => $img3 ? asset($img3) : null,
-    'price'             => $price,
-    'title'             => $title,
-    'suburb'            => $suburb,
-    'property_type'     => $type,
-    'features'          => trim(($beds ? $beds . ' Bed' : '') . ($baths ? ' · ' . $baths . ' Bath' : '') . ($garages ? ' · ' . $garages . ' Garage' : ''), ' · '),
-    'beds'              => (string)($beds ?? ''),
-    'baths'             => (string)($baths ?? ''),
-    'garages'           => (string)($garages ?? ''),
-    'size_m2'           => $size,
-    'agent_name'        => $agentName,
-    'agent_email'       => $agentEmail,
-    'agent_designation' => $agentDesig,
-    'agent_avatar'      => $agent?->avatar_url ?? null,
-    'logo'              => 'nexusOS',
-    'watermark'         => 'HF COASTAL',
-];
-@endphp
 <body x-data="adApp({{ Js::from($savedTemplates) }}, {{ Js::from($propertyData) }})">
 
-{{-- ═══════════════════════════════════════════════════════
-     STEP 1 — TEMPLATE PICKER
-═══════════════════════════════════════════════════════════ --}}
-<div x-show="step === 'pick'" style="min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:48px 24px;">
+{{-- ═══ STEP 1 — TEMPLATE PICKER ═══ --}}
+<div x-show="step === 'pick'" style="min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:48px 24px;">
 
-    {{-- Back --}}
     <a href="{{ route('corex.properties.index') }}" style="position:absolute;top:22px;left:24px;display:inline-flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,0.35);text-decoration:none;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.35)'">
         <svg xmlns="http://www.w3.org/2000/svg" style="width:13px;height:13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
         Back
     </a>
 
-    {{-- Heading --}}
     <div style="text-align:center; margin-bottom:44px;">
         <div style="font-size:11px;font-weight:700;color:#00b4d8;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:10px;">{{ $suburb }} &middot; {{ $price }}</div>
         <h1 style="font-size:30px;font-weight:900;color:#fff;letter-spacing:-0.025em;">Choose a Template</h1>
         <p style="font-size:14px;color:rgba(255,255,255,0.38);margin-top:8px;">Click a design, then pick your platform and download</p>
     </div>
 
-    {{-- Cards --}}
+    {{-- Pre-built cards --}}
     <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:24px; max-width:1240px; width:100%;">
-
-        {{-- ── TEMPLATE 1: POWER ─── --}}
-        <div class="tpl-card" @click="selectTemplate('power')">
-            {{-- Thumbnail — 380×199 container, real template scaled to fit --}}
+        @foreach($prebuilt as $tplDef)
+        <div class="tpl-card" @click="selectTemplate('{{ $tplDef['key'] }}')">
             <div style="width:100%; height:199px; overflow:hidden; position:relative; background:#071325;">
-                <div style="position:absolute;top:0;left:0;width:1200px;height:628px;transform:scale(0.3167);transform-origin:top left;">
-                    @include('corex.properties._ad-templates', ['tpl' => 'power', 'baseFontPx' => 16])
+                <div style="position:absolute;top:0;left:0;width:1200px;height:628px;transform:scale({{ $thumbScale }});transform-origin:top left;">
+                    @include('corex.properties._ad-templates', ['tpl' => $tplDef['key'], 'baseFontPx' => 16])
                 </div>
             </div>
             <div style="padding:18px 20px 22px;">
-                <div style="font-size:15px;font-weight:800;color:#fff;margin-bottom:5px;">Power</div>
-                <div style="font-size:12px;color:rgba(255,255,255,0.42);line-height:1.6;">Bold 3-photo collage with high-contrast price strip and structured info bar. Maximum impact.</div>
+                <div style="font-size:15px;font-weight:800;color:#fff;margin-bottom:5px;">{{ $tplDef['name'] }}</div>
+                <div style="font-size:12px;color:rgba(255,255,255,0.42);line-height:1.6;">{{ $tplDef['desc'] }}</div>
                 <div style="margin-top:14px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#00b4d8;">
                     Use Template <svg xmlns="http://www.w3.org/2000/svg" style="width:11px;height:11px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
                 </div>
             </div>
         </div>
-
-        {{-- ── TEMPLATE 2: LUXE ─── --}}
-        <div class="tpl-card" @click="selectTemplate('luxe')">
-            <div style="width:100%; height:199px; overflow:hidden; position:relative; background:#071325;">
-                <div style="position:absolute;top:0;left:0;width:1200px;height:628px;transform:scale(0.3167);transform-origin:top left;">
-                    @include('corex.properties._ad-templates', ['tpl' => 'luxe', 'baseFontPx' => 16])
-                </div>
-            </div>
-            <div style="padding:18px 20px 22px;">
-                <div style="font-size:15px;font-weight:800;color:#fff;margin-bottom:5px;">Luxe</div>
-                <div style="font-size:12px;color:rgba(255,255,255,0.42);line-height:1.6;">Full-bleed hero image with cinematic gradient overlay. Sophisticated and editorial feel.</div>
-                <div style="margin-top:14px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#00b4d8;">
-                    Use Template <svg xmlns="http://www.w3.org/2000/svg" style="width:11px;height:11px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
-                </div>
-            </div>
-        </div>
-
-        {{-- ── TEMPLATE 3: SPLIT ─── --}}
-        <div class="tpl-card" @click="selectTemplate('split')">
-            <div style="width:100%; height:199px; overflow:hidden; position:relative; background:#071325;">
-                <div style="position:absolute;top:0;left:0;width:1200px;height:628px;transform:scale(0.3167);transform-origin:top left;">
-                    @include('corex.properties._ad-templates', ['tpl' => 'split', 'baseFontPx' => 16])
-                </div>
-            </div>
-            <div style="padding:18px 20px 22px;">
-                <div style="font-size:15px;font-weight:800;color:#fff;margin-bottom:5px;">Split</div>
-                <div style="font-size:12px;color:rgba(255,255,255,0.42);line-height:1.6;">Dark info panel left, dramatic full-height images right. Clean, modern, architectural.</div>
-                <div style="margin-top:14px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#00b4d8;">
-                    Use Template <svg xmlns="http://www.w3.org/2000/svg" style="width:11px;height:11px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
-                </div>
-            </div>
-        </div>
-
+        @endforeach
     </div>
 
-    {{-- ── Custom saved templates ── --}}
+    {{-- Custom saved templates (agency-wide) --}}
     <template x-if="savedTemplates.length > 0">
         <div style="max-width:1240px;width:100%;margin-top:40px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-                <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);">Saved Custom Templates</div>
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);">Agency Custom Templates</div>
                 @if($canManageTemplates)
-                <a href="{{ route('corex.ad-templates.builder') }}" style="font-size:12px;font-weight:600;color:#00b4d8;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+                <a href="{{ route('corex.ad-templates.builder', ['property' => $property->id]) }}" style="font-size:12px;font-weight:600;color:#00b4d8;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
                     <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                     New Template
                 </a>
@@ -168,20 +135,18 @@ $propertyData = [
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;">
                 <template x-for="tpl in savedTemplates" :key="tpl.id">
                     <div class="custom-tpl-card" @click="selectCustomTemplate(tpl)">
-                        <div class="custom-tpl-thumb">
-                            <span x-text="tpl.name.charAt(0).toUpperCase()"></span>
-                        </div>
+                        <div class="custom-tpl-thumb"><span x-text="tpl.name.charAt(0).toUpperCase()"></span></div>
                         <div style="flex:1;min-width:0;">
                             <div style="font-size:14px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="tpl.name"></div>
                             <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:3px;" x-text="(tpl.layout_json?.elements?.length || 0) + ' elements · ' + (tpl.layout_json?.canvasW || 1200) + '×' + (tpl.layout_json?.canvasH || 628)"></div>
                         </div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
-                            <template x-if="tpl.is_global">
-                                <span class="custom-tpl-badge">Shared</span>
+                            <template x-if="tpl.can_manage">
+                                <a :href="`{{ route('corex.ad-templates.builder') }}/${tpl.id}?property={{ $property->id }}`" style="font-size:10px;color:rgba(255,255,255,0.4);text-decoration:none;" @click.stop>Edit</a>
                             </template>
-                            @if($canManageTemplates)
-                            <a :href="`/nexus/ad-templates/builder/${tpl.id}`" style="font-size:10px;color:rgba(255,255,255,0.3);text-decoration:none;" @click.stop>Edit</a>
-                            @endif
+                            <template x-if="!tpl.can_manage">
+                                <span style="font-size:9px;color:rgba(255,255,255,0.2);" title="Only the creator (or a manager) can edit this">view only</span>
+                            </template>
                         </div>
                     </div>
                 </template>
@@ -192,7 +157,7 @@ $propertyData = [
     @if($canManageTemplates)
     <template x-if="savedTemplates.length === 0">
         <div style="max-width:1240px;width:100%;margin-top:32px;text-align:center;">
-            <a href="{{ route('corex.ad-templates.builder') }}" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;color:#00b4d8;border:1.5px dashed rgba(0,180,216,0.35);text-decoration:none;transition:all 0.12s;" onmouseover="this.style.borderColor='#00b4d8'" onmouseout="this.style.borderColor='rgba(0,180,216,0.35)'">
+            <a href="{{ route('corex.ad-templates.builder', ['property' => $property->id]) }}" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;color:#00b4d8;border:1.5px dashed rgba(0,180,216,0.35);text-decoration:none;transition:all 0.12s;" onmouseover="this.style.borderColor='#00b4d8'" onmouseout="this.style.borderColor='rgba(0,180,216,0.35)'">
                 <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                 Build a custom template
             </a>
@@ -202,12 +167,9 @@ $propertyData = [
 
 </div>
 
-{{-- ═══════════════════════════════════════════════════════
-     STEP 2 — GENERATOR
-═══════════════════════════════════════════════════════════ --}}
+{{-- ═══ STEP 2 — GENERATOR ═══ --}}
 <div x-show="step === 'generate'" x-cloak style="display:flex; flex-direction:column; min-height:100vh;">
 
-    {{-- Toolbar --}}
     <div style="position:sticky;top:0;z-index:100;background:rgba(6,15,28,0.98);border-bottom:1px solid rgba(255,255,255,0.07);padding:10px 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
 
         <button @click="step='pick'" style="display:inline-flex;align-items:center;gap:4px;color:rgba(255,255,255,0.45);font-size:12px;background:none;border:1.5px solid rgba(255,255,255,0.1);border-radius:8px;cursor:pointer;padding:5px 10px;font-family:inherit;" onmouseover="this.style.color='#fff';this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.color='rgba(255,255,255,0.45)';this.style.borderColor='rgba(255,255,255,0.1)'">
@@ -216,13 +178,9 @@ $propertyData = [
         </button>
 
         <div style="width:1px;height:18px;background:rgba(255,255,255,0.1);"></div>
-
-        {{-- Template badge --}}
-        <span x-text="template?.charAt(0).toUpperCase()+template?.slice(1)" style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.08em;background:rgba(255,255,255,0.06);padding:4px 9px;border-radius:6px;"></span>
-
+        <span x-text="templateLabel" style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.08em;background:rgba(255,255,255,0.06);padding:4px 9px;border-radius:6px;"></span>
         <div style="width:1px;height:18px;background:rgba(255,255,255,0.1);"></div>
 
-        {{-- Platform buttons --}}
         <button class="plat-btn" :class="{active: platform==='facebook'}"  @click="platform='facebook'; onGenerate()">
             <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
             Facebook <span style="opacity:.6;font-size:10px;">1200×628</span>
@@ -240,7 +198,6 @@ $propertyData = [
             WhatsApp <span style="opacity:.6;font-size:10px;">900×900</span>
         </button>
 
-        {{-- Download --}}
         <button @click="download()" :disabled="generating || exporting"
                 style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:#e63946;border:none;color:#fff;font-family:inherit;transition:opacity 0.12s;"
                 onmouseover="if(!this.disabled)this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
@@ -248,7 +205,6 @@ $propertyData = [
             <span x-text="generating ? 'Generating…' : 'Download PNG'"></span>
         </button>
 
-        {{-- Use for Marketing (only shown when coming from the hub) --}}
         <template x-if="returnMarketing">
             <button @click="exportForMarketing()" :disabled="generating || exporting"
                     style="display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:#00b4d8;border:none;color:#fff;font-family:inherit;transition:opacity 0.12s;"
@@ -263,26 +219,15 @@ $propertyData = [
     <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:32px 20px 48px;">
         <div :style="'overflow:hidden;border-radius:4px;box-shadow:0 28px 90px rgba(0,0,0,0.75);flex-shrink:0;width:'+previewW+'px;height:'+previewH+'px;'">
             <div id="ad-scale-wrapper" :style="'transform:scale('+scale+');transform-origin:top left;width:'+cfg.w+'px;height:'+cfg.h+'px;'">
-
-                {{-- AD CANVAS — font-size is the scaling unit --}}
                 <div id="ad-canvas" :style="'width:'+cfg.w+'px;height:'+cfg.h+'px;position:relative;overflow:hidden;font-size:'+cfg.baseFontPx+'px;font-family:Figtree,Arial,sans-serif;background:#071325;'">
 
-                    {{-- Template: POWER --}}
-                    <div x-show="template==='power'" style="position:absolute;inset:0;">
-                        @include('corex.properties._ad-templates', ['tpl' => 'power', 'baseFontPx' => null])
+                    @foreach($prebuilt as $tplDef)
+                    <div x-show="template==='{{ $tplDef['key'] }}'" style="position:absolute;inset:0;">
+                        @include('corex.properties._ad-templates', ['tpl' => $tplDef['key'], 'baseFontPx' => null])
                     </div>
+                    @endforeach
 
-                    {{-- Template: LUXE --}}
-                    <div x-show="template==='luxe'" style="position:absolute;inset:0;">
-                        @include('corex.properties._ad-templates', ['tpl' => 'luxe', 'baseFontPx' => null])
-                    </div>
-
-                    {{-- Template: SPLIT --}}
-                    <div x-show="template==='split'" style="position:absolute;inset:0;">
-                        @include('corex.properties._ad-templates', ['tpl' => 'split', 'baseFontPx' => null])
-                    </div>
-
-                    {{-- Template: CUSTOM (rendered via JS) --}}
+                    {{-- CUSTOM (rendered via JS) --}}
                     <div id="custom-canvas-root" x-show="template==='custom'" style="position:absolute;inset:0;"></div>
 
                 </div>
@@ -293,12 +238,19 @@ $propertyData = [
 </div>
 
 <script>
+const PREBUILT_NAMES = @json(collect($prebuilt)->pluck('name', 'key'));
+
+const IMAGE_FIELDS = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agency_logo'];
+const NON_TEXT_FIELDS = [...IMAGE_FIELDS, 'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape'];
+
 function adApp(savedTemplates, propertyData) {
     const platforms = {
         facebook:  { w:1200, h:628,  baseFontPx:16, label:'Facebook'  },
         instagram: { w:1080, h:1080, baseFontPx:28, label:'Instagram' },
         story:     { w:1080, h:1920, baseFontPx:50, label:'Story'     },
         whatsapp:  { w:900,  h:900,  baseFontPx:23, label:'WhatsApp'  },
+        linkedin:  { w:1200, h:627,  baseFontPx:16, label:'LinkedIn'  },
+        pinterest: { w:1000, h:1500, baseFontPx:38, label:'Pinterest' },
     };
 
     return {
@@ -310,8 +262,13 @@ function adApp(savedTemplates, propertyData) {
         returnMarketing: new URLSearchParams(window.location.search).get('return_marketing') || null,
         platforms,
         savedTemplates: savedTemplates || [],
-        propertyData:   propertyData   || {},
-        _customLayout:  null,   // layout_json of the active custom template
+        propertyData: propertyData || {},
+        _customLayout: null,
+
+        get templateLabel() {
+            if (this.template === 'custom') return 'Custom';
+            return PREBUILT_NAMES[this.template] || (this.template || '');
+        },
 
         get cfg() {
             if (this.template === 'custom' && this._customLayout) {
@@ -328,129 +285,154 @@ function adApp(savedTemplates, propertyData) {
         get previewW() { return Math.round(this.cfg.w * this.scale); },
         get previewH() { return Math.round(this.cfg.h * this.scale); },
 
-        selectTemplate(t) {
-            this.template       = t;
-            this._customLayout  = null;
-            this.step           = 'generate';
-        },
-
+        selectTemplate(t) { this.template = t; this._customLayout = null; this.step = 'generate'; },
         selectCustomTemplate(tpl) {
-            this.template      = 'custom';
+            this.template = 'custom';
             this._customLayout = tpl.layout_json;
-            this.step          = 'generate';
+            this.step = 'generate';
             this.$nextTick(() => this.renderCustomTemplate());
         },
+        onGenerate() { if (this.template === 'custom') this.$nextTick(() => this.renderCustomTemplate()); },
 
-        // Called whenever platform or custom layout changes in generate step
-        onGenerate() {
-            if (this.template === 'custom') this.$nextTick(() => this.renderCustomTemplate());
+        isImageField(f) { return IMAGE_FIELDS.includes(f); },
+        isTextField(f)  { return !NON_TEXT_FIELDS.includes(f); },
+
+        hexToRgba(hex, a) {
+            const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+            if (!m) return hex;
+            return `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${a})`;
         },
 
         renderCustomTemplate() {
-            const root     = document.getElementById('custom-canvas-root');
+            const root = document.getElementById('custom-canvas-root');
             if (!root || !this._customLayout) return;
             root.innerHTML = '';
-
-            const layout   = this._customLayout;
-            const prop     = this.propertyData;
-            const els      = layout.elements || [];
-
-            els.forEach(el => {
+            const layout = this._customLayout;
+            const prop = this.propertyData;
+            (layout.elements || []).forEach(el => {
                 const div = document.createElement('div');
-                div.style.cssText = `position:absolute;left:${el.x}px;top:${el.y}px;width:${el.w}px;height:${el.h}px;z-index:${el.zIndex || 1};overflow:hidden;border-radius:${el.borderRadius || 0}px;`;
-
+                let css = `position:absolute;left:${el.x}px;top:${el.y}px;width:${el.w}px;height:${el.h}px;z-index:${el.zIndex || 1};overflow:hidden;border-radius:${el.borderRadius || 0}px;`;
+                if (el.rotation) css += `transform:rotate(${el.rotation}deg);`;
+                if (el.frameBorderWidth) css += `border:${el.frameBorderWidth}px solid ${el.frameBorderColor || '#fff'};`;
+                div.style.cssText = css;
                 const field = el.field;
 
-                if (field.startsWith('image_') || field === 'agent_avatar') {
-                    const src = prop[field];
+                if (this.isImageField(field)) {
+                    const src = field === 'agency_logo' ? prop.logo : prop[field];
                     if (src) {
                         const img = document.createElement('img');
-                        img.src              = src;
-                        img.crossOrigin      = 'anonymous';
-                        img.style.cssText    = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
+                        img.src = src; img.crossOrigin = 'anonymous';
+                        img.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
                         div.appendChild(img);
                     } else {
                         div.style.background = 'linear-gradient(135deg,#0b2a4a,#143d6e)';
-                        div.style.display    = 'flex';
-                        div.style.alignItems = 'center';
-                        div.style.justifyContent = 'center';
-                        div.style.color      = 'rgba(255,255,255,0.2)';
-                        div.style.fontSize   = '11px';
-                        div.textContent      = el.label;
+                        Object.assign(div.style, { display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.2)', fontSize:'11px' });
+                        div.textContent = el.label;
                     }
                 } else if (field === 'color_block') {
                     div.style.background = el.bg || '#07111e';
-                    div.style.opacity    = el.opacity ?? 1;
+                    div.style.opacity = el.opacity ?? 1;
+                } else if (field === 'shape') {
+                    div.style.background = el.bg || '#00b4d8';
+                    div.style.opacity = el.opacity ?? 1;
+                    div.style.borderRadius = (el.borderRadius ?? 50) + '%';
+                } else if (field === 'gradient') {
+                    div.style.background = `linear-gradient(${el.gradAngle || 180}deg, ${el.gradFrom || '#071325'}, ${el.gradTo || 'rgba(7,19,37,0)'})`;
+                    div.style.opacity = el.opacity ?? 1;
+                } else if (field === 'line') {
+                    const bar = document.createElement('div');
+                    bar.style.cssText = `width:100%;height:${el.borderWidth || 3}px;background:${el.color || '#00b4d8'};border-radius:2px;`;
+                    Object.assign(div.style, { display:'flex', alignItems:'center' });
+                    div.appendChild(bar);
                 } else if (field === 'logo') {
-                    div.style.display    = 'flex';
-                    div.style.alignItems = 'center';
-                    div.style.fontFamily = "'Figtree',Arial,sans-serif";
-                    div.style.fontWeight = '900';
-                    div.style.fontSize   = (el.fontSize || 28) + 'px';
-                    div.style.color      = el.color || '#fff';
-                    div.style.padding    = (el.padding || 0) + 'px';
-                    div.innerHTML        = 'nexus<span style="color:#33c4e0">os</span>';
+                    Object.assign(div.style, { display:'flex', alignItems:'center', padding:(el.padding || 0) + 'px' });
+                    if (prop.logo) {
+                        const img = document.createElement('img');
+                        img.src = prop.logo; img.crossOrigin = 'anonymous';
+                        img.style.cssText = 'max-height:100%;max-width:100%;object-fit:contain;object-position:left center;';
+                        div.appendChild(img);
+                    } else {
+                        div.style.fontFamily = "'Figtree',Arial,sans-serif";
+                        div.style.fontWeight = '900';
+                        div.style.fontSize = (el.fontSize || 28) + 'px';
+                        div.style.color = el.color || '#fff';
+                        div.innerHTML = 'corex<span style="color:#33c4e0">os</span>';
+                    }
                 } else if (field === 'watermark') {
-                    div.style.display        = 'flex';
-                    div.style.alignItems     = 'center';
-                    div.style.justifyContent = 'center';
-                    div.style.fontFamily     = "'Figtree',Arial,sans-serif";
-                    div.style.fontWeight     = '900';
-                    div.style.fontSize       = (el.fontSize || 60) + 'px';
-                    div.style.color          = el.color || '#fff';
-                    div.style.opacity        = el.opacity ?? 0.06;
-                    div.style.letterSpacing  = '0.06em';
-                    div.style.textTransform  = 'uppercase';
-                    div.textContent          = 'HF COASTAL';
+                    Object.assign(div.style, { display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'Figtree',Arial,sans-serif", fontWeight:'900', letterSpacing:'0.06em', textTransform:'uppercase' });
+                    div.style.fontSize = (el.fontSize || 60) + 'px';
+                    div.style.color = el.color || '#fff';
+                    div.style.opacity = el.opacity ?? 0.06;
+                    div.textContent = prop.watermark || el.text || 'COREX';
                 } else {
                     // Text field
-                    const value = prop[field] !== undefined && prop[field] !== null && prop[field] !== ''
-                        ? prop[field]
-                        : (el.preview || el.label);
-                    div.style.display        = 'flex';
-                    div.style.alignItems     = 'center';
-                    div.style.overflow       = 'hidden';
-                    div.style.fontFamily     = "'Figtree',Arial,sans-serif";
-                    div.style.fontSize       = (el.fontSize || 18) + 'px';
-                    div.style.fontWeight     = el.fontWeight || '600';
-                    div.style.color          = el.color || '#fff';
-                    div.style.textAlign      = el.textAlign || 'left';
-                    div.style.textTransform  = el.textTransform || 'none';
-                    div.style.letterSpacing  = (el.letterSpacing || 0) + 'em';
-                    div.style.padding        = (el.padding || 8) + 'px';
-                    div.textContent          = value;
+                    let value;
+                    if (field === 'custom_text' || field === 'badge') {
+                        value = el.text || el.label;
+                    } else {
+                        value = (prop[field] !== undefined && prop[field] !== null && prop[field] !== '') ? prop[field] : (el.preview || el.label);
+                    }
+                    Object.assign(div.style, { display:'flex', alignItems:'center', overflow:'hidden', fontFamily:"'Figtree',Arial,sans-serif" });
+                    div.style.fontSize = (el.fontSize || 18) + 'px';
+                    div.style.fontWeight = el.fontWeight || '600';
+                    div.style.color = el.color || '#fff';
+                    div.style.textAlign = el.textAlign || 'left';
+                    div.style.textTransform = el.textTransform || 'none';
+                    div.style.letterSpacing = (el.letterSpacing || 0) + 'em';
+                    div.style.lineHeight = el.lineHeight ?? 1.2;
+                    div.style.padding = (el.padding || 8) + 'px';
+                    const op = el.bgOpacity ?? 0;
+                    if (op > 0) {
+                        div.style.background = this.hexToRgba(el.bgColor || '#000000', op);
+                        if (el.textAlign === 'center') div.style.justifyContent = 'center';
+                        if (el.textAlign === 'right')  div.style.justifyContent = 'flex-end';
+                    }
+                    const span = document.createElement('span');
+                    span.style.width = '100%';
+                    span.textContent = value;
+                    div.appendChild(span);
                 }
-
                 root.appendChild(div);
             });
+        },
+
+        _canvasBg() {
+            if (this.template === 'custom' && this._customLayout) {
+                const l = this._customLayout;
+                if (l.canvasBgMode === 'gradient') return l.canvasBgFrom || '#071325';
+                return l.canvasBg || '#071325';
+            }
+            return '#071325';
+        },
+
+        async _capture() {
+            const wrapper = document.getElementById('ad-scale-wrapper');
+            const canvas  = document.getElementById('ad-canvas');
+            const cfg     = this.cfg;
+            if (this.template === 'custom' && this._customLayout) {
+                canvas.style.width  = (this._customLayout.canvasW || 1200) + 'px';
+                canvas.style.height = (this._customLayout.canvasH || 628) + 'px';
+                const l = this._customLayout;
+                canvas.style.background = (l.canvasBgMode === 'gradient')
+                    ? `linear-gradient(${l.canvasBgAngle ?? 160}deg, ${l.canvasBgFrom}, ${l.canvasBgTo})`
+                    : (l.canvasBg || '#071325');
+            }
+            const saved = wrapper.style.transform;
+            wrapper.style.transform = 'none';
+            await new Promise(r => setTimeout(r, 80));
+            const c = await html2canvas(canvas, {
+                width: cfg.w, height: cfg.h, scale: 2,
+                useCORS: true, allowTaint: false, backgroundColor: this._canvasBg(), logging: false,
+            });
+            wrapper.style.transform = saved;
+            return c;
         },
 
         async exportForMarketing() {
             if (!this.returnMarketing) return;
             this.exporting = true;
             try {
-                const wrapper = document.getElementById('ad-scale-wrapper');
-                const canvas  = document.getElementById('ad-canvas');
-                const cfg     = this.cfg;
-                const bgColor = (this.template === 'custom' && this._customLayout?.canvasBg) ? this._customLayout.canvasBg : '#071325';
-
-                if (this.template === 'custom' && this._customLayout) {
-                    canvas.style.width  = (this._customLayout.canvasW || 1200) + 'px';
-                    canvas.style.height = (this._customLayout.canvasH || 628) + 'px';
-                }
-
-                const saved = wrapper.style.transform;
-                wrapper.style.transform = 'none';
-                await new Promise(r => setTimeout(r, 80));
-
-                const c = await html2canvas(canvas, {
-                    width: cfg.w, height: cfg.h, scale: 2,
-                    useCORS: true, allowTaint: false,
-                    backgroundColor: bgColor, logging: false,
-                });
-
-                wrapper.style.transform = saved;
-
+                const c = await this._capture();
                 const dataUrl = c.toDataURL('image/png');
                 const res = await fetch('{{ route('corex.marketing.upload-template-image') }}', {
                     method: 'POST',
@@ -460,7 +442,7 @@ function adApp(savedTemplates, propertyData) {
                 const json = await res.json();
                 if (!res.ok || !json.ok) throw new Error(json.error || 'Upload failed');
                 window.location.href = `/corex/properties/${this.returnMarketing}/marketing?marketing_img=${encodeURIComponent(json.url)}&media_tab=photos`;
-            } catch(err) {
+            } catch (err) {
                 alert('Export failed: ' + (err?.message || 'unknown'));
                 this.exporting = false;
             }
@@ -469,38 +451,12 @@ function adApp(savedTemplates, propertyData) {
         async download() {
             this.generating = true;
             try {
-                const wrapper = document.getElementById('ad-scale-wrapper');
-                const canvas  = document.getElementById('ad-canvas');
-                const cfg     = this.cfg;
-                const bgColor = (this.template === 'custom' && this._customLayout?.canvasBg) ? this._customLayout.canvasBg : '#071325';
-
-                // Override canvas dimensions for custom template
-                if (this.template === 'custom' && this._customLayout) {
-                    canvas.style.width  = (this._customLayout.canvasW || 1200) + 'px';
-                    canvas.style.height = (this._customLayout.canvasH || 628) + 'px';
-                }
-
-                const saved = wrapper.style.transform;
-                wrapper.style.transform = 'none';
-                await new Promise(r => setTimeout(r, 80));
-
-                const c = await html2canvas(canvas, {
-                    width:           cfg.w,
-                    height:          cfg.h,
-                    scale:           2,
-                    useCORS:         true,
-                    allowTaint:      false,
-                    backgroundColor: bgColor,
-                    logging:         false,
-                });
-
-                wrapper.style.transform = saved;
-
-                const link     = document.createElement('a');
-                link.download  = `hfc-ad-{{ $property->id }}-${this.template}-${this.platform}.png`;
-                link.href      = c.toDataURL('image/png');
+                const c = await this._capture();
+                const link = document.createElement('a');
+                link.download = `hfc-ad-{{ $property->id }}-${this.template}-${this.platform}.png`;
+                link.href = c.toDataURL('image/png');
                 link.click();
-            } catch(err) {
+            } catch (err) {
                 alert('Download failed: ' + (err?.message || 'unknown error'));
             } finally {
                 this.generating = false;

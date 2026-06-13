@@ -1092,13 +1092,19 @@ class PropertyController extends Controller
         /** @var User $user */
         $user = auth()->user();
 
-        // Saved custom templates: own + global ones
-        $savedTemplates = PropertyAdTemplate::where('user_id', $user->id)
-            ->orWhere('is_global', true)
-            ->orderByDesc('updated_at')
-            ->get(['id', 'user_id', 'name', 'layout_json', 'is_global', 'updated_at']);
+        // Every custom template built in THIS agency is visible to the whole
+        // agency (AgencyScope keeps other agencies' templates out). No user_id
+        // filter and no `is_global` OR-clause — the latter leaked global
+        // templates across agencies via operator precedence. Spec ad-manager.md §5.
+        $savedTemplates = PropertyAdTemplate::orderByDesc('updated_at')
+            ->get(['id', 'user_id', 'name', 'layout_json', 'updated_at'])
+            ->map(function (PropertyAdTemplate $tpl) use ($user) {
+                // Per-template edit/delete right surfaced to the picker UI.
+                $tpl->setAttribute('can_manage', $tpl->canBeManagedBy($user));
+                return $tpl;
+            });
 
-        $canManageTemplates = $user->hasPermission('properties.view');
+        $canManageTemplates = $user->hasPermission('access_properties');
 
         return view('corex.properties.ad', compact('property', 'savedTemplates', 'canManageTemplates'));
     }

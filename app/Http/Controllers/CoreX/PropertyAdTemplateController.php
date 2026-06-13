@@ -3,18 +3,32 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\Property;
 use App\Models\PropertyAdTemplate;
-use App\Services\PermissionService;
 use Illuminate\Http\Request;
 
 class PropertyAdTemplateController extends Controller
 {
-    public function builder(PropertyAdTemplate $template = null)
+    public function builder(Request $request, PropertyAdTemplate $template = null)
     {
         if ($template) {
             $this->authorizeTemplate($template);
         }
-        return view('corex.properties.ad-builder', compact('template'));
+
+        // Optional property context (?property={id}) — the builder previews this
+        // property's real data and offers "Use on this property →".
+        // AgencyScope on Property keeps cross-agency ids unresolvable.
+        $property     = null;
+        $propertyData = null;
+        if ($request->filled('property')) {
+            $property = Property::find((int) $request->query('property'));
+            if ($property) {
+                $property->load(['agent', 'branch', 'agency']);
+                $propertyData = $property->adData();
+            }
+        }
+
+        return view('corex.properties.ad-builder', compact('template', 'property', 'propertyData'));
     }
 
     public function store(Request $request)
@@ -22,19 +36,15 @@ class PropertyAdTemplateController extends Controller
         $data = $request->validate([
             'name'        => 'required|string|max:100',
             'layout_json' => 'required|array',
-            'is_global'   => 'boolean',
         ]);
 
-        /** @var \App\Models\User $user */
-        $user      = auth()->user();
-        $scope     = PermissionService::getDataScope($user, 'properties');
-        $isGlobal  = ($data['is_global'] ?? false) && $scope === 'all';
-
         $tpl = PropertyAdTemplate::create([
-            'user_id'     => $user->id,
+            'user_id'     => auth()->id(),
             'name'        => $data['name'],
             'layout_json' => $data['layout_json'],
-            'is_global'   => $isGlobal,
+            // is_global is deprecated (caused a cross-agency leak); visibility is
+            // now strictly agency-scoped via AgencyScope. See ad-manager.md §3.
+            'is_global'   => false,
         ]);
 
         return response()->json(['id' => $tpl->id, 'name' => $tpl->name]);
@@ -47,18 +57,11 @@ class PropertyAdTemplateController extends Controller
         $data = $request->validate([
             'name'        => 'required|string|max:100',
             'layout_json' => 'required|array',
-            'is_global'   => 'boolean',
         ]);
-
-        /** @var \App\Models\User $user */
-        $user     = auth()->user();
-        $scope    = PermissionService::getDataScope($user, 'properties');
-        $isGlobal = ($data['is_global'] ?? false) && $scope === 'all';
 
         $template->update([
             'name'        => $data['name'],
             'layout_json' => $data['layout_json'],
-            'is_global'   => $isGlobal,
         ]);
 
         return response()->json(['id' => $template->id, 'name' => $template->name]);
@@ -71,15 +74,16 @@ class PropertyAdTemplateController extends Controller
         return redirect()->back()->with('success', 'Template archived.');
     }
 
+    /**
+     * Edit/delete gate (spec ad-manager.md §6): creator always; otherwise the
+     * member needs `properties.ad_templates.manage`. AgencyScope already 404s
+     * cross-agency templates at route-model binding, so this only decides
+     * rights within the current agency.
+     */
     private function authorizeTemplate(PropertyAdTemplate $template): void
     {
-        /** @var \App\Models\User $user */
-        $user = auth()->user();
-        $scope = PermissionService::getDataScope($user, 'properties');
-
-        if ($scope === 'all') return;
-        if ((int) $template->user_id === (int) $user->id) return;
-
-        abort(403);
+        if (! $template->canBeManagedBy(auth()->user())) {
+            abort(403);
+        }
     }
 }
