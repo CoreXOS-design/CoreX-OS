@@ -145,17 +145,27 @@ class MarketingCopyService
                 surfaceRef:   'property:' . $property->id . ':' . $platform,
             );
 
-            // Belt-and-braces: strip any reference the model echoed anyway, then
-            // append the live preview link as the property's call-to-action.
-            $primary = $this->stripReferences((string) ($parsed['primary'] ?? ''));
+            // Belt-and-braces: strip any reference the model echoed anyway. When
+            // emojis are OFF, strip any the model added despite the instruction —
+            // the toggle must be honoured regardless of model behaviour.
+            $primary  = $this->stripReferences((string) ($parsed['primary'] ?? ''));
+            $headline = (string) ($parsed['headline'] ?? '');
+            $hashtags = array_values(array_filter((array) ($parsed['hashtags'] ?? [])));
+            if (! $emojis) {
+                $primary  = $this->stripEmojis($primary);
+                $headline = $this->stripEmojis($headline);
+                $hashtags = array_map(fn ($h) => $this->stripEmojis((string) $h), $hashtags);
+            }
+
+            // Append the live preview link as the property's call-to-action.
             if ($previewUrl !== '' && ! str_contains($primary, $previewUrl)) {
                 $primary = rtrim($primary) . "\n\n" . $previewUrl;
             }
 
             return [
                 'primary'   => $primary,
-                'headline'  => (string) ($parsed['headline'] ?? ''),
-                'hashtags'  => array_values(array_filter((array) ($parsed['hashtags'] ?? []))),
+                'headline'  => $headline,
+                'hashtags'  => $hashtags,
             ];
         } catch (\Throwable $e) {
             Log::error('MarketingCopyService::generateAdCopy failed: ' . $e->getMessage(), [
@@ -296,6 +306,25 @@ class MarketingCopyService
         $text = (string) preg_replace($patterns, '', $text);
         $text = (string) preg_replace("/\n{3,}/", "\n\n", $text); // collapse gaps left behind
 
+        return trim($text);
+    }
+
+    /**
+     * Remove emoji / pictographic characters. Used when the "Include emojis"
+     * option is OFF, so the toggle is honoured even if the model ignores the
+     * prompt instruction. Collapses any double spaces left behind.
+     */
+    private function stripEmojis(string $text): string
+    {
+        if ($text === '') {
+            return '';
+        }
+        $text = (string) preg_replace(
+            '/[\x{1F000}-\x{1FAFF}\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{2190}-\x{21FF}\x{FE00}-\x{FE0F}\x{1F1E6}-\x{1F1FF}\x{200D}\x{20E3}\x{2122}\x{2139}]/u',
+            '',
+            $text,
+        );
+        $text = (string) preg_replace('/[ \t]{2,}/', ' ', $text);
         return trim($text);
     }
 

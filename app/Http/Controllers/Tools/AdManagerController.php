@@ -21,6 +21,17 @@ use Illuminate\Http\Request;
  */
 class AdManagerController extends Controller
 {
+    /** Platform sizes the ad can be generated at (w/h in px, base font for em scaling). */
+    private function platforms(): array
+    {
+        return [
+            'facebook'  => ['label' => 'Facebook — 1200 × 628',  'w' => 1200, 'h' => 628,  'base' => 16],
+            'instagram' => ['label' => 'Instagram — 1080 × 1080', 'w' => 1080, 'h' => 1080, 'base' => 28],
+            'story'     => ['label' => 'Story — 1080 × 1920',     'w' => 1080, 'h' => 1920, 'base' => 50],
+            'whatsapp'  => ['label' => 'WhatsApp — 900 × 900',    'w' => 900,  'h' => 900,  'base' => 23],
+        ];
+    }
+
     /** Pre-built template catalogue — mirrors corex/properties/ad.blade.php. */
     private function prebuiltTemplates(): array
     {
@@ -104,6 +115,7 @@ class AdManagerController extends Controller
             'agents'          => $agents,
             'prebuilt'        => $this->prebuiltTemplates(),
             'customTemplates' => $customTemplates,
+            'platforms'       => $this->platforms(),
         ]);
     }
 
@@ -113,11 +125,17 @@ class AdManagerController extends Controller
      */
     public function previews(Request $request): JsonResponse
     {
-        $data = $request->validate(['property_id' => 'required|integer']);
+        $data = $request->validate([
+            'property_id' => 'required|integer',
+            'platform'    => 'sometimes|string',
+        ]);
 
         /** @var \App\Models\User $user */
         $user      = auth()->user();
         $allAgents = $user->hasPermission('ad_manager.all_agents');
+
+        $platforms = $this->platforms();
+        $plat      = $platforms[$data['platform'] ?? 'facebook'] ?? $platforms['facebook'];
 
         $p = Property::with(['agent', 'branch', 'agency'])->find($data['property_id']);
         if (! $p) {
@@ -131,12 +149,17 @@ class AdManagerController extends Controller
         $prebuilt = [];
         foreach ($this->prebuiltTemplates() as $t) {
             $prebuilt[$t['key']] = view('corex.properties._ad-templates', array_merge(
-                ['tpl' => $t['key'], 'baseFontPx' => 16],
+                ['tpl' => $t['key'], 'baseFontPx' => $plat['base']],
                 $vars,
             ))->render();
         }
 
-        return response()->json(['ok' => true, 'prebuilt' => $prebuilt, 'data' => $p->adData()]);
+        return response()->json([
+            'ok'       => true,
+            'prebuilt' => $prebuilt,
+            'data'     => $p->adData(),
+            'canvas'   => ['w' => $plat['w'], 'h' => $plat['h']],
+        ]);
     }
 
     public function generate(Request $request): JsonResponse
@@ -146,6 +169,7 @@ class AdManagerController extends Controller
             'property_ids.*' => 'integer',
             'template'       => 'required|string|max:60',
             'emojis'         => 'sometimes|boolean',
+            'platform'       => 'sometimes|string',
         ]);
 
         /** @var \App\Models\User $user */
@@ -153,6 +177,9 @@ class AdManagerController extends Controller
         $allAgents = $user->hasPermission('ad_manager.all_agents');
         $emojis    = (bool) ($data['emojis'] ?? false);
         $tpl       = $data['template'];
+
+        $platforms = $this->platforms();
+        $plat      = $platforms[$data['platform'] ?? 'facebook'] ?? $platforms['facebook'];
 
         // Custom template (numeric id) vs pre-built (known key). AgencyScope keeps
         // a custom template within the current agency.
@@ -183,17 +210,27 @@ class AdManagerController extends Controller
                 continue;
             }
 
-            $row = ['id' => $p->id, 'title' => $p->title, 'description' => null, 'ai_error' => null];
+            $row = [
+                'id'          => $p->id,
+                'title'       => $p->title,
+                'agent_name'  => $p->agent?->name ?? 'Unassigned',
+                'description' => null,
+                'ai_error'    => null,
+            ];
 
             if ($customLayout !== null) {
                 $row['custom'] = true;
                 $row['layout'] = $customLayout;
                 $row['data']   = $p->adData();
+                $row['cw']     = (int) ($customLayout['canvasW'] ?? $plat['w']);
+                $row['ch']     = (int) ($customLayout['canvasH'] ?? $plat['h']);
             } else {
                 $row['html'] = view('corex.properties._ad-templates', array_merge(
-                    ['tpl' => $tpl, 'baseFontPx' => 16],
+                    ['tpl' => $tpl, 'baseFontPx' => $plat['base']],
                     $p->adTemplateVars(),
                 ))->render();
+                $row['cw'] = $plat['w'];
+                $row['ch'] = $plat['h'];
             }
 
             try {
@@ -215,6 +252,6 @@ class AdManagerController extends Controller
             ], 403);
         }
 
-        return response()->json(['ok' => true, 'results' => $results, 'canvas' => ['w' => 1200, 'h' => 628]]);
+        return response()->json(['ok' => true, 'results' => $results]);
     }
 }

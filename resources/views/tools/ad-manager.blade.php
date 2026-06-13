@@ -1,70 +1,81 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
-<div class="w-full" x-data="adManager()">
+<div class="w-full space-y-5" x-data="adManager()">
 
-    {{-- Header --}}
-    <div class="mb-5">
-        <h1 class="text-xl font-extrabold" style="color:var(--text-primary);">Ad Manager</h1>
-        <p class="text-sm mt-1" style="color:var(--text-muted);">Pick properties, choose a template, and generate ready-to-post ads with grounded AI descriptions.</p>
-    </div>
-
-    {{-- Step indicator --}}
-    <div class="flex items-center gap-2 mb-5 text-xs font-semibold" style="color:var(--text-muted);">
-        <span :style="step==='select' ? 'color:var(--brand-icon,#0ea5e9);' : ''">1. Properties</span>
-        <span>›</span>
-        <span :style="step==='template' ? 'color:var(--brand-icon,#0ea5e9);' : ''">2. Template</span>
-        <span>›</span>
-        <span :style="step==='results' ? 'color:var(--brand-icon,#0ea5e9);' : ''">3. Ads</span>
+    {{-- ── Page header (branded) ───────────────────────────────── --}}
+    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Ad Manager</h1>
+                <p class="text-sm text-white/60">Generate ready-to-post ads for multiple properties — image and grounded AI description.</p>
+            </div>
+            <div class="flex items-center gap-2 text-xs font-semibold text-white/70">
+                <span :class="step==='select' ? 'text-white' : ''">1. Properties</span>
+                <span class="text-white/40">›</span>
+                <span :class="step==='template' ? 'text-white' : ''">2. Template</span>
+                <span class="text-white/40">›</span>
+                <span :class="step==='results' ? 'text-white' : ''">3. Ads</span>
+            </div>
+        </div>
     </div>
 
     {{-- ════════ STEP 1 — SELECT PROPERTIES ════════ --}}
-    <div x-show="step==='select'">
+    <div x-show="step==='select'" class="space-y-4">
+
+        {{-- Ad size selector --}}
+        <div class="rounded-md p-4 flex flex-col sm:flex-row sm:items-center gap-3" style="background:var(--surface); border:1px solid var(--border);">
+            <div class="flex-1">
+                <div class="text-sm font-semibold" style="color:var(--text-primary);">Ad size</div>
+                <div class="text-xs" style="color:var(--text-muted);">Where will you post these ads? This sets the image dimensions.</div>
+            </div>
+            <select x-model="platform" class="rounded-md px-3 py-2 text-sm w-full sm:w-auto"
+                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <template x-for="(p, key) in platforms" :key="key">
+                    <option :value="key" x-text="p.label"></option>
+                </template>
+            </select>
+        </div>
+
         @if($properties->isEmpty())
-            <div class="rounded-xl p-6 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
-                No properties found that you can advertise.
+            {{-- Empty state --}}
+            <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="m3 11 18-5v12L3 14v-3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No live listings to advertise</h3>
+                <p class="text-sm mb-4" style="color:var(--text-muted);">Only active listings that are live on the website, Property24 or Private Property appear here.</p>
+                <a href="{{ route('corex.properties.index') }}" class="corex-btn-outline text-sm">Go to Properties</a>
             </div>
         @else
 
         @if($allAgents)
             {{-- Agent-by-agent grouping --}}
-            <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div class="flex items-center justify-between flex-wrap gap-2">
                 <div class="text-sm font-semibold" style="color:var(--text-primary);">Select properties by agent</div>
-                <button type="button" @click="selectAllEverything()" class="text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">Select all properties</button>
+                <button type="button" @click="selectAllEverything()" class="corex-btn-outline text-xs">Select all properties</button>
             </div>
-            <div class="space-y-2">
+            <div class="space-y-3">
                 <template x-for="ag in agents" :key="ag.id">
-                    <div class="rounded-xl overflow-hidden" style="background:var(--surface); border:1px solid var(--border);"
+                    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);"
                          :style="skippedAgents.includes(ag.id) ? 'opacity:0.55;' : ''">
                         <div class="flex items-center gap-3 px-4 py-3 cursor-pointer" @click="toggleAgent(ag.id)">
-                            <svg class="w-4 h-4 transition-transform" :style="openAgents.includes(ag.id) ? 'transform:rotate(90deg);' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                            <svg class="w-4 h-4 transition-transform duration-300" :style="openAgents.includes(ag.id) ? 'transform:rotate(90deg);' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
                             <div class="flex-1 min-w-0">
                                 <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="ag.name"></div>
-                                <div class="text-xs" style="color:var(--text-muted);"><span x-text="ag.count"></span> properties · <span x-text="agentSelectedCount(ag.id)"></span> selected</div>
+                                <div class="text-xs" style="color:var(--text-muted);"><span x-text="ag.count"></span> live · <span x-text="agentSelectedCount(ag.id)"></span> selected</div>
                             </div>
-                            <button type="button" @click.stop="selectAllForAgent(ag.id)" class="text-xs font-semibold px-2.5 py-1 rounded-md" style="background:rgba(0,180,216,0.12); color:#00b4d8;">Select all</button>
-                            <button type="button" @click.stop="skipAgent(ag.id)" class="text-xs font-semibold px-2.5 py-1 rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);">Skip</button>
+                            <button type="button" @click.stop="selectAllForAgent(ag.id)" class="corex-btn-outline text-xs">Select all</button>
+                            <button type="button" @click.stop="skipAgent(ag.id)" class="corex-btn-outline text-xs">Skip</button>
                         </div>
                         <div x-show="openAgents.includes(ag.id)" x-cloak class="px-4 pb-4">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                                 <template x-for="p in agentProperties(ag.id)" :key="p.id">
-                                    <label class="rounded-xl overflow-hidden cursor-pointer block" style="background:var(--surface-2); border:1.5px solid var(--border);"
-                                           :style="selected.includes(p.id) ? 'border-color:#00b4d8; box-shadow:0 0 0 1px #00b4d8;' : ''">
-                                        <div style="position:relative; width:100%; height:150px; background:var(--surface);">
-                                            <template x-if="p.thumb"><img :src="p.thumb" alt="" class="w-full h-full object-cover" style="display:block;"></template>
-                                            <template x-if="!p.thumb"><div class="w-full h-full flex items-center justify-center text-xs" style="color:var(--text-muted);">No image</div></template>
-                                            <div style="position:absolute; top:8px; left:8px; background:rgba(0,0,0,0.4); border-radius:6px; padding:3px; line-height:0;">
-                                                <input type="checkbox" :value="p.id" x-model="selected" class="w-5 h-5 rounded" style="display:block;">
-                                            </div>
-                                        </div>
-                                        <div class="p-3">
-                                            <div class="text-sm font-bold truncate" style="color:var(--text-primary);" x-text="p.title"></div>
-                                            <div class="text-xs truncate mt-0.5" style="color:var(--text-secondary);" x-text="p.address || p.suburb"></div>
-                                            <div class="text-xs font-semibold mt-1" style="color:#00b4d8;" x-text="p.price"></div>
-                                        </div>
-                                    </label>
+                                    @include('tools._ad-manager-property-card')
                                 </template>
                             </div>
                         </div>
@@ -72,37 +83,23 @@
                 </template>
             </div>
         @else
-            {{-- Own properties (flat list) --}}
-            <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            {{-- Own properties --}}
+            <div class="flex items-center justify-between flex-wrap gap-2">
                 <div class="text-sm font-semibold" style="color:var(--text-primary);">Select your properties</div>
-                <button type="button" @click="selectAllEverything()" class="text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">Select all</button>
+                <button type="button" @click="selectAllEverything()" class="corex-btn-outline text-xs">Select all</button>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 <template x-for="p in properties" :key="p.id">
-                    <label class="rounded-xl overflow-hidden cursor-pointer block" style="background:var(--surface); border:1.5px solid var(--border);"
-                           :style="selected.includes(p.id) ? 'border-color:#00b4d8; box-shadow:0 0 0 1px #00b4d8;' : ''">
-                        <div style="position:relative; width:100%; height:150px; background:var(--surface-2);">
-                            <template x-if="p.thumb"><img :src="p.thumb" alt="" class="w-full h-full object-cover" style="display:block;"></template>
-                            <template x-if="!p.thumb"><div class="w-full h-full flex items-center justify-center text-xs" style="color:var(--text-muted);">No image</div></template>
-                            <div style="position:absolute; top:8px; left:8px; background:rgba(0,0,0,0.4); border-radius:6px; padding:3px; line-height:0;">
-                                <input type="checkbox" :value="p.id" x-model="selected" class="w-5 h-5 rounded" style="display:block;">
-                            </div>
-                        </div>
-                        <div class="p-3">
-                            <div class="text-sm font-bold truncate" style="color:var(--text-primary);" x-text="p.title"></div>
-                            <div class="text-xs truncate mt-0.5" style="color:var(--text-secondary);" x-text="p.address || p.suburb"></div>
-                            <div class="text-xs font-semibold mt-1" style="color:#00b4d8;" x-text="p.price"></div>
-                        </div>
-                    </label>
+                    @include('tools._ad-manager-property-card')
                 </template>
             </div>
         @endif
 
         {{-- Footer --}}
-        <div class="sticky bottom-0 mt-5 py-3 flex items-center justify-between gap-3" style="background:var(--bg, transparent);">
+        <div class="sticky bottom-0 z-20 py-3 flex items-center justify-between gap-3" style="background:var(--bg,#0d0f14);">
             <div class="text-sm" style="color:var(--text-muted);"><span class="font-bold" style="color:var(--text-primary);" x-text="selected.length"></span> propert<span x-text="selected.length===1?'y':'ies'"></span> selected</div>
             <button type="button" @click="goTemplate()" :disabled="!selected.length"
-                    class="corex-btn-primary px-5 py-2.5 text-sm font-semibold rounded-xl disabled:opacity-40 disabled:cursor-not-allowed">
+                    class="corex-btn-primary text-base px-5 py-2.5 disabled:opacity-40 disabled:cursor-not-allowed">
                 Next: Choose template →
             </button>
         </div>
@@ -110,45 +107,45 @@
     </div>
 
     {{-- ════════ STEP 2 — CHOOSE TEMPLATE ════════ --}}
-    <div x-show="step==='template'" x-cloak>
-        <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-            <button type="button" @click="step='select'" class="text-xs font-semibold" style="color:var(--text-muted);">← Back to properties</button>
+    <div x-show="step==='template'" x-cloak class="space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+            <button type="button" @click="step='select'" class="corex-btn-outline text-xs">← Back to properties</button>
             <label class="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" x-model="emojis" class="rounded">
-                <span class="text-xs" style="color:var(--text-secondary);">Include emojis ✨ <span style="color:var(--text-muted);">in the descriptions</span></span>
+                <input type="checkbox" x-model="emojis" class="rounded" style="accent-color:var(--brand-button,#0ea5e9);">
+                <span class="text-sm" style="color:var(--text-secondary);">Include emojis ✨ <span style="color:var(--text-muted);">in the descriptions</span></span>
             </label>
         </div>
 
-        <div class="text-sm font-semibold mb-3" style="color:var(--text-primary);">Pre-built templates <span class="font-normal" style="color:var(--text-muted);">— previewed with your first selected property</span></div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+        <div class="text-sm font-semibold" style="color:var(--text-primary);">Pre-built templates <span class="font-normal" style="color:var(--text-muted);">— previewed with your first selected property</span></div>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             <template x-for="t in prebuilt" :key="t.key">
                 <button type="button" @click="template = t.key"
-                        class="rounded-xl overflow-hidden text-left transition-all" style="background:var(--surface);"
-                        :style="template===t.key ? 'border:1.5px solid #00b4d8; box-shadow:0 0 0 1px #00b4d8;' : 'border:1.5px solid var(--border);'">
-                    <div class="adm-tpl-thumb" style="width:100%; aspect-ratio:1200/628; overflow:hidden; background:#071325; position:relative;">
-                        <div class="adm-tpl-thumb-inner" style="position:absolute; top:0; left:0; width:1200px; height:628px; transform-origin:top left;" x-html="previews[t.key] || ''"></div>
-                        <div x-show="previewLoading" class="absolute inset-0 flex items-center justify-center text-[11px]" style="color:var(--text-muted); background:var(--surface-2);">Loading…</div>
+                        class="rounded-md overflow-hidden text-left transition-all duration-300" style="background:var(--surface);"
+                        :style="template===t.key ? 'border:1.5px solid var(--brand-button,#0ea5e9); box-shadow:0 0 0 1px var(--brand-button,#0ea5e9);' : 'border:1.5px solid var(--border);'">
+                    <div class="adm-tpl-thumb" :style="'aspect-ratio:'+previewCanvas.w+'/'+previewCanvas.h+'; overflow:hidden; background:#071325; position:relative;'">
+                        <div class="adm-scaled" :data-cw="previewCanvas.w" :style="'position:absolute;top:0;left:0;transform-origin:top left;width:'+previewCanvas.w+'px;height:'+previewCanvas.h+'px;'" x-html="previews[t.key] || ''"></div>
+                        <div x-show="previewLoading" class="absolute inset-0 flex items-center justify-center text-[0.6875rem]" style="color:var(--text-muted); background:var(--surface-2);">Loading…</div>
                     </div>
-                    <div class="px-3 py-2 text-sm font-bold" style="color:var(--text-primary);" x-text="t.name"></div>
+                    <div class="px-3 py-2 text-sm font-semibold" style="color:var(--text-primary);" x-text="t.name"></div>
                 </button>
             </template>
         </div>
 
         <template x-if="custom.length">
-            <div>
-                <div class="text-sm font-semibold mb-3" style="color:var(--text-primary);">Your agency's custom templates</div>
-                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+            <div class="space-y-3">
+                <div class="text-sm font-semibold" style="color:var(--text-primary);">Your agency's custom templates</div>
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     <template x-for="t in custom" :key="t.id">
                         <button type="button" @click="template = t.id"
-                                class="rounded-xl overflow-hidden text-left transition-all" style="background:var(--surface);"
-                                :style="template===t.id ? 'border:1.5px solid #00b4d8; box-shadow:0 0 0 1px #00b4d8;' : 'border:1.5px solid var(--border);'">
-                            <div class="adm-tpl-thumb" style="width:100%; aspect-ratio:1200/628; overflow:hidden; background:#071325; position:relative;">
-                                <div class="adm-tpl-thumb-inner" :id="'tplthumb-custom-'+t.id" style="position:absolute; top:0; left:0; width:1200px; height:628px; transform-origin:top left;"></div>
-                                <div x-show="previewLoading" class="absolute inset-0 flex items-center justify-center text-[11px]" style="color:var(--text-muted); background:var(--surface-2);">Loading…</div>
+                                class="rounded-md overflow-hidden text-left transition-all duration-300" style="background:var(--surface);"
+                                :style="template===t.id ? 'border:1.5px solid var(--brand-button,#0ea5e9); box-shadow:0 0 0 1px var(--brand-button,#0ea5e9);' : 'border:1.5px solid var(--border);'">
+                            <div class="adm-tpl-thumb" :style="'aspect-ratio:'+((t.layout_json&&t.layout_json.canvasW)||1200)+'/'+((t.layout_json&&t.layout_json.canvasH)||628)+'; overflow:hidden; background:#071325; position:relative;'">
+                                <div class="adm-scaled" :id="'tplthumb-custom-'+t.id" :data-cw="(t.layout_json&&t.layout_json.canvasW)||1200" :style="'position:absolute;top:0;left:0;transform-origin:top left;width:'+((t.layout_json&&t.layout_json.canvasW)||1200)+'px;height:'+((t.layout_json&&t.layout_json.canvasH)||628)+'px;'"></div>
+                                <div x-show="previewLoading" class="absolute inset-0 flex items-center justify-center text-[0.6875rem]" style="color:var(--text-muted); background:var(--surface-2);">Loading…</div>
                             </div>
                             <div class="px-3 py-2">
-                                <div class="text-sm font-bold" style="color:var(--text-primary);" x-text="t.name"></div>
-                                <div class="text-[11px]" style="color:var(--text-muted);">Custom</div>
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="t.name"></div>
+                                <span class="ds-badge ds-badge-default">Custom</span>
                             </div>
                         </button>
                     </template>
@@ -156,9 +153,9 @@
             </div>
         </template>
 
-        <div class="sticky bottom-0 py-3 flex items-center justify-end gap-3" style="background:var(--bg, transparent);">
+        <div class="sticky bottom-0 z-20 py-3 flex items-center justify-end gap-3" style="background:var(--bg,#0d0f14);">
             <button type="button" @click="generate()" :disabled="!template || !selected.length || generating"
-                    class="corex-btn-primary px-5 py-2.5 text-sm font-semibold rounded-xl disabled:opacity-40 disabled:cursor-not-allowed">
+                    class="corex-btn-primary text-base px-5 py-2.5 disabled:opacity-40 disabled:cursor-not-allowed">
                 <span x-show="!generating">Generate <span x-text="selected.length"></span> ad<span x-text="selected.length===1?'':'s'"></span></span>
                 <span x-show="generating">Generating…</span>
             </button>
@@ -166,48 +163,63 @@
     </div>
 
     {{-- ════════ STEP 3 — RESULTS ════════ --}}
-    <div x-show="step==='results'" x-cloak>
-        <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-            <div class="text-sm font-semibold" style="color:var(--text-primary);"><span x-text="results.length"></span> ad<span x-text="results.length===1?'':'s'"></span> ready</div>
-            <button type="button" @click="reset()" class="text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">Start over</button>
+    <div x-show="step==='results'" x-cloak class="space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+            <div class="text-sm font-semibold" style="color:var(--text-primary);"><span x-text="filteredResults.length"></span> ad<span x-text="filteredResults.length===1?'':'s'"></span> ready</div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @if($allAgents)
+                <select x-model="resultAgentFilter" class="rounded-md px-3 py-1.5 text-sm"
+                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <option value="">All agents</option>
+                    <template x-for="a in resultAgents" :key="a"><option :value="a" x-text="a"></option></template>
+                </select>
+                @endif
+                <button type="button" @click="reset()" class="corex-btn-outline text-xs">Start over</button>
+            </div>
         </div>
 
-        <div x-show="generating" class="rounded-xl p-8 text-center text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
+        <div x-show="generating" class="rounded-md py-12 px-6 text-center text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
             <svg class="animate-spin w-6 h-6 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
             Building your ads and writing descriptions…
         </div>
 
         <template x-if="error">
-            <div class="rounded-xl p-4 text-sm mb-3" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); color:var(--ds-crimson,#b91c1c);" x-text="error"></div>
+            <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+                 style="background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson,#c41e3a) 30%, transparent); color:var(--text-primary);">
+                <span x-text="error"></span>
+            </div>
         </template>
 
         <div class="space-y-4">
-            <template x-for="r in results" :key="r.id">
-                <div class="rounded-xl p-4 flex flex-col lg:flex-row gap-4" style="background:var(--surface); border:1px solid var(--border);">
+            <template x-for="r in filteredResults" :key="r.id">
+                <div class="rounded-md p-4 flex flex-col lg:flex-row gap-4" style="background:var(--surface); border:1px solid var(--border);">
                     {{-- Preview --}}
-                    <div class="flex-shrink-0">
-                        <div style="width:380px; max-width:100%; height:199px; overflow:hidden; border-radius:8px; background:#071325;">
-                            <div class="adm-canvas" :id="'adm-canvas-'+r.id"
-                                 style="width:1200px; height:628px; transform:scale(0.3167); transform-origin:top left; background:#071325; position:relative; font-family:Figtree,Arial,sans-serif;"
+                    <div class="flex-shrink-0" style="width:100%; max-width:380px;">
+                        <div class="adm-result-thumb" :style="'width:100%; aspect-ratio:'+r.cw+'/'+r.ch+'; overflow:hidden; border-radius:6px; background:#071325;'">
+                            <div class="adm-scaled" :id="'adm-canvas-'+r.id" :data-cw="r.cw"
+                                 :style="'width:'+r.cw+'px; height:'+r.ch+'px; transform-origin:top left; background:#071325; position:relative; font-family:Figtree,Arial,sans-serif;'"
                                  x-html="r.custom ? '' : r.html"></div>
                         </div>
-                        <button type="button" @click="downloadRow(r)" class="mt-2 w-full corex-btn-primary px-4 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-2">
-                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        <button type="button" @click="downloadRow(r)" class="corex-btn-primary text-sm w-full mt-2 justify-center">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                             Download PNG
                         </button>
                     </div>
                     {{-- Info / description --}}
                     <div class="flex-1 min-w-0">
-                        <div class="text-sm font-bold mb-2" style="color:var(--text-primary);" x-text="r.title"></div>
+                        <div class="flex items-center gap-2 mb-2 flex-wrap">
+                            <span class="text-sm font-bold" style="color:var(--text-primary);" x-text="r.title"></span>
+                            @if($allAgents)<span class="ds-badge ds-badge-info" x-text="r.agent_name"></span>@endif
+                        </div>
                         <template x-if="r.ai_error">
-                            <div class="text-xs rounded-lg px-3 py-2" style="background:var(--surface-2); color:var(--text-muted);" x-text="r.ai_error"></div>
+                            <div class="rounded-md px-3 py-2 text-xs" style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 30%, transparent); color:var(--text-primary);" x-text="r.ai_error"></div>
                         </template>
                         <template x-if="r.description">
                             <div>
                                 <textarea readonly rows="7" x-text="r.description"
-                                          class="w-full rounded-lg px-3 py-2 text-sm resize-y"
+                                          class="w-full rounded-md px-3 py-2 text-sm resize-y"
                                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></textarea>
-                                <button type="button" @click="copyText(r.description, $event)" class="mt-2 px-4 py-1.5 text-xs font-semibold rounded-lg" style="background:rgba(0,180,216,0.12); color:#00b4d8;">Copy description</button>
+                                <button type="button" @click="copyText(r.description, $event)" class="corex-btn-outline text-xs mt-2">Copy description</button>
                             </div>
                         </template>
                     </div>
@@ -223,12 +235,12 @@ const ADM_PROPERTIES   = @json($properties);
 const ADM_AGENTS       = @json($agents);
 const ADM_PREBUILT     = @json($prebuilt);
 const ADM_CUSTOM       = @json($customTemplates);
+const ADM_PLATFORMS    = @json($platforms);
 const ADM_GENERATE_URL = @json(route('tools.ad-manager.generate'));
 const ADM_PREVIEW_URL  = @json(route('tools.ad-manager.previews'));
 const ADM_CSRF         = '{{ csrf_token() }}';
 
 const ADM_IMAGE_FIELDS    = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agency_logo'];
-const ADM_NON_TEXT_FIELDS = [...ADM_IMAGE_FIELDS, 'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape'];
 
 function adManager() {
     return {
@@ -237,6 +249,8 @@ function adManager() {
         agents: ADM_AGENTS,
         prebuilt: ADM_PREBUILT,
         custom: ADM_CUSTOM,
+        platforms: ADM_PLATFORMS,
+        platform: 'facebook',
         selected: [],
         openAgents: [],
         skippedAgents: [],
@@ -248,9 +262,18 @@ function adManager() {
         previews: {},
         previewData: null,
         previewLoading: false,
+        previewCanvas: { w: 1200, h: 628 },
+        resultAgentFilter: '',
 
         init() {
-            window.addEventListener('resize', () => { if (this.step === 'template') this.fitTplThumbs(); });
+            window.addEventListener('resize', () => this.fitCanvases());
+        },
+
+        get resultAgents() { return [...new Set(this.results.map(r => r.agent_name))].sort(); },
+        get filteredResults() {
+            let rows = this.results;
+            if (this.resultAgentFilter) rows = rows.filter(r => r.agent_name === this.resultAgentFilter);
+            return [...rows].sort((a, b) => (a.agent_name || '').localeCompare(b.agent_name || ''));
         },
 
         agentProperties(agentId) { return this.properties.filter(p => p.agent_id === agentId); },
@@ -275,8 +298,6 @@ function adManager() {
             this.properties.map(p => p.id).forEach(i => { if (!this.selected.includes(i)) this.selected.push(i); });
         },
 
-        // Move to the template step and load real thumbnails from the first
-        // selected property (no AI — just the template images).
         async goTemplate() {
             if (!this.selected.length) return;
             this.step = 'template';
@@ -289,22 +310,22 @@ function adManager() {
                 const res = await fetch(ADM_PREVIEW_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': ADM_CSRF, 'Accept': 'application/json' },
-                    body: JSON.stringify({ property_id: this.selected[0] }),
+                    body: JSON.stringify({ property_id: this.selected[0], platform: this.platform }),
                 });
                 const data = await res.json();
-                if (res.ok && data.ok) { this.previews = data.prebuilt; this.previewData = data.data; }
+                if (res.ok && data.ok) { this.previews = data.prebuilt; this.previewData = data.data; this.previewCanvas = data.canvas || this.previewCanvas; }
             } catch (e) { /* leave previews empty — names still show */ }
             this.previewLoading = false;
             this.$nextTick(() => {
-                this.fitTplThumbs();
                 this.custom.forEach(t => this.renderCustomInto(t.layout_json, this.previewData, document.getElementById('tplthumb-custom-' + t.id)));
-                this.fitTplThumbs();
+                this.fitCanvases();
             });
         },
-        fitTplThumbs() {
-            document.querySelectorAll('.adm-tpl-thumb-inner').forEach(inner => {
-                const wrap = inner.parentElement;
-                if (wrap && wrap.clientWidth) inner.style.transform = 'scale(' + (wrap.clientWidth / 1200) + ')';
+        fitCanvases() {
+            document.querySelectorAll('.adm-scaled').forEach(el => {
+                const cw = parseInt(el.dataset.cw || '1200', 10);
+                const wrap = el.parentElement;
+                if (wrap && wrap.clientWidth) el.style.transform = 'scale(' + (wrap.clientWidth / cw) + ')';
             });
         },
 
@@ -315,20 +336,23 @@ function adManager() {
                 const res = await fetch(ADM_GENERATE_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': ADM_CSRF, 'Accept': 'application/json' },
-                    body: JSON.stringify({ property_ids: this.selected, template: this.template, emojis: this.emojis }),
+                    body: JSON.stringify({ property_ids: this.selected, template: this.template, emojis: this.emojis, platform: this.platform }),
                 });
                 const data = await res.json();
                 if (!res.ok || !data.ok) { this.error = data.error || 'Could not generate ads.'; this.generating = false; return; }
                 this.results = data.results;
                 this.generating = false;
-                this.$nextTick(() => this.results.forEach(r => { if (r.custom) this.renderCustom(r); }));
+                this.$nextTick(() => {
+                    this.results.forEach(r => { if (r.custom) this.renderCustom(r); });
+                    this.fitCanvases();
+                });
             } catch (e) {
                 this.error = 'Request failed: ' + e.message;
                 this.generating = false;
             }
         },
 
-        reset() { this.step = 'select'; this.results = []; this.error = null; this.template = null; },
+        reset() { this.step = 'select'; this.results = []; this.error = null; this.template = null; this.resultAgentFilter = ''; },
 
         async downloadRow(r) {
             const el = document.getElementById('adm-canvas-' + r.id);
@@ -337,15 +361,16 @@ function adManager() {
             el.style.transform = 'none';
             await new Promise(res => setTimeout(res, 60));
             try {
-                const c = await html2canvas(el, { width: 1200, height: 628, scale: 2, useCORS: true, backgroundColor: '#071325', logging: false });
+                const c = await html2canvas(el, { width: r.cw, height: r.ch, scale: 2, useCORS: true, backgroundColor: '#071325', logging: false });
                 const a = document.createElement('a');
                 a.download = 'ad-' + r.id + '.png';
                 a.href = c.toDataURL('image/png');
                 a.click();
             } catch (e) {
-                alert('Download failed: ' + (e?.message || 'unknown'));
+                window.showToast ? window.showToast('Download failed: ' + (e?.message || 'unknown'), 'error') : alert('Download failed.');
             } finally {
                 el.style.transform = saved;
+                this.fitCanvases();
             }
         },
 
@@ -355,10 +380,9 @@ function adManager() {
                 const b = ev.target; const orig = b.textContent;
                 b.textContent = 'Copied!';
                 setTimeout(() => { b.textContent = orig; }, 1500);
-            } catch (e) { alert('Copy failed — select and copy manually.'); }
+            } catch (e) { window.showToast ? window.showToast('Copy failed — select manually.', 'error') : alert('Copy failed.'); }
         },
 
-        // Client-side render for custom templates (mirrors the property ad generator).
         hexToRgba(hex, a) {
             const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
             if (!m) return hex;
@@ -372,8 +396,6 @@ function adManager() {
             const l = layout;
             if (l.canvasBgMode === 'gradient') root.style.background = 'linear-gradient(' + (l.canvasBgAngle ?? 160) + 'deg,' + l.canvasBgFrom + ',' + l.canvasBgTo + ')';
             else root.style.background = l.canvasBg || '#071325';
-            root.style.width = (l.canvasW || 1200) + 'px';
-            root.style.height = (l.canvasH || 628) + 'px';
             (l.elements || []).forEach(el => {
                 const div = document.createElement('div');
                 let css = 'position:absolute;left:' + el.x + 'px;top:' + el.y + 'px;width:' + el.w + 'px;height:' + el.h + 'px;z-index:' + (el.zIndex || 1) + ';overflow:hidden;border-radius:' + (el.borderRadius || 0) + 'px;';
