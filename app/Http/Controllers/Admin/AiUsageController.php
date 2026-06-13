@@ -129,6 +129,81 @@ class AiUsageController extends Controller
     }
 
     /**
+     * Drill-down for one agency: where the AI spend comes from (by source/surface)
+     * and who drove it (by user), plus the recent call log. Read-only.
+     */
+    public function agency(Request $request, Agency $agency): View
+    {
+        $month       = $request->query('month');
+        $monthCarbon = $month
+            ? Carbon::createFromFormat('Y-m', (string) $month)->startOfMonth()
+            : Carbon::now()->startOfMonth();
+        $monthStart = $monthCarbon->copy()->startOfMonth();
+        $monthEnd   = $monthCarbon->copy()->endOfMonth();
+
+        // Raw ledger query (bypasses any model scope) scoped to this agency + month.
+        $base = fn () => DB::table('ai_usage_events')
+            ->where('agency_id', $agency->id)
+            ->whereBetween('occurred_at', [$monthStart, $monthEnd]);
+
+        $totals = $base()
+            ->selectRaw('COALESCE(SUM(cost_zar),0) AS cost, COALESCE(SUM(input_tokens),0) AS inp, COALESCE(SUM(output_tokens),0) AS outp, COUNT(*) AS gens')
+            ->first();
+
+        // ── WHERE it comes from (by source) ──
+        $bySource = $base()
+            ->selectRaw('source, SUM(cost_zar) AS cost, COUNT(*) AS gens')
+            ->groupBy('source')->orderByDesc('cost')->get()
+            ->map(fn ($r) => ['source' => (string) $r->source, 'cost' => (float) $r->cost, 'gens' => (int) $r->gens])
+            ->all();
+
+        // ── WHO it comes from (by user) ──
+        $byUser = $base()
+            ->leftJoin('users', 'users.id', '=', 'ai_usage_events.user_id')
+            ->selectRaw('ai_usage_events.user_id, users.name AS uname, SUM(ai_usage_events.cost_zar) AS cost, COUNT(*) AS gens')
+            ->groupBy('ai_usage_events.user_id', 'users.name')->orderByDesc('cost')->get()
+            ->map(fn ($r) => ['name' => $r->uname ?? 'System / unattributed', 'cost' => (float) $r->cost, 'gens' => (int) $r->gens])
+            ->all();
+
+        // ── Recent calls (latest 100) ──
+        $recent = $base()
+            ->leftJoin('users', 'users.id', '=', 'ai_usage_events.user_id')
+            ->select(
+                'ai_usage_events.occurred_at', 'users.name AS uname', 'ai_usage_events.source',
+                'ai_usage_events.model', 'ai_usage_events.input_tokens', 'ai_usage_events.output_tokens',
+                'ai_usage_events.cost_zar', 'ai_usage_events.surface_ref', 'ai_usage_events.cache_hit', 'ai_usage_events.fallback'
+            )
+            ->orderByDesc('ai_usage_events.occurred_at')->limit(100)->get()
+            ->map(fn ($r) => [
+                'occurred_at' => $r->occurred_at,
+                'user'        => $r->uname ?? '—',
+                'source'      => (string) $r->source,
+                'model'       => (string) $r->model,
+                'input'       => (int) $r->input_tokens,
+                'output'      => (int) $r->output_tokens,
+                'cost'        => (float) $r->cost_zar,
+                'surface'     => $r->surface_ref,
+                'cache_hit'   => (bool) $r->cache_hit,
+                'fallback'    => (bool) $r->fallback,
+            ])->all();
+
+        return view('admin.ai-usage.agency', [
+            'agency'     => $agency,
+            'month'      => $monthCarbon->format('Y-m'),
+            'monthLabel' => $monthCarbon->format('F Y'),
+            'totals'     => [
+                'cost' => (float) ($totals->cost ?? 0),
+                'inp'  => (int) ($totals->inp ?? 0),
+                'outp' => (int) ($totals->outp ?? 0),
+                'gens' => (int) ($totals->gens ?? 0),
+            ],
+            'bySource'   => $bySource,
+            'byUser'     => $byUser,
+            'recent'     => $recent,
+        ]);
+    }
+
+    /**
      * Update an agency's AI budget. super_admin only.
      */
     public function updateBudget(Request $request, Agency $agency): RedirectResponse

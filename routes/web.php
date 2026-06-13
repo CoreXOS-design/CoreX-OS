@@ -209,6 +209,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/admin/ai-usage', [\App\Http\Controllers\Admin\AiUsageController::class, 'index'])
         ->middleware('permission:mic.view_ai_costs')
         ->name('admin.ai-usage.index');
+    Route::get('/admin/ai-usage/agencies/{agency}', [\App\Http\Controllers\Admin\AiUsageController::class, 'agency'])
+        ->middleware('permission:mic.view_ai_costs')
+        ->where('agency', '[0-9]+')
+        ->name('admin.ai-usage.agency');
     Route::post('/admin/ai-usage/agencies/{agency}/budget', [\App\Http\Controllers\Admin\AiUsageController::class, 'updateBudget'])
         ->middleware('permission:mic.view_ai_costs')
         ->name('admin.ai-usage.budget.update');
