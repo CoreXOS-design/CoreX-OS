@@ -8,6 +8,7 @@ use App\Models\Property;
 use App\Services\AI\AiUsageRecorder;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Generates AI-assisted ad copy for property marketing ("Generate with Ellie AI").
@@ -55,7 +56,8 @@ class MarketingCopyService
             throw new AiCopyUnavailableException("Your agency's monthly AI budget has been reached.");
         }
 
-        $model = (string) (config('services.anthropic.models.fast') ?: self::MODEL_FALLBACK);
+        $model      = (string) (config('services.anthropic.models.fast') ?: self::MODEL_FALLBACK);
+        $previewUrl = $this->previewUrl($property);
 
         [$factLines, $featureLine, $descriptionLine] = $this->collectAllowedFacts($property);
 
@@ -80,6 +82,8 @@ class MarketingCopyService
         - If something is not in the data, do not mention it. Never guess to fill a gap.
         - You may rephrase, summarise and arrange the given facts attractively. You may NOT add new facts.
         - Currency is ZAR (South African Rand). Write for a South African buyer audience.
+        - NEVER include a listing reference, web reference, stock number, agent code, or any ID number — omit them entirely, even if one appears in the description.
+        - Do NOT write any URL, link, email address or phone number yourself. The system appends the official property link automatically.
         - Return ONLY valid JSON — no commentary, no markdown code fences.
         SYS;
 
@@ -134,8 +138,15 @@ class MarketingCopyService
                 surfaceRef:   'property:' . $property->id . ':' . $platform,
             );
 
+            // Belt-and-braces: strip any reference the model echoed anyway, then
+            // append the live preview link as the property's call-to-action.
+            $primary = $this->stripReferences((string) ($parsed['primary'] ?? ''));
+            if ($previewUrl !== '' && ! str_contains($primary, $previewUrl)) {
+                $primary = rtrim($primary) . "\n\n" . $previewUrl;
+            }
+
             return [
-                'primary'   => (string) ($parsed['primary'] ?? ''),
+                'primary'   => $primary,
                 'headline'  => (string) ($parsed['headline'] ?? ''),
                 'hashtags'  => array_values(array_filter((array) ($parsed['hashtags'] ?? []))),
             ];
@@ -187,7 +198,8 @@ class MarketingCopyService
         $features    = $this->extractFeatures($property->features_json ?? []);
         $featureLine = $features === [] ? '(none listed — do not invent any)' : implode(', ', $features);
 
-        $description     = trim((string) ($property->description ?: $property->excerpt ?: ''));
+        // Strip reference/stock numbers up front so the model never even sees them.
+        $description     = $this->stripReferences(trim((string) ($property->description ?: $property->excerpt ?: '')));
         $descriptionLine = $description === '' ? '(none provided — do not invent one)' : $description;
 
         return [implode("\n", $lines), $featureLine, $descriptionLine];
@@ -238,6 +250,46 @@ class MarketingCopyService
         }
 
         return $out;
+    }
+
+    /**
+     * Public, shareable live-preview link for the property — the call-to-action
+     * link placed in the ad copy (instead of a listing reference number).
+     * Matches the canonical format used elsewhere: {property}/preview/{title-slug}.
+     */
+    private function previewUrl(Property $property): string
+    {
+        try {
+            return route('corex.properties.preview', [$property, Str::slug($property->title ?: 'property')]);
+        } catch (\Throwable $e) {
+            return '';
+        }
+    }
+
+    /**
+     * Remove listing/web/stock reference numbers from free text. Targets labelled
+     * references followed by an id containing 3+ digits, so ordinary prose (and
+     * numbers like bedroom counts or sizes) is left untouched.
+     */
+    private function stripReferences(string $text): string
+    {
+        if ($text === '') {
+            return '';
+        }
+
+        $patterns = [
+            // Whole line: "Listing Reference: 100314789", "Web Ref - ABC1234", "Reference No: 998877"
+            '/^[^\n]*\b(?:listing|web|property)?\s*ref(?:erence)?\s*(?:no\.?|number|#)?\s*[:#\-]?\s*#?[A-Za-z]{0,4}\d{3,}[A-Za-z0-9]*.*$/im',
+            // Whole line: "Stock No: 12345"
+            '/^[^\n]*\bstock\s*(?:no\.?|number|#)?\s*[:#\-]?\s*#?[A-Za-z]{0,4}\d{3,}[A-Za-z0-9]*.*$/im',
+            // Inline parenthetical: "(Ref: 100314789)"
+            '/\(\s*(?:listing|web)?\s*ref(?:erence)?\s*[:#]?\s*#?[A-Za-z]{0,4}\d{3,}[A-Za-z0-9]*\s*\)/i',
+        ];
+
+        $text = (string) preg_replace($patterns, '', $text);
+        $text = (string) preg_replace("/\n{3,}/", "\n\n", $text); // collapse gaps left behind
+
+        return trim($text);
     }
 
     private function apiKey(): string

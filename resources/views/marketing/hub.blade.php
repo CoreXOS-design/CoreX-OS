@@ -394,44 +394,44 @@
 
             {{-- Right: live preview --}}
             <div>
-                {{-- Facebook preview --}}
-                <div x-show="activeTab === 'facebook'" class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
+                {{-- Facebook preview — explicit FB-card colours so it stays readable in BOTH light & dark themes --}}
+                <div x-show="activeTab === 'facebook'" class="rounded-xl overflow-hidden" style="border:1px solid var(--border); background:#fff;">
                     <div class="px-4 pt-4 pb-2 flex items-center gap-3" style="background:#fff;">
                         <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style="background:#1877f2;">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" class="w-5 h-5"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
                         </div>
                         <div>
-                            <div class="text-sm font-semibold text-gray-900">{{ auth()->user()->name }}</div>
-                            <div class="text-xs text-gray-400">Just now · Public</div>
+                            <div class="text-sm font-semibold" style="color:#050505;">{{ auth()->user()->name }}</div>
+                            <div class="text-xs" style="color:#65676b;">Just now · Public</div>
                         </div>
                     </div>
-                    <div class="px-4 pb-3 text-sm text-gray-800 whitespace-pre-wrap" style="background:#fff;" x-text="fbCopy || 'Your ad copy will appear here...'"></div>
+                    <div class="px-4 pb-3 text-sm whitespace-pre-wrap" style="background:#fff; color:#1c1e21;" x-text="fbCopy || 'Your ad copy will appear here...'"></div>
                     <template x-if="selectedImages.length">
                         <img :src="selectedImages[0]" alt="" class="w-full object-cover" style="max-height:300px;">
                     </template>
-                    <div class="px-4 py-3 border-t flex gap-4 text-xs text-gray-400" style="background:#fff; border-color:#e5e7eb;">
+                    <div class="px-4 py-3 border-t flex gap-4 text-xs" style="background:#fff; color:#65676b; border-color:#ced0d4;">
                         <span>Like</span><span>Comment</span><span>Share</span>
                     </div>
                 </div>
 
                 {{-- Instagram preview --}}
-                <div x-show="activeTab === 'instagram'" x-cloak class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
+                <div x-show="activeTab === 'instagram'" x-cloak class="rounded-xl overflow-hidden" style="border:1px solid var(--border); background:#fff;">
                     <div class="px-4 pt-4 pb-2 flex items-center gap-3" style="background:#fff;">
                         <div class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style="background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);">
                             <span class="text-white text-xs font-bold">{{ substr(auth()->user()->name, 0, 2) }}</span>
                         </div>
-                        <div class="text-sm font-semibold text-gray-900">{{ strtolower(str_replace(' ', '_', auth()->user()->name)) }}</div>
+                        <div class="text-sm font-semibold" style="color:#262626;">{{ strtolower(str_replace(' ', '_', auth()->user()->name)) }}</div>
                     </div>
                     <template x-if="selectedImages.length">
                         <img :src="selectedImages[0]" alt="" class="w-full object-cover" style="max-height:300px; background:#000;">
                     </template>
                     <div x-show="!selectedImages.length" class="w-full flex items-center justify-center" style="height:200px; background:#f3f4f6;">
-                        <span class="text-xs text-gray-400">Select a photo above</span>
+                        <span class="text-xs" style="color:#8e8e8e;">Select a photo above</span>
                     </div>
-                    <div class="px-4 py-3 text-sm text-gray-800" style="background:#fff;">
+                    <div class="px-4 py-3 text-sm" style="background:#fff; color:#262626;">
                         <span class="font-semibold">{{ strtolower(str_replace(' ', '_', auth()->user()->name)) }}</span>
                         <span class="whitespace-pre-wrap" x-text="' ' + (igCopy || 'Caption will appear here...')"></span>
-                        <div class="mt-1 text-[#00376b] text-xs" x-text="igHashtags"></div>
+                        <div class="mt-1 text-xs" style="color:#00376b;" x-text="igHashtags"></div>
                     </div>
                 </div>
             </div>

@@ -69,6 +69,13 @@ Rules enforced via the Anthropic `system` prompt:
 If the property has almost no data (empty description + empty features), Ellie writes minimal
 copy from the structured facts only — it does not pad.
 
+**Reference numbers & links.** Listing/web/stock reference numbers must NEVER appear in the
+copy (they often live in P24-imported descriptions). They are stripped from the description
+*before* it reaches the model, the model is told never to emit one, and any that slip through
+are stripped from the output. Instead, the system appends the property's **public live-preview
+link** (`route('corex.properties.preview', [property, title-slug])`) as the call-to-action — the
+model is told not to write any URL itself, so the link is always correct and clickable.
+
 ---
 
 ## 5. Failure states (graceful, not a 500)
