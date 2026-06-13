@@ -94,8 +94,8 @@ class AdManagerController extends Controller
             : collect();
 
         $customTemplates = PropertyAdTemplate::orderByDesc('updated_at')
-            ->get(['id', 'name'])
-            ->map(fn ($t) => ['id' => (string) $t->id, 'name' => $t->name])
+            ->get(['id', 'name', 'layout_json'])
+            ->map(fn ($t) => ['id' => (string) $t->id, 'name' => $t->name, 'layout_json' => $t->layout_json])
             ->values();
 
         return view('tools.ad-manager', [
@@ -105,6 +105,38 @@ class AdManagerController extends Controller
             'prebuilt'        => $this->prebuiltTemplates(),
             'customTemplates' => $customTemplates,
         ]);
+    }
+
+    /**
+     * Render every pre-built template for ONE property (the first selected) so the
+     * template picker can show real thumbnails. No AI — just the template images.
+     */
+    public function previews(Request $request): JsonResponse
+    {
+        $data = $request->validate(['property_id' => 'required|integer']);
+
+        /** @var \App\Models\User $user */
+        $user      = auth()->user();
+        $allAgents = $user->hasPermission('ad_manager.all_agents');
+
+        $p = Property::with(['agent', 'branch', 'agency'])->find($data['property_id']);
+        if (! $p) {
+            abort(404);
+        }
+        if (! $allAgents && (int) $p->agent_id !== (int) $user->id) {
+            abort(403);
+        }
+
+        $vars     = $p->adTemplateVars();
+        $prebuilt = [];
+        foreach ($this->prebuiltTemplates() as $t) {
+            $prebuilt[$t['key']] = view('corex.properties._ad-templates', array_merge(
+                ['tpl' => $t['key'], 'baseFontPx' => 16],
+                $vars,
+            ))->render();
+        }
+
+        return response()->json(['ok' => true, 'prebuilt' => $prebuilt, 'data' => $p->adData()]);
     }
 
     public function generate(Request $request): JsonResponse

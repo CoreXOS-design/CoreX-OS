@@ -101,7 +101,7 @@
         {{-- Footer --}}
         <div class="sticky bottom-0 mt-5 py-3 flex items-center justify-between gap-3" style="background:var(--bg, transparent);">
             <div class="text-sm" style="color:var(--text-muted);"><span class="font-bold" style="color:var(--text-primary);" x-text="selected.length"></span> propert<span x-text="selected.length===1?'y':'ies'"></span> selected</div>
-            <button type="button" @click="step='template'" :disabled="!selected.length"
+            <button type="button" @click="goTemplate()" :disabled="!selected.length"
                     class="corex-btn-primary px-5 py-2.5 text-sm font-semibold rounded-xl disabled:opacity-40 disabled:cursor-not-allowed">
                 Next: Choose template →
             </button>
@@ -119,13 +119,17 @@
             </label>
         </div>
 
-        <div class="text-sm font-semibold mb-3" style="color:var(--text-primary);">Pre-built templates</div>
+        <div class="text-sm font-semibold mb-3" style="color:var(--text-primary);">Pre-built templates <span class="font-normal" style="color:var(--text-muted);">— previewed with your first selected property</span></div>
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
             <template x-for="t in prebuilt" :key="t.key">
                 <button type="button" @click="template = t.key"
-                        class="rounded-xl p-4 text-left transition-all"
-                        :style="template===t.key ? 'background:rgba(0,180,216,0.1); border:1.5px solid #00b4d8;' : 'background:var(--surface); border:1.5px solid var(--border);'">
-                    <div class="text-sm font-bold" style="color:var(--text-primary);" x-text="t.name"></div>
+                        class="rounded-xl overflow-hidden text-left transition-all" style="background:var(--surface);"
+                        :style="template===t.key ? 'border:1.5px solid #00b4d8; box-shadow:0 0 0 1px #00b4d8;' : 'border:1.5px solid var(--border);'">
+                    <div class="adm-tpl-thumb" style="width:100%; aspect-ratio:1200/628; overflow:hidden; background:#071325; position:relative;">
+                        <div class="adm-tpl-thumb-inner" style="position:absolute; top:0; left:0; width:1200px; height:628px; transform-origin:top left;" x-html="previews[t.key] || ''"></div>
+                        <div x-show="previewLoading" class="absolute inset-0 flex items-center justify-center text-[11px]" style="color:var(--text-muted); background:var(--surface-2);">Loading…</div>
+                    </div>
+                    <div class="px-3 py-2 text-sm font-bold" style="color:var(--text-primary);" x-text="t.name"></div>
                 </button>
             </template>
         </div>
@@ -136,10 +140,16 @@
                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
                     <template x-for="t in custom" :key="t.id">
                         <button type="button" @click="template = t.id"
-                                class="rounded-xl p-4 text-left transition-all"
-                                :style="template===t.id ? 'background:rgba(0,180,216,0.1); border:1.5px solid #00b4d8;' : 'background:var(--surface); border:1.5px solid var(--border);'">
-                            <div class="text-sm font-bold" style="color:var(--text-primary);" x-text="t.name"></div>
-                            <div class="text-[11px] mt-0.5" style="color:var(--text-muted);">Custom</div>
+                                class="rounded-xl overflow-hidden text-left transition-all" style="background:var(--surface);"
+                                :style="template===t.id ? 'border:1.5px solid #00b4d8; box-shadow:0 0 0 1px #00b4d8;' : 'border:1.5px solid var(--border);'">
+                            <div class="adm-tpl-thumb" style="width:100%; aspect-ratio:1200/628; overflow:hidden; background:#071325; position:relative;">
+                                <div class="adm-tpl-thumb-inner" :id="'tplthumb-custom-'+t.id" style="position:absolute; top:0; left:0; width:1200px; height:628px; transform-origin:top left;"></div>
+                                <div x-show="previewLoading" class="absolute inset-0 flex items-center justify-center text-[11px]" style="color:var(--text-muted); background:var(--surface-2);">Loading…</div>
+                            </div>
+                            <div class="px-3 py-2">
+                                <div class="text-sm font-bold" style="color:var(--text-primary);" x-text="t.name"></div>
+                                <div class="text-[11px]" style="color:var(--text-muted);">Custom</div>
+                            </div>
                         </button>
                     </template>
                 </div>
@@ -214,6 +224,7 @@ const ADM_AGENTS       = @json($agents);
 const ADM_PREBUILT     = @json($prebuilt);
 const ADM_CUSTOM       = @json($customTemplates);
 const ADM_GENERATE_URL = @json(route('tools.ad-manager.generate'));
+const ADM_PREVIEW_URL  = @json(route('tools.ad-manager.previews'));
 const ADM_CSRF         = '{{ csrf_token() }}';
 
 const ADM_IMAGE_FIELDS    = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agency_logo'];
@@ -234,6 +245,13 @@ function adManager() {
         generating: false,
         results: [],
         error: null,
+        previews: {},
+        previewData: null,
+        previewLoading: false,
+
+        init() {
+            window.addEventListener('resize', () => { if (this.step === 'template') this.fitTplThumbs(); });
+        },
 
         agentProperties(agentId) { return this.properties.filter(p => p.agent_id === agentId); },
         agentSelectedCount(agentId) { const ids = this.agentProperties(agentId).map(p => p.id); return this.selected.filter(s => ids.includes(s)).length; },
@@ -255,6 +273,39 @@ function adManager() {
         },
         selectAllEverything() {
             this.properties.map(p => p.id).forEach(i => { if (!this.selected.includes(i)) this.selected.push(i); });
+        },
+
+        // Move to the template step and load real thumbnails from the first
+        // selected property (no AI — just the template images).
+        async goTemplate() {
+            if (!this.selected.length) return;
+            this.step = 'template';
+            await this.loadPreviews();
+        },
+        async loadPreviews() {
+            if (!this.selected.length) return;
+            this.previewLoading = true; this.previews = {}; this.previewData = null;
+            try {
+                const res = await fetch(ADM_PREVIEW_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': ADM_CSRF, 'Accept': 'application/json' },
+                    body: JSON.stringify({ property_id: this.selected[0] }),
+                });
+                const data = await res.json();
+                if (res.ok && data.ok) { this.previews = data.prebuilt; this.previewData = data.data; }
+            } catch (e) { /* leave previews empty — names still show */ }
+            this.previewLoading = false;
+            this.$nextTick(() => {
+                this.fitTplThumbs();
+                this.custom.forEach(t => this.renderCustomInto(t.layout_json, this.previewData, document.getElementById('tplthumb-custom-' + t.id)));
+                this.fitTplThumbs();
+            });
+        },
+        fitTplThumbs() {
+            document.querySelectorAll('.adm-tpl-thumb-inner').forEach(inner => {
+                const wrap = inner.parentElement;
+                if (wrap && wrap.clientWidth) inner.style.transform = 'scale(' + (wrap.clientWidth / 1200) + ')';
+            });
         },
 
         async generate() {
@@ -313,11 +364,12 @@ function adManager() {
             if (!m) return hex;
             return 'rgba(' + parseInt(m[1],16) + ',' + parseInt(m[2],16) + ',' + parseInt(m[3],16) + ',' + a + ')';
         },
-        renderCustom(r) {
-            const root = document.getElementById('adm-canvas-' + r.id);
-            if (!root || !r.layout) return;
+        renderCustom(r) { this.renderCustomInto(r.layout, r.data, document.getElementById('adm-canvas-' + r.id)); },
+        renderCustomInto(layout, prop, root) {
+            if (!root || !layout) return;
+            prop = prop || {};
             root.innerHTML = '';
-            const l = r.layout, prop = r.data || {};
+            const l = layout;
             if (l.canvasBgMode === 'gradient') root.style.background = 'linear-gradient(' + (l.canvasBgAngle ?? 160) + 'deg,' + l.canvasBgFrom + ',' + l.canvasBgTo + ')';
             else root.style.background = l.canvasBg || '#071325';
             root.style.width = (l.canvasW || 1200) + 'px';

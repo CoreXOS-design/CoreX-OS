@@ -658,6 +658,7 @@ Route::middleware(['auth'])->group(function () {
 
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
     Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager');
+    Route::post('/tools/ad-manager/previews', [\App\Http\Controllers\Tools\AdManagerController::class, 'previews'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager.previews');
     Route::post('/tools/ad-manager/generate', [\App\Http\Controllers\Tools\AdManagerController::class, 'generate'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager.generate');
 
     // Tools History (backend)
