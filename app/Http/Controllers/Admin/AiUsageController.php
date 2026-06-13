@@ -142,9 +142,11 @@ class AiUsageController extends Controller
         $monthEnd   = $monthCarbon->copy()->endOfMonth();
 
         // Raw ledger query (bypasses any model scope) scoped to this agency + month.
+        // Columns are fully qualified — `users` (joined below) also has agency_id,
+        // so an unqualified where('agency_id') is ambiguous.
         $base = fn () => DB::table('ai_usage_events')
-            ->where('agency_id', $agency->id)
-            ->whereBetween('occurred_at', [$monthStart, $monthEnd]);
+            ->where('ai_usage_events.agency_id', $agency->id)
+            ->whereBetween('ai_usage_events.occurred_at', [$monthStart, $monthEnd]);
 
         $totals = $base()
             ->selectRaw('COALESCE(SUM(cost_zar),0) AS cost, COALESCE(SUM(input_tokens),0) AS inp, COALESCE(SUM(output_tokens),0) AS outp, COUNT(*) AS gens')
