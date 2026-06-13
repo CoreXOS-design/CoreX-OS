@@ -37,10 +37,12 @@ class MarketingCopyService
      *
      * @return array{primary: string, headline: string, hashtags: array<string>}
      *
+     * @param  bool  $emojis  When true, Ellie sprinkles tasteful emojis through the copy.
+     *
      * @throws AiCopyUnavailableException for expected states (no key, disabled, budget capped)
      * @throws \RuntimeException          for unexpected upstream/parse failures
      */
-    public function generateAdCopy(Property $property, string $platform): array
+    public function generateAdCopy(Property $property, string $platform, bool $emojis = false): array
     {
         if (! config('services.anthropic.enabled', true)) {
             throw new AiCopyUnavailableException('Ellie AI is disabled on this environment.');
@@ -73,6 +75,10 @@ class MarketingCopyService
             Return a JSON object: "primary" (the ad copy), "headline" (6–10 words), "hashtags" (empty array).
             INST;
 
+        $emojiRule = $emojis
+            ? 'Use a few tasteful, relevant emojis (e.g. 🏡 📍 🛏️ 🚿 ✨) spread through the copy to make it warm and scannable — keep it professional and do not overuse them.'
+            : 'Do NOT use any emojis.';
+
         $system = <<<SYS
         You are Ellie, a South African real estate copywriter. You draft listing ad copy STRICTLY from the property data you are given — nothing else.
 
@@ -82,6 +88,7 @@ class MarketingCopyService
         - If something is not in the data, do not mention it. Never guess to fill a gap.
         - You may rephrase, summarise and arrange the given facts attractively. You may NOT add new facts.
         - Currency is ZAR (South African Rand). Write for a South African buyer audience.
+        - {$emojiRule}
         - NEVER include a listing reference, web reference, stock number, agent code, or any ID number — omit them entirely, even if one appears in the description.
         - Do NOT write any URL, link, email address or phone number yourself. The system appends the official property link automatically.
         - Return ONLY valid JSON — no commentary, no markdown code fences.

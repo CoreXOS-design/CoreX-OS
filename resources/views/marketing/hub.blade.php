@@ -23,6 +23,7 @@
          publishResults: {},
          fbMode: null,
          igMode: null,
+         useEmojis: false,
          get copyKey() { return 'corex_mktg_copy_{{ $property->id }}'; },
          init() {
              // Restore any in-progress copy so navigating to the template picker
@@ -38,15 +39,17 @@
                      this.igCopy     = s.igCopy || '';
                      this.igHeadline = s.igHeadline || '';
                      this.igHashtags = s.igHashtags || '';
+                     if (typeof s.useEmojis === 'boolean') this.useEmojis = s.useEmojis;
                  }
              } catch (e) {}
-             ['fbCopy','fbHeadline','igCopy','igHeadline','igHashtags','fbMode','igMode','activeTab']
+             ['fbCopy','fbHeadline','igCopy','igHeadline','igHashtags','fbMode','igMode','activeTab','useEmojis']
                  .forEach(k => this.$watch(k, () => this.persistCopy()));
          },
          persistCopy() {
              try {
                  localStorage.setItem(this.copyKey, JSON.stringify({
                      activeTab: this.activeTab, fbMode: this.fbMode, igMode: this.igMode,
+                     useEmojis: this.useEmojis,
                      fbCopy: this.fbCopy, fbHeadline: this.fbHeadline,
                      igCopy: this.igCopy, igHeadline: this.igHeadline, igHashtags: this.igHashtags,
                  }));
@@ -66,7 +69,7 @@
                  const resp = await fetch('{{ route('corex.properties.marketing.generateCopy', $property) }}', {
                      method: 'POST',
                      headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
-                     body: JSON.stringify({ platform }),
+                     body: JSON.stringify({ platform, emojis: this.useEmojis }),
                  });
                  const data = await resp.json();
                  if (data.ok && data.copy) {
@@ -250,6 +253,11 @@
                             <span class="text-xs" style="color:var(--text-muted);" x-text="fbMode === 'ai' ? 'AI-generated copy — edit as needed' : 'Write your own copy'"></span>
                             <button type="button" @click="fbMode = null; fbCopy = ''; fbHeadline = ''" class="text-xs" style="color:var(--text-muted);">← Change</button>
                         </div>
+                        {{-- Emoji option — when on, Ellie writes the copy with tasteful emojis --}}
+                        <label class="flex items-center gap-2 mb-3 cursor-pointer select-none">
+                            <input type="checkbox" x-model="useEmojis" @change="if (fbMode === 'ai' && fbCopy.trim() && !generating) regenerate('facebook')" class="rounded">
+                            <span class="text-xs" style="color:var(--text-secondary);">Include emojis ✨ <span style="color:var(--text-muted);">— Ellie adds tasteful emojis to the copy</span></span>
+                        </label>
                         <label class="block text-xs font-semibold mb-1.5" style="color:var(--text-muted);">Headline</label>
                         <input type="text" x-model="fbHeadline" placeholder="Short headline..."
                                class="w-full rounded-lg px-3 py-2 text-sm mb-3"

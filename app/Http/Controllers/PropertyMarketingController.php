@@ -60,12 +60,13 @@ class PropertyMarketingController extends Controller
     {
         $this->authorizeProperty($property);
 
-        $platform = $request->validate([
+        $data = $request->validate([
             'platform' => 'required|in:facebook,instagram',
-        ])['platform'];
+            'emojis'   => 'sometimes|boolean',
+        ]);
 
         try {
-            $copy = $this->copyService->generateAdCopy($property, $platform);
+            $copy = $this->copyService->generateAdCopy($property, $data['platform'], (bool) ($data['emojis'] ?? false));
             return response()->json(['ok' => true, 'copy' => $copy]);
         } catch (AiCopyUnavailableException $e) {
             // Expected, user-facing state (no key / disabled / budget) — show the message.

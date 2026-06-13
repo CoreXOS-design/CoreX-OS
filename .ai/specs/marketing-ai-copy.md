@@ -69,6 +69,13 @@ Rules enforced via the Anthropic `system` prompt:
 If the property has almost no data (empty description + empty features), Ellie writes minimal
 copy from the structured facts only — it does not pad.
 
+**Emoji option.** The Facebook editor has an "Include emojis ✨" toggle. When on, the request
+sends `emojis: true` and the system prompt instructs Ellie to add a few tasteful, relevant
+emojis (🏡 📍 🛏️ 🚿 ✨) without overusing them; when off (default), the prompt forbids emojis
+entirely. Toggling it in AI mode re-generates the copy so the change is immediate. The setting
+persists with the rest of the draft (localStorage, per property). Emojis are decorative and do
+not relax the grounding rule — no new factual claims are introduced.
+
 **Reference numbers & links.** Listing/web/stock reference numbers must NEVER appear in the
 copy (they often live in P24-imported descriptions). They are stripped from the description
 *before* it reaches the model, the model is told never to emit one, and any that slip through
