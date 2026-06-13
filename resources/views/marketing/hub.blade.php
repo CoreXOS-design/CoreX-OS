@@ -21,6 +21,36 @@
          publishResults: {},
          fbMode: null,
          igMode: null,
+         get copyKey() { return 'corex_mktg_copy_{{ $property->id }}'; },
+         init() {
+             // Restore any in-progress copy so navigating to the template picker
+             // and back does not lose the generated/typed description.
+             try {
+                 const s = JSON.parse(localStorage.getItem(this.copyKey) || 'null');
+                 if (s) {
+                     this.activeTab  = s.activeTab || this.activeTab;
+                     this.fbMode     = s.fbMode || this.fbMode;
+                     this.igMode     = s.igMode || this.igMode;
+                     this.fbCopy     = s.fbCopy || '';
+                     this.fbHeadline = s.fbHeadline || '';
+                     this.igCopy     = s.igCopy || '';
+                     this.igHeadline = s.igHeadline || '';
+                     this.igHashtags = s.igHashtags || '';
+                 }
+             } catch (e) {}
+             ['fbCopy','fbHeadline','igCopy','igHeadline','igHashtags','fbMode','igMode','activeTab']
+                 .forEach(k => this.$watch(k, () => this.persistCopy()));
+         },
+         persistCopy() {
+             try {
+                 localStorage.setItem(this.copyKey, JSON.stringify({
+                     activeTab: this.activeTab, fbMode: this.fbMode, igMode: this.igMode,
+                     fbCopy: this.fbCopy, fbHeadline: this.fbHeadline,
+                     igCopy: this.igCopy, igHeadline: this.igHeadline, igHashtags: this.igHashtags,
+                 }));
+             } catch (e) {}
+         },
+         clearSavedCopy() { try { localStorage.removeItem(this.copyKey); } catch (e) {} },
          toggleImage(url) {
              if (this.selectedImages.includes(url)) {
                  this.selectedImages = this.selectedImages.filter(u => u !== url);
@@ -72,6 +102,7 @@
                  const data = await resp.json();
                  if (data.results) {
                      this.publishResults = data.results;
+                     this.clearSavedCopy(); // published — drop the saved draft
                      // Reload after 2s to show new post in history
                      setTimeout(() => window.location.reload(), 2000);
                  } else {
