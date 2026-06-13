@@ -65,6 +65,15 @@ Route::get('/legal/privacy/{token}', [\App\Http\Controllers\Public\PrivacyPolicy
     ->middleware('throttle:60,1')
     ->name('public.privacy-policy');
 
+// CoreX OS platform legal pages (Meta/Facebook App Review). Public, no auth —
+// Meta's crawler fetches these without logging in. See LegalController.
+Route::get('/privacy', [\App\Http\Controllers\Public\LegalController::class, 'privacy'])
+    ->middleware('throttle:60,1')
+    ->name('public.platform-privacy');
+Route::get('/data-deletion', [\App\Http\Controllers\Public\LegalController::class, 'dataDeletion'])
+    ->middleware('throttle:60,1')
+    ->name('public.data-deletion');
+
 Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
     ->where('shortcode', '[A-Za-z0-9]{6}')
     ->middleware('throttle:10,60')
@@ -1858,6 +1867,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:edit_permissions')->name('corex.role-manager.roles.destroy');
     Route::post('/role-manager/copy-permissions', [CoreXRoleManagerController::class, 'copyPermissions'])
         ->middleware('permission:edit_permissions')->name('corex.role-manager.copy');
+
+    // Integrations — System Developer hub for external platform connections
+    // (Meta/Facebook OAuth config + public legal page URLs). Owner-only.
+    Route::middleware('owner_only')->prefix('admin/integrations')->name('admin.integrations.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\IntegrationsController::class, 'index'])->name('index');
+    });
 
     // Dev Settings — system-wide developer overrides (owner-only).
     Route::middleware('owner_only')->prefix('admin/dev-settings')->name('admin.dev-settings.')->group(function () {

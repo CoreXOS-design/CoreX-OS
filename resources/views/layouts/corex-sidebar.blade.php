@@ -147,6 +147,8 @@
         $activeGroup = 'importer';
     } elseif (request()->routeIs('deals-v2.*')) {
         $activeGroup = 'deals-v2';
+    } elseif (request()->routeIs('admin.integrations.*')) {
+        $activeGroup = 'integration';
     }
 @endphp
 
@@ -1379,6 +1381,29 @@
             </svg>
             <span>Dev Settings</span>
         </a>
+
+        {{-- Integration (slide-panel group: Meta config + public legal pages) --}}
+        <div>
+            <button type="button" @click="push('integration')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'integration' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+                </svg>
+                <span>Integration</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'integration' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('integration') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Integration</div>
+                <a href="{{ route('admin.integrations.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.integrations.*') ? 'active' : '' }}">Meta (Facebook &amp; Instagram)</a>
+                <a href="{{ route('public.platform-privacy') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Privacy Policy ↗</a>
+                <a href="{{ route('public.data-deletion') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Data Deletion ↗</a>
+            </div>
+        </div>
 
         {{-- Developer Users --}}
         <a href="{{ route('admin.developer-users.index') }}" class="corex-nav-item {{ request()->routeIs('admin.developer-users.*') ? 'active' : '' }}">
