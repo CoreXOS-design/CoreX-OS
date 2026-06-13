@@ -730,15 +730,7 @@
                 <a href="{{ route('tools.commission') }}" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && !request()->query('section') ? 'active' : '' }}">Commission Calculator</a>
                 <a href="{{ route('tools.cma') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma') ? 'active' : '' }}">CMA Certificate Generator</a>
                 <a href="{{ route('tools.commission') }}?section=history" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && request()->query('section') === 'history' ? 'active' : '' }}">History & Logs</a>
-                @permission('access_ad_manager')
-                <a href="{{ route('tools.ad-manager') }}" class="corex-nav-subitem {{ request()->routeIs('tools.ad-manager') ? 'active' : '' }}">Ad Manager</a>
                 @endpermission
-                @endpermission
-                {{-- Tools header for users who have Ad Manager but not the calculators --}}
-                @if(!auth()->user()?->hasPermission('access_calculators') && auth()->user()?->hasPermission('access_ad_manager'))
-                <div class="corex-nav-sublabel">Tools</div>
-                <a href="{{ route('tools.ad-manager') }}" class="corex-nav-subitem {{ request()->routeIs('tools.ad-manager') ? 'active' : '' }}">Ad Manager</a>
-                @endif
             </div>
         </div>
         @endpermission
@@ -1061,6 +1053,19 @@
                 <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
             </svg>
             <span>Ellie AI</span>
+        </a>
+        @endif
+        @endpermission
+
+        {{-- Ad Manager --}}
+        @permission('access_ad_manager')
+        @if(\Illuminate\Support\Facades\Route::has('tools.ad-manager'))
+        <a href="{{ route('tools.ad-manager') }}" class="corex-nav-item {{ request()->routeIs('tools.ad-manager') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m3 11 18-5v12L3 14v-3z"/>
+                <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>
+            </svg>
+            <span>Ad Manager</span>
         </a>
         @endif
         @endpermission
