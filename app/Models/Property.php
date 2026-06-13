@@ -785,24 +785,22 @@ class Property extends Model
             return null;
         }
 
+        // Host-relative → absolute on the current host.
         if (str_starts_with($u, '/')) {
-            return asset(ltrim($u, '/')); // host-relative → absolute on current host
+            return asset(ltrim($u, '/'));
         }
 
-        $path    = parse_url($u, PHP_URL_PATH) ?: '';
-        $host    = parse_url($u, PHP_URL_HOST);
-        $appHost = parse_url((string) config('app.url'), PHP_URL_HOST);
-
-        // Our public storage → re-home onto the current host (fixes baked-in host/scheme).
-        if ($path !== '' && str_starts_with($path, '/storage/')) {
-            return asset(ltrim($path, '/'));
-        }
-        // Any other URL on our own host → re-home too.
-        if ($host && $appHost && $host === $appHost && $path !== '') {
-            return asset(ltrim($path, '/'));
+        // CONSERVATIVE: only re-home URLs baked with a local/dev host (common after
+        // copying a dev DB to staging/prod). Every other working absolute URL —
+        // staging, prod, a CDN, or an external source — is left exactly as stored,
+        // so we never rewrite a URL that already loads.
+        $host = strtolower((string) parse_url($u, PHP_URL_HOST));
+        if (in_array($host, ['localhost', '127.0.0.1', '0.0.0.0', '::1'], true)) {
+            $path = parse_url($u, PHP_URL_PATH) ?: '';
+            return $path !== '' ? asset(ltrim($path, '/')) : $u;
         }
 
-        return $u; // genuinely external → leave as-is
+        return $u;
     }
 
     /**
