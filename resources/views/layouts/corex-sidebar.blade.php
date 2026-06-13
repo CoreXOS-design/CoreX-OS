@@ -730,7 +730,15 @@
                 <a href="{{ route('tools.commission') }}" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && !request()->query('section') ? 'active' : '' }}">Commission Calculator</a>
                 <a href="{{ route('tools.cma') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma') ? 'active' : '' }}">CMA Certificate Generator</a>
                 <a href="{{ route('tools.commission') }}?section=history" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && request()->query('section') === 'history' ? 'active' : '' }}">History & Logs</a>
+                @permission('access_ad_manager')
+                <a href="{{ route('tools.ad-manager') }}" class="corex-nav-subitem {{ request()->routeIs('tools.ad-manager') ? 'active' : '' }}">Ad Manager</a>
                 @endpermission
+                @endpermission
+                {{-- Tools header for users who have Ad Manager but not the calculators --}}
+                @if(!auth()->user()?->hasPermission('access_calculators') && auth()->user()?->hasPermission('access_ad_manager'))
+                <div class="corex-nav-sublabel">Tools</div>
+                <a href="{{ route('tools.ad-manager') }}" class="corex-nav-subitem {{ request()->routeIs('tools.ad-manager') ? 'active' : '' }}">Ad Manager</a>
+                @endif
             </div>
         </div>
         @endpermission

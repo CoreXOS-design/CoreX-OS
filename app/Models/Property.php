@@ -768,6 +768,43 @@ class Property extends Model
     }
 
     /**
+     * The variable set the `_ad-templates` Blade partial expects, derived from
+     * adData(). Lets any caller (the single-property ad page AND the bulk Ad
+     * Manager) server-render a pre-built template for this property from one
+     * source of truth.
+     *
+     * @return array<string,mixed>
+     */
+    public function adTemplateVars(): array
+    {
+        $d = $this->adData();
+
+        return [
+            'img1'        => $d['image_1'],
+            'img2'        => $d['image_2'],
+            'img3'        => $d['image_3'],
+            'img4'        => $d['image_4'],
+            'img5'        => $d['image_5'],
+            'price'       => $d['price'],
+            'title'       => $d['title'],
+            'suburb'      => $d['suburb'],
+            'type'        => $d['property_type'],
+            'beds'        => $d['beds'],
+            'baths'       => $d['baths'],
+            'garages'     => $d['garages'],
+            'size'        => $d['size_m2'],
+            'initial'     => strtoupper(mb_substr((string) ($this->agent?->name ?? 'A'), 0, 1)),
+            'agentName'   => $d['agent_name'],
+            'agentEmail'  => $d['agent_email'],
+            'agentDesig'  => $d['agent_designation'],
+            'agencyName'  => strtoupper((string) $d['agency_name']),
+            'website'     => strtoupper((string) $d['website']),
+            'logoUrl'     => $d['logo'],
+            'statusBadge' => $d['status_badge'],
+        ];
+    }
+
+    /**
      * Normalise a stored image URL to one that actually loads in the browser
      * (and that Meta can fetch when publishing). Our public storage is always
      * served at `/storage/...`; stored URLs can carry a stale/localhost host or

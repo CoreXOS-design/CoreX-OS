@@ -656,6 +656,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/commission', [ToolsController::class, 'commission'])->middleware('permission:access_calculators')->name('tools.commission');
     Route::get('/tools/cma', [ToolsController::class, 'cma'])->middleware('permission:access_calculators')->name('tools.cma');
 
+    // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
+    Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager');
+    Route::post('/tools/ad-manager/generate', [\App\Http\Controllers\Tools\AdManagerController::class, 'generate'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager.generate');
+
     // Tools History (backend)
     Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');
     Route::post('/tools/history', [ToolsController::class, 'historyStore'])->middleware('permission:access_calculators')->name('tools.history.store');

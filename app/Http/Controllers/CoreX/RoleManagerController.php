@@ -90,6 +90,7 @@ class RoleManagerController extends Controller
             'contacts'         => 'Contacts',
             'core_matches'     => 'Core Matches',
             'calculators'      => 'Calculators & Tools',
+            'ad_manager'       => 'Ad Manager',
             'ellie'            => 'Ellie AI',
             'p24'              => 'P24 Market Intel',
             'prospecting'      => 'Prospecting',

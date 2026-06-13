@@ -180,6 +180,41 @@ presets (LinkedIn 1200×627, Pinterest 1000×1500).
 
 ---
 
+## 10b. Bulk Ad Manager (Tools)
+
+A standalone page at **Tools → Ad Manager** (`/tools/ad-manager`) for producing ads for
+**many properties at once**.
+
+**Flow**
+1. **Select properties.** A user with the all-agents permission sees every agency agent as a
+   collapsible group; they expand an agent, tick that agent's properties (or "select all" for
+   the agent), and can "skip" an agent. Selections accumulate across agents. A user without it
+   sees only their own properties.
+2. **Choose a template** — any pre-built template or an agency custom template.
+3. **Generate.** The result is a list (one row per property) each with: the rendered ad + a
+   **Download PNG** button, and the **AI description** (copy-to-clipboard). Optional "Include
+   emojis ✨" toggle.
+
+**Permissions (role manager)** — new, catalogue-driven, under the **Tools → Ad Manager** feature:
+- `access_ad_manager` (access) — use the page + see the nav entry.
+- `ad_manager.all_agents` (action) — generate ads for **any** agent's properties (and get the
+  agent picker). Without it, the user is limited to their **own** properties. Enforced
+  server-side per property in `generate()` — never trusted from the client.
+- Defaults: super_admin (all), admin + branch_manager → both; agent → `access_ad_manager`
+  only (own properties). This is the "Agents do their own, admins do all agents" rule.
+
+**Rendering** — the server renders the chosen pre-built template to HTML per property via the
+shared `_ad-templates` partial (fed by `Property::adTemplateVars()`); the client shows it and
+captures a PNG with html2canvas (images are same-origin via `publicImageUrl`, no `crossorigin`).
+Custom templates return `layout_json` + `adData` and render client-side.
+
+**Descriptions** — same `MarketingCopyService` (lowest tier, strict grounding, live-preview
+link, no invented facts, optional emojis). Each call is budget-gated + cost-logged. If AI is
+unavailable (no key / budget), the ad image still renders; the row shows the reason instead of
+copy. Batch capped at 50 properties.
+
+---
+
 ## 11. Files to create / modify
 
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — property-aware builder,
