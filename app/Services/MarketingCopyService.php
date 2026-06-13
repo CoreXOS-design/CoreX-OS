@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\AiCopyUnavailableException;
 use App\Models\AI\AiUsageEvent;
 use App\Models\Property;
 use App\Services\AI\AiUsageRecorder;
@@ -9,90 +10,101 @@ use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Generates AI-assisted ad copy for property marketing.
- * Uses the Anthropic Claude API (same pattern as AIExtractionService).
+ * Generates AI-assisted ad copy for property marketing ("Generate with Ellie AI").
+ *
+ * Uses the system's LOWEST-cost model tier (config services.anthropic.models.fast →
+ * claude-haiku-4-5) via a direct Anthropic call — the same pattern as the other
+ * non-MIC callers (VisionRecognition, IntentExtraction).
+ *
+ * STRICT grounding contract (spec marketing-ai-copy.md §4): Ellie may only state
+ * facts that appear in the property's structured attributes, its features list, or
+ * its description. It must never invent, infer, or embellish — no amenity, view,
+ * neighbourhood, school, condition or lifestyle claim that is not explicitly present.
  */
 class MarketingCopyService
 {
-    private const MODEL = 'claude-haiku-4-5-20251001';
+    /** Fallback model id if config is absent. Lowest tier (Haiku 4.5). */
+    private const MODEL_FALLBACK = 'claude-haiku-4-5-20251001';
 
     public function __construct(
         private Client $http = new Client(['timeout' => 60, 'connect_timeout' => 10]),
     ) {}
 
     /**
-     * Generate platform-specific ad copy for a property.
+     * Generate platform-specific ad copy for a property, grounded strictly in the
+     * property's own data.
      *
      * @return array{primary: string, headline: string, hashtags: array<string>}
+     *
+     * @throws AiCopyUnavailableException for expected states (no key, disabled, budget capped)
+     * @throws \RuntimeException          for unexpected upstream/parse failures
      */
     public function generateAdCopy(Property $property, string $platform): array
     {
+        if (! config('services.anthropic.enabled', true)) {
+            throw new AiCopyUnavailableException('Ellie AI is disabled on this environment.');
+        }
+
         $apiKey = $this->apiKey();
         if ($apiKey === '') {
-            throw new \RuntimeException('ANTHROPIC_API_KEY is not configured.');
+            throw new AiCopyUnavailableException("Ellie AI isn't configured on this environment yet.");
         }
 
-        $price   = $property->price ? 'R ' . number_format((int) $property->price, 0, '.', ' ') : 'Price on Application';
-        $beds    = $property->beds ?? 0;
-        $baths   = $property->baths ?? 0;
-        $garages = $property->garages ?? 0;
-        $size    = $property->size_m2 ? number_format((int) $property->size_m2) . ' m²' : 'N/A';
-        $type    = $property->property_type ?? 'Property';
-        $suburb  = $property->suburb ?? '';
-        $city    = $property->city ?? '';
-        $desc    = $property->description ?? $property->excerpt ?? '';
-
-        $features = implode(', ', array_filter($property->features_json ?? []));
-
-        $location = trim($suburb . ($city ? ', ' . $city : ''));
-
-        if ($platform === 'instagram') {
-            $platformInstruction = <<<INST
-Write punchy, visual-first Instagram ad copy of 80–120 words for this property.
-Include 15–20 relevant South African real estate hashtags at the end.
-Return a JSON object with keys: "primary" (the caption text, without hashtags), "headline" (6–10 words), "hashtags" (array of strings including the # symbol).
-INST;
-        } else {
-            $platformInstruction = <<<INST
-Write professional, feature-rich Facebook ad copy of 150–250 words for this property.
-Include the price. End with a clear call to action to contact the agent.
-Return a JSON object with keys: "primary" (the full ad copy), "headline" (6–10 words), "hashtags" (empty array).
-INST;
+        // Multi-tenant AI budget gate — never spend past the agency's monthly cap.
+        if ($property->agency && ! $property->agency->canMakeAiCall()) {
+            throw new AiCopyUnavailableException("Your agency's monthly AI budget has been reached.");
         }
 
+        $model = (string) (config('services.anthropic.models.fast') ?: self::MODEL_FALLBACK);
+
+        [$factLines, $featureLine, $descriptionLine] = $this->collectAllowedFacts($property);
+
+        $platformInstruction = $platform === 'instagram'
+            ? <<<INST
+            Write punchy, visual-first Instagram caption copy of 80–120 words.
+            After the caption, add 10–15 hashtags built ONLY from the property type, location and listed features above (e.g. #ProprtyType, #Suburb). Do not coin hashtags that imply a feature the property does not have.
+            Return a JSON object: "primary" (the caption, no hashtags), "headline" (6–10 words), "hashtags" (array of strings each starting with #).
+            INST
+            : <<<INST
+            Write professional Facebook ad copy of 120–220 words.
+            State the price if it is provided above. End with a clear call to action to contact the agent.
+            Return a JSON object: "primary" (the ad copy), "headline" (6–10 words), "hashtags" (empty array).
+            INST;
+
+        $system = <<<SYS
+        You are Ellie, a South African real estate copywriter. You draft listing ad copy STRICTLY from the property data you are given — nothing else.
+
+        Hard rules, follow exactly:
+        - Use ONLY the facts in "PROPERTY DATA" below. Every statement in your copy must be supported by that data.
+        - Never invent, infer, assume, or embellish. Do NOT mention any feature, amenity, view, finish, security, garden, pool, neighbourhood, school, beach, distance, transport, investment, lifestyle or condition claim that is not explicitly present in the data.
+        - If something is not in the data, do not mention it. Never guess to fill a gap.
+        - You may rephrase, summarise and arrange the given facts attractively. You may NOT add new facts.
+        - Currency is ZAR (South African Rand). Write for a South African buyer audience.
+        - Return ONLY valid JSON — no commentary, no markdown code fences.
+        SYS;
+
+        $facts  = $factLines === '' ? '(no structured attributes captured)' : $factLines;
         $prompt = <<<PROMPT
-You are a South African real estate marketing specialist.
+        PROPERTY DATA (the only facts you may use):
+        {$facts}
+        Features: {$featureLine}
+        Description: {$descriptionLine}
 
-Property details:
-- Type: {$type}
-- Bedrooms: {$beds}
-- Bathrooms: {$baths}
-- Garages: {$garages}
-- Floor size: {$size}
-- Price: {$price}
-- Location: {$location}
-- Features: {$features}
-- Description: {$desc}
-
-{$platformInstruction}
-
-IMPORTANT:
-- All currency in ZAR (South African Rand).
-- Write as if speaking to a South African buyer audience.
-- Do NOT invent features not listed above.
-- Return only valid JSON, no explanation text.
-PROMPT;
+        TASK:
+        {$platformInstruction}
+        PROMPT;
 
         try {
-            $response = $this->http->post('https://api.anthropic.com/v1/messages', [
+            $response = $this->http->post(rtrim((string) config('services.anthropic.api_base', 'https://api.anthropic.com'), '/') . '/v1/messages', [
                 'headers' => [
                     'x-api-key'         => $apiKey,
                     'anthropic-version' => '2023-06-01',
                     'content-type'      => 'application/json',
                 ],
                 'json' => [
-                    'model'      => self::MODEL,
+                    'model'      => $model,
                     'max_tokens' => 1024,
+                    'system'     => $system,
                     'messages'   => [
                         ['role' => 'user', 'content' => $prompt],
                     ],
@@ -108,14 +120,14 @@ PROMPT;
 
             $parsed = json_decode(trim($content), true);
 
-            if (!is_array($parsed) || empty($parsed['primary'])) {
+            if (! is_array($parsed) || empty($parsed['primary'])) {
                 throw new \RuntimeException('MarketingCopyService: unexpected API response structure. Raw: ' . $content);
             }
 
             // Cost ledger — marketing copy spend (spec ai-cost-ledger.md §4.3).
             app(AiUsageRecorder::class)->record(
                 source:       AiUsageEvent::SOURCE_MARKETING_COPY,
-                model:        self::MODEL,
+                model:        $model,
                 inputTokens:  (int) ($body['usage']['input_tokens']  ?? 0),
                 outputTokens: (int) ($body['usage']['output_tokens'] ?? 0),
                 agencyId:     $property->agency_id,
@@ -125,7 +137,7 @@ PROMPT;
             return [
                 'primary'   => (string) ($parsed['primary'] ?? ''),
                 'headline'  => (string) ($parsed['headline'] ?? ''),
-                'hashtags'  => (array)  ($parsed['hashtags'] ?? []),
+                'hashtags'  => array_values(array_filter((array) ($parsed['hashtags'] ?? []))),
             ];
         } catch (\Throwable $e) {
             Log::error('MarketingCopyService::generateAdCopy failed: ' . $e->getMessage(), [
@@ -134,6 +146,98 @@ PROMPT;
             ]);
             throw new \RuntimeException('Ad copy generation failed: ' . $e->getMessage(), 0, $e);
         }
+    }
+
+    /**
+     * Build the closed set of allowed facts from the property. Only attributes that
+     * are actually set are included — empty/zero fields are omitted so Ellie never
+     * sees (and never writes about) a value the property doesn't have.
+     *
+     * @return array{0:string,1:string,2:string} [factLines, featureLine, descriptionLine]
+     */
+    private function collectAllowedFacts(Property $property): array
+    {
+        $lines = [];
+
+        if ($property->property_type) {
+            $lines[] = '- Type: ' . ucwords(str_replace('_', ' ', (string) $property->property_type));
+        }
+        if ((int) $property->beds > 0) {
+            $lines[] = '- Bedrooms: ' . (int) $property->beds;
+        }
+        if ((float) $property->baths > 0) {
+            $baths   = (float) $property->baths;
+            $lines[] = '- Bathrooms: ' . ($baths == (int) $baths ? (int) $baths : $baths);
+        }
+        if ((int) $property->garages > 0) {
+            $lines[] = '- Garages: ' . (int) $property->garages;
+        }
+        if ((int) $property->size_m2 > 0) {
+            $lines[] = '- Floor size: ' . number_format((int) $property->size_m2) . ' m²';
+        }
+        $lines[] = '- Price: ' . ($property->price
+            ? 'R ' . number_format((int) $property->price, 0, '.', ' ')
+            : 'Price on application');
+
+        $location = trim(((string) $property->suburb) . ($property->city ? ', ' . $property->city : ''), ', ');
+        if ($location !== '') {
+            $lines[] = '- Location: ' . $location;
+        }
+
+        $features    = $this->extractFeatures($property->features_json ?? []);
+        $featureLine = $features === [] ? '(none listed — do not invent any)' : implode(', ', $features);
+
+        $description     = trim((string) ($property->description ?: $property->excerpt ?: ''));
+        $descriptionLine = $description === '' ? '(none provided — do not invent one)' : $description;
+
+        return [implode("\n", $lines), $featureLine, $descriptionLine];
+    }
+
+    /**
+     * Normalise features_json into a clean human list, handling BOTH shapes:
+     *   - a list of strings: ["Pool", "Garden"]
+     *   - a map of flags:     {"pool": true, "garden": false, "garage_spaces": 2, "listing_visibility": "Public"}
+     *
+     * Only genuine, present features survive: boolean TRUE flags and positive
+     * numerics. `false` flags (absent features) and known non-feature config keys
+     * (e.g. listing_visibility) are dropped — so the model never sees, and never
+     * writes about, a feature the property doesn't have. String-valued map entries
+     * are skipped (they're config, not features) to keep the grounding airtight.
+     *
+     * @param  array<mixed>  $raw
+     * @return array<int,string>
+     */
+    private function extractFeatures(array $raw): array
+    {
+        // Keys that live in features_json but are NOT marketable features.
+        $skip = ['listing_visibility', 'visibility', 'status'];
+
+        if (array_is_list($raw)) {
+            return array_values(array_filter(array_map(
+                static fn ($f) => trim((string) $f),
+                $raw,
+            )));
+        }
+
+        $out = [];
+        foreach ($raw as $key => $val) {
+            if (in_array((string) $key, $skip, true)) {
+                continue;
+            }
+            $label = ucwords(str_replace('_', ' ', (string) $key));
+            if (is_bool($val)) {
+                if ($val === true) {
+                    $out[] = $label;
+                }
+            } elseif (is_int($val) || is_float($val)) {
+                if ((float) $val > 0) {
+                    $out[] = $label . ': ' . ($val == (int) $val ? (int) $val : $val);
+                }
+            }
+            // string-valued map entries are intentionally skipped (config, not features)
+        }
+
+        return $out;
     }
 
     private function apiKey(): string

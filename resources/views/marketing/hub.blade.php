@@ -47,7 +47,9 @@
                          this.igHashtags = (data.copy.hashtags || []).join(' ');
                      }
                  } else {
-                     alert('Copy generation failed: ' + (data.error || 'Unknown error'));
+                     // Show the server's message directly (e.g. "Ellie AI isn't configured…",
+                     // "Your agency's monthly AI budget has been reached.").
+                     alert(data.error || 'Could not generate copy. Please try again.');
                  }
              } catch (e) {
                  alert('Request failed: ' + e.message);

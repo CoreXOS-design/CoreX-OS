@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\AiCopyUnavailableException;
 use App\Models\AgentSocialAccount;
 use App\Models\Property;
 use App\Models\PropertyAdTemplate;
@@ -44,9 +45,10 @@ class PropertyMarketingController extends Controller
             ->orderByDesc('created_at')
             ->get();
 
-        $templates = PropertyAdTemplate::where(function ($q) use ($user) {
-            $q->where('user_id', $user->id)->orWhere('is_global', true);
-        })->orderByDesc('updated_at')->get();
+        // Agency-wide custom templates (AgencyScope keeps other agencies out).
+        // No user_id/is_global OR-clause — that leaked global templates across
+        // agencies via operator precedence. Spec ad-manager.md §5.
+        $templates = PropertyAdTemplate::orderByDesc('updated_at')->get();
 
         return view('marketing.hub', compact('property', 'socialAccounts', 'posts', 'templates'));
     }
@@ -65,9 +67,12 @@ class PropertyMarketingController extends Controller
         try {
             $copy = $this->copyService->generateAdCopy($property, $platform);
             return response()->json(['ok' => true, 'copy' => $copy]);
+        } catch (AiCopyUnavailableException $e) {
+            // Expected, user-facing state (no key / disabled / budget) — show the message.
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             Log::error('PropertyMarketingController::generateCopy failed: ' . $e->getMessage());
-            return response()->json(['ok' => false, 'error' => $e->getMessage()], 500);
+            return response()->json(['ok' => false, 'error' => "Couldn't generate copy right now. Please try again."], 500);
         }
     }
 
