@@ -55,6 +55,17 @@ final class AdTemplateAgencyScopeTest extends TestCase
 
     public function test_edit_rights_are_creator_or_manage_permission(): void
     {
+        // PermissionService fails OPEN when role_permissions is unseeded
+        // (graceful for fresh DBs). A fresh RefreshDatabase DB is unseeded, so
+        // we seed the minimal rows this test relies on and reset the static
+        // cache, otherwise every hasPermission() check would return true and
+        // the gate would look permissive when it isn't in production.
+        DB::table('role_permissions')->insert([
+            ['role' => 'admin', 'permission_key' => 'properties.ad_templates.manage', 'scope' => null, 'created_at' => now(), 'updated_at' => now()],
+            ['role' => 'agent', 'permission_key' => 'properties.create',              'scope' => null, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        \App\Services\PermissionService::clearCache();
+
         $agency  = $this->makeAgency();
         $creator = $this->agencyUser($agency, 'agent');
         $peer    = $this->agencyUser($agency, 'agent');   // no manage permission

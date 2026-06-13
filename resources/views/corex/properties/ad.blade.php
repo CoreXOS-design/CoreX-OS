@@ -45,20 +45,21 @@
         };
 
         // Pre-built catalogue — one row drives both the picker cards and the generator blocks.
+        // `tags` widens search so "for sale", "sold", "rent" etc. find the right design.
         $prebuilt = [
-            ['key' => 'power',          'name' => 'Power',          'desc' => 'Bold 3-photo collage with high-contrast price strip and structured info bar.'],
-            ['key' => 'luxe',           'name' => 'Luxe',           'desc' => 'Full-bleed hero with cinematic gradient overlay. Sophisticated, editorial feel.'],
-            ['key' => 'split',          'name' => 'Split',          'desc' => 'Dark info panel left, dramatic full-height images right. Clean, architectural.'],
-            ['key' => 'just_listed',    'name' => 'Just Listed',    'desc' => 'Announcement ribbon over a single hero. Maximum "new to market" impact.'],
-            ['key' => 'open_house',     'name' => 'Open House',     'desc' => 'Viewing call-out block over the hero — invite buyers to book a viewing.'],
-            ['key' => 'editorial',      'name' => 'Editorial',      'desc' => 'Minimalist luxury on a light canvas. Large hero, generous type, quiet confidence.'],
-            ['key' => 'feature_grid',   'name' => 'Feature Grid',   'desc' => 'Four-photo mosaic showcasing every room. Great for feature-rich homes.'],
-            ['key' => 'price_spotlight','name' => 'Price Spotlight','desc' => 'Oversized price with a NEW PRICE tag. Built to stop the scroll on value.'],
-            ['key' => 'coming_soon',    'name' => 'Coming Soon',    'desc' => 'Teaser with a dimmed hero and a COMING SOON banner. Build anticipation.'],
-            ['key' => 'sold',           'name' => 'Sold / Under Offer','desc' => 'Celebration stamp over the hero. Proof of performance for your pipeline.'],
-            ['key' => 'for_rent',       'name' => 'For Rent',       'desc' => 'Rental-focused layout with per-month price emphasis and quick features.'],
-            ['key' => 'agent_spotlight','name' => 'Agent Spotlight','desc' => 'Your headshot and name front and centre over the hero. Personal brand builder.'],
-            ['key' => 'showcase',       'name' => 'Showcase',       'desc' => 'Five-photo filmstrip carousel-style strip. Tell the whole story in one frame.'],
+            ['key' => 'power',          'name' => 'Power',          'desc' => 'Bold 3-photo collage with high-contrast price strip and structured info bar.', 'tags' => 'for sale listing collage bold'],
+            ['key' => 'luxe',           'name' => 'Luxe',           'desc' => 'Full-bleed hero with cinematic gradient overlay. Sophisticated, editorial feel.', 'tags' => 'for sale luxury premium hero'],
+            ['key' => 'split',          'name' => 'Split',          'desc' => 'Dark info panel left, dramatic full-height images right. Clean, architectural.', 'tags' => 'for sale modern clean'],
+            ['key' => 'just_listed',    'name' => 'Just Listed',    'desc' => 'Announcement ribbon over a single hero. Maximum "new to market" impact.', 'tags' => 'for sale new to market announcement'],
+            ['key' => 'open_house',     'name' => 'Open House',     'desc' => 'Viewing call-out block over the hero — invite buyers to book a viewing.', 'tags' => 'for sale viewing show day event'],
+            ['key' => 'editorial',      'name' => 'Editorial',      'desc' => 'Minimalist luxury on a light canvas. Large hero, generous type, quiet confidence.', 'tags' => 'for sale luxury minimal light'],
+            ['key' => 'feature_grid',   'name' => 'Feature Grid',   'desc' => 'Four-photo mosaic showcasing every room. Great for feature-rich homes.', 'tags' => 'for sale gallery mosaic rooms'],
+            ['key' => 'price_spotlight','name' => 'Price Spotlight','desc' => 'Oversized price with a NEW PRICE tag. Built to stop the scroll on value.', 'tags' => 'for sale price reduced new price'],
+            ['key' => 'coming_soon',    'name' => 'Coming Soon',    'desc' => 'Teaser with a dimmed hero and a COMING SOON banner. Build anticipation.', 'tags' => 'teaser coming soon pre-launch'],
+            ['key' => 'sold',           'name' => 'Sold / Under Offer','desc' => 'Celebration stamp over the hero. Proof of performance for your pipeline.', 'tags' => 'sold under offer closed success'],
+            ['key' => 'for_rent',       'name' => 'For Rent',       'desc' => 'Rental-focused layout with per-month price emphasis and quick features.', 'tags' => 'to let rental rent lease'],
+            ['key' => 'agent_spotlight','name' => 'Agent Spotlight','desc' => 'Your headshot and name front and centre over the hero. Personal brand builder.', 'tags' => 'agent personal brand profile'],
+            ['key' => 'showcase',       'name' => 'Showcase',       'desc' => 'Five-photo filmstrip carousel-style strip. Tell the whole story in one frame.', 'tags' => 'for sale gallery carousel filmstrip'],
         ];
 
         // Thumbnail scale to fit a 380-ish wide × 199 tall card from a 1200×628 source.
@@ -87,25 +88,37 @@
 <body x-data="adApp({{ Js::from($savedTemplates) }}, {{ Js::from($propertyData) }})">
 
 {{-- ═══ STEP 1 — TEMPLATE PICKER ═══ --}}
-<div x-show="step === 'pick'" style="min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:48px 24px;">
+<div x-show="step === 'pick'" style="min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:40px 32px;">
 
     <a href="{{ route('corex.properties.index') }}" style="position:absolute;top:22px;left:24px;display:inline-flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,0.35);text-decoration:none;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.35)'">
         <svg xmlns="http://www.w3.org/2000/svg" style="width:13px;height:13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
         Back
     </a>
 
-    <div style="text-align:center; margin-bottom:44px;">
+    <div style="text-align:center; margin-bottom:28px;">
         <div style="font-size:11px;font-weight:700;color:#00b4d8;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:10px;">{{ $suburb }} &middot; {{ $price }}</div>
         <h1 style="font-size:30px;font-weight:900;color:#fff;letter-spacing:-0.025em;">Choose a Template</h1>
         <p style="font-size:14px;color:rgba(255,255,255,0.38);margin-top:8px;">Click a design, then pick your platform and download</p>
     </div>
 
-    {{-- Pre-built cards --}}
-    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:24px; max-width:1240px; width:100%;">
+    {{-- Search / filter --}}
+    <div style="max-width:1760px;width:100%;margin-bottom:22px;display:flex;justify-content:center;">
+        <div style="position:relative;width:100%;max-width:420px;">
+            <svg style="position:absolute;left:14px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:rgba(255,255,255,0.3);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="m21 21-4.3-4.3"/></svg>
+            <input type="text" x-model="searchQuery" placeholder="Search templates — e.g. for sale, sold, rent…"
+                   style="width:100%;background:rgba(255,255,255,0.05);border:1.5px solid rgba(255,255,255,0.12);border-radius:11px;color:#fff;font-size:13px;font-family:inherit;padding:11px 36px 11px 38px;outline:none;transition:border-color 0.12s;"
+                   onfocus="this.style.borderColor='#00b4d8'" onblur="this.style.borderColor='rgba(255,255,255,0.12)'">
+            <button x-show="searchQuery" @click="searchQuery=''" x-cloak
+                    style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.4);font-size:16px;line-height:1;padding:4px;" title="Clear">&times;</button>
+        </div>
+    </div>
+
+    {{-- Pre-built cards — responsive fill: as many ≥300px columns as fit, thumbnails scale to card width (JS) --}}
+    <div class="tpl-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:22px; max-width:1760px; width:100%;">
         @foreach($prebuilt as $tplDef)
-        <div class="tpl-card" @click="selectTemplate('{{ $tplDef['key'] }}')">
-            <div style="width:100%; height:199px; overflow:hidden; position:relative; background:#071325;">
-                <div style="position:absolute;top:0;left:0;width:1200px;height:628px;transform:scale({{ $thumbScale }});transform-origin:top left;">
+        <div class="tpl-card" x-show="matchesSearch(@js(strtolower($tplDef['name'].' '.$tplDef['desc'].' '.$tplDef['tags'])))" @click="selectTemplate('{{ $tplDef['key'] }}')">
+            <div class="tpl-thumb" style="width:100%; aspect-ratio:1200/628; overflow:hidden; position:relative; background:#071325;">
+                <div class="tpl-thumb-inner" style="position:absolute;top:0;left:0;width:1200px;height:628px;transform-origin:top left;transform:scale(0.2667);">
                     @include('corex.properties._ad-templates', ['tpl' => $tplDef['key'], 'baseFontPx' => 16])
                 </div>
             </div>
@@ -120,9 +133,16 @@
         @endforeach
     </div>
 
+    {{-- No-results state --}}
+    <div x-show="searchQuery && visiblePrebuiltCount === 0 && visibleCustomCount === 0" x-cloak
+         style="max-width:1760px;width:100%;margin-top:36px;text-align:center;color:rgba(255,255,255,0.4);font-size:14px;">
+        No templates match “<span x-text="searchQuery" style="color:#fff;"></span>”.
+        <button @click="searchQuery=''" style="background:none;border:none;color:#00b4d8;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit;">Clear search</button>
+    </div>
+
     {{-- Custom saved templates (agency-wide) --}}
     <template x-if="savedTemplates.length > 0">
-        <div style="max-width:1240px;width:100%;margin-top:40px;">
+        <div style="max-width:1760px;width:100%;margin-top:40px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
                 <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);">Agency Custom Templates</div>
                 @if($canManageTemplates)
@@ -134,7 +154,7 @@
             </div>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;">
                 <template x-for="tpl in savedTemplates" :key="tpl.id">
-                    <div class="custom-tpl-card" @click="selectCustomTemplate(tpl)">
+                    <div class="custom-tpl-card" x-show="matchesSearch(tpl.name || '')" @click="selectCustomTemplate(tpl)">
                         <div class="custom-tpl-thumb"><span x-text="tpl.name.charAt(0).toUpperCase()"></span></div>
                         <div style="flex:1;min-width:0;">
                             <div style="font-size:14px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="tpl.name"></div>
@@ -156,7 +176,7 @@
 
     @if($canManageTemplates)
     <template x-if="savedTemplates.length === 0">
-        <div style="max-width:1240px;width:100%;margin-top:32px;text-align:center;">
+        <div style="max-width:1760px;width:100%;margin-top:32px;text-align:center;">
             <a href="{{ route('corex.ad-templates.builder', ['property' => $property->id]) }}" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;color:#00b4d8;border:1.5px dashed rgba(0,180,216,0.35);text-decoration:none;transition:all 0.12s;" onmouseover="this.style.borderColor='#00b4d8'" onmouseout="this.style.borderColor='rgba(0,180,216,0.35)'">
                 <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                 Build a custom template
@@ -239,6 +259,7 @@
 
 <script>
 const PREBUILT_NAMES = @json(collect($prebuilt)->pluck('name', 'key'));
+const PREBUILT_SEARCH = @json(collect($prebuilt)->map(fn($t) => strtolower($t['name'].' '.$t['desc'].' '.$t['tags']))->values());
 
 const IMAGE_FIELDS = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agency_logo'];
 const NON_TEXT_FIELDS = [...IMAGE_FIELDS, 'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape'];
@@ -255,6 +276,7 @@ function adApp(savedTemplates, propertyData) {
 
     return {
         step: 'pick',
+        searchQuery: '',
         template: null,
         platform: 'facebook',
         generating: false,
@@ -265,9 +287,42 @@ function adApp(savedTemplates, propertyData) {
         propertyData: propertyData || {},
         _customLayout: null,
 
+        init() {
+            const fit = () => this.fitThumbs();
+            this.$nextTick(fit);
+            window.addEventListener('resize', fit);
+            // Refit when returning to the picker or after filtering reflows the grid.
+            this.$watch('step', v => { if (v === 'pick') this.$nextTick(fit); });
+            this.$watch('searchQuery', () => this.$nextTick(fit));
+        },
+
+        // Thumbnails render a fixed 1200×628 design scaled to the card's real
+        // width — so however many columns fit, each thumbnail fills its card
+        // exactly (no dead space inside the cards).
+        fitThumbs() {
+            document.querySelectorAll('.tpl-thumb').forEach(w => {
+                const inner = w.querySelector('.tpl-thumb-inner');
+                if (inner && w.clientWidth) inner.style.transform = 'scale(' + (w.clientWidth / 1200) + ')';
+            });
+        },
+
         get templateLabel() {
             if (this.template === 'custom') return 'Custom';
             return PREBUILT_NAMES[this.template] || (this.template || '');
+        },
+
+        // ── Template search/filter (picker step) ──
+        matchesSearch(haystack) {
+            const q = this.searchQuery.trim().toLowerCase();
+            return !q || String(haystack).toLowerCase().includes(q);
+        },
+        get visiblePrebuiltCount() {
+            const q = this.searchQuery.trim().toLowerCase();
+            return q ? PREBUILT_SEARCH.filter(h => h.includes(q)).length : PREBUILT_SEARCH.length;
+        },
+        get visibleCustomCount() {
+            const q = this.searchQuery.trim().toLowerCase();
+            return q ? this.savedTemplates.filter(t => (t.name || '').toLowerCase().includes(q)).length : this.savedTemplates.length;
         },
 
         get cfg() {
