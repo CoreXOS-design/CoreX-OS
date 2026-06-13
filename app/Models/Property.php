@@ -768,6 +768,58 @@ class Property extends Model
     }
 
     /**
+     * Normalise a stored image URL to one that actually loads in the browser
+     * (and that Meta can fetch when publishing). Our public storage is always
+     * served at `/storage/...`; stored URLs can carry a stale/localhost host or
+     * the wrong scheme (from seeding/import), which then fail on staging/prod.
+     * So we re-home any of-our-storage URL onto the CURRENT app host, and leave
+     * genuinely external URLs untouched.
+     */
+    public static function publicImageUrl(?string $u): ?string
+    {
+        if ($u === null) {
+            return null;
+        }
+        $u = trim($u);
+        if ($u === '') {
+            return null;
+        }
+
+        if (str_starts_with($u, '/')) {
+            return asset(ltrim($u, '/')); // host-relative → absolute on current host
+        }
+
+        $path    = parse_url($u, PHP_URL_PATH) ?: '';
+        $host    = parse_url($u, PHP_URL_HOST);
+        $appHost = parse_url((string) config('app.url'), PHP_URL_HOST);
+
+        // Our public storage → re-home onto the current host (fixes baked-in host/scheme).
+        if ($path !== '' && str_starts_with($path, '/storage/')) {
+            return asset(ltrim($path, '/'));
+        }
+        // Any other URL on our own host → re-home too.
+        if ($host && $appHost && $host === $appHost && $path !== '') {
+            return asset(ltrim($path, '/'));
+        }
+
+        return $u; // genuinely external → leave as-is
+    }
+
+    /**
+     * All property images normalised for browser display (Photos picker, ad
+     * previews, publishing). See publicImageUrl().
+     *
+     * @return array<int,string>
+     */
+    public function displayImages(): array
+    {
+        return array_values(array_filter(array_map(
+            static fn ($u) => static::publicImageUrl($u),
+            $this->allImages(),
+        )));
+    }
+
+    /**
      * Single source of truth for the data the Ad Manager injects into a
      * template — used by both the generator (ad.blade.php) and the
      * property-linked builder live preview (ad-builder.blade.php).
@@ -779,36 +831,8 @@ class Property extends Model
      */
     public function adData(): array
     {
-        // Resolve image URLs for display + html2canvas:
-        //  - our-domain absolute → host-relative path (same-origin on whatever
-        //    host serves the page; avoids mixed-content + stale-host 404s)
-        //  - already relative     → keep
-        //  - genuinely external    → keep absolute (so it still displays; stripping
-        //    its host would 404 against our domain)
-        $appHost = parse_url((string) config('app.url'), PHP_URL_HOST);
-        $reqHost = request() ? request()->getHost() : null;
-        $imgs    = $this->allImages();
-        $img     = function (int $i) use ($imgs, $appHost, $reqHost) {
-            $u = $imgs[$i] ?? null;
-            if (! $u) {
-                return null;
-            }
-            $u = (string) $u;
-            if ($u === '') {
-                return null;
-            }
-            if (str_starts_with($u, '/')) {
-                return $u; // already relative → same-origin
-            }
-            $host = parse_url($u, PHP_URL_HOST);
-            if (! $host) {
-                return $u;
-            }
-            if ($host === $appHost || $host === $reqHost) {
-                return parse_url($u, PHP_URL_PATH) ?: $u; // our image → relative
-            }
-            return $u; // external → keep as-is
-        };
+        $imgs = $this->allImages();
+        $img  = fn (int $i) => self::publicImageUrl($imgs[$i] ?? null);
 
         $agent   = $this->agent;
         $branch  = $this->branch;

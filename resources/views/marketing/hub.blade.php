@@ -4,7 +4,10 @@
 @php
     $fbAccount  = $socialAccounts->get('facebook');
     $igAccount  = $socialAccounts->get('instagram');
-    $allImages  = $property->allImages();
+    $allImages  = $property->displayImages();
+    // Default the live preview to the property's first photo (or a returned
+    // marketing image) so it isn't blank before the agent picks one.
+    $initialImg = request('marketing_img') ?: ($allImages[0] ?? null);
 @endphp
 
 <div class="w-full space-y-5"
@@ -15,7 +18,7 @@
          igCopy: '',
          igHashtags: '',
          igHeadline: '',
-         selectedImages: {{ request('marketing_img') ? '[\'' . request('marketing_img') . '\']' : '[]' }},
+         selectedImages: {{ $initialImg ? "['" . $initialImg . "']" : '[]' }},
          generating: false,
          publishing: false,
          publishResults: {},
