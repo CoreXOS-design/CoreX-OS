@@ -474,7 +474,7 @@
                         [
                             'name'  => 'portal_show_social_accounts',
                             'title' => 'Social Media Accounts',
-                            'desc'  => 'Connect or disconnect your Facebook and Instagram accounts for marketing posts.',
+                            'desc'  => 'Connect or disconnect your Facebook account for marketing posts.',
                             'value' => (bool) auth()->user()->portal_show_social_accounts,
                         ],
                     ];

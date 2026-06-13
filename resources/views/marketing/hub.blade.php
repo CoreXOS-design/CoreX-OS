@@ -3,7 +3,6 @@
 @section('corex-content')
 @php
     $fbAccount  = $socialAccounts->get('facebook');
-    $igAccount  = $socialAccounts->get('instagram');
     $allImages  = $property->displayImages();
     // Default the live preview to the property's first photo (or a returned
     // marketing image) so it isn't blank before the agent picks one.
@@ -165,7 +164,7 @@
     {{-- Section 1: Connected Accounts --}}
     <div class="rounded-2xl p-5 space-y-4" style="background:var(--surface); border:1px solid var(--border);">
         <h2 class="text-sm font-bold uppercase tracking-widest" style="color:var(--text-muted);">Connected Accounts</h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4">
 
             {{-- Facebook --}}
             <div class="rounded-xl p-4 flex items-center gap-3" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -193,32 +192,6 @@
                    class="text-xs px-3 py-1.5 rounded-lg font-medium no-underline" style="background:rgba(24,119,242,0.12); color:#1877f2; border:1px solid rgba(24,119,242,0.25);">Connect</a>
                 @endif
             </div>
-
-            {{-- Instagram --}}
-            <div class="rounded-xl p-4 flex items-center gap-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:#e1306c22;">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e1306c" class="w-5 h-5"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
-                </div>
-                <div class="flex-1 min-w-0">
-                    <div class="text-sm font-semibold" style="color:var(--text-primary);">Instagram</div>
-                    @if($igAccount)
-                    <div class="text-xs truncate" style="color:var(--text-muted);">{{ $igAccount->platform_page_name }}</div>
-                    <span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-0.5" style="background:rgba(34,197,94,0.12); color:#22c55e;">Connected</span>
-                    @else
-                    <span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-0.5" style="background:rgba(148,163,184,0.12); color:var(--text-muted);">Not Connected</span>
-                    @endif
-                </div>
-                @if($igAccount)
-                <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">
-                    @csrf
-                    <input type="hidden" name="platform" value="instagram">
-                    <button type="submit" class="text-xs px-3 py-1.5 rounded-lg font-medium" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid rgba(239,68,68,0.2);">Disconnect</button>
-                </form>
-                @else
-                <a href="{{ route('corex.social.oauth.redirect', ['platform'=>'instagram']) }}"
-                   class="text-xs px-3 py-1.5 rounded-lg font-medium no-underline" style="background:rgba(225,48,108,0.12); color:#e1306c; border:1px solid rgba(225,48,108,0.25);">Connect</a>
-                @endif
-            </div>
         </div>
     </div>
 
@@ -236,13 +209,6 @@
                     :style="activeTab !== 'facebook' ? 'color:var(--text-secondary);' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
                 Facebook
-            </button>
-            <button type="button" @click="activeTab = 'instagram'"
-                    :class="activeTab === 'instagram' ? 'text-[#e1306c] border-b-2 border-[#e1306c] bg-[#e1306c]/5' : 'border-b-2 border-transparent'"
-                    class="px-6 py-3 text-sm font-semibold flex items-center gap-2 transition-colors"
-                    :style="activeTab !== 'instagram' ? 'color:var(--text-secondary);' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
-                Instagram
             </button>
         </div>
 
@@ -301,68 +267,6 @@
                                     :disabled="generating"
                                     class="mt-2 flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
                                     style="background:rgba(24,119,242,0.12); color:#1877f2; border:1px solid rgba(24,119,242,0.25);">
-                                <span x-show="!generating">Regenerate with AI</span>
-                                <span x-show="generating">Generating...</span>
-                            </button>
-                        </template>
-                    </div>
-                </div>
-
-                {{-- Instagram tab --}}
-                <div x-show="activeTab === 'instagram'" x-cloak>
-                    {{-- Mode picker --}}
-                    <div x-show="igMode === null" class="space-y-3">
-                        <p class="text-sm font-medium mb-4" style="color:var(--text-primary);">How would you like to create your Instagram post?</p>
-                        <button type="button" @click="igMode = 'manual'"
-                                class="w-full flex items-start gap-4 rounded-xl p-4 text-left transition-colors hover:border-[#00b4d8]"
-                                style="background:var(--surface-2); border:1px solid var(--border);">
-                            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(0,180,216,0.12);">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00b4d8" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>
-                            </div>
-                            <div>
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Write your own description</div>
-                                <div class="text-xs mt-0.5" style="color:var(--text-muted);">Type your own caption and hashtags from scratch.</div>
-                            </div>
-                        </button>
-                        <button type="button" @click="igMode = 'ai'; regenerate('instagram')"
-                                class="w-full flex items-start gap-4 rounded-xl p-4 text-left transition-colors hover:border-[#e1306c]"
-                                style="background:var(--surface-2); border:1px solid var(--border);">
-                            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(225,48,108,0.12);">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#e1306c" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/></svg>
-                            </div>
-                            <div>
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Generate with Ellie AI</div>
-                                <div class="text-xs mt-0.5" style="color:var(--text-muted);">Let Ellie write a caption and hashtags for this property.</div>
-                            </div>
-                        </button>
-                    </div>
-                    {{-- Editor --}}
-                    <div x-show="igMode !== null" x-cloak>
-                        <div class="flex items-center justify-between mb-3">
-                            <span class="text-xs" style="color:var(--text-muted);" x-text="igMode === 'ai' ? 'AI-generated caption — edit as needed' : 'Write your own caption'"></span>
-                            <button type="button" @click="igMode = null; igCopy = ''; igHeadline = ''; igHashtags = ''" class="text-xs" style="color:var(--text-muted);">← Change</button>
-                        </div>
-                        <label class="block text-xs font-semibold mb-1.5" style="color:var(--text-muted);">Headline</label>
-                        <input type="text" x-model="igHeadline" placeholder="Short headline..."
-                               class="w-full rounded-lg px-3 py-2 text-sm mb-3"
-                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        <label class="block text-xs font-semibold mb-1.5" style="color:var(--text-muted);">Caption</label>
-                        <div x-show="generating && igMode === 'ai'" class="w-full rounded-lg px-3 py-6 text-sm text-center mb-2" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);">
-                            <svg class="animate-spin w-5 h-5 mx-auto mb-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                            Ellie is writing your caption...
-                        </div>
-                        <textarea x-show="!generating || igMode !== 'ai'" x-model="igCopy" rows="6" placeholder="Type your Instagram caption here..."
-                                  class="w-full rounded-lg px-3 py-2 text-sm resize-y"
-                                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></textarea>
-                        <label class="block text-xs font-semibold mb-1.5 mt-3" style="color:var(--text-muted);">Hashtags</label>
-                        <textarea x-model="igHashtags" rows="3" placeholder="#realestate #southafrica ..."
-                                  class="w-full rounded-lg px-3 py-2 text-sm resize-y"
-                                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></textarea>
-                        <template x-if="igMode === 'ai'">
-                            <button type="button" @click="regenerate('instagram')"
-                                    :disabled="generating"
-                                    class="mt-2 flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
-                                    style="background:rgba(225,48,108,0.12); color:#e1306c; border:1px solid rgba(225,48,108,0.25);">
                                 <span x-show="!generating">Regenerate with AI</span>
                                 <span x-show="generating">Generating...</span>
                             </button>
@@ -448,26 +352,6 @@
                     </div>
                 </div>
 
-                {{-- Instagram preview --}}
-                <div x-show="activeTab === 'instagram'" x-cloak class="rounded-xl overflow-hidden" style="border:1px solid var(--border); background:#fff;">
-                    <div class="px-4 pt-4 pb-2 flex items-center gap-3" style="background:#fff;">
-                        <div class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style="background:linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7);">
-                            <span class="text-white text-xs font-bold">{{ substr(auth()->user()->name, 0, 2) }}</span>
-                        </div>
-                        <div class="text-sm font-semibold" style="color:#262626;">{{ strtolower(str_replace(' ', '_', auth()->user()->name)) }}</div>
-                    </div>
-                    <template x-if="selectedImages.length">
-                        <img :src="selectedImages[0]" alt="" class="w-full object-cover" style="max-height:300px; background:#000;">
-                    </template>
-                    <div x-show="!selectedImages.length" class="w-full flex items-center justify-center" style="height:200px; background:#f3f4f6;">
-                        <span class="text-xs" style="color:#8e8e8e;">Select a photo above</span>
-                    </div>
-                    <div class="px-4 py-3 text-sm" style="background:#fff; color:#262626;">
-                        <span class="font-semibold">{{ strtolower(str_replace(' ', '_', auth()->user()->name)) }}</span>
-                        <span class="whitespace-pre-wrap" x-text="' ' + (igCopy || 'Caption will appear here...')"></span>
-                        <div class="mt-1 text-xs" style="color:#00376b;" x-text="igHashtags"></div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
@@ -482,18 +366,11 @@
                 <input type="checkbox" value="facebook" x-model="selectedPlatforms" class="rounded">
                 <span class="text-sm font-medium" style="color:var(--text-primary);">Facebook</span>
             </label>
-            @endif
-            @if($igAccount)
-            <label class="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" value="instagram" x-model="selectedPlatforms" class="rounded">
-                <span class="text-sm font-medium" style="color:var(--text-primary);">Instagram</span>
-            </label>
-            @endif
-            @if(!$fbAccount && !$igAccount)
-            <span class="text-sm" style="color:var(--text-muted);">Connect at least one account above to publish.</span>
+            @else
+            <span class="text-sm" style="color:var(--text-muted);">Connect your Facebook account above to publish.</span>
             @endif
 
-            @if($fbAccount || $igAccount)
+            @if($fbAccount)
             <button type="button"
                     @click="$dispatch('publish-now', { platforms: selectedPlatforms })"
                     :disabled="publishing || !selectedPlatforms.length"
