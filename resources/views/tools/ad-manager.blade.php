@@ -48,17 +48,21 @@
                             <button type="button" @click.stop="skipAgent(ag.id)" class="text-xs font-semibold px-2.5 py-1 rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);">Skip</button>
                         </div>
                         <div x-show="openAgents.includes(ag.id)" x-cloak class="px-4 pb-4">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                 <template x-for="p in agentProperties(ag.id)" :key="p.id">
-                                    <label class="flex items-center gap-3 rounded-lg p-2 cursor-pointer" style="background:var(--surface-2); border:1px solid var(--border);"
-                                           :style="selected.includes(p.id) ? 'border-color:#00b4d8;' : ''">
-                                        <input type="checkbox" :value="p.id" x-model="selected" class="rounded flex-shrink-0">
-                                        <div class="w-12 h-9 rounded overflow-hidden flex-shrink-0" style="background:var(--surface);">
-                                            <template x-if="p.thumb"><img :src="p.thumb" alt="" class="w-full h-full object-cover"></template>
+                                    <label class="rounded-xl overflow-hidden cursor-pointer block" style="background:var(--surface-2); border:1.5px solid var(--border);"
+                                           :style="selected.includes(p.id) ? 'border-color:#00b4d8; box-shadow:0 0 0 1px #00b4d8;' : ''">
+                                        <div style="position:relative; width:100%; height:150px; background:var(--surface);">
+                                            <template x-if="p.thumb"><img :src="p.thumb" alt="" class="w-full h-full object-cover" style="display:block;"></template>
+                                            <template x-if="!p.thumb"><div class="w-full h-full flex items-center justify-center text-xs" style="color:var(--text-muted);">No image</div></template>
+                                            <div style="position:absolute; top:8px; left:8px; background:rgba(0,0,0,0.4); border-radius:6px; padding:3px; line-height:0;">
+                                                <input type="checkbox" :value="p.id" x-model="selected" class="w-5 h-5 rounded" style="display:block;">
+                                            </div>
                                         </div>
-                                        <div class="min-w-0">
-                                            <div class="text-xs font-semibold truncate" style="color:var(--text-primary);" x-text="p.title"></div>
-                                            <div class="text-[11px] truncate" style="color:var(--text-muted);"><span x-text="p.suburb"></span> · <span x-text="p.price"></span></div>
+                                        <div class="p-3">
+                                            <div class="text-sm font-bold truncate" style="color:var(--text-primary);" x-text="p.title"></div>
+                                            <div class="text-xs truncate mt-0.5" style="color:var(--text-secondary);" x-text="p.address || p.suburb"></div>
+                                            <div class="text-xs font-semibold mt-1" style="color:#00b4d8;" x-text="p.price"></div>
                                         </div>
                                     </label>
                                 </template>
@@ -73,17 +77,21 @@
                 <div class="text-sm font-semibold" style="color:var(--text-primary);">Select your properties</div>
                 <button type="button" @click="selectAllEverything()" class="text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">Select all</button>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <template x-for="p in properties" :key="p.id">
-                    <label class="flex items-center gap-3 rounded-lg p-2 cursor-pointer" style="background:var(--surface); border:1px solid var(--border);"
-                           :style="selected.includes(p.id) ? 'border-color:#00b4d8;' : ''">
-                        <input type="checkbox" :value="p.id" x-model="selected" class="rounded flex-shrink-0">
-                        <div class="w-12 h-9 rounded overflow-hidden flex-shrink-0" style="background:var(--surface-2);">
-                            <template x-if="p.thumb"><img :src="p.thumb" alt="" class="w-full h-full object-cover"></template>
+                    <label class="rounded-xl overflow-hidden cursor-pointer block" style="background:var(--surface); border:1.5px solid var(--border);"
+                           :style="selected.includes(p.id) ? 'border-color:#00b4d8; box-shadow:0 0 0 1px #00b4d8;' : ''">
+                        <div style="position:relative; width:100%; height:150px; background:var(--surface-2);">
+                            <template x-if="p.thumb"><img :src="p.thumb" alt="" class="w-full h-full object-cover" style="display:block;"></template>
+                            <template x-if="!p.thumb"><div class="w-full h-full flex items-center justify-center text-xs" style="color:var(--text-muted);">No image</div></template>
+                            <div style="position:absolute; top:8px; left:8px; background:rgba(0,0,0,0.4); border-radius:6px; padding:3px; line-height:0;">
+                                <input type="checkbox" :value="p.id" x-model="selected" class="w-5 h-5 rounded" style="display:block;">
+                            </div>
                         </div>
-                        <div class="min-w-0">
-                            <div class="text-xs font-semibold truncate" style="color:var(--text-primary);" x-text="p.title"></div>
-                            <div class="text-[11px] truncate" style="color:var(--text-muted);"><span x-text="p.suburb"></span> · <span x-text="p.price"></span></div>
+                        <div class="p-3">
+                            <div class="text-sm font-bold truncate" style="color:var(--text-primary);" x-text="p.title"></div>
+                            <div class="text-xs truncate mt-0.5" style="color:var(--text-secondary);" x-text="p.address || p.suburb"></div>
+                            <div class="text-xs font-semibold mt-1" style="color:#00b4d8;" x-text="p.price"></div>
                         </div>
                     </label>
                 </template>

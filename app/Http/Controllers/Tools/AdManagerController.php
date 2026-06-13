@@ -47,20 +47,37 @@ class AdManagerController extends Controller
         $user      = auth()->user();
         $allAgents = $user->hasPermission('ad_manager.all_agents');
 
-        $cols = ['id', 'title', 'suburb', 'city', 'price', 'agent_id'];
+        // Only ACTIVE listings that are LIVE somewhere (company website / P24 / PP) —
+        // never drafts, sold or rented. "Live somewhere" mirrors Property::portalLinks().
+        $websiteLiveIds = \App\Models\PropertyWebsiteSyndication::where('enabled', true)
+            ->pluck('property_id')->all();
 
         // Property queries are agency-scoped (AgencyScope), so an all-agents user
         // gets every property in THEIR agency; an own-only user gets their own.
-        $query = Property::with('agent:id,name')->orderBy('title');
+        $query = Property::with('agent:id,name')
+            ->whereNotIn('status', ['Sold', 'sold', 'Rented', 'rented', 'Draft', 'draft', 'Withdrawn', 'withdrawn', 'Expired', 'expired', 'Cancelled', 'cancelled', 'Archived', 'archived'])
+            ->where(function ($q) use ($websiteLiveIds) {
+                $q->where(function ($w) {
+                    $w->whereNotNull('p24_ref')->where('p24_ref', '<>', '')->where('p24_syndication_status', 'active');
+                })->orWhere(function ($w) {
+                    $w->whereNotNull('pp_ref')->where('pp_ref', '<>', '')->where('pp_syndication_status', 'active');
+                });
+                if (! empty($websiteLiveIds)) {
+                    $q->orWhereIn('properties.id', $websiteLiveIds);
+                }
+            })
+            ->orderBy('title');
+
         if (! $allAgents) {
             $query->where('agent_id', $user->id);
         }
 
-        $props = $query->get($cols)->map(function (Property $p) {
+        $props = $query->get()->map(function (Property $p) {
             $imgs = $p->displayImages();
             return [
                 'id'         => $p->id,
                 'title'      => $p->title,
+                'address'    => trim((string) ($p->street_address ?? $p->address ?? '')),
                 'suburb'     => trim(((string) $p->suburb) . ($p->city ? ', ' . $p->city : ''), ', '),
                 'price'      => $p->price ? 'R ' . number_format((int) $p->price, 0, '.', ' ') : 'POA',
                 'agent_id'   => (int) $p->agent_id,
