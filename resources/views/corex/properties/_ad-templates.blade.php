@@ -25,7 +25,7 @@
 @php
     $renderLogo = function ($style = '', $emHeight = '2.6em', $wordColor = '#ffffff') use ($logoUrl) {
         if ($logoUrl) {
-            return '<img src="' . e($logoUrl) . '" crossorigin="anonymous" alt="" style="height:' . $emHeight . ';object-fit:contain;object-position:left center;filter:drop-shadow(0 2px 10px rgba(0,0,0,0.55));' . $style . '">';
+            return '<img src="' . e($logoUrl) . '" alt="" style="height:' . $emHeight . ';object-fit:contain;object-position:left center;filter:drop-shadow(0 2px 10px rgba(0,0,0,0.55));' . $style . '">';
         }
         return '<div style="font-family:Figtree,sans-serif;font-weight:900;font-size:' . $emHeight . ';line-height:1;color:' . $wordColor . ';' . $style . '">corex<span style="color:#33c4e0">os</span></div>';
     };
@@ -48,7 +48,7 @@
         {{-- Left: main image (60% width) --}}
         <div style="flex:1.55;overflow:hidden;position:relative;">
             @if($img1)
-                <img src="{{ $img1 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+                <img src="{{ $img1 }}" class="ad-img-fit" alt="">
             @else
                 <div class="ad-placeholder"></div>
             @endif
@@ -58,14 +58,14 @@
         <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;gap:2px;margin-left:2px;">
             <div style="flex:1;overflow:hidden;">
                 @if($img2)
-                    <img src="{{ $img2 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+                    <img src="{{ $img2 }}" class="ad-img-fit" alt="">
                 @else
                     <div style="width:100%;height:100%;background:linear-gradient(135deg,#0d3259,#143d6e);"></div>
                 @endif
             </div>
             <div style="flex:1;overflow:hidden;">
                 @if($img3)
-                    <img src="{{ $img3 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+                    <img src="{{ $img3 }}" class="ad-img-fit" alt="">
                 @else
                     <div style="width:100%;height:100%;background:linear-gradient(135deg,#071e35,#0b2a4a);"></div>
                 @endif
@@ -131,7 +131,7 @@
 
     {{-- Full-bleed background image --}}
     @if($img1)
-        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;" crossorigin="anonymous" alt="">
+        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;" alt="">
     @else
         <div style="position:absolute;inset:0;background:linear-gradient(135deg,#0b2a4a,#143d6e);"></div>
     @endif
@@ -155,12 +155,12 @@
     <div style="position:absolute;bottom:36%;right:1.2em;display:flex;flex-direction:column;gap:0.4em;z-index:10;">
         @if($img2)
         <div style="width:5.5em;height:3.5em;border-radius:0.4em;overflow:hidden;border:1.5px solid rgba(255,255,255,0.25);box-shadow:0 4px 12px rgba(0,0,0,0.5);">
-            <img src="{{ $img2 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+            <img src="{{ $img2 }}" class="ad-img-fit" alt="">
         </div>
         @endif
         @if($img3)
         <div style="width:5.5em;height:3.5em;border-radius:0.4em;overflow:hidden;border:1.5px solid rgba(255,255,255,0.25);box-shadow:0 4px 12px rgba(0,0,0,0.5);">
-            <img src="{{ $img3 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+            <img src="{{ $img3 }}" class="ad-img-fit" alt="">
         </div>
         @endif
     </div>
@@ -297,7 +297,7 @@
         {{-- Main image (top ~62% height) --}}
         <div style="flex:1.65;overflow:hidden;position:relative;">
             @if($img1)
-                <img src="{{ $img1 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+                <img src="{{ $img1 }}" class="ad-img-fit" alt="">
             @else
                 <div style="width:100%;height:100%;background:linear-gradient(135deg,#0d3259,#143d6e);"></div>
             @endif
@@ -307,14 +307,14 @@
         <div style="flex:1;display:flex;gap:2px;overflow:hidden;">
             <div style="flex:1;overflow:hidden;">
                 @if($img2)
-                    <img src="{{ $img2 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+                    <img src="{{ $img2 }}" class="ad-img-fit" alt="">
                 @else
                     <div style="width:100%;height:100%;background:#0b2a4a;"></div>
                 @endif
             </div>
             <div style="flex:1;overflow:hidden;">
                 @if($img3)
-                    <img src="{{ $img3 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+                    <img src="{{ $img3 }}" class="ad-img-fit" alt="">
                 @else
                     <div style="width:100%;height:100%;background:#071e35;"></div>
                 @endif
@@ -331,7 +331,7 @@
 @if($tpl === 'just_listed')
 <div style="position:absolute;inset:0;background:#071325;overflow:hidden;{{ $fs }}">
     @if($img1)
-        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" crossorigin="anonymous" alt="">
+        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" alt="">
     @else
         <div style="position:absolute;inset:0;background:linear-gradient(135deg,#0b2a4a,#143d6e);"></div>
     @endif
@@ -364,7 +364,7 @@
 @if($tpl === 'open_house')
 <div style="position:absolute;inset:0;background:#071325;overflow:hidden;{{ $fs }}">
     @if($img1)
-        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" crossorigin="anonymous" alt="">
+        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" alt="">
     @else
         <div style="position:absolute;inset:0;background:linear-gradient(135deg,#0b2a4a,#143d6e);"></div>
     @endif
@@ -396,7 +396,7 @@
 <div style="position:absolute;inset:0;background:#f5f3ee;display:flex;flex-direction:column;{{ $fs }}">
     <div style="flex:1.9;min-height:0;position:relative;overflow:hidden;margin:1em 1em 0;">
         @if($img1)
-            <img src="{{ $img1 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+            <img src="{{ $img1 }}" class="ad-img-fit" alt="">
         @else
             <div class="ad-placeholder"></div>
         @endif
@@ -427,7 +427,7 @@
         @for($i = 0; $i < 4; $i++)
             <div style="overflow:hidden;position:relative;">
                 @if(isset($gridImgs[$i]))
-                    <img src="{{ $gridImgs[$i] }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+                    <img src="{{ $gridImgs[$i] }}" class="ad-img-fit" alt="">
                 @else
                     <div style="width:100%;height:100%;background:linear-gradient(135deg,#0d3259,#143d6e);"></div>
                 @endif
@@ -456,7 +456,7 @@
 @if($tpl === 'price_spotlight')
 <div style="position:absolute;inset:0;background:#071325;overflow:hidden;{{ $fs }}">
     @if($img1)
-        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" crossorigin="anonymous" alt="">
+        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" alt="">
     @else
         <div style="position:absolute;inset:0;background:linear-gradient(135deg,#0b2a4a,#143d6e);"></div>
     @endif
@@ -481,7 +481,7 @@
 @if($tpl === 'coming_soon')
 <div style="position:absolute;inset:0;background:#04101f;overflow:hidden;{{ $fs }}">
     @if($img1)
-        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:brightness(0.4) saturate(0.85);" crossorigin="anonymous" alt="">
+        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:brightness(0.4) saturate(0.85);" alt="">
     @else
         <div style="position:absolute;inset:0;background:linear-gradient(135deg,#08233f,#0b2a4a);"></div>
     @endif
@@ -505,7 +505,7 @@
 @if($tpl === 'sold')
 <div style="position:absolute;inset:0;background:#071325;overflow:hidden;{{ $fs }}">
     @if($img1)
-        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:brightness(0.6);" crossorigin="anonymous" alt="">
+        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:brightness(0.6);" alt="">
     @else
         <div style="position:absolute;inset:0;background:linear-gradient(135deg,#0b2a4a,#143d6e);"></div>
     @endif
@@ -534,7 +534,7 @@
 <div style="position:absolute;inset:0;display:flex;background:#071325;{{ $fs }}">
     <div style="flex:1.45;overflow:hidden;position:relative;">
         @if($img1)
-            <img src="{{ $img1 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+            <img src="{{ $img1 }}" class="ad-img-fit" alt="">
         @else
             <div style="width:100%;height:100%;background:linear-gradient(135deg,#0d3259,#143d6e);"></div>
         @endif
@@ -566,7 +566,7 @@
 @if($tpl === 'agent_spotlight')
 <div style="position:absolute;inset:0;background:#071325;overflow:hidden;{{ $fs }}">
     @if($img1)
-        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" crossorigin="anonymous" alt="">
+        <img src="{{ $img1 }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" alt="">
     @else
         <div style="position:absolute;inset:0;background:linear-gradient(135deg,#0b2a4a,#143d6e);"></div>
     @endif
@@ -594,7 +594,7 @@
 <div style="position:absolute;inset:0;background:#071325;display:flex;flex-direction:column;{{ $fs }}">
     <div style="flex:2.1;min-height:0;position:relative;overflow:hidden;">
         @if($img1)
-            <img src="{{ $img1 }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+            <img src="{{ $img1 }}" class="ad-img-fit" alt="">
         @else
             <div style="width:100%;height:100%;background:linear-gradient(135deg,#0d3259,#143d6e);"></div>
         @endif
@@ -614,7 +614,7 @@
         @for($i = 0; $i < 4; $i++)
             <div style="flex:1;overflow:hidden;">
                 @if(isset($strip[$i]))
-                    <img src="{{ $strip[$i] }}" class="ad-img-fit" crossorigin="anonymous" alt="">
+                    <img src="{{ $strip[$i] }}" class="ad-img-fit" alt="">
                 @else
                     <div style="width:100%;height:100%;background:linear-gradient(135deg,#071e35,#0b2a4a);"></div>
                 @endif

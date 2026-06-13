@@ -11,13 +11,12 @@
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     @php
         // Single source of truth for the data injected into every template.
-        $images     = $property->allImages();
-        $toRelative = fn($url) => $url ? (parse_url($url, PHP_URL_PATH) ?: $url) : null;
-        $img1 = ($r = $toRelative($images[0] ?? null)) ? $r : null;
-        $img2 = ($r = $toRelative($images[1] ?? null)) ? $r : null;
-        $img3 = ($r = $toRelative($images[2] ?? null)) ? $r : null;
-        $img4 = ($r = $toRelative($images[3] ?? null)) ? $r : null;
-        $img5 = ($r = $toRelative($images[4] ?? null)) ? $r : null;
+        $propertyData = $property->adData();
+        $img1 = $propertyData['image_1'] ?? null;
+        $img2 = $propertyData['image_2'] ?? null;
+        $img3 = $propertyData['image_3'] ?? null;
+        $img4 = $propertyData['image_4'] ?? null;
+        $img5 = $propertyData['image_5'] ?? null;
         $agent      = $property->agent;
         $initial    = strtoupper(substr($agent?->name ?? 'A', 0, 1));
         $agentName  = strtoupper($agent?->name ?? '');
@@ -64,8 +63,6 @@
 
         // Thumbnail scale to fit a 380-ish wide × 199 tall card from a 1200×628 source.
         $thumbScale = 0.3167;
-
-        $propertyData = $property->adData();
     @endphp
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -376,7 +373,7 @@ function adApp(savedTemplates, propertyData) {
                     const src = field === 'agency_logo' ? prop.logo : prop[field];
                     if (src) {
                         const img = document.createElement('img');
-                        img.src = src; img.crossOrigin = 'anonymous';
+                        img.src = src;
                         img.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
                         div.appendChild(img);
                     } else {
@@ -403,7 +400,7 @@ function adApp(savedTemplates, propertyData) {
                     Object.assign(div.style, { display:'flex', alignItems:'center', padding:(el.padding || 0) + 'px' });
                     if (prop.logo) {
                         const img = document.createElement('img');
-                        img.src = prop.logo; img.crossOrigin = 'anonymous';
+                        img.src = prop.logo;
                         img.style.cssText = 'max-height:100%;max-width:100%;object-fit:contain;object-position:left center;';
                         div.appendChild(img);
                     } else {

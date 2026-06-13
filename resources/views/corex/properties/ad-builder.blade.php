@@ -228,8 +228,7 @@
                             <template x-if="isImageField(el.field)">
                                 <div style="width:100%;height:100%;">
                                     <template x-if="livePreviewSrc(el)">
-                                        <img :src="livePreviewSrc(el)" crossorigin="anonymous"
-                                             :style="'width:100%;height:100%;object-fit:'+(el.objectFit||'cover')+';display:block;'">
+                                        <img :src="livePreviewSrc(el)"                                             :style="'width:100%;height:100%;object-fit:'+(el.objectFit||'cover')+';display:block;'">
                                     </template>
                                     <template x-if="!livePreviewSrc(el)">
                                         <div class="img-placeholder">

@@ -779,11 +779,35 @@ class Property extends Model
      */
     public function adData(): array
     {
-        $toRelative = fn ($url) => $url ? (parse_url($url, PHP_URL_PATH) ?: $url) : null;
-        $imgs       = $this->allImages();
-        $img        = function (int $i) use ($imgs, $toRelative) {
-            $rel = $toRelative($imgs[$i] ?? null);
-            return $rel ? asset($rel) : null;
+        // Resolve image URLs for display + html2canvas:
+        //  - our-domain absolute → host-relative path (same-origin on whatever
+        //    host serves the page; avoids mixed-content + stale-host 404s)
+        //  - already relative     → keep
+        //  - genuinely external    → keep absolute (so it still displays; stripping
+        //    its host would 404 against our domain)
+        $appHost = parse_url((string) config('app.url'), PHP_URL_HOST);
+        $reqHost = request() ? request()->getHost() : null;
+        $imgs    = $this->allImages();
+        $img     = function (int $i) use ($imgs, $appHost, $reqHost) {
+            $u = $imgs[$i] ?? null;
+            if (! $u) {
+                return null;
+            }
+            $u = (string) $u;
+            if ($u === '') {
+                return null;
+            }
+            if (str_starts_with($u, '/')) {
+                return $u; // already relative → same-origin
+            }
+            $host = parse_url($u, PHP_URL_HOST);
+            if (! $host) {
+                return $u;
+            }
+            if ($host === $appHost || $host === $reqHost) {
+                return parse_url($u, PHP_URL_PATH) ?: $u; // our image → relative
+            }
+            return $u; // external → keep as-is
         };
 
         $agent   = $this->agent;
