@@ -47,8 +47,7 @@
                          this.igHashtags = (data.copy.hashtags || []).join(' ');
                      }
                  } else {
-                     // Show the server's message directly (e.g. "Ellie AI isn't configured…",
-                     // "Your agency's monthly AI budget has been reached.").
+                     // Show the server message directly (config/budget notices come through here).
                      alert(data.error || 'Could not generate copy. Please try again.');
                  }
              } catch (e) {
