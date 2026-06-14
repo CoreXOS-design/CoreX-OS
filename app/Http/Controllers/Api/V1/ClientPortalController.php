@@ -515,6 +515,13 @@ class ClientPortalController extends Controller
      * Shape an agent for the mobile "Your agent" contact card. Empty channels
      * are dropped so the app only renders a button per populated field. Phone
      * numbers are emitted in E.164 (+27…) so wa.me carries the country code.
+     *
+     * Number sourcing is mobile-first (`cell` then `phone`) to match the
+     * app-wide convention (WebTemplateDataService, PresentationPdfService, the
+     * P24 syndication mapping all use `cell ?? phone`): the agent's mobile is
+     * the most reachable line and the only one that can receive WhatsApp. Both
+     * `phone` (tap-to-call) and `whatsapp` resolve to it, so the app always has
+     * a Call/WhatsApp number whenever the agent has one on file in either column.
      */
     private function shapeAgent(User $agent): array
     {
@@ -522,14 +529,17 @@ class ClientPortalController extends Controller
         $first = trim(explode(' ', $name)[0] ?? '');
         $last  = trim((string) str_replace($first, '', $name));
 
+        $mobile   = $this->toE164($agent->cell ?: $agent->phone);
+        $whatsapp = $this->toE164($agent->cell ?: $agent->phone);
+
         return array_filter([
             'id'         => $agent->id,
             'first_name' => $first ?: null,
             'last_name'  => $last ?: null,
             'full_name'  => $name ?: null,
             'title'      => $agent->designation ?: null,
-            'phone'      => $this->toE164($agent->phone ?: $agent->cell),
-            'whatsapp'   => $this->toE164($agent->cell ?: $agent->phone),
+            'phone'      => $mobile,
+            'whatsapp'   => $whatsapp,
             'email'      => $agent->email ?: null,
             'photo_url'  => method_exists($agent, 'profilePhotoUrl') ? $agent->profilePhotoUrl() : null,
         ], fn ($v) => $v !== null && $v !== '');

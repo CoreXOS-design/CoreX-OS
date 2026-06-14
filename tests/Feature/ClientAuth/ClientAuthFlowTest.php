@@ -291,7 +291,10 @@ class ClientAuthFlowTest extends TestCase
             'branch_id'   => $branchId,
             'is_active'   => true,
             'designation' => 'Sales Agent',
-            'phone'       => '0821234567',
+            // Landline in `phone`, mobile in `cell`: the card must prefer the
+            // mobile for both Call and WhatsApp (cell-first, app-wide convention).
+            'phone'       => '0313121234',
+            'cell'        => '0821234567',
             'email'       => 'jane@agency.co.za',
         ]);
 
