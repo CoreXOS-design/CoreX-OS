@@ -31,8 +31,17 @@ class NotificationPreferenceController extends Controller
             'preferences.*.channel_push'   => 'sometimes|boolean',
             'open_hours'                   => 'sometimes|array',
             'open_hours.enabled'           => 'sometimes|boolean',
+            'open_hours.timezone'          => 'sometimes|nullable|string',
+            // Legacy single-window shape (older clients).
             'open_hours.start'             => 'sometimes|date_format:H:i',
             'open_hours.end'               => 'sometimes|date_format:H:i',
+            'open_hours.days'              => 'sometimes|array',
+            'open_hours.days.*'            => 'integer|min:1|max:7',
+            // Per-weekday schedule, keyed by ISO weekday "1"=Mon … "7"=Sun.
+            'open_hours.day_windows'           => 'sometimes|array',
+            'open_hours.day_windows.*.enabled' => 'sometimes|boolean',
+            'open_hours.day_windows.*.start'   => 'sometimes|date_format:H:i',
+            'open_hours.day_windows.*.end'     => 'sometimes|date_format:H:i',
             'cooldown_minutes'             => 'sometimes|integer|min:0|max:10080',
         ]);
 

@@ -16,11 +16,21 @@ class NotificationPreferenceService
      * Effective preference for a user + event-type key.
      * Returns an array with: enabled, threshold, channel_in_app, channel_email, channel_push.
      *
+     * This is the user's CONFIGURED preference — master switches + per-event matrix
+     * (or adapter columns) resolved against the agency-lock rules below. It is the
+     * source of truth for the settings UI, the API snapshot, and the read-only
+     * overdue snapshot, so it deliberately does NOT apply the open-hours time gate.
+     *
+     * Open-hours enforcement now happens once, at dispatch time, in
+     * NotificationDispatcher::fire() via withinOpenHours() — and it suppresses ALL
+     * channels (in-app, email and push), not just email. Putting it here would make
+     * the settings page and the badge snapshot read as "off" outside open hours,
+     * which is wrong: the schedule controls delivery, not configuration.
+     *
      * Channel resolution order, per agency-lock rules (2026-05-29):
      *   - When agency mode = 'agency': agency settings drive event toggles, master in_app/email,
      *     open hours, cooldown. The user's own `notify_push` master still applies (users may
      *     silence their own device push at any time).
-     *   - Outside open hours: EMAIL channel is suppressed. Push and in-app continue.
      */
     public function effective(User $user, string $key): ?array
     {
@@ -37,11 +47,6 @@ class NotificationPreferenceService
         // Push master is ALWAYS the user's own value, even under agency lock.
         $userOwn = $ctx['user_settings'];
         $masterPush  = (bool) ($userOwn->notify_push ?? true);
-
-        // Open-hours email gate
-        if (! $this->withinOpenHours($effSettings)) {
-            $masterEmail = false;
-        }
 
         if ($type->is_adapter && $type->adapter_column) {
             return $this->resolveAdapter($type, $effSettings, $masterInApp, $masterEmail, $masterPush);
@@ -92,22 +97,204 @@ class NotificationPreferenceService
         return (int) ($this->context($user)['settings']->min_minutes_between_same ?? 360);
     }
 
-    public function withinOpenHours(UserDashboardSetting|AgencyDashboardSetting|null $settings = null, ?Carbon $at = null): bool
+    /**
+     * Dispatch-time open-hours gate for a user. Returns true when a notification
+     * may be delivered "now" (or at $at). When open hours are disabled, always true.
+     *
+     * The schedule is per-ISO-weekday (Mon=1 … Sun=7). "now" is evaluated in the
+     * USER'S timezone (see resolveTimezone) so an agent in a different region is
+     * gated against their wall clock, matching how the mobile client evaluates the
+     * device-local time. Used by NotificationDispatcher to suppress ALL channels
+     * (in-app, email, push) outside the window.
+     */
+    public function withinOpenHours(User $user, ?Carbon $at = null): bool
     {
-        if (! $settings) return true;
+        $settings = $this->context($user)['settings'];
         if (! ($settings->open_hours_enabled ?? false)) return true;
 
-        $now   = $at ?? now();
-        $start = substr((string) $settings->open_hours_start, 0, 5);
-        $end   = substr((string) $settings->open_hours_end, 0, 5);
-        $hhmm  = $now->format('H:i');
+        $tz    = $this->resolveTimezone($user);
+        $local = ($at ? $at->copy() : now())->setTimezone($tz);
 
-        if ($start === $end) return true; // degenerate; treat as always
-        if ($start < $end) {
-            return $hhmm >= $start && $hhmm < $end;
+        return $this->windowsAllowAt($this->resolveDayWindows($settings), $local);
+    }
+
+    /**
+     * Pure weekday/midnight-wrap predicate — mirrors the mobile client's
+     * OpenHours.allowsAt logic so server and device agree:
+     *   - start  <  end : same-day window  [start, end)
+     *   - start  >  end : split window — evening tail [start, 24:00) on the day the
+     *                     window opens, and the early-morning tail [00:00, end) is
+     *                     attributed to the PREVIOUS day's window.
+     *   - start === end : full-day (always open on that weekday).
+     * A day with enabled:false is fully quiet.
+     *
+     * @param array<string,array{enabled:bool,start:string,end:string}> $dayWindows keyed "1".."7"
+     */
+    public function windowsAllowAt(array $dayWindows, Carbon $at): bool
+    {
+        $iso  = (int) $at->isoWeekday(); // 1=Mon … 7=Sun
+        $hhmm = $at->format('H:i');
+
+        // Today's window (same-day, full-day, or the evening tail of a wrap).
+        $today = $dayWindows[(string) $iso] ?? null;
+        if ($today && ($today['enabled'] ?? false)) {
+            $start = $today['start'];
+            $end   = $today['end'];
+            if ($start === $end) return true;                       // full day
+            if ($start < $end)   { if ($hhmm >= $start && $hhmm < $end) return true; } // same-day
+            else                 { if ($hhmm >= $start) return true; }                 // wrap: evening tail
         }
-        // window crosses midnight (e.g. 22:00 → 06:00)
-        return $hhmm >= $start || $hhmm < $end;
+
+        // Early-morning tail [00:00, end) belongs to the PREVIOUS day's wrap window.
+        $prevIso = $iso === 1 ? 7 : $iso - 1;
+        $prev    = $dayWindows[(string) $prevIso] ?? null;
+        if ($prev && ($prev['enabled'] ?? false)) {
+            if ($prev['start'] > $prev['end'] && $hhmm < $prev['end']) return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * The timezone "now" is evaluated in for the open-hours gate.
+     *
+     * Order: the user's own stored timezone (forward-compatible — honoured
+     * automatically if a `users.timezone` column/accessor is ever added), then the
+     * application timezone fallback. There is no per-user timezone column today, so
+     * in practice this resolves to config('app.timezone') = 'Africa/Johannesburg'
+     * (UTC+2), which matches both the server clock and every current agency's region.
+     */
+    public function resolveTimezone(User $user): string
+    {
+        $tz = $user->timezone ?? null;
+
+        return (is_string($tz) && $tz !== '') ? $tz : config('app.timezone');
+    }
+
+    /**
+     * Resolve the canonical 7-key day_windows map for a settings row.
+     *
+     * Prefers the stored open_hours_day_windows JSON; falls back to synthesising it
+     * from the legacy single-window open_hours_start/open_hours_end applied to all
+     * seven weekdays (the single-window approximation older clients persisted).
+     *
+     * @return array<string,array{enabled:bool,start:string,end:string}>
+     */
+    public function resolveDayWindows(UserDashboardSetting|AgencyDashboardSetting|null $settings): array
+    {
+        if (! $settings) return $this->emptyDayWindows();
+
+        $stored = $settings->open_hours_day_windows;
+        if (is_array($stored) && $stored !== []) {
+            return $this->normalizeDayWindows($stored);
+        }
+
+        // Legacy fallback: one window for every day.
+        $start = $this->validHHMM(substr((string) ($settings->open_hours_start ?? '07:00'), 0, 5)) ?? '07:00';
+        $end   = $this->validHHMM(substr((string) ($settings->open_hours_end   ?? '21:00'), 0, 5)) ?? '21:00';
+
+        $out = [];
+        foreach (range(1, 7) as $iso) {
+            $out[(string) $iso] = ['enabled' => true, 'start' => $start, 'end' => $end];
+        }
+        return $out;
+    }
+
+    /**
+     * Coerce any inbound shape into a complete 7-key map. Missing/invalid days
+     * default to disabled; invalid times default to a safe window.
+     *
+     * @return array<string,array{enabled:bool,start:string,end:string}>
+     */
+    public function normalizeDayWindows(array $raw): array
+    {
+        $out = [];
+        foreach (range(1, 7) as $iso) {
+            $d = $raw[(string) $iso] ?? $raw[$iso] ?? null;
+            if (! is_array($d)) {
+                $out[(string) $iso] = ['enabled' => false, 'start' => '00:00', 'end' => '00:00'];
+                continue;
+            }
+            $out[(string) $iso] = [
+                'enabled' => (bool) ($d['enabled'] ?? false),
+                'start'   => $this->validHHMM($d['start'] ?? null) ?? '07:00',
+                'end'     => $this->validHHMM($d['end'] ?? null) ?? '21:00',
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Build a day_windows map from a legacy single-window payload
+     * { enabled, start, end, days? }. `days` is an optional list of ISO weekday
+     * ints the window applies to; absent means all seven days.
+     *
+     * @return array<string,array{enabled:bool,start:string,end:string}>
+     */
+    private function windowsFromLegacy(array $oh): array
+    {
+        $start = $this->validHHMM($oh['start'] ?? null) ?? '07:00';
+        $end   = $this->validHHMM($oh['end']   ?? null) ?? '21:00';
+        $days  = isset($oh['days']) && is_array($oh['days'])
+            ? array_map('intval', $oh['days'])
+            : null;
+
+        $out = [];
+        foreach (range(1, 7) as $iso) {
+            $enabled = $days === null ? true : in_array($iso, $days, true);
+            $out[(string) $iso] = ['enabled' => $enabled, 'start' => $start, 'end' => $end];
+        }
+        return $out;
+    }
+
+    /**
+     * Derive the legacy single-window approximation (start/end/days) from a
+     * day_windows map, for the GET response and to keep the legacy columns coherent
+     * for older readers. The representative window is the first enabled day's window.
+     *
+     * @param array<string,array{enabled:bool,start:string,end:string}> $windows
+     * @return array{start:string,end:string,days:int[]}
+     */
+    private function legacyApproxFromWindows(array $windows, UserDashboardSetting|AgencyDashboardSetting|null $settings = null): array
+    {
+        $days = [];
+        $repStart = null;
+        $repEnd   = null;
+        foreach (range(1, 7) as $iso) {
+            $w = $windows[(string) $iso] ?? null;
+            if ($w && ($w['enabled'] ?? false)) {
+                $days[] = $iso;
+                if ($repStart === null) {
+                    $repStart = $w['start'];
+                    $repEnd   = $w['end'];
+                }
+            }
+        }
+
+        $repStart ??= $this->validHHMM(substr((string) ($settings->open_hours_start ?? '07:00'), 0, 5)) ?? '07:00';
+        $repEnd   ??= $this->validHHMM(substr((string) ($settings->open_hours_end   ?? '21:00'), 0, 5)) ?? '21:00';
+
+        return ['start' => $repStart, 'end' => $repEnd, 'days' => $days];
+    }
+
+    /** Validate/normalise a time to "HH:MM" (24h). Accepts "HH:MM" or "HH:MM:SS". */
+    private function validHHMM(mixed $v): ?string
+    {
+        if (! is_string($v)) return null;
+        $v = trim($v);
+        if (preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $v)) return $v;
+        if (preg_match('/^([01]\d|2[0-3]):([0-5]\d):[0-5]\d$/', $v)) return substr($v, 0, 5);
+        return null;
+    }
+
+    /** @return array<string,array{enabled:bool,start:string,end:string}> */
+    private function emptyDayWindows(): array
+    {
+        $out = [];
+        foreach (range(1, 7) as $iso) {
+            $out[(string) $iso] = ['enabled' => false, 'start' => '00:00', 'end' => '00:00'];
+        }
+        return $out;
     }
 
     /**
@@ -156,11 +343,20 @@ class NotificationPreferenceService
                 // Push master is the user's own value (always editable).
                 'push'   => (bool) ($userOwn->notify_push ?? true),
             ],
-            'open_hours' => [
-                'enabled' => (bool) ($effSettings->open_hours_enabled ?? false),
-                'start'   => substr((string) ($effSettings->open_hours_start ?? '07:00'), 0, 5),
-                'end'     => substr((string) ($effSettings->open_hours_end   ?? '21:00'), 0, 5),
-            ],
+            'open_hours' => (function () use ($effSettings, $user) {
+                $windows = $this->resolveDayWindows($effSettings);
+                $legacy  = $this->legacyApproxFromWindows($windows, $effSettings);
+                return [
+                    'enabled'     => (bool) ($effSettings->open_hours_enabled ?? false),
+                    'timezone'    => $this->resolveTimezone($user),
+                    // Per-weekday schedule — always all seven keys ("1"=Mon … "7"=Sun).
+                    'day_windows' => $windows,
+                    // Legacy single-window approximation for older clients.
+                    'start'       => $legacy['start'],
+                    'end'         => $legacy['end'],
+                    'days'        => $legacy['days'],
+                ];
+            })(),
             'cooldown_minutes'   => (int) ($effSettings->min_minutes_between_same ?? 360),
             'agency_controlled'  => $ctx['locked'],
             'groups' => array_values($groups),
@@ -189,10 +385,21 @@ class NotificationPreferenceService
 
         if (! $locked && is_array($payload['open_hours'] ?? null)) {
             $oh = $payload['open_hours'];
+
+            // Prefer the per-weekday schedule; fall back to the legacy single-window
+            // shape (enabled/start/end/days) for older clients.
+            $windows = (isset($oh['day_windows']) && is_array($oh['day_windows']))
+                ? $this->normalizeDayWindows($oh['day_windows'])
+                : $this->windowsFromLegacy($oh);
+
+            // Keep the legacy columns coherent for any reader still on the old shape.
+            $rep = $this->legacyApproxFromWindows($windows, $userSettings);
+
             $userSettings->fill([
-                'open_hours_enabled' => (bool) ($oh['enabled'] ?? false),
-                'open_hours_start'   => substr((string) ($oh['start'] ?? '07:00'), 0, 5),
-                'open_hours_end'     => substr((string) ($oh['end']   ?? '21:00'), 0, 5),
+                'open_hours_enabled'     => (bool) ($oh['enabled'] ?? false),
+                'open_hours_day_windows' => $windows,
+                'open_hours_start'       => $rep['start'],
+                'open_hours_end'         => $rep['end'],
             ])->save();
         }
 

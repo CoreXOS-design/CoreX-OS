@@ -36,6 +36,15 @@ class NotificationDispatcher
         if ($eff['channel_push'])   $channels[] = 'fcm';
         if (empty($channels)) return false;
 
+        // Open-hours schedule gates ALL channels (in-app, email, push). When the
+        // user's per-weekday window is closed for "now" (evaluated in the user's
+        // timezone), suppress the alert entirely — there is no queue-for-later, so
+        // we drop rather than defer. The next scan tick re-evaluates and will fire
+        // once the window reopens (the threshold predicate is still true).
+        if (! $this->prefs->withinOpenHours($user)) {
+            return false;
+        }
+
         $thresholdHit = $args['threshold_hit_at'] ?? now();
         $subjectType = $subject->getMorphClass();
         $subjectId   = $subject->getKey();

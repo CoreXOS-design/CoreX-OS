@@ -23,7 +23,7 @@ class AgencyDashboardSetting extends Model
         'default_calendar_view', 'weekend_visible',
         'working_hours_start', 'working_hours_end',
         'notify_in_app', 'notify_email', 'notify_push',
-        'open_hours_enabled', 'open_hours_start', 'open_hours_end',
+        'open_hours_enabled', 'open_hours_start', 'open_hours_end', 'open_hours_day_windows',
         'min_minutes_between_same',
     ];
 
@@ -40,6 +40,7 @@ class AgencyDashboardSetting extends Model
         'notify_email'           => 'boolean',
         'notify_push'            => 'boolean',
         'open_hours_enabled'     => 'boolean',
+        'open_hours_day_windows' => 'array',
     ];
 
     public function agency(): BelongsTo
