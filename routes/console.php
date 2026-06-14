@@ -89,6 +89,10 @@ Schedule::job(new \App\Jobs\SyncPrivatePropertyActivations())->everyFifteenMinut
 Schedule::command('communications:prune-retention')->dailyAt('03:20')->withoutOverlapping();
 Schedule::command('communications:prune-pending')->dailyAt('03:35')->withoutOverlapping();
 
+// Communication Archive (AT-33) — email adapter: dispatch IMAP poll jobs for
+// due mailboxes. Per-mailbox cadence enforced via poll_interval_minutes.
+Schedule::command('communications:poll-mailboxes')->everyFiveMinutes()->withoutOverlapping();
+
 // Private Property listing event feed — authoritative source for activations,
 // deactivations and image errors. Runs every 15 minutes.
 Schedule::job(new \App\Jobs\ProcessPrivatePropertyEventFeed())

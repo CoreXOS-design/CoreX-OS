@@ -901,6 +901,10 @@
                 <a href="{{ route('compliance.communications.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.communications.*') ? 'active' : '' }}">Communications Log</a>
                 <a href="{{ route('compliance.seller-info.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.seller-info.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Send Standalone Info Pack</a>
                 @endpermission
+                @permission('manage_compliance')
+                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}">Communication Archive</a>
+                <a href="{{ route('compliance.comm-mailboxes.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-mailboxes.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Archive Mailboxes</a>
+                @endpermission
             </div>
         </div>
         @endpermission
