@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -21,7 +22,7 @@
     }
 @endphp
 
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="w-full space-y-6">
 
     {{-- Page Header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -30,7 +31,7 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Worksheet &mdash; {{ $user->name }}</h1>
                 <p class="text-sm text-white/60">Income &rarr; Sales &rarr; Stock</p>
             </div>
-            <div class="text-sm font-medium" style="color: rgba(255,255,255,0.8);">
+            <div class="text-sm font-medium text-white/80">
                 {{ $w->period ?? now()->format('Y-m') }}
             </div>
         </div>
@@ -284,14 +285,14 @@
             @endphp
 
             {{-- Column Headers --}}
-            <div class="grid grid-cols-3 gap-3 mb-3">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                 <div></div>
                 <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Plan Inputs (BM / Worksheet)</div>
                 <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Deal Register (Actuals)</div>
             </div>
 
             {{-- ROW: Avg Sale Price --}}
-            <div class="grid grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
                 <div class="ds-label self-center">Avg Sale Price</div>
 
                 <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -322,7 +323,7 @@
             </div>
 
             {{-- ROW: Commission % --}}
-            <div class="grid grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
                 <div class="ds-label self-center">Commission % (Excl VAT)</div>
 
                 <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -362,7 +363,7 @@
             </div>
 
             {{-- ROW: Deals --}}
-            <div class="grid grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
                 <div class="ds-label self-center">Deals (count)</div>
                 <div class="rounded-md p-3 text-sm" style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">&mdash;</div>
 
@@ -389,7 +390,7 @@
             </div>
 
             {{-- ROW: Sales Value --}}
-            <div class="grid grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
                 <div class="ds-label self-center">Sales Value</div>
                 <div class="rounded-md p-3 text-sm" style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">&mdash;</div>
 
@@ -416,7 +417,7 @@
             </div>
 
             {{-- ROW: Total Commission --}}
-            <div class="grid grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start py-3" style="border-bottom: 1px solid var(--border);">
                 <div class="ds-label self-center">Total Commission</div>
                 <div class="rounded-md p-3 text-sm" style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">&mdash;</div>
 
@@ -433,7 +434,7 @@
             </div>
 
             {{-- ROW: Pipeline (ALL-TIME, NOT PAID) --}}
-            <div class="grid grid-cols-3 gap-3 items-start py-3">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start py-3">
                 <div>
                     <div class="ds-label">Pipeline (Net)</div>
                     <div class="text-xs" style="color: var(--text-muted);">Always ALL-TIME &bull; only NOT PAID deals</div>
@@ -505,7 +506,7 @@
 
         {{-- Save Button --}}
         <div class="flex flex-col md:flex-row items-start md:items-center gap-4">
-            <button id="saveWorksheetBtn" type="submit" class="corex-btn-primary" style="padding: 0.625rem 1.25rem; font-size: 0.875rem;">
+            <button id="saveWorksheetBtn" type="submit" class="corex-btn-primary px-5 py-2.5 text-sm">
                 Save Worksheet
             </button>
 

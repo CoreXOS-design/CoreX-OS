@@ -81,6 +81,7 @@ class AgentPerformanceService
                 DB::table('targets')->updateOrInsert(
                     ['period' => $month->format('Y-m'), 'user_id' => (int)$user->id],
                     [
+                        'agency_id' => $user->agency_id,
                         'branch_id' => $user->branch_id,
                         'listings_target' => $listingsTarget,
                         'deals_target' => $dealsTarget,

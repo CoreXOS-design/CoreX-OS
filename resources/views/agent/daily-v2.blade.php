@@ -1,6 +1,7 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
-@section('content')
+@section('corex-content')
 {{-- SPINE-UI-FIX-2: page flows in NATURAL document height.
      Pre-M6.5 the daily-activity page used a fixed-height container
      (height: calc(100vh - 64px)) with a flex-1 inner scroll wrapper
@@ -23,7 +24,7 @@
      total scope (manual confirmed + auto acquired) is locked in the
      11 retrofitted controller queries; nothing here changes that.
 --}}
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4" x-data="{ search: '' }">
+<div class="w-full space-y-5" x-data="{ search: '' }">
 
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -132,7 +133,7 @@
             @if($todayProv > 0)
                 <div>
                     <div class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Pending (not counted)</div>
-                    <div class="text-base font-bold" style="color: var(--ds-amber, #d97706);">{{ number_format($todayProv) }} pts</div>
+                    <div class="text-base font-bold" style="color: var(--ds-amber, #f59e0b);">{{ number_format($todayProv) }} pts</div>
                     <div class="text-[11px]" style="color:var(--text-muted);">waiting on feedback</div>
                 </div>
             @endif
@@ -173,7 +174,7 @@
                                     @if(!empty($r['context'])){{ $r['context'] }} &middot; @endif waiting on feedback
                                 </div>
                             </div>
-                            <div class="font-semibold ml-3" style="color: var(--ds-amber, #d97706);">{{ number_format($r['points']) }}</div>
+                            <div class="font-semibold ml-3" style="color: var(--ds-amber, #f59e0b);">{{ number_format($r['points']) }}</div>
                         </div>
                     @empty
                         <div class="text-xs py-1" style="color:var(--text-muted);">Nothing pending.</div>
