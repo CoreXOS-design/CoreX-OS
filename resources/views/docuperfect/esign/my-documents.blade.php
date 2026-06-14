@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+<div class="w-full space-y-6"
      x-data="{
         showCancelModal: false,
         cancelTemplateId: null,
@@ -41,6 +42,9 @@
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
                     color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
             <div class="flex-1">{{ session('status') }}</div>
         </div>
     @endif
@@ -50,6 +54,9 @@
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
                     color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-crimson);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
             <div class="flex-1">
                 @foreach($errors->all() as $error)
                     <div>{{ $error }}</div>
@@ -248,8 +255,7 @@
                         $totalReq = $tpl->requests->count();
                         $completedReq = $tpl->requests->where('status', 'completed')->count();
                     @endphp
-                    <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                        onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                    <tr class="transition-colors" style="border-top: 1px solid var(--border);">
                         <td class="px-4 py-3">
                             <div class="font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</div>
                             @if($doc && $doc->template)
@@ -360,8 +366,7 @@
                 <tbody>
                 @foreach($groups['ready_to_sign'] as $tpl)
                     @php $doc = $tpl->document; @endphp
-                    <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                        onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                    <tr class="transition-colors" style="border-top: 1px solid var(--border);">
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $doc->template->name ?? '—' }}</td>
                         <td class="px-4 py-3">
@@ -412,8 +417,7 @@
                         $totalReq = $tpl->requests->count();
                         $completedReq = $tpl->requests->where('status', 'completed')->count();
                     @endphp
-                    <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                        onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                    <tr class="transition-colors" style="border-top: 1px solid var(--border);">
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $doc->template->name ?? '—' }}</td>
                         <td class="px-4 py-3">
@@ -477,8 +481,7 @@
                     <tbody>
                     @foreach($groups['completed'] as $tpl)
                         @php $doc = $tpl->document; @endphp
-                        <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                        <tr class="transition-colors" style="border-top: 1px solid var(--border);">
                             <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $doc->template->name ?? '—' }}</td>
                             <td class="px-4 py-3">

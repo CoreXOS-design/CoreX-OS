@@ -44,7 +44,7 @@
         .targets-period-select option { color: #000; }
     </style>
 
-    <div class="max-w-7xl mx-auto space-y-6">
+    <div class="w-full space-y-6">
 
         {{-- Page Header (Pattern A: branded) --}}
         <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -61,13 +61,15 @@
 
                 <div class="flex items-center gap-2 flex-wrap">
                     @if(!empty($isAdmin))
-                        <a href="{{ route('admin.targets.activity.setup') }}" class="corex-btn-outline">Activity Setup</a>
+                        <a href="{{ route('admin.targets.activity.setup') }}" class="corex-btn-outline text-sm"
+                           style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">Activity Setup</a>
                     @endif
 
                     @if($canEditTargets)
                         <form method="POST" action="{{ route('admin.targets.carry-forward') }}" class="inline" onsubmit="return confirm('Copy last month\'s targets to this month? Existing entries will not be overwritten.')">
                             @csrf
-                            <button type="submit" class="corex-btn-outline">Copy Previous Month</button>
+                            <button type="submit" class="corex-btn-outline text-sm"
+                                    style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">Copy Previous Month</button>
                         </form>
                     @endif
 

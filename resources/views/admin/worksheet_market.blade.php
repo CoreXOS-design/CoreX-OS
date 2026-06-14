@@ -1,5 +1,7 @@
 @extends('layouts.corex-app')
 
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+
 @section('corex-content')
     <style>
         .corex-input:focus,
@@ -11,7 +13,7 @@
         .corex-input[readonly] { opacity: 0.5; }
     </style>
 
-    <div class="max-w-7xl mx-auto space-y-6">
+    <div class="w-full space-y-6">
 
         {{-- Page Header (Pattern A) --}}
         <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -173,7 +175,7 @@
                                             <div class="flex items-center gap-2">
                                                 <span class="font-semibold" style="color: var(--text-primary);">{{ $a->name }}</span>
                                                 @if(($a->role ?? '') === 'branch_manager')
-                                                    <span class="ds-badge ds-badge-info">BM</span>
+                                                    <span class="ds-badge ds-badge-info" title="Branch Manager">BM</span>
                                                 @endif
                                             </div>
                                         </td>

@@ -1,5 +1,7 @@
 @extends('layouts.corex-app')
 
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+
 @section('corex-content')
 @php
     $u = auth()->user();
@@ -11,7 +13,7 @@
     }
 @endphp
 
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="w-full space-y-6">
 
     {{-- Page Header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -205,7 +207,8 @@
                         </svg>
                     </div>
                     <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No TV messages yet</h3>
-                    <p class="text-sm" style="color: var(--text-muted);">Use the form above to add your first branch message.</p>
+                    <p class="text-sm mb-4" style="color: var(--text-muted);">Use the form above to add your first branch message.</p>
+                    <button type="button" onclick="document.getElementById('tv-message-input').focus()" class="corex-btn-primary text-sm">Add your first message</button>
                 </div>
             @endforelse
         </div>
