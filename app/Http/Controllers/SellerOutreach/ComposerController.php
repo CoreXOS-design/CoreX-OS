@@ -163,9 +163,9 @@ final class ComposerController extends Controller
             subjectOverride: $validated['subject'] ?? null,
         );
 
-        // Hard block: opt-out
+        // Hard block: opt-out (unified, channel-aware — AT-35)
         if ($context->optOutBlocks) {
-            $msg = 'Contact has opted out of messaging — cannot send.';
+            $msg = 'Contact has opted out of ' . ($context->optOutReason ?? 'messaging') . ' — cannot send.';
             return $request->wantsJson()
                 ? response()->json(['message' => $msg], 422)
                 : back()->with('error', $msg);

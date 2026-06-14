@@ -62,7 +62,11 @@ final class SellerOutreachComposerService
 
         $validationIssues = $this->buildValidationIssues($channel, $recipientPhone, $recipientEmail, $bodyTemplate);
 
-        $optOutBlocks = $contact->messaging_opt_out_at !== null;
+        // Unified, channel-aware opt-out gate (AT-35): block if the contact has
+        // the global messaging opt-out (replied STOP) OR the per-channel opt-out
+        // for THIS channel (opt_out_whatsapp / opt_out_email via canSendVia()).
+        $optOutReason = $this->resolveOptOutReason($contact, $channel);
+        $optOutBlocks = $optOutReason !== null;
         $cooldownSignal = $this->cooldownSignal($agencyId, $contact);
 
         $factsSnapshot = [
@@ -92,7 +96,26 @@ final class SellerOutreachComposerService
             validationIssues: $validationIssues,
             optOutBlocks: $optOutBlocks,
             cooldownSignal: $cooldownSignal,
+            optOutReason: $optOutReason,
         );
+    }
+
+    /**
+     * Which opt-out signal blocks this channel, if any (AT-35). The global
+     * messaging opt-out (STOP reply) blocks every channel; the per-channel
+     * flag blocks only its own channel.
+     */
+    private function resolveOptOutReason(Contact $contact, string $channel): ?string
+    {
+        if ($contact->messaging_opt_out_at !== null) {
+            return 'messaging (replied STOP)';
+        }
+
+        if (! $contact->canSendVia($channel)) {
+            return $channel === 'email' ? 'email' : 'WhatsApp';
+        }
+
+        return null;
     }
 
     private function buildMergeFields(int $agencyId, Contact $contact, Property $property, User $agent): array

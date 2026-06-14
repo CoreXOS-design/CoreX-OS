@@ -29,7 +29,7 @@ final class SellerOutreachSenderService
         if (!$context->isSendable()) {
             $reasons = $context->validationIssues;
             if ($context->optOutBlocks) {
-                $reasons['opt_out_blocks'] = 'Contact has messaging_opt_out_at set.';
+                $reasons['opt_out_blocks'] = 'Contact opted out of ' . ($context->optOutReason ?? 'messaging') . '.';
             }
             throw new \DomainException(
                 'Outreach context is not sendable: ' . json_encode($reasons)

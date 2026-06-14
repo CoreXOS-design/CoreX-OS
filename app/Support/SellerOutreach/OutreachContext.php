@@ -32,6 +32,9 @@ final class OutreachContext
         public readonly array $validationIssues,
         public readonly bool $optOutBlocks,
         public readonly ?array $cooldownSignal,
+        // Human-readable signal that triggered the opt-out block (e.g.
+        // "messaging (replied STOP)", "WhatsApp", "email"). Null when not blocked.
+        public readonly ?string $optOutReason = null,
     ) {}
 
     public function isSendable(): bool
