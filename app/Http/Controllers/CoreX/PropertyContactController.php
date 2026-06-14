@@ -30,14 +30,7 @@ class PropertyContactController extends Controller
             $query->whereNotIn('id', $exclude);
         }
 
-        if ($q !== '') {
-            $query->where(function ($qb) use ($q) {
-                $qb->where('first_name', 'like', "%{$q}%")
-                   ->orWhere('last_name',  'like', "%{$q}%")
-                   ->orWhere('phone',      'like', "%{$q}%")
-                   ->orWhere('email',      'like', "%{$q}%");
-            });
-        }
+        $this->applyNameSearch($query, $q);
 
         return response()->json($query->get(['id', 'first_name', 'last_name', 'phone', 'email']));
     }
@@ -65,16 +58,31 @@ class PropertyContactController extends Controller
             ->orderBy('first_name')
             ->limit(10);
 
-        if ($q !== '') {
-            $query->where(function ($qb) use ($q) {
-                $qb->where('first_name', 'like', "%{$q}%")
-                   ->orWhere('last_name',  'like', "%{$q}%")
-                   ->orWhere('phone',      'like', "%{$q}%")
-                   ->orWhere('email',      'like', "%{$q}%");
-            });
-        }
+        $this->applyNameSearch($query, $q);
 
         return response()->json($query->get(['id', 'first_name', 'last_name', 'phone', 'email', 'contact_type_id']));
+    }
+
+    /**
+     * Apply a multi-word name/phone/email filter to a Contact query.
+     *
+     * The query is split into words and each word must match at least one field
+     * (words AND-ed together, fields OR-ed within a word). This is what lets
+     * "Andre Test" find first_name="Andre" + last_name="Test" — a single
+     * LIKE %Andre Test% never matches because no one column holds both words.
+     * Mirrors the Contacts index search (ContactController::index).
+     */
+    private function applyNameSearch($query, string $q): void
+    {
+        $words = array_filter(explode(' ', trim($q)));
+        foreach ($words as $word) {
+            $query->where(function ($qb) use ($word) {
+                $qb->where('first_name', 'like', "%{$word}%")
+                   ->orWhere('last_name', 'like', "%{$word}%")
+                   ->orWhere('phone',     'like', "%{$word}%")
+                   ->orWhere('email',     'like', "%{$word}%");
+            });
+        }
     }
 
     /** Link an existing contact to the property. */

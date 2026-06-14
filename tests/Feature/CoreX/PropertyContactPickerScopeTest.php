@@ -55,6 +55,24 @@ final class PropertyContactPickerScopeTest extends TestCase
         $resp->assertJsonMissing(['id' => $foreign->id]);
     }
 
+    /** Multi-word query matches across first + last name ("Andre Test"). */
+    public function test_search_matches_multiple_words_across_name_fields(): void
+    {
+        [$agencyId, $propertyId, $agent, $otherUser] = $this->seedFixture();
+
+        $contact = $this->makeContact($agencyId, $otherUser->id, 'Andre', 'Test');
+        // A decoy sharing only the first word must NOT match the full query.
+        $decoy = $this->makeContact($agencyId, $otherUser->id, 'Andre', 'Roets');
+
+        $resp = $this->actingAs($agent)->getJson(
+            route('corex.properties.contacts.search', $propertyId) . '?q=' . urlencode('Andre Test')
+        );
+
+        $resp->assertOk();
+        $resp->assertJsonFragment(['id' => $contact->id]);
+        $resp->assertJsonMissing(['id' => $decoy->id]);
+    }
+
     /** Already-linked contacts are excluded so they can't be linked twice. */
     public function test_search_excludes_already_linked_contact(): void
     {
