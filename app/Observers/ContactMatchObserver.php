@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Models\ContactMatch;
+use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -39,14 +40,19 @@ class ContactMatchObserver
             $m->is_primary = true;
         }
 
-        if (Auth::check() && $m->updated_by_user_id === null) {
+        // Only stamp when the authenticated principal is a staff User — the
+        // column FKs to `users`. Client-portal requests authenticate as a
+        // ClientUser (separate table), so Auth::id() there is NOT a users.id;
+        // stamping it triggered a FK violation on insert. Leave it null for
+        // client-driven changes (the FK is nullable / ON DELETE SET NULL).
+        if ($m->updated_by_user_id === null && Auth::user() instanceof User) {
             $m->updated_by_user_id = Auth::id();
         }
     }
 
     public function updating(ContactMatch $m): void
     {
-        if (Auth::check() && $m->isDirty() && !$m->isDirty('updated_by_user_id')) {
+        if (Auth::user() instanceof User && $m->isDirty() && !$m->isDirty('updated_by_user_id')) {
             $m->updated_by_user_id = Auth::id();
         }
     }
