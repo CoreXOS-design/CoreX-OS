@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\ClientUser;
 use App\Models\Contact;
+use App\Models\ContactSource;
 use App\Models\Scopes\AgencyScope;
 use App\Models\Scopes\ContactScope;
 use App\Models\User;
@@ -66,9 +67,23 @@ class AgentQrController extends Controller
 
     /**
      * POST /api/v1/client-auth/agent-qr/{slug}/register
-     * Creates a Contact in the agent's agency + a ClientUser + logs the
-     * client in. If the email is already a CoreX client, attaches a new
-     * Contact to the existing identity without changing the password.
+     *
+     * Two outcomes, decided by whether the email is already a known CoreX
+     * identity (a ClientUser auth account OR a Contact carrying this email in
+     * any agency):
+     *
+     *  - BRAND-NEW email → create the Contact in the agent's agency (attributed
+     *    to that agent, source "Agent QR"), create the ClientUser with the
+     *    supplied password, link them, sign in. 201 with a session token.
+     *
+     *  - KNOWN email → still create/link the Contact in the agent's agency so
+     *    the prospect shows under this agent, but NEVER accept the supplied
+     *    password and NEVER issue a session (account-takeover guard). Instead
+     *    tell the app to verify ownership via OTP first (same path as
+     *    POST /api/v1/client-auth/lookup). 200 with requires_verification, no
+     *    token.
+     *
+     * Spec: .ai/specs/agent-qr-onboarding.md, .ai/specs/client-auth.md
      */
     public function register(Request $request, string $slug): JsonResponse
     {
@@ -93,65 +108,48 @@ class AgentQrController extends Controller
         ]);
 
         $email = strtolower(trim($data['email']));
-        $existing = ClientUser::where('email', $email)->first();
 
-        // ----- Create/locate the Contact in the agent's agency -----
-        // ContactObserver auto-links to an existing ClientUser by email,
-        // so we don't have to attach it here manually.
-        $contact = Contact::query()
-            ->withoutGlobalScope(AgencyScope::class)
-            ->withoutGlobalScope(ContactScope::class)
-            ->where('agency_id', $agent->agency_id)
-            ->whereRaw('LOWER(email) = ?', [$email])
-            ->first();
+        // Is this email already a known CoreX identity ANYWHERE? Known means a
+        // ClientUser auth account exists, OR a Contact already carries this
+        // email in some agency. Both must verify ownership via OTP before any
+        // password is set — silently accepting a password here would let anyone
+        // who knows the email take over the existing person's record.
+        $existingClientUser = ClientUser::where('email', $email)->first();
+        $crossAgency        = $this->service->findContactsByIdentifierAcrossAgencies($email);
+        $isKnownIdentity    = $existingClientUser !== null || $crossAgency['contacts']->isNotEmpty();
 
-        if (!$contact) {
-            $contact = new Contact();
-            $contact->forceFill([
-                'agency_id'          => $agent->agency_id,
-                'branch_id'          => $agent->branch_id,
-                'created_by_user_id' => $agent->id,
-                'first_name'         => trim($data['first_name']),
-                'last_name'          => trim($data['last_name']),
-                'phone'              => $data['phone'] ?? null,
-                'email'              => $email,
-            ])->save();
-        }
+        // Either way, the scan attaches the prospect to THIS agent in THIS
+        // agency. Idempotent — repeated scans never duplicate the contact.
+        $contact = $this->upsertAgencyContact($agent, $data, $email, $existingClientUser);
 
-        // ----- Resolve / create ClientUser -----
-        if ($existing) {
-            $clientUser = $existing;
-
-            // Ensure the new (or pre-existing) Contact is linked.
-            if (!$contact->client_user_id) {
-                $contact->forceFill(['client_user_id' => $clientUser->id])->saveQuietly();
+        if ($isKnownIdentity) {
+            // Stamp origin agency on a pre-existing login if missing, but NEVER
+            // touch the password and NEVER issue a session token.
+            if ($existingClientUser && empty($existingClientUser->created_by_agency_id)) {
+                $existingClientUser->forceFill(['created_by_agency_id' => $agent->agency_id])->save();
             }
-            if (empty($clientUser->created_by_agency_id)) {
-                $clientUser->forceFill(['created_by_agency_id' => $agent->agency_id])->save();
-            }
-
-            $token = $this->service->issueSanctumToken(
-                $clientUser,
-                $data['device_name'] ?? 'CoreX Client App'
-            );
 
             $this->service->log(
-                $clientUser, $agent->agency_id, $contact->id,
+                $existingClientUser, $agent->agency_id, $contact->id,
                 'agent_qr_linked_existing', $request,
-                ['agent_user_id' => $agent->id, 'qr_slug' => $slug]
+                ['agent_user_id' => $agent->id, 'qr_slug' => $slug, 'verification' => 'otp']
             );
 
+            $agency = $this->presentAgency($agent);
+
             return response()->json([
-                'existing'      => true,
-                'message'       => 'Account already exists — signed in with your existing CoreX credentials and linked to this agent.',
-                'token'         => $token,
-                'agent'         => $this->presentAgent($agent),
-                'agency'        => $this->presentAgency($agent),
-                'contact'       => ['id' => $contact->id],
-                'client_user'   => ['id' => $clientUser->id, 'email' => $clientUser->email],
+                'existing'              => true,
+                'requires_verification' => true,
+                'verification'          => 'otp',
+                'agent'                 => $this->presentAgent($agent),
+                'agency'                => $agency,
+                'message'               => 'This email is already registered with '
+                    . ($agency['name'] ?? 'this agency')
+                    . '. Verify it to continue.',
             ], 200);
         }
 
+        // ----- Brand-new identity: create the client login + sign them in. -----
         $clientUser = ClientUser::create([
             'email'                => $email,
             'password'             => Hash::make($data['password']),
@@ -191,6 +189,90 @@ class AgentQrController extends Controller
             'contact'     => ['id' => $contact->id],
             'client_user' => ['id' => $clientUser->id, 'email' => $clientUser->email],
         ], 201);
+    }
+
+    /**
+     * Ensure a Contact exists in the agent's agency for this email, attributed
+     * to the scanning agent and sourced as "Agent QR". Idempotent: an existing
+     * contact is enriched (never overwritten) so repeated scans don't create
+     * duplicates and never steal an existing agent's attribution or data.
+     */
+    private function upsertAgencyContact(User $agent, array $data, string $email, ?ClientUser $clientUser): Contact
+    {
+        $contact = Contact::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->withoutGlobalScope(ContactScope::class)
+            ->where('agency_id', $agent->agency_id)
+            ->whereRaw('LOWER(email) = ?', [$email])
+            ->first();
+
+        if (!$contact) {
+            // ContactObserver::creating auto-links to an existing ClientUser by
+            // email and backfills branch_id.
+            $contact = new Contact();
+            $contact->forceFill([
+                'agency_id'          => $agent->agency_id,
+                'branch_id'          => $agent->branch_id,
+                'created_by_user_id' => $agent->id,
+                'contact_source_id'  => $this->agentQrSourceId((int) $agent->agency_id),
+                'first_name'         => trim($data['first_name']),
+                'last_name'          => trim($data['last_name']),
+                'phone'              => $data['phone'] ?? null,
+                'email'              => $email,
+            ])->save();
+        } else {
+            // Enrich only empty fields — never clobber an existing agent's lead.
+            $patch = [];
+            if (empty($contact->created_by_user_id)) {
+                $patch['created_by_user_id'] = $agent->id;
+            }
+            if (empty($contact->contact_source_id)) {
+                $patch['contact_source_id'] = $this->agentQrSourceId((int) $agent->agency_id);
+            }
+            if (empty($contact->first_name) && trim($data['first_name']) !== '') {
+                $patch['first_name'] = trim($data['first_name']);
+            }
+            if (empty($contact->last_name) && trim($data['last_name']) !== '') {
+                $patch['last_name'] = trim($data['last_name']);
+            }
+            if (empty($contact->phone) && !empty($data['phone'])) {
+                $patch['phone'] = $data['phone'];
+            }
+            if ($patch) {
+                $contact->forceFill($patch)->saveQuietly();
+            }
+        }
+
+        // Safety net: link to the known identity if not already linked.
+        if ($clientUser && empty($contact->client_user_id)) {
+            $contact->forceFill(['client_user_id' => $clientUser->id])->saveQuietly();
+        }
+
+        return $contact;
+    }
+
+    /**
+     * Find or create the per-agency "Agent QR" contact source. Idempotent so
+     * repeated registrations reuse the same source row.
+     */
+    private function agentQrSourceId(int $agencyId): int
+    {
+        $source = ContactSource::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $agencyId)
+            ->whereRaw('LOWER(name) = ?', ['agent qr'])
+            ->first();
+
+        if (!$source) {
+            $source = new ContactSource();
+            $source->forceFill([
+                'agency_id' => $agencyId,
+                'name'      => 'Agent QR',
+                'is_active' => true,
+            ])->save();
+        }
+
+        return (int) $source->id;
     }
 
     private function resolveAgent(string $slug): ?User
