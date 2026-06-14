@@ -23,14 +23,15 @@ class PropertyContactController extends Controller
         // contacts LIST — applying it here would hide contacts captured by other
         // agents and force duplicate creation, violating Non-Negotiable #10
         // (Universal Match-or-Create). AgencyScope + soft-deletes still apply.
-        $query = Contact::withoutGlobalScope(ContactScope::class)
-            ->orderBy('last_name')->orderBy('first_name')->limit(10);
+        $query = Contact::withoutGlobalScope(ContactScope::class)->limit(10);
 
         if ($exclude) {
             $query->whereNotIn('id', $exclude);
         }
 
         $this->applyNameSearch($query, $q);
+        $this->applyRelevanceOrder($query, $q);
+        $query->orderBy('last_name')->orderBy('first_name');
 
         return response()->json($query->get(['id', 'first_name', 'last_name', 'phone', 'email']));
     }
@@ -54,11 +55,11 @@ class PropertyContactController extends Controller
         $query = Contact::withoutGlobalScope(ContactScope::class)
             ->with('type')
             ->whereNotIn('id', $linkedIds)
-            ->orderBy('last_name')
-            ->orderBy('first_name')
             ->limit(10);
 
         $this->applyNameSearch($query, $q);
+        $this->applyRelevanceOrder($query, $q);
+        $query->orderBy('last_name')->orderBy('first_name');
 
         return response()->json($query->get(['id', 'first_name', 'last_name', 'phone', 'email', 'contact_type_id']));
     }
@@ -83,6 +84,34 @@ class PropertyContactController extends Controller
                    ->orWhere('email',     'like', "%{$word}%");
             });
         }
+    }
+
+    /**
+     * Rank results by match strength so the closest names surface first:
+     *   tier 0 — exact match (first/last name or full name equals the query)
+     *   tier 1 — prefix match (name starts with the query, e.g. "Andrea"/"Andrew" for "Andre")
+     *   tier 2 — everything else that still matched the filter (contains)
+     * Alphabetical (last, first) breaks ties within a tier. No-op for an empty query.
+     */
+    private function applyRelevanceOrder($query, string $q): void
+    {
+        $q = trim($q);
+        if ($q === '') {
+            return;
+        }
+
+        $lower = mb_strtolower($q);
+        $prefix = $lower . '%';
+        $fullName = "LOWER(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))";
+
+        $query->orderByRaw(
+            "CASE
+                WHEN LOWER(first_name) = ? OR LOWER(last_name) = ? OR {$fullName} = ? THEN 0
+                WHEN LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR {$fullName} LIKE ? THEN 1
+                ELSE 2
+            END",
+            [$lower, $lower, $lower, $prefix, $prefix, $prefix]
+        );
     }
 
     /** Link an existing contact to the property. */

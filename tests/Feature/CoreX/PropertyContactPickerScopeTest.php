@@ -73,6 +73,29 @@ final class PropertyContactPickerScopeTest extends TestCase
         $resp->assertJsonMissing(['id' => $decoy->id]);
     }
 
+    /** Results rank exact name matches first, then prefix, then contains. */
+    public function test_search_ranks_exact_then_prefix_then_contains(): void
+    {
+        [$agencyId, $propertyId, $agent, $otherUser] = $this->seedFixture();
+
+        $exact    = $this->makeContact($agencyId, $otherUser->id, 'Andre', 'Zulu');   // tier 0
+        $prefixA  = $this->makeContact($agencyId, $otherUser->id, 'Andrea', 'Jones'); // tier 1
+        $prefixB  = $this->makeContact($agencyId, $otherUser->id, 'Andrew', 'Smith'); // tier 1
+        $contains = $this->makeContact($agencyId, $otherUser->id, 'Leandre', 'Botha'); // tier 2
+
+        $resp = $this->actingAs($agent)->getJson(
+            route('corex.properties.contacts.search', $propertyId) . '?q=Andre'
+        );
+
+        $resp->assertOk();
+        $ids = array_column($resp->json(), 'id');
+
+        // Exact match precedes both prefix matches, which precede the contains match.
+        $this->assertSame($exact->id, $ids[0]);
+        $this->assertLessThan(array_search($contains->id, $ids), array_search($prefixA->id, $ids));
+        $this->assertLessThan(array_search($contains->id, $ids), array_search($prefixB->id, $ids));
+    }
+
     /** Already-linked contacts are excluded so they can't be linked twice. */
     public function test_search_excludes_already_linked_contact(): void
     {
