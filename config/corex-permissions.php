@@ -125,6 +125,11 @@ return [
         ['key' => 'manage_information_officer',  'label' => 'Manage Information Officer (POPIA)','section' => 'compliance',     'type' => 'action',  'module' => 'rmcp',             'sort_order' => 24],
         ['key' => 'manage_activity_mappings',    'label' => 'Manage Activity Points → Calendar Mappings', 'section' => 'compliance', 'type' => 'action', 'module' => 'activity-points', 'sort_order' => 25],
 
+        // ── Policy Acknowledgement Framework (AT-29) ──
+        ['key' => 'access_policy',               'label' => 'View & Sign Policies',            'section' => 'compliance',       'type' => 'access',  'module' => 'policy',           'sort_order' => 26],
+        ['key' => 'edit_policy',                 'label' => 'Edit Policy Drafts',              'section' => 'compliance',       'type' => 'action',  'module' => 'policy',           'sort_order' => 27],
+        ['key' => 'approve_policy',              'label' => 'Approve / Publish Policies',      'section' => 'compliance',       'type' => 'action',  'module' => 'policy',           'sort_order' => 28],
+
         // ── Employee Screening ──
         ['key' => 'manage_employee_screenings', 'label' => 'Manage Employee Screenings',    'section' => 'compliance',       'type' => 'action',  'module' => 'screening',        'sort_order' => 30],
         ['key' => 'view_own_screening',         'label' => 'View Own Screening Records',    'section' => 'compliance',       'type' => 'access',  'module' => 'screening',        'sort_order' => 31],
@@ -540,6 +545,7 @@ return [
                 'compliance.view', 'compliance.manage',
                 'verify_user_documents', 'access_compliance_dashboard',
                 'access_rmcp', 'edit_rmcp', 'manage_compliance_officer', 'manage_information_officer',
+                'access_policy', 'edit_policy',
                 'manage_activity_mappings',
                 'manage_employee_screenings', 'view_own_screening', 'manage_branch_compliance',
                 'edit_user_ppra_status',
@@ -659,6 +665,7 @@ return [
                 'access_deal_register_v2',
                 'deals_v2.view', 'deals_v2.create', 'deals_v2.edit',
                 'access_rmcp',
+                'access_policy',
                 'view_own_screening',
                 // Payroll
                 'view_own_payslips',
@@ -705,6 +712,7 @@ return [
                 'settings.view',
                 'view_own_stats',
                 'access_rmcp',
+                'access_policy',
                 'view_own_screening',
                 // Sidebar sections
                 'sidebar.section.agents', 'sidebar.section.tools',

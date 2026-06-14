@@ -1011,6 +1011,37 @@
             </div>
         </div>
 
+        {{-- Agency Policies (AT-29) — outstanding sign-offs --}}
+        @isset($outstandingPolicies)
+        @if($outstandingPolicies->isNotEmpty())
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 4px;">Policies to acknowledge</h3>
+            <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 16px;">You have {{ $outstandingPolicies->count() }} {{ \Illuminate\Support\Str::plural('policy', $outstandingPolicies->count()) }} that need your sign-off.</p>
+            <div class="space-y-3">
+                @foreach($outstandingPolicies as $row)
+                @php $statusColor = $row['status'] === 'in_progress' ? 'var(--ds-amber)' : 'var(--ds-crimson)'; @endphp
+                <div class="flex items-center justify-between py-3 px-4" style="border:1px solid var(--border); border-radius:6px;">
+                    <div class="flex items-center gap-3">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:{{ $statusColor }};"></span>
+                        <div>
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $row['policy']->name }}</div>
+                            <div class="text-xs" style="color:var(--text-muted);">{{ ucfirst(str_replace('_', ' ', $row['status'])) }}</div>
+                        </div>
+                    </div>
+                    @if($row['status'] === 'in_progress')
+                    <a href="{{ route('policy.ack.step', [$row['policy']->policy_key, 1]) }}" style="font-size:0.75rem; padding:5px 12px; border-radius:6px; background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); text-decoration:none; font-weight:600;">Continue</a>
+                    @else
+                    <form method="POST" action="{{ route('policy.ack.start', $row['policy']->policy_key) }}" style="display:inline;">@csrf
+                        <button type="submit" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:color-mix(in srgb, var(--ds-green) 12%, transparent); color:var(--ds-green); border:none; cursor:pointer; font-weight:600;">Start Acknowledgement</button>
+                    </form>
+                    @endif
+                </div>
+                @endforeach
+            </div>
+        </div>
+        @endif
+        @endisset
+
         {{-- Other training courses --}}
         @if($trainingItems->isNotEmpty())
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">

@@ -852,6 +852,12 @@
                 @permission('access_compliance_dashboard')
                 <a href="{{ route('compliance.rmcp.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP Dashboard</a>
                 @endpermission
+                @permission('access_policy')
+                <a href="{{ route('compliance.policy.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.policy.*') && !request()->routeIs('compliance.policy.dashboard.*') ? 'active' : '' }}">Policies</a>
+                @endpermission
+                @permission('access_compliance_dashboard')
+                <a href="{{ route('compliance.policy.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.policy.dashboard.*') ? 'active' : '' }}">Policy Register</a>
+                @endpermission
                 @permission('manage_employee_screenings')
                 <a href="{{ route('compliance.screening.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.screening.*') || request()->routeIs('compliance.screenings.*') ? 'active' : '' }}">Staff Screening</a>
                 @endpermission

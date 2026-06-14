@@ -1441,6 +1441,61 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->name('pdf')->middleware('permission:access_rmcp');
     });
 
+    // ── Policy Acknowledgement Framework (AT-29) ──
+
+    // Staff sign-off wizard — scoped by {policy} (policy_key). {policy} is a string, not model-bound.
+    Route::middleware(['permission:access_policy', 'agency.required'])
+        ->prefix('my-portal/policy/{policy}/acknowledge')
+        ->name('policy.ack.')
+        ->group(function () {
+            Route::post('/start', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'start'])->name('start');
+            Route::get('/step/{order}', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'step'])->name('step')->where('order', '[0-9]+');
+            Route::post('/confirm/{order}', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'confirmSection'])->name('confirm')->where('order', '[0-9]+');
+            Route::get('/sign', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'sign'])->name('sign');
+            Route::post('/submit', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'submit'])->name('submit');
+            Route::get('/receipt/{ack}', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'receipt'])->name('receipt');
+            Route::get('/receipt/{ack}/pdf', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'downloadReceipt'])->name('receipt.pdf');
+            Route::get('/my-acknowledgements', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'index'])->name('index');
+        });
+
+    // Compliance-officer register (with policy selector via ?policy=)
+    Route::middleware(['permission:access_compliance_dashboard', 'agency.required'])
+        ->prefix('compliance/policy-dashboard')
+        ->name('compliance.policy.dashboard.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\Compliance\PolicyDashboardController::class, 'index'])->name('index');
+            Route::post('/reminder', [\App\Http\Controllers\Compliance\PolicyDashboardController::class, 'sendReminder'])->name('reminder');
+            Route::get('/report.pdf', [\App\Http\Controllers\Compliance\PolicyDashboardController::class, 'report'])->name('report');
+        });
+
+    // Authoring / versioning
+    Route::middleware('agency.required')->prefix('compliance/policy-manager')->name('compliance.policy.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\PolicyController::class, 'index'])
+            ->name('index')->middleware('permission:access_policy');
+        Route::get('/create', [\App\Http\Controllers\Compliance\PolicyController::class, 'createPolicy'])
+            ->name('create')->middleware('permission:edit_policy');
+        Route::post('/', [\App\Http\Controllers\Compliance\PolicyController::class, 'storePolicy'])
+            ->name('store')->middleware('permission:edit_policy');
+        Route::get('/policies/{policy}/versions/create', [\App\Http\Controllers\Compliance\PolicyController::class, 'createVersion'])
+            ->name('version.create')->middleware('permission:edit_policy');
+        Route::get('/{version}', [\App\Http\Controllers\Compliance\PolicyController::class, 'show'])
+            ->name('show')->middleware('permission:access_policy');
+        Route::get('/{version}/edit', [\App\Http\Controllers\Compliance\PolicyController::class, 'edit'])
+            ->name('edit')->middleware('permission:edit_policy');
+        Route::patch('/{version}', [\App\Http\Controllers\Compliance\PolicyController::class, 'update'])
+            ->name('update')->middleware('permission:edit_policy');
+        Route::post('/{version}/sections', [\App\Http\Controllers\Compliance\PolicyController::class, 'addSection'])
+            ->name('section.add')->middleware('permission:edit_policy');
+        Route::delete('/{version}/sections/{section}', [\App\Http\Controllers\Compliance\PolicyController::class, 'deleteSection'])
+            ->name('section.delete')->middleware('permission:edit_policy');
+        Route::get('/{version}/approve', [\App\Http\Controllers\Compliance\PolicyController::class, 'approveForm'])
+            ->name('approve.form')->middleware('permission:approve_policy');
+        Route::post('/{version}/approve', [\App\Http\Controllers\Compliance\PolicyController::class, 'approve'])
+            ->name('approve')->middleware('permission:approve_policy');
+        Route::get('/{version}/pdf', [\App\Http\Controllers\Compliance\PolicyController::class, 'downloadPdf'])
+            ->name('pdf')->middleware('permission:access_policy');
+    });
+
     // ── RMCP Compliance Officer (retired — redirects to settings) ──
     Route::get('/compliance/officer', function () {
         return redirect('/corex/settings?tab=user');

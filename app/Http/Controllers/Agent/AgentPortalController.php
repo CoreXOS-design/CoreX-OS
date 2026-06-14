@@ -195,10 +195,14 @@ class AgentPortalController extends Controller
         // Agent-authored articles for the public website profile (Profile tab).
         $articles = $user->articles()->latest()->get();
 
+        // AT-29 — outstanding agency-policy acknowledgements (any active policy not 'valid')
+        $outstandingPolicies = $user->outstandingPolicyAcknowledgements();
+
         return view('agent.portal', compact(
             'user',
             'documents',
             'articles',
+            'outstandingPolicies',
             'profileFields',
             'profilePercent',
             'complianceStatus',
