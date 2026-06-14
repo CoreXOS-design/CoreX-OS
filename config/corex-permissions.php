@@ -117,6 +117,11 @@ return [
         ['key' => 'verify_user_documents',   'label' => 'Verify/Reject User Documents',    'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 15],
         ['key' => 'access_compliance_dashboard','label' => 'Access Compliance Dashboard',   'section' => 'compliance',       'type' => 'access',  'module' => 'compliance',       'sort_order' => 16],
 
+        // ── Communication Archive (AT-33) — PRIVACY-SENSITIVE: grants read access to the
+        //    full immutable archive of staff email/WhatsApp. Restricted by default. ──
+        ['key' => 'access_communication_archive',  'label' => 'View Communication Archive (all staff email/WhatsApp)', 'section' => 'compliance', 'type' => 'access', 'module' => 'communication_archive', 'sort_order' => 17],
+        ['key' => 'manage_communication_mailboxes', 'label' => 'Manage Archive Mailboxes (IMAP credentials)',          'section' => 'compliance', 'type' => 'action', 'module' => 'communication_archive', 'sort_order' => 18],
+
         // ── RMCP ──
         ['key' => 'access_rmcp',                 'label' => 'View RMCP',                       'section' => 'compliance',       'type' => 'access',  'module' => 'rmcp',             'sort_order' => 20],
         ['key' => 'edit_rmcp',                   'label' => 'Edit RMCP Drafts',                'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 21],
@@ -539,6 +544,7 @@ return [
                 'access_compliance', 'manage_compliance', 'view_compliance_reports',
                 'compliance.view', 'compliance.manage',
                 'verify_user_documents', 'access_compliance_dashboard',
+                'access_communication_archive',
                 'access_rmcp', 'edit_rmcp', 'manage_compliance_officer', 'manage_information_officer',
                 'manage_activity_mappings',
                 'manage_employee_screenings', 'view_own_screening', 'manage_branch_compliance',

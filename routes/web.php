@@ -1494,16 +1494,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Communication Archive (AT-33) — email/WhatsApp evidence archive viewer.
-    // Gated by manage_compliance: the full cross-staff archive is a sensitive
-    // POPIA surface, so it is not exposed under the broad access_communication.
-    Route::middleware(['permission:manage_compliance', 'agency.required'])->prefix('compliance/communication-archive')->name('compliance.comm-archive.')->group(function () {
+    // Gated by the dedicated, role-grantable access_communication_archive
+    // permission so each agency controls archive visibility per role/user.
+    Route::middleware(['permission:access_communication_archive', 'agency.required'])->prefix('compliance/communication-archive')->name('compliance.comm-archive.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'index'])->name('index');
         Route::get('/thread/{threadKey}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'thread'])->name('thread')->where('threadKey', '.*');
         Route::get('/message/{communication}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'show'])->name('show');
     });
 
-    // ── Communication Archive — mailbox config (AT-33) ──
-    Route::middleware(['permission:manage_compliance', 'agency.required'])->prefix('compliance/communication-mailboxes')->name('compliance.comm-mailboxes.')->group(function () {
+    // ── Communication Archive — mailbox config (AT-33) — tighter: editing IMAP
+    // credentials is admin/compliance-level, separate from viewing the archive.
+    Route::middleware(['permission:manage_communication_mailboxes', 'agency.required'])->prefix('compliance/communication-mailboxes')->name('compliance.comm-mailboxes.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'create'])->name('create');
         Route::post('/', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'store'])->name('store');
