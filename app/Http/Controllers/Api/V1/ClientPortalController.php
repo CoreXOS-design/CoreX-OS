@@ -10,6 +10,7 @@ use App\Models\ContactMatchFeedback;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\Scopes\ContactScope;
+use App\Models\User;
 use App\Services\ClientAuthService;
 use App\Services\Matching\ClientMatchResolver;
 use App\Services\Matching\MatchingService;
@@ -44,7 +45,9 @@ class ClientPortalController extends Controller
             ? $this->service->contactForAgency($client, $client->current_agency_id)
             : null;
 
-        return response()->json([
+        $agent = $contact ? $this->resolveAssignedAgent($contact) : null;
+
+        $payload = [
             'client' => [
                 'id'                    => $client->id,
                 'email'                 => $client->email,
@@ -57,7 +60,16 @@ class ClientPortalController extends Controller
             ],
             'agencies' => $agencies,
             'contact'  => $contact ? $this->shapeContact($contact) : null,
-        ]);
+        ];
+
+        // Sibling of `contact`: the client's assigned agent in the current
+        // agency (the agent who captured them — e.g. at QR signup). Omitted
+        // entirely when there is no assigned agent; the app handles absence.
+        if ($agent) {
+            $payload['agent'] = $this->shapeAgent($agent);
+        }
+
+        return response()->json($payload);
     }
 
     /**
@@ -474,5 +486,73 @@ class ClientPortalController extends Controller
             'phone'      => $contact->phone,
             'agency_id'  => $contact->agency_id,
         ];
+    }
+
+    /**
+     * Resolve the agent assigned to this contact in its (current) agency.
+     *
+     * The link is `created_by_user_id` — the agent who captured the contact,
+     * e.g. the agent whose QR code the client scanned at signup (see
+     * AgentQrController::upsertAgencyContact). Scope is bypassed and the query
+     * is pinned to the contact's own agency so we never leak an agent from
+     * another tenant, and so it resolves while authed as a ClientUser (which
+     * carries no User-agency context). SoftDeletes excludes departed agents.
+     */
+    private function resolveAssignedAgent(Contact $contact): ?User
+    {
+        if (!$contact->created_by_user_id) {
+            return null;
+        }
+
+        return User::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('id', $contact->created_by_user_id)
+            ->where('agency_id', $contact->agency_id)
+            ->first();
+    }
+
+    /**
+     * Shape an agent for the mobile "Your agent" contact card. Empty channels
+     * are dropped so the app only renders a button per populated field. Phone
+     * numbers are emitted in E.164 (+27…) so wa.me carries the country code.
+     */
+    private function shapeAgent(User $agent): array
+    {
+        $name  = trim((string) $agent->name);
+        $first = trim(explode(' ', $name)[0] ?? '');
+        $last  = trim((string) str_replace($first, '', $name));
+
+        return array_filter([
+            'id'         => $agent->id,
+            'first_name' => $first ?: null,
+            'last_name'  => $last ?: null,
+            'full_name'  => $name ?: null,
+            'title'      => $agent->designation ?: null,
+            'phone'      => $this->toE164($agent->phone ?: $agent->cell),
+            'whatsapp'   => $this->toE164($agent->cell ?: $agent->phone),
+            'email'      => $agent->email ?: null,
+            'photo_url'  => method_exists($agent, 'profilePhotoUrl') ? $agent->profilePhotoUrl() : null,
+        ], fn ($v) => $v !== null && $v !== '');
+    }
+
+    /**
+     * Convert a stored SA number (canonicalised local form, e.g. 0821234567)
+     * to E.164 (+27821234567). Returns null for blanks. Best-effort: anything
+     * that isn't a recognisable SA shape is returned as a `+`-prefixed digit
+     * string rather than discarded.
+     */
+    private function toE164(?string $raw): ?string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $raw) ?? '';
+        if ($digits === '') {
+            return null;
+        }
+        if (str_starts_with($digits, '27')) {
+            return '+' . $digits;
+        }
+        if (str_starts_with($digits, '0')) {
+            return '+27' . substr($digits, 1);
+        }
+        return '+' . $digits;
     }
 }

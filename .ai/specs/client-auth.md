@@ -116,7 +116,7 @@ Same intent as draft. Keyed by `email` (so OTPs can be issued before a ClientUse
 | POST | `/api/v1/client-auth/password/change` | `client-auth.password.change` | `auth:sanctum` (`client`) | `{current_password, password, password_confirmation}` |
 | POST | `/api/v1/client-auth/password/forgot` | `client-auth.password.forgot` | none | `{email}` — issues recovery OTP (real emails only) |
 | POST | `/api/v1/client-auth/logout` | `client-auth.logout` | `auth:sanctum` (`client`) | revokes current token |
-| GET  | `/api/v1/client/me` | `client.me` | `auth:sanctum` (`client`) | returns contact summary, current agency, lock state |
+| GET  | `/api/v1/client/me` | `client.me` | `auth:sanctum` (`client`) | returns contact summary, current agency, lock state, and (optional) `agent` — the contact's assigned agent in the current agency (capturing/QR-signup agent via `created_by_user_id`); key omitted when none. Shape: `{id, first_name, last_name, full_name, title, phone, whatsapp, email, photo_url}` with empty channels dropped and phones in E.164 |
 | GET  | `/api/v1/client/match-options` | `client.match-options` | `auth:sanctum` (`client`) | Listing types, property types, suburb suggestions for the agency |
 | GET  | `/api/v1/client/matches` | `client.matches` | `auth:sanctum` (`client`) | List the client's matches in current agency, each with `feedback_summary` counts |
 | POST | `/api/v1/client/matches` | `client.matches.create` | `auth:sanctum` (`client`) | Client creates a new match for themselves |

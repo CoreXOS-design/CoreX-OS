@@ -10,6 +10,7 @@ use App\Models\ClientSigninAttempt;
 use App\Models\ClientUser;
 use App\Models\Contact;
 use App\Models\Scopes\AgencyScope;
+use App\Models\User;
 use App\Services\ClientAuthService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -277,6 +278,103 @@ class ClientAuthFlowTest extends TestCase
 
         $res = $this->withHeader('Authorization', "Bearer {$token}")->getJson('/api/v1/client/me');
         $res->assertOk()->assertJsonPath('contact.first_name', 'AgentA');
+    }
+
+    public function test_me_includes_assigned_agent_when_contact_has_one(): void
+    {
+        $agency  = $this->makeAgency();
+        $branchId = Branch::query()->where('agency_id', $agency->id)->value('id');
+
+        $agent = User::factory()->create([
+            'name'        => 'Jane Doe',
+            'agency_id'   => $agency->id,
+            'branch_id'   => $branchId,
+            'is_active'   => true,
+            'designation' => 'Sales Agent',
+            'phone'       => '0821234567',
+            'email'       => 'jane@agency.co.za',
+        ]);
+
+        $cu = ClientUser::create([
+            'email'             => 'hasagent@example.com',
+            'password'          => Hash::make('pw-12345678'),
+            'current_agency_id' => $agency->id,
+        ]);
+        $this->makeContact($agency, [
+            'email'              => 'hasagent@example.com',
+            'client_user_id'     => $cu->id,
+            'created_by_user_id' => $agent->id,
+        ]);
+
+        $token = $cu->createToken('t', ['client'])->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/v1/client/me')
+            ->assertOk()
+            ->assertJsonPath('agent.id', $agent->id)
+            ->assertJsonPath('agent.full_name', 'Jane Doe')
+            ->assertJsonPath('agent.title', 'Sales Agent')
+            ->assertJsonPath('agent.email', 'jane@agency.co.za')
+            // Stored as local 0821234567 → emitted as E.164 for wa.me/tel.
+            ->assertJsonPath('agent.phone', '+27821234567')
+            ->assertJsonPath('agent.whatsapp', '+27821234567');
+    }
+
+    public function test_me_omits_agent_key_when_contact_has_no_assigned_agent(): void
+    {
+        $agency = $this->makeAgency();
+
+        $cu = ClientUser::create([
+            'email'             => 'noagent@example.com',
+            'password'          => Hash::make('pw-12345678'),
+            'current_agency_id' => $agency->id,
+        ]);
+        $this->makeContact($agency, [
+            'email'              => 'noagent@example.com',
+            'client_user_id'     => $cu->id,
+            'created_by_user_id' => null,
+        ]);
+
+        $token = $cu->createToken('t', ['client'])->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/v1/client/me')
+            ->assertOk()
+            ->assertJsonMissingPath('agent');
+    }
+
+    public function test_me_does_not_leak_agent_from_another_agency(): void
+    {
+        $agencyA = $this->makeAgency('A');
+        $agencyB = $this->makeAgency('B');
+
+        // Agent belongs to agency B, but is (wrongly) referenced by a contact
+        // in agency A. The agency-pinned lookup must refuse to surface them.
+        $branchB = Branch::query()->where('agency_id', $agencyB->id)->value('id');
+        $foreignAgent = User::factory()->create([
+            'name'      => 'Other Agency Agent',
+            'agency_id' => $agencyB->id,
+            'branch_id' => $branchB,
+            'is_active' => true,
+        ]);
+
+        $cu = ClientUser::create([
+            'email'             => 'leak@example.com',
+            'password'          => Hash::make('pw-12345678'),
+            'current_agency_id' => $agencyA->id,
+        ]);
+        $this->makeContact($agencyA, [
+            'email'              => 'leak@example.com',
+            'client_user_id'     => $cu->id,
+            'created_by_user_id' => $foreignAgent->id,
+        ]);
+
+        $token = $cu->createToken('t', ['client'])->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/v1/client/me')
+            ->assertOk()
+            ->assertJsonMissingPath('agent');
     }
 
     public function test_fake_email_generator_collides_and_increments(): void
