@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; width: 320px; padding: 14px; color: #0f172a; }
+    h1 { font-size: 14px; margin: 0 0 4px; }
+    p.note { font-size: 11px; color: #64748b; margin: 0 0 12px; }
+    label { display: block; font-size: 11px; font-weight: 600; margin: 10px 0 3px; }
+    input { width: 100%; box-sizing: border-box; padding: 7px; font-size: 12px; border: 1px solid #e5e7eb; border-radius: 6px; }
+    button { margin-top: 12px; width: 100%; padding: 8px; font-size: 12px; font-weight: 600; background: #00b4d8; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+    .status { margin-top: 10px; font-size: 11px; color: #64748b; }
+    .ro { margin-top: 12px; font-size: 10px; color: #16a34a; }
+  </style>
+</head>
+<body>
+  <h1>CoreX WhatsApp Capture</h1>
+  <p class="note">Read-only. Captures business WhatsApp conversations into the CoreX Communication Archive. It never sends messages.</p>
+
+  <label for="base-url">CoreX URL</label>
+  <input id="base-url" type="text" placeholder="https://corex.hfcoastal.co.za">
+
+  <label for="device-token">Device token</label>
+  <input id="device-token" type="password" placeholder="Paste the token from My Portal → WhatsApp Capture">
+
+  <button id="save">Save</button>
+  <div class="status" id="status"></div>
+  <div class="ro">● Read-only — this extension cannot send WhatsApp messages.</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

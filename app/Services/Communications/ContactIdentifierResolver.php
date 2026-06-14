@@ -3,8 +3,6 @@
 namespace App\Services\Communications;
 
 use App\Models\Contact;
-use App\Models\Scopes\AgencyScope;
-use App\Models\Scopes\BranchScope;
 use App\Services\ContactDuplicateService;
 
 /**
@@ -13,9 +11,12 @@ use App\Services\ContactDuplicateService;
  * call this before writing to the permanent archive.
  *
  * Reuses ContactDuplicateService::normalizePhone() (last-9-digits) for numbers
- * and strtolower(trim()) for email. Queries bypass the agency/branch global
- * scopes and filter by explicit agency_id, so it is correct from console/jobs
- * (no auth context) as well as web requests.
+ * and strtolower(trim()) for email. This is a SYSTEM-level gate: it must see
+ * every contact in the agency regardless of who (if anyone) is authenticated,
+ * so it drops ALL global scopes (agency, branch, AND the per-user contact
+ * visibility scope) and filters by explicit agency_id. Without this, capture
+ * run under an agent's session would miss contacts the agent can't personally
+ * see and wrongly park their messages in the pending buffer.
  */
 class ContactIdentifierResolver
 {
@@ -60,9 +61,13 @@ class ContactIdentifierResolver
 
     private function baseQuery(int $agencyId)
     {
+        // Drop ALL global scopes (agency, branch, per-user contact visibility):
+        // a deterministic system gate, not a per-user view. withoutGlobalScopes()
+        // also drops SoftDeletes, so re-exclude trashed contacts explicitly.
+        // Tenancy is enforced by the explicit agency_id filter.
         return Contact::query()
-            ->withoutGlobalScope(AgencyScope::class)
-            ->withoutGlobalScope(BranchScope::class)
+            ->withoutGlobalScopes()
+            ->whereNull('deleted_at')
             ->where('agency_id', $agencyId);
     }
 }
