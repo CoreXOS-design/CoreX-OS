@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -15,6 +16,16 @@
             </div>
         </div>
     </div>
+
+    {{-- Summary KPIs --}}
+    @if($agencies->isNotEmpty())
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Total agencies" :value="number_format($agencies->count())" />
+        <x-corex-kpi-card title="Active" :value="number_format($agencies->where('is_active', true)->count())" />
+        <x-corex-kpi-card title="Branches" :value="number_format($agencies->sum('branches_count'))" />
+        <x-corex-kpi-card title="Users" :value="number_format($agencies->sum('users_count'))" />
+    </div>
+    @endif
 
     {{-- Flash messages --}}
     @if(session('success'))
@@ -51,9 +62,7 @@
                 </thead>
                 <tbody>
                     @forelse($agencies as $agency)
-                        <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                            onmouseover="this.style.background='var(--surface-2)'"
-                            onmouseout="this.style.background=''">
+                        <tr>
                             <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $agency->name }}</td>
                             <td class="px-4 py-3 font-mono text-xs" style="color: var(--text-muted);">{{ $agency->slug }}</td>
                             <td class="px-4 py-3 text-center" style="color: var(--text-secondary);">{{ number_format($agency->branches_count) }}</td>

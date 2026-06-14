@@ -1,9 +1,12 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+{{-- Full-width container (no extra px-* — the <main> wrapper already applies p-4/lg:p-6),
+     so the branded header spans the page like the Properties / Contacts index pages. --}}
+<div class="w-full space-y-6">
 
-    {{-- Page header --}}
+    {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
@@ -26,9 +29,15 @@
           style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex-1 min-w-[200px]">
             <label for="onboarding-search" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-            <input id="onboarding-search" type="text" name="search" value="{{ request('search') }}" placeholder="Name or email..."
-                   class="w-full rounded-md px-3 py-2 text-sm"
-                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            <div class="relative">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                     fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--text-muted);">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                </svg>
+                <input id="onboarding-search" type="text" name="search" value="{{ request('search') }}" placeholder="Name or email..."
+                       class="w-full rounded-md pl-9 pr-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
         </div>
         <div class="md:w-56">
             <label for="onboarding-designation" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Designation</label>
@@ -60,9 +69,9 @@
             'activated'           => ['var' => 'var(--ds-green)',      'soft' => 'color-mix(in srgb, var(--ds-green) 14%, transparent)'],
         ];
         $designationStyles = [
-            'property_practitioner'  => ['var' => 'var(--brand-icon)',    'label' => 'PP'],
-            'candidate_practitioner' => ['var' => 'var(--ds-amber)',      'label' => 'Candidate'],
-            'intern'                 => ['var' => 'var(--brand-default)', 'label' => 'Intern'],
+            'property_practitioner'  => ['var' => 'var(--brand-icon)',    'label' => 'Practitioner', 'full' => 'Property Practitioner'],
+            'candidate_practitioner' => ['var' => 'var(--ds-amber)',      'label' => 'Candidate',    'full' => 'Candidate Practitioner'],
+            'intern'                 => ['var' => 'var(--brand-default)', 'label' => 'Intern',       'full' => 'Intern'],
         ];
     @endphp
 
@@ -87,21 +96,22 @@
                 <div class="p-2 space-y-2 overflow-y-auto" style="max-height: 500px;">
                     @forelse($cards as $app)
                         @php
-                            $des = $designationStyles[$app->designation] ?? ['var' => 'var(--text-muted)', 'label' => '—'];
+                            $des = $designationStyles[$app->designation] ?? ['var' => 'var(--text-muted)', 'label' => '—', 'full' => 'Unknown designation'];
                             $pct = (int) round($app->completionPercent());
                         @endphp
                         <a href="{{ route('onboarding.show', $app) }}"
-                           class="block p-3 rounded-md no-underline transition-colors"
+                           class="block p-3 rounded-md no-underline transition-colors hover:[border-color:var(--border-hover)]"
                            style="background: var(--surface-2); border: 1px solid var(--border);">
                             <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
                                 {{ $app->full_name }}
                             </div>
                             <div class="flex items-center gap-1.5 mt-1">
-                                <span class="ds-badge"
+                                <span class="ds-badge" title="{{ $des['full'] }}"
                                       style="background: color-mix(in srgb, {{ $des['var'] }} 12%, transparent); color: {{ $des['var'] }};">
                                     {{ $des['label'] }}
                                 </span>
-                                <span class="text-xs" style="color: var(--text-muted);">{{ number_format($app->daysInCurrentStage()) }}d</span>
+                                <span class="text-xs" style="color: var(--text-muted);"
+                                      title="Days in current stage">{{ number_format($app->daysInCurrentStage()) }}d</span>
                             </div>
                             <div class="ds-progress-track mt-2">
                                 <div class="ds-progress-bar" style="width: {{ $pct }}%; background: {{ $style['var'] }};"></div>
