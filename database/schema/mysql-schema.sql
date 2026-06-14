@@ -2338,6 +2338,64 @@ CREATE TABLE `communication_attachments` (
   CONSTRAINT `comm_att_comm_fk` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_flag_alerts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_flag_alerts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `identifier` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `original_flag_id` bigint unsigned NOT NULL,
+  `contradicting_flag_id` bigint unsigned DEFAULT NULL,
+  `alert_type` enum('agent_vs_agent','agent_vs_ai') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('open','reviewed','dismissed','actioned') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'open',
+  `reviewed_by` bigint unsigned DEFAULT NULL,
+  `reviewed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `cfa_orig_fk` (`original_flag_id`),
+  KEY `cfa_contra_fk` (`contradicting_flag_id`),
+  KEY `cfa_reviewedby_fk` (`reviewed_by`),
+  KEY `cfa_agency_status_idx` (`agency_id`,`status`),
+  KEY `cfa_identifier_idx` (`identifier`),
+  CONSTRAINT `cfa_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `cfa_contra_fk` FOREIGN KEY (`contradicting_flag_id`) REFERENCES `communication_flags` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `cfa_orig_fk` FOREIGN KEY (`original_flag_id`) REFERENCES `communication_flags` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `cfa_reviewedby_fk` FOREIGN KEY (`reviewed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_flags`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_flags` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `identifier` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `identifier_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `flag` enum('not_real_estate','real_estate') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ai_is_real_estate` tinyint(1) DEFAULT NULL,
+  `ai_confidence` decimal(4,3) DEFAULT NULL,
+  `message_external_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `flagged_at` timestamp NOT NULL,
+  `contradicted_at` timestamp NULL DEFAULT NULL,
+  `contradicted_by_user_id` bigint unsigned DEFAULT NULL,
+  `review_status` enum('open','reviewed','actioned') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'open',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `cf_user_fk` (`user_id`),
+  KEY `cf_contradby_fk` (`contradicted_by_user_id`),
+  KEY `cf_agency_identifier_idx` (`agency_id`,`identifier`),
+  KEY `cf_agency_user_flag_idx` (`agency_id`,`user_id`,`flag`),
+  CONSTRAINT `cf_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `cf_contradby_fk` FOREIGN KEY (`contradicted_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `cf_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_links`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -2410,6 +2468,11 @@ CREATE TABLE `communication_pending` (
   `has_attachments` tinyint(1) NOT NULL DEFAULT '0',
   `content_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `classification` enum('real_estate','personal','uncertain') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ai_is_real_estate` tinyint(1) DEFAULT NULL,
+  `ai_confidence` decimal(4,3) DEFAULT NULL,
+  `classified_at` timestamp NULL DEFAULT NULL,
+  `classifier` enum('keyword','ai','manual') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `expires_at` datetime NOT NULL,
   `nudged_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -11704,3 +11767,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (802,'2026_06_26_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (803,'2026_06_26_000004_create_communication_mailboxes_table',140);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (804,'2026_06_26_000005_create_communication_wa_devices_table',140);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (805,'2026_06_26_000006_create_communication_pending_table',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (806,'2026_06_27_000001_create_communication_flags_table',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (807,'2026_06_27_000002_create_communication_flag_alerts_table',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (808,'2026_06_27_000003_add_classification_to_communication_pending_table',141);
