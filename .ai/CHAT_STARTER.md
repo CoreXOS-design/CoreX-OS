@@ -100,6 +100,7 @@ See CLAUDE.md "CoreX Operating Principle" section for the full version.
 
 ### 3.3 SPECCED / partial — not fully built
 
+- **Communication Archive — Pending Triage & Classification addendum** — spec `.ai/specs/claude_communication_archive_triage_addendum.md` (extends `claude_communication_archive_spec.md` §7.5). Gate 2 relevance classification + staff triage screen + per-agent attributable flags + BM audit register + agent_vs_agent / agent_vs_ai contradiction alerts (private-deal-loop tightening). **Phase A** (flags + register + triage + agent_vs_agent, no AI) independently shippable; **Phase B** (Ellie/keyword classifier, Gate 2, agent_vs_ai) is a separate supervised build.
 - **Universal signature feature** — Layer 1 (upload tab in signing modal) + Layer 2 (stored signature on user profile) specced March 2026. Build state unconfirmed pending audit. Vision: apply pre-fill to every signature capture surface (FICA ack, RMCP ack, training, deal step sign-off) where signatory is authenticated user.
 - **Tenant pre-approval** (TVA integration)
 - **Inspection reports module**
