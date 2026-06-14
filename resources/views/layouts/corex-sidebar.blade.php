@@ -342,6 +342,15 @@
             <span>WhatsApp Capture</span>
         </a>
         @endpermission
+        @permission('triage_communications')
+        <a href="{{ route('communications.triage.index') }}"
+           class="corex-nav-item {{ request()->routeIs('communications.triage.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 8.25V18a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 18V8.25m-18 0V6a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 6v2.25m-18 0 8.954 5.59a1.5 1.5 0 0 0 1.592 0L21 8.25" />
+            </svg>
+            <span>Message Triage</span>
+        </a>
+        @endpermission
         @endpermission
 
         {{-- ═══════════════════════════════════════════
@@ -912,6 +921,9 @@
                 @endpermission
                 @permission('access_communication_archive')
                 <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}">Communication Archive</a>
+                @endpermission
+                @permission('view_communication_flag_register')
+                <a href="{{ route('compliance.comm-flags.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-flags.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Flag Register</a>
                 @endpermission
                 @permission('manage_communication_mailboxes')
                 <a href="{{ route('compliance.comm-mailboxes.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-mailboxes.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Archive Mailboxes</a>
