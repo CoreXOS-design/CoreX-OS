@@ -463,6 +463,7 @@ CREATE TABLE `agency_dashboard_settings` (
   `open_hours_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `open_hours_start` time NOT NULL DEFAULT '07:00:00',
   `open_hours_end` time NOT NULL DEFAULT '21:00:00',
+  `open_hours_day_windows` json DEFAULT NULL,
   `min_minutes_between_same` smallint unsigned NOT NULL DEFAULT '360',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -550,6 +551,25 @@ CREATE TABLE `agency_lost_deal_reasons` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `agency_lost_deal_reasons_agency_id_code_unique` (`agency_id`,`code`),
   CONSTRAINT `agency_lost_deal_reasons_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_policies`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_policies` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `policy_key` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_policies_agency_id_policy_key_unique` (`agency_id`,`policy_key`),
+  KEY `agency_policies_agency_id_is_active_index` (`agency_id`,`is_active`),
+  CONSTRAINT `agency_policies_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_signing_parties`;
@@ -6504,6 +6524,130 @@ CREATE TABLE `personal_access_tokens` (
   KEY `personal_access_tokens_expires_at_index` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `policy_acknowledgements`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `policy_acknowledgements` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `policy_id` bigint unsigned NOT NULL,
+  `policy_version_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `status` enum('in_progress','completed','expired','superseded') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'in_progress',
+  `started_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `valid_until` date DEFAULT NULL,
+  `signature_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signature_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `typed_signature_name` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `device_fingerprint` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `declaration_text` text COLLATE utf8mb4_unicode_ci,
+  `sections_acknowledged_count` int unsigned NOT NULL DEFAULT '0',
+  `sections_total_count` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `policy_acknowledgements_branch_id_foreign` (`branch_id`),
+  KEY `policy_acknowledgements_policy_version_id_status_index` (`policy_version_id`,`status`),
+  KEY `policy_acknowledgements_user_id_status_index` (`user_id`,`status`),
+  KEY `policy_acknowledgements_agency_id_status_index` (`agency_id`,`status`),
+  KEY `policy_acknowledgements_policy_id_status_index` (`policy_id`,`status`),
+  KEY `policy_acknowledgements_valid_until_index` (`valid_until`),
+  CONSTRAINT `policy_acknowledgements_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `policy_acknowledgements_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `policy_acknowledgements_policy_id_foreign` FOREIGN KEY (`policy_id`) REFERENCES `agency_policies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `policy_acknowledgements_policy_version_id_foreign` FOREIGN KEY (`policy_version_id`) REFERENCES `policy_versions` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `policy_acknowledgements_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `policy_section_acknowledgements`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `policy_section_acknowledgements` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `policy_acknowledgement_id` bigint unsigned NOT NULL,
+  `policy_section_id` bigint unsigned NOT NULL,
+  `acknowledged` tinyint(1) NOT NULL DEFAULT '0',
+  `acknowledged_at` timestamp NULL DEFAULT NULL,
+  `acknowledgement_response` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `policy_sec_ack_unique` (`policy_acknowledgement_id`,`policy_section_id`),
+  KEY `psa_agency_fk` (`agency_id`),
+  KEY `psa_section_fk` (`policy_section_id`),
+  CONSTRAINT `psa_ack_fk` FOREIGN KEY (`policy_acknowledgement_id`) REFERENCES `policy_acknowledgements` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `psa_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `psa_section_fk` FOREIGN KEY (`policy_section_id`) REFERENCES `policy_sections` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `policy_sections`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `policy_sections` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `policy_version_id` bigint unsigned NOT NULL,
+  `section_type` enum('section','schedule','annexure','acknowledgement') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'section',
+  `display_order` int unsigned NOT NULL,
+  `section_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body_html` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `requires_acknowledgement` tinyint(1) NOT NULL DEFAULT '1',
+  `acknowledgement_prompt` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `policy_sections_agency_id_foreign` (`agency_id`),
+  KEY `policy_sections_policy_version_id_display_order_index` (`policy_version_id`,`display_order`),
+  CONSTRAINT `policy_sections_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `policy_sections_policy_version_id_foreign` FOREIGN KEY (`policy_version_id`) REFERENCES `policy_versions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `policy_versions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `policy_versions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `policy_id` bigint unsigned NOT NULL,
+  `version_number` int unsigned NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Agency Policy',
+  `status` enum('draft','active','superseded') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `approved_by` bigint unsigned DEFAULT NULL,
+  `approved_at` timestamp NULL DEFAULT NULL,
+  `approver_title` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `board_approval_document_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `approval_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `approval_notes` text COLLATE utf8mb4_unicode_ci,
+  `effective_from` date DEFAULT NULL,
+  `superseded_at` timestamp NULL DEFAULT NULL,
+  `superseded_by_version_id` bigint unsigned DEFAULT NULL,
+  `next_review_due` date DEFAULT NULL,
+  `change_notes` text COLLATE utf8mb4_unicode_ci,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `policy_versions_policy_id_version_number_unique` (`policy_id`,`version_number`),
+  KEY `policy_versions_approved_by_foreign` (`approved_by`),
+  KEY `policy_versions_created_by_foreign` (`created_by`),
+  KEY `policy_versions_agency_id_status_index` (`agency_id`,`status`),
+  KEY `policy_versions_policy_id_status_index` (`policy_id`,`status`),
+  CONSTRAINT `policy_versions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `policy_versions_approved_by_foreign` FOREIGN KEY (`approved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `policy_versions_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `policy_versions_policy_id_foreign` FOREIGN KEY (`policy_id`) REFERENCES `agency_policies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `portal_captures`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -10137,6 +10281,7 @@ CREATE TABLE `user_dashboard_settings` (
   `open_hours_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `open_hours_start` time NOT NULL DEFAULT '07:00:00',
   `open_hours_end` time NOT NULL DEFAULT '21:00:00',
+  `open_hours_day_windows` json DEFAULT NULL,
   `min_minutes_between_same` smallint unsigned NOT NULL DEFAULT '360',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -11381,3 +11526,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_23_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_11_190000_add_comp_curation_override_types',135);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_12_090000_add_thumbnail_blocked_reason_to_prospecting_listings',136);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (793,'2026_06_24_000000_add_in_analysis_to_presentation_versions_review_status',137);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (794,'2026_06_14_120000_add_day_windows_to_dashboard_settings',138);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (795,'2026_06_25_000001_create_agency_policies_table',138);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (796,'2026_06_25_000002_create_policy_versions_table',138);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (797,'2026_06_25_000003_create_policy_sections_table',138);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (798,'2026_06_25_000004_create_policy_acknowledgements_table',138);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (799,'2026_06_25_000005_create_policy_section_acknowledgements_table',139);

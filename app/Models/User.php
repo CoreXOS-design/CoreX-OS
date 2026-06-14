@@ -663,6 +663,94 @@ class User extends Authenticatable
         return 'in_progress';
     }
 
+    // ── Generic Policy Acknowledgement (AT-29) — parameterised by policy_key ──
+    // Computes live against the policy's active version. Nothing is stored on
+    // the users table. See .ai/specs/claude_policy_acknowledgement_spec.md §5.
+
+    public function policyAcknowledgements(): HasMany
+    {
+        return $this->hasMany(Compliance\PolicyAcknowledgement::class);
+    }
+
+    /**
+     * Resolve the agency's policy by key, then this user's in_progress|completed
+     * acknowledgement for that policy's currently-active version (latest).
+     */
+    public function currentPolicyAcknowledgement(string $policyKey): ?Compliance\PolicyAcknowledgement
+    {
+        $agencyId = $this->effectiveAgencyId();
+        if (!$agencyId) return null;
+
+        $policy = Compliance\AgencyPolicy::where('agency_id', $agencyId)
+            ->where('policy_key', $policyKey)
+            ->first();
+        if (!$policy) return null;
+
+        $activeVersion = Compliance\PolicyVersion::where('policy_id', $policy->id)
+            ->where('status', 'active')
+            ->first();
+        if (!$activeVersion) return null;
+
+        return $this->policyAcknowledgements()
+            ->where('policy_version_id', $activeVersion->id)
+            ->whereIn('status', ['in_progress', 'completed'])
+            ->latest()
+            ->first();
+    }
+
+    /**
+     * @return string no_policy|not_started|valid|expired|in_progress
+     */
+    public function policyAcknowledgementStatus(string $policyKey): string
+    {
+        $agencyId = $this->effectiveAgencyId();
+        if (!$agencyId) return 'no_policy';
+
+        $policy = Compliance\AgencyPolicy::where('agency_id', $agencyId)
+            ->where('policy_key', $policyKey)
+            ->first();
+        if (!$policy) return 'no_policy';
+
+        $activeVersion = Compliance\PolicyVersion::where('policy_id', $policy->id)
+            ->where('status', 'active')
+            ->first();
+        if (!$activeVersion) return 'no_policy';
+
+        $ack = $this->policyAcknowledgements()
+            ->where('policy_version_id', $activeVersion->id)
+            ->whereIn('status', ['in_progress', 'completed'])
+            ->latest()
+            ->first();
+
+        if (!$ack) return 'not_started';
+        if ($ack->isValid()) return 'valid';
+        if ($ack->isComplete()) return 'expired';
+        return 'in_progress';
+    }
+
+    /**
+     * Every active policy in the user's agency whose status is not 'valid'
+     * (not_started | expired | in_progress). Drives the Agent Portal
+     * "you have N policies to sign" tile and the compliance roll-up.
+     *
+     * @return \Illuminate\Support\Collection<int, array{policy: Compliance\AgencyPolicy, status: string}>
+     */
+    public function outstandingPolicyAcknowledgements(): \Illuminate\Support\Collection
+    {
+        $agencyId = $this->effectiveAgencyId();
+        if (!$agencyId) return collect();
+
+        return Compliance\AgencyPolicy::where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->get()
+            ->map(fn (Compliance\AgencyPolicy $policy) => [
+                'policy' => $policy,
+                'status' => $this->policyAcknowledgementStatus($policy->policy_key),
+            ])
+            ->filter(fn (array $row) => $row['status'] !== 'valid')
+            ->values();
+    }
+
     // ── Employee Screening ──
 
     public function screenings(): HasMany
