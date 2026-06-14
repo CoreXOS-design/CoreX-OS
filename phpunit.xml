@@ -29,9 +29,13 @@
         <env name="DB_CONNECTION" value="mysql"/>
         <env name="DB_HOST" value="127.0.0.1"/>
         <env name="DB_PORT" value="3306"/>
+        <!-- DB_DATABASE is pinned here as a SAFETY GUARD: tests must never run
+             against a real/dev database. Credentials (DB_USERNAME/DB_PASSWORD)
+             are intentionally NOT hardcoded — they come from .env.testing (or
+             .env), so the suite uses the box's real MySQL user (e.g. corexdev)
+             instead of root@localhost, which some hosts deny over TCP.
+             See .ai/TESTING.md (AT-30). -->
         <env name="DB_DATABASE" value="hfc_dash_test"/>
-        <env name="DB_USERNAME" value="root"/>
-        <env name="DB_PASSWORD" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

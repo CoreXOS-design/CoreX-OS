@@ -54,3 +54,4 @@ storage/idx*.html
 bootstrap/cache/events.php
 /public/staging-imgs/
 staging-vs-main.txt
+.env.testing
