@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactType;
 use App\Models\Property;
+use App\Models\Scopes\ContactScope;
 use App\Services\ContactDuplicateService;
 use Illuminate\Http\Request;
 
@@ -17,7 +18,13 @@ class PropertyContactController extends Controller
         $q       = trim($request->query('q', ''));
         $exclude = array_filter(array_map('intval', (array) $request->query('exclude', [])));
 
-        $query = Contact::orderBy('last_name')->orderBy('first_name')->limit(10);
+        // Link picker searches the whole AGENCY, not the agent's personal workspace.
+        // The role-based ContactScope ('own'/'branch') is a read filter for the
+        // contacts LIST — applying it here would hide contacts captured by other
+        // agents and force duplicate creation, violating Non-Negotiable #10
+        // (Universal Match-or-Create). AgencyScope + soft-deletes still apply.
+        $query = Contact::withoutGlobalScope(ContactScope::class)
+            ->orderBy('last_name')->orderBy('first_name')->limit(10);
 
         if ($exclude) {
             $query->whereNotIn('id', $exclude);
@@ -40,8 +47,20 @@ class PropertyContactController extends Controller
     {
         $q = trim($request->query('q', ''));
 
-        $query = Contact::with('type')
-            ->whereNotIn('id', $property->contacts()->pluck('contacts.id'))
+        // Link picker searches the whole AGENCY, not the agent's personal workspace.
+        // ContactScope ('own'/'branch') is bypassed so an agent can link any existing
+        // agency contact (Non-Negotiable #10: Match-or-Create) instead of being shown
+        // nothing and creating duplicates. AgencyScope + soft-deletes still apply.
+        // The linked-contact exclusion list must also bypass ContactScope —
+        // otherwise an agent's "already linked" set comes back empty for contacts
+        // captured by others, and those contacts wrongly reappear in the picker.
+        $linkedIds = $property->contacts()
+            ->withoutGlobalScope(ContactScope::class)
+            ->pluck('contacts.id');
+
+        $query = Contact::withoutGlobalScope(ContactScope::class)
+            ->with('type')
+            ->whereNotIn('id', $linkedIds)
             ->orderBy('last_name')
             ->orderBy('first_name')
             ->limit(10);
