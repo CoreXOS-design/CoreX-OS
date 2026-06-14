@@ -1,5 +1,7 @@
 @extends('layouts.corex')
 
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+
 @section('corex-content')
 @php
     $flowId = $flow->id ?? null;
@@ -7,7 +9,8 @@
     $safeStep = $currentStep ?? 1;
 @endphp
 
-<div x-data="esignWizard()" x-cloak class="flex flex-col h-[calc(100vh-64px)]">
+<div x-data="esignWizard()" x-cloak class="flex flex-col w-full h-[calc(100vh-64px)] rounded-md overflow-hidden"
+     style="border: 1px solid var(--border);">
 
     {{-- ===== TOAST NOTIFICATION ===== --}}
     <div x-show="toast.show" x-transition:enter="transition ease-out duration-300"
@@ -21,7 +24,7 @@
     </div>
 
     {{-- ===== PROGRESS BAR (sticky header) ===== --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="px-6 py-4 flex-shrink-0">
+    <div style="background: var(--brand-default, #0b2a4a);" class="px-6 py-5 flex-shrink-0">
         <div class="flex items-center justify-between mb-3">
             <h2 class="text-xl font-bold text-white leading-tight flex items-center gap-2">
                 <span class="whitespace-nowrap">E-Sign Document —</span>
@@ -1077,7 +1080,7 @@
                             <template x-for="f in fieldsOnPage(pi)" :key="f.id">
                                 <div :style="'position:absolute; left:' + f.position.x + '%; top:' + f.position.y + '%; width:' + f.size.width + '%; height:' + f.size.height + '%; display:flex; align-items:center; padding:0 4px; overflow:hidden; box-sizing:border-box; transition:box-shadow 0.2s; '
                                          + fieldOverlayStyle(f)
-                                         + (highlightedFieldId === f.id ? ' box-shadow:0 0 0 2px rgba(59,130,246,0.8);' : '')">
+                                         + (highlightedFieldId === f.id ? ' box-shadow:0 0 0 2px var(--brand-button, #0ea5e9);' : '')">
                                     <span :style="'white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:' + Math.max(8, Math.min(14, (f.size.height * 0.6))) + 'px; color:' + fieldOverlayTextColor(f) + ';'"
                                           x-text="fieldOverlayText(f)">
                                     </span>
