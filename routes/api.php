@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\MobileCoreMatchController;
 use App\Http\Controllers\Api\PropertyPullController;
 use App\Http\Controllers\Api\V1\ClientAuthController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
+use App\Http\Controllers\Api\V1\ClientSellerInsightsController;
 use App\Http\Controllers\FaultReportController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
@@ -150,6 +151,12 @@ Route::prefix('v1/client')->middleware(['auth:sanctum', 'client.ability'])->grou
     Route::post('/matches/{match}/view/{property}',         [ClientPortalController::class, 'matchView'])->name('client.matches.view');
 
     Route::get('/properties/{property}',  [ClientPortalController::class, 'propertyShow'])->name('client.properties.show');
+
+    // Seller-side property intelligence — client sees the same seller-facing
+    // dataset as the Seller Live Link page for properties they own/sell.
+    // Spec: .ai/specs/client-seller-insights.md
+    Route::get('/seller-properties',                       [ClientSellerInsightsController::class, 'index'])->name('client.seller-properties.index');
+    Route::get('/seller-properties/{property}/insights',   [ClientSellerInsightsController::class, 'show'])->name('client.seller-properties.insights');
 });
 
 // ════════════════════════════════════════════════════════════════
