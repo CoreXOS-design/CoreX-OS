@@ -1,5 +1,7 @@
 {{-- Build 2 — agent's pre-flight review screen.
 
+     DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20
+
      Three vertical sections (NOT tabs — single-page scroll, mobile-friendly):
        1. Subject snapshot — confirm what we know
        2. Comparable sales — tickbox table + live map sync
@@ -25,19 +27,23 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
-    /* Build 2 review-page styles — sympathetic to the rest of CoreX
-       (navy + teal + sharp 2-3px corners). No emojis. */
-    .review-card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 16px; margin-bottom: 16px; }
+    /* Build 2 review-page styles — tokenised to the CoreX design system
+       (brand tokens, --ds-* semantics, rounded-md 6px corners). No emojis.
+       The map title-type palette (.tt-badge colour classes + the map legend
+       swatches + the JS marker SVGs) is a categorical data-visualisation
+       palette and is intentionally kept as fixed colours so the table,
+       badges and map pins stay in sync. */
+    .review-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; margin-bottom: 16px; }
     .review-section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .review-section-tag { width: 4px; height: 18px; background: #00d4aa; }
-    .review-section-title { margin: 0; font-size: 13px; font-weight: 700; color: #0b2a4a; letter-spacing: 0.04em; text-transform: uppercase; }
-    .review-warn-banner { padding: 10px 12px; background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent); border-radius: 4px; color: var(--ds-amber, #d97706); font-size: 12px; margin-bottom: 12px; }
+    .review-section-tag { width: 4px; height: 18px; background: var(--brand-icon, #0ea5e9); }
+    .review-section-title { margin: 0; font-size: 13px; font-weight: 700; color: var(--text-primary); letter-spacing: 0.04em; text-transform: uppercase; }
+    .review-warn-banner { padding: 10px 12px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); border-radius: 6px; color: var(--ds-amber, #f59e0b); font-size: 12px; margin-bottom: 12px; }
     .comp-row { display: grid; grid-template-columns: 28px minmax(110px, 1fr) 76px 98px 78px 56px 58px 60px 22px; gap: 8px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 12px; }
     .comp-row .sortable { cursor: pointer; user-select: none; }
     .comp-row .sortable:hover { color: var(--text-primary); }
     .comp-row .sort-arrow { opacity: 0.5; font-size: 9px; }
     .comp-row.hidden-by-filter { display: none; }
-    .comp-tool-btn { font-size: 11px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); cursor: pointer; }
+    .comp-tool-btn { font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); cursor: pointer; }
     .comp-tool-btn:hover { background: var(--surface-2); }
     /* Comp table + map side-by-side layout. Pre-fix the wrapper used
        minmax(0,1fr) on the left column, which let the table's fixed-
@@ -52,30 +58,31 @@
         .review-comps-layout { grid-template-columns: 1fr; }
     }
     .comp-row.excluded { opacity: 0.45; }
-    .comp-row.cross-type { background: color-mix(in srgb, var(--ds-amber, #d97706) 6%, transparent); }
-    .comp-row input[type="checkbox"] { accent-color: #00d4aa; width: 16px; height: 16px; cursor: pointer; }
-    .tt-badge { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+    .comp-row.cross-type { background: color-mix(in srgb, var(--ds-amber, #f59e0b) 6%, transparent); }
+    .comp-row input[type="checkbox"] { accent-color: var(--brand-icon, #0ea5e9); width: 16px; height: 16px; cursor: pointer; }
+    /* Categorical title-type palette — kept fixed (synced with map pins + legend). */
+    .tt-badge { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
     .tt-badge.full_title      { background: #0b2a4a; color: #fff; }
     .tt-badge.sectional_title { background: #7c3aed; color: #fff; }
     .tt-badge.vacant_land     { background: #06b6d4; color: #0b2a4a; }
     .tt-badge.other           { background: #475569; color: #fff; }
-    #review-map { height: 460px; border: 1px solid var(--border); border-radius: 4px; }
+    #review-map { height: 460px; border: 1px solid var(--border); border-radius: 6px; }
     .review-pin { background: transparent !important; border: 0 !important; }
     .review-pin svg { display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4)); }
-    .review-pin-cross { outline: 2px dashed var(--ds-amber, #d97706); outline-offset: 2px; border-radius: 4px; }
-    .review-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #0b2a4a; color: #fff; padding: 8px 16px; border-radius: 4px; font-size: 12px; opacity: 0; transition: opacity 200ms; pointer-events: none; z-index: 9999; }
+    .review-pin-cross { outline: 2px dashed var(--ds-amber, #f59e0b); outline-offset: 2px; border-radius: 6px; }
+    .review-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--brand-default, #0b2a4a); color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity 200ms; pointer-events: none; z-index: 9999; }
     .review-toast.show { opacity: 1; }
     /* Build 3 — condition picker + valuation strip. */
-    .cond-picker { padding: 5px 10px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-primary); min-width: 280px; }
+    .cond-picker { padding: 5px 10px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); min-width: 280px; }
     .cond-source-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
-    .valuation-cell { padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; }
+    .valuation-cell { padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; }
     .cell-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; }
-    .cell-value { font-size: 16px; font-weight: 700; color: #0b2a4a; tabular-nums: tabular-nums; }
-    .cell-adj-flag { display: inline-block; margin-left: 4px; padding: 1px 5px; background: #00d4aa; color: #0b2a4a; border-radius: 2px; font-size: 9px; font-weight: 700; }
+    .cell-value { font-size: 16px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+    .cell-adj-flag { display: inline-block; margin-left: 4px; padding: 1px 5px; background: var(--brand-icon, #0ea5e9); color: #fff; border-radius: 4px; font-size: 9px; font-weight: 700; }
     .cell-adj-flag[hidden] { display: none; }
     .cma-adj-line { margin-top: 6px; font-size: 11px; color: var(--text-muted); text-align: center; }
     .cma-adj-line[hidden] { display: none; }
-    .cma-no-cond-banner { margin-top: 8px; padding: 6px 10px; background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 25%, transparent); border-radius: 3px; font-size: 11px; color: var(--ds-amber, #d97706); }
+    .cma-no-cond-banner { margin-top: 8px; padding: 6px 10px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); border-radius: 6px; font-size: 11px; color: var(--ds-amber, #f59e0b); }
     .cma-no-cond-banner[hidden] { display: none; }
     {{-- AT-27 Phase B.3 — section-toggle + page-estimate styles removed with the
          toggle UI (moved to the Analysis screen). --}}
@@ -83,12 +90,15 @@
 @endpush
 
 @section('corex-content')
-<div style="max-width: 1400px; margin: 0 auto; padding: 16px 20px;">
+{{-- Full-bleed: the main content area (layouts.corex-app <main>) already
+     applies p-4 lg:p-6, and this wide table+map layout uses the full screen
+     like the Properties index — no max-width cap, no redundant padding. --}}
+<div class="w-full">
 
     {{-- AT-27 C1a — looped back from an Analysis subject edit with a refreshed comp set. --}}
     @if(session('subject_refreshed'))
         <div class="review-warn-banner" role="status"
-             style="border-left:3px solid #00d4aa; background:color-mix(in srgb, #00d4aa 8%, transparent);">
+             style="border-left:3px solid var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 8%, transparent); color:var(--text-primary);">
             <strong>Comparable set refreshed.</strong> {{ session('subject_refreshed') }}
         </div>
     @endif
@@ -101,7 +111,7 @@
             {{ $version->reviewer_locked_at?->diffForHumans() ?? 'recently' }}.
             <form method="POST" action="{{ route('presentations.review.takeover', $version->id) }}" style="display:inline; margin-left:8px;">
                 @csrf
-                <button type="submit" style="background:transparent;border:1px solid var(--ds-amber,#d97706);color:var(--ds-amber,#d97706);padding:4px 10px;font-size:11px;border-radius:3px;cursor:pointer;font-weight:600;">
+                <button type="submit" style="background:transparent;border:1px solid var(--ds-amber,#f59e0b);color:var(--ds-amber,#f59e0b);padding:4px 10px;font-size:11px;border-radius:6px;cursor:pointer;font-weight:600;">
                     Take over
                 </button>
             </form>
@@ -118,16 +128,26 @@
         </div>
     @endif
 
-    {{-- Header --}}
-    <div style="margin-bottom: 18px;">
-        <h1 style="font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 0;">
-            Review Presentation
-        </h1>
-        <p style="font-size: 13px; color: var(--text-muted); margin: 4px 0 0 0;">
-            Confirm the subject facts and the comparable sales we picked, then publish.
-            Untick anything you don't want included. Your overrides are logged for
-            future learning.
-        </p>
+    {{-- Header — branded Pattern A (UI_DESIGN_SYSTEM.md §2.4). --}}
+    <div class="rounded-md px-6 py-5 mb-4" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Review Presentation</h1>
+                <p class="text-sm text-white/60">
+                    Confirm the subject facts and the comparable sales we picked, then continue.
+                    Untick anything you don't want included — your overrides are logged for future learning.
+                </p>
+            </div>
+            @if($presentation->property)
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('corex.properties.show', $presentation->property) }}" target="_blank"
+                   class="corex-btn-outline text-sm"
+                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                    Open property record
+                </a>
+            </div>
+            @endif
+        </div>
     </div>
 
     {{-- ─────────── SECTION 1 — Subject snapshot ─────────── --}}
@@ -192,7 +212,7 @@
                 <td style="padding: 5px 0; color: var(--text-muted); font-weight: 600;">Source property</td>
                 <td style="padding: 5px 0;">
                     @if($presentation->property)
-                        <a href="{{ route('corex.properties.show', $presentation->property) }}" target="_blank" style="color: #00d4aa; text-decoration: none;">
+                        <a href="{{ route('corex.properties.show', $presentation->property) }}" target="_blank" style="color: var(--brand-icon, #0ea5e9); text-decoration: none;">
                             Open property record &rarr;
                         </a>
                     @else
@@ -239,7 +259,7 @@
                     <div class="cell-label">Lower</div>
                     <div id="cma-lower" class="cell-value">{{ ($cmaValuation['cma_lower'] ?? null) ? 'R ' . number_format($cmaValuation['cma_lower'], 0, '.', ' ') : '—' }}</div>
                 </div>
-                <div class="valuation-cell" style="background: color-mix(in srgb, #00d4aa 8%, transparent); border-color: #00d4aa;">
+                <div class="valuation-cell" style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 8%, transparent); border-color: var(--brand-icon,#0ea5e9);">
                     <div class="cell-label">Middle <span id="cma-adjusted-flag" class="cell-adj-flag" {{ ($cmaValuation['condition_applied'] ?? false) ? '' : 'hidden' }}>adjusted</span></div>
                     <div id="cma-middle" class="cell-value">{{ ($cmaValuation['cma_middle'] ?? null) ? 'R ' . number_format($cmaValuation['cma_middle'], 0, '.', ' ') : '—' }}</div>
                 </div>
@@ -286,7 +306,7 @@
                 · Middle R {{ $bm['middle'] ? number_format($bm['middle'], 0, '.', ' ') : '—' }}
                 · Upper R {{ $bm['upper'] ? number_format($bm['upper'], 0, '.', ' ') : '—' }}
                 @if(!empty($bm['from_fallback']))
-                    <span style="color:#a16207;">(middle synthesised from L+U/2)</span>
+                    <span style="color:var(--ds-amber,#f59e0b);">(middle synthesised from L+U/2)</span>
                 @endif
             </div>
             @endif
@@ -353,7 +373,7 @@
                         <div class="sortable" data-sort="distance" style="text-align:right;">Dist <span class="sort-arrow"></span></div>
                         <div></div>
                     </div>
-                    @foreach($compRows as $row)
+                    @forelse($compRows as $row)
                         <div class="comp-row {{ $row['is_included'] ? '' : 'excluded' }} {{ $row['is_cross_type'] ? 'cross-type' : '' }}"
                              data-comp-id="{{ $row['id'] }}"
                              data-included="{{ $row['is_included'] ? '1' : '0' }}"
@@ -391,11 +411,15 @@
                                 {{ $row['distance_m'] !== null ? ($row['distance_m'] < 1000 ? $row['distance_m'].'m' : number_format($row['distance_m']/1000, 1).'km') : '—' }}
                             </div>
                             <div title="{{ $row['is_cross_type'] ? 'Cross-title comparison — not recommended for valuation' : '' }}"
-                                 style="font-size: 14px; color: {{ $row['is_cross_type'] ? 'var(--ds-amber,#d97706)' : 'transparent' }};">
+                                 style="font-size: 14px; color: {{ $row['is_cross_type'] ? 'var(--ds-amber,#f59e0b)' : 'transparent' }};">
                                 {{ $row['is_cross_type'] ? '!' : '' }}
                             </div>
                         </div>
-                    @endforeach
+                    @empty
+                        <div class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
+                            No comparable sales were found for this subject. Use “Browse more freehold comps” below to pull in sales beyond the auto-pool.
+                        </div>
+                    @endforelse
                 </div>
 
                 {{-- AT-22 — browse & pull in freehold comps BEYOND the auto-pool.
@@ -537,7 +561,7 @@
             }
             var checked = m.is_included ? 'checked' : '';
             var includeToggle =
-                '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:10px;color:#94a3b8;" title="Include in seller PDF">'
+                '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:10px;color:var(--text-muted,#94a3b8);" title="Include in seller PDF">'
                 + '<input type="checkbox" class="competitor-toggle" data-listing-id="' + m.listing_id + '" ' + checked + '>'
                 + 'Include</label>';
 
@@ -603,12 +627,10 @@
         </p>
 
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
-            <button id="btn-continue" type="button"
-                    style="background:#00d4aa;color:#0b2a4a;border:1px solid #00d4aa;padding:10px 20px;font-size:13px;font-weight:700;border-radius:4px;cursor:pointer;">
+            <button id="btn-continue" type="button" class="corex-btn-primary">
                 Continue to Analysis
             </button>
-            <button id="btn-save" type="button"
-                    style="background:transparent;color:#00d4aa;border:1px solid #00d4aa;padding:10px 16px;font-size:13px;font-weight:600;border-radius:4px;cursor:pointer;">
+            <button id="btn-save" type="button" class="corex-btn-outline">
                 Save &amp; continue later
             </button>
             <span style="margin-left:auto;">

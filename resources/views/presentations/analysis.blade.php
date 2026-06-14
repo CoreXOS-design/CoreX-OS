@@ -1,35 +1,11 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
-
-@push('head')
-{{-- Zero out <main> padding so sticky bar pins flush with no gap --}}
-<style>#appScroll { padding: 0 !important; }</style>
-@endpush
 
 @section('corex-content')
 
-{{-- Sticky action bar — <main> padding zeroed, pins flush --}}
-<div class="sticky top-0 z-40 shadow-sm" style="background: var(--surface); border-bottom: 1px solid var(--border);">
-    <div class="px-4 sm:px-6 lg:px-8">
-        <div class="flex items-center justify-between h-14">
-            <div class="flex items-center gap-3">
-                <a href="{{ route('presentations.show', $presentation) }}" class="inline-flex items-center gap-1 text-sm transition-all duration-300" style="color: var(--text-secondary);">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                    Overview
-                </a>
-            </div>
-            <div class="flex-1 text-center truncate mx-4">
-                <h2 class="text-sm font-semibold truncate" style="color: var(--text-primary);">Market Analysis — {{ $presentation->title }}</h2>
-            </div>
-            <div class="flex items-center gap-2">
-                @if(isset($latestSnapshot) && $latestSnapshot && $latestSnapshot->generated_at)
-                <span class="text-xs text-emerald-600 font-medium">Last analysed: {{ $latestSnapshot->generated_at->format('d M Y, H:i') }}</span>
-                @endif
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="p-4 lg:p-6">
+{{-- Full-bleed like the Properties index: the layout <main> supplies
+     p-4 lg:p-6, so the branded blue header sits flush at the very top. --}}
+<div class="w-full">
 
 {{-- ══════════════════════════════════════════════════════════════════════════
      PAGE HEADER
@@ -153,7 +129,7 @@
     </div>
     <form method="POST" action="{{ route('presentations.analysis.reopen', $presentation) }}" class="inline">
         @csrf
-        <button type="submit" class="corex-btn-primary" style="background:#d97706;">
+        <button type="submit" class="corex-btn-primary" style="background:var(--ds-amber,#f59e0b);">
             Re-open for editing
         </button>
     </form>
@@ -167,7 +143,7 @@
              Replaces the old "Compile Pack" path. --}}
         <form method="POST" action="{{ route('presentations.analysis.confirm', $presentation) }}" class="inline">
             @csrf
-            <button type="submit" class="corex-btn-primary" style="background:#059669;">
+            <button type="submit" class="corex-btn-primary" style="background:var(--ds-green,#059669);">
                 Confirm &amp; Generate
             </button>
         </form>
@@ -179,7 +155,7 @@
             Download PDF
         </a>
         <a href="{{ route('presentations.versions.complete-pack', [$presentation, $latestVersion]) }}"
-           class="corex-btn-primary" style="background:#00b4d8;">
+           class="corex-btn-primary" style="background:var(--ds-cyan,#00b4d8);">
             Complete Pack (ZIP)
         </a>
         @if(config('features.pricing_simulator_v1'))
@@ -224,17 +200,17 @@
                    style="background: var(--surface-2); border-color: var(--border); {{ $isFloor ? 'opacity:0.8;' : 'cursor:pointer;' }}"
                    data-section-key="{{ $sKey }}">
                 <input type="checkbox" class="analysis-section-toggle mt-0.5"
-                       style="accent-color:#00d4aa; width:16px; height:16px;"
+                       style="accent-color:var(--brand-icon,#0ea5e9); width:16px; height:16px;"
                        data-section-key="{{ $sKey }}"
                        {{ $isOn ? 'checked' : '' }} {{ $isFloor ? 'disabled' : '' }}>
                 <div class="flex-1 min-w-0">
                     <div class="text-sm font-medium" style="color: var(--text-primary);">
                         {{ $sLabel }}
                         @if($isFloor)
-                            <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background: var(--surface-3); color: var(--text-muted);">Always shown</span>
+                            <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--text-muted, #9ca3af) 18%, transparent); color: var(--text-secondary);">Always shown</span>
                         @endif
                         @foreach($deps as $depKey)
-                            <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background: var(--surface-3); color: var(--text-muted);">needs {{ $sectionsCatalogue[$depKey] ?? $depKey }}</span>
+                            <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--text-muted, #9ca3af) 18%, transparent); color: var(--text-secondary);">needs {{ $sectionsCatalogue[$depKey] ?? $depKey }}</span>
                         @endforeach
                     </div>
                 </div>
