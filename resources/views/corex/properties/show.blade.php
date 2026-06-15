@@ -1644,10 +1644,16 @@
                         </div>
                     @endif
 
-                    {{-- Phase 3j — SG Documents panel (server-side SG search + save to drive) --}}
+                    {{-- Phase 3j — SG Documents panel (server-side SG search + save to drive).
+                         Only for a saved property: the panel builds property-keyed URLs
+                         (route('corex.properties.sg.search', $property)) which throw a
+                         UrlGenerationException for an unsaved/new Property (no route key),
+                         500-ing the New Property screen. A new property has no SG docs yet. --}}
+                    @if($property->exists)
                     <div style="margin-top:14px;">
                         @include('corex.properties.partials._sg-documents-panel', ['property' => $property])
                     </div>
+                    @endif
                 </div>
 
                 {{-- Row 2: Key Dates (cols 1-2) | Linked Contact (col 3) — headings align since rows share top --}}
@@ -2214,7 +2220,7 @@
                     </div></template>
 
                     {{-- ── SPACES ────────────────────────────────────────────── --}}
-                    <div x-data="{ spacesInfoOpen: false }">
+                    <div x-data="{ spacesInfoOpen: false }" data-tour="prop-spaces">
                         <div class="flex items-center mb-1.5">
                             <span class="text-xs font-semibold" style="color:var(--text-secondary);">Spaces:</span>
                             <div class="ml-auto relative">
@@ -2789,7 +2795,7 @@
 
                                 {{-- Province / City / Suburb — Property24-backed typeahead.
                                      User must pick a suburb P24 recognises; can't save free-text. --}}
-                                <div>
+                                <div data-tour="prop-location">
                                     <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Province / City / Suburb</div>
                                     <div class="p-4 rounded-b-md" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
                                         @include('corex._partials.p24-location-picker', [
@@ -3309,7 +3315,7 @@
 
             {{-- Save / Delete — outside the update form to prevent nesting --}}
             <div class="flex items-center justify-between pt-4">
-                <button type="submit" form="prop-update-form"
+                <button type="submit" form="prop-update-form" data-tour="prop-submit"
                         class="px-5 py-2 rounded-md text-sm font-semibold text-white"
                         style="background:var(--brand-default); border:1px solid var(--border);"
                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
@@ -5305,7 +5311,7 @@ function propertyContactsManager(searchUrl) {
             if (this.submitting) return;
             this.submitting = true;
             try {
-                const res = await fetch(@js(route('corex.properties.contacts.link', $property)), {
+                const res = await fetch(@js($property->exists ? route('corex.properties.contacts.link', $property) : ''), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -5331,7 +5337,7 @@ function propertyContactsManager(searchUrl) {
                 const fd = new FormData(formEl);
                 const payload = {};
                 for (const [k, v] of fd.entries()) { if (k !== '_token') payload[k] = v; }
-                let res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                let res = await fetch(@js($property->exists ? route('corex.properties.contacts.createAndLink', $property) : ''), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -5352,7 +5358,7 @@ function propertyContactsManager(searchUrl) {
                     if (dup.can_override || dup.mode === 'soft_warn') {
                         if (!confirm('Possible duplicate contact(s) found:\n\n' + names + '\n\nCreate anyway?')) return;
                         payload.bypass_duplicate_check = 1;
-                        res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                        res = await fetch(@js($property->exists ? route('corex.properties.contacts.createAndLink', $property) : ''), {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -5392,7 +5398,7 @@ function propertyContactsManager(searchUrl) {
         async unlinkContact(id, name) {
             if (!confirm('Unlink ' + name + ' from this property?')) return;
             try {
-                const urlTpl = @js(route('corex.properties.contacts.unlink', [$property->id, 0]));
+                const urlTpl = @js($property->exists ? route('corex.properties.contacts.unlink', [$property->id, 0]) : '');
                 const res = await fetch(urlTpl.replace(/\/0$/, '/' + id), {
                     method: 'DELETE',
                     headers: {

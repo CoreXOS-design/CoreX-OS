@@ -265,6 +265,13 @@ Route::middleware('auth')->group(function () {
             Route::patch('/checklist/{itemId}',     [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'checklistUpdate'])->name('checklist.update');
             Route::delete('/checklist/{itemId}',    [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'checklistDestroy'])->name('checklist.destroy');
         });
+
+        // ── Interactive help tours — per-user progress (self-scoped) ──
+        // Engine: App\Support\Tours\TourRegistry + layouts/partials/tour-engine.blade.php
+        Route::prefix('tours')->name('tours.')->group(function () {
+            Route::post('/{tourKey}/seen',    [\App\Http\Controllers\TourProgressController::class, 'seen'])->name('seen');
+            Route::post('/{tourKey}/dismiss', [\App\Http\Controllers\TourProgressController::class, 'dismiss'])->name('dismiss');
+        });
     });
 
     Route::get('/evaluation', function () {

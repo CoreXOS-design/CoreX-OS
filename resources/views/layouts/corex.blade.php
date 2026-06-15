@@ -139,6 +139,10 @@
             @include('layouts.partials.help-widget')
         @endauth
 
+        {{-- Interactive help-tour engine (driver.js) — renders only on pages
+             with a registered tour. See App\Support\Tours\TourRegistry. --}}
+        @include('layouts.partials.tour-engine')
+
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
 
