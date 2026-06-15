@@ -169,7 +169,7 @@ class BranchAssignmentController extends Controller
             'privacy_policy_markdown' => ['nullable', 'string', 'max:200000'],
             'privacy_policy_action'   => ['nullable', 'string', 'in:publish,unpublish'],
             'p24_agency_id' => ['nullable', 'string', 'max:32'],
-            'logo'         => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'logo'         => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
             'remove_logo'  => ['nullable', 'boolean'],
         ]);
 

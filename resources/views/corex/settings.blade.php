@@ -333,7 +333,7 @@
                             <input type="file" name="logo" accept="image/jpeg,image/png,image/webp"
                                    class="block w-full text-sm rounded-md px-3 py-2"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);">
-                            <p class="text-xs mt-1" style="color:var(--text-muted);">JPG, PNG, or WebP — max 2 MB.</p>
+                            <p class="text-xs mt-1" style="color:var(--text-muted);">JPG, PNG, or WebP — max 1 GB.</p>
                         </div>
                     </div>
 

@@ -208,7 +208,7 @@
                     {{-- Logo --}}
                     <div class="pt-4 space-y-3" style="border-top: 1px solid var(--border);">
                         <div class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Branch Logo</div>
-                        <p class="text-xs" style="color: var(--text-muted);">JPG, PNG, or WebP — max 2 MB. Leave blank to inherit Agency logo.</p>
+                        <p class="text-xs" style="color: var(--text-muted);">JPG, PNG, or WebP — max 1 GB. Leave blank to inherit Agency logo.</p>
 
                         @if($branch->logo_path)
                             <div class="flex items-center gap-4">

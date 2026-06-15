@@ -556,7 +556,7 @@ class SettingsController extends Controller
             'fic_no'           => ['nullable', 'string', 'max:255'],
             'email_disclaimer' => ['nullable', 'string', 'max:2000'],
             'popi_url'         => ['nullable', 'string', 'max:500'],
-            'logo'             => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'logo'             => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:1048576'],
             'remove_logo'      => ['nullable', 'boolean'],
         ]);
 

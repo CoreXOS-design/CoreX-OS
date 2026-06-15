@@ -70,7 +70,7 @@ class AgencyController extends Controller
             'fic_no'           => 'nullable|string|max:255',
             'p24_agency_id'    => 'nullable|string|max:32',
             'p24_agency_label' => 'nullable|string|max:100',
-            'logo'             => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'logo'             => 'nullable|image|mimes:jpg,jpeg,png,webp|max:1048576',
 
             // First Admin — required for live agencies, skipped for demo agencies.
             // See .ai/specs/agency-admin-rule.md.
@@ -190,7 +190,7 @@ class AgencyController extends Controller
             'pp_sandbox'       => 'nullable|boolean',
             'pp_image_base_url' => 'nullable|string|max:255',
             'pp_webhook_secret' => 'nullable|string|max:255',
-            'logo'            => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'logo'            => 'nullable|image|mimes:jpg,jpeg,png,webp|max:1048576',
             'remove_logo'     => 'nullable|boolean',
         ]);
 

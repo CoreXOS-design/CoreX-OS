@@ -78,7 +78,7 @@
                             <input type="checkbox" name="clear_company_logo" value="1" class="rounded border-slate-300 dark:border-slate-700">
                             Clear logo
                         </label>
-                        <span class="text-xs text-slate-500 dark:text-slate-400">Upload replaces the current logo. Max 2MB.</span>
+                        <span class="text-xs text-slate-500 dark:text-slate-400">Upload replaces the current logo. Max 1GB.</span>
                     </div>
                 </div>
             </div>

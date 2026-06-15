@@ -51,7 +51,7 @@ class PerformanceSettingsController extends Controller
             'company_ffc' => ['nullable','string','max:100'],
 
             // Logo upload (stored as URL in performance_settings: company_logo_url)
-            'company_logo' => ['nullable','image','max:2048'], // 2MB
+            'company_logo' => ['nullable','image','max:1048576'], // 1GB
             'clear_company_logo' => ['nullable','in:0,1'],
 
             // Existing performance settings

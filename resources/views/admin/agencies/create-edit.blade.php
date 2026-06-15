@@ -193,10 +193,10 @@
                     </div>
                 @endif
                 <div x-show="!removelogo">
-                    <input type="file" name="logo" accept="image/jpeg,image/png,image/webp"
+                    <input type="file" name="logo" id="agency-logo-input" accept="image/jpeg,image/png,image/webp"
                            class="block w-full text-sm rounded-md px-3 py-2"
                            style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);">
-                    <p class="text-xs mt-1" style="color:var(--text-muted);">JPG, PNG, or WebP — max 2 MB.</p>
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">JPG, PNG, or WebP — max 1 GB. Detect brand colours from it on the <span class="font-medium">Branding</span> tab.</p>
                 </div>
 
                 <label class="flex items-center gap-3 pt-2">
@@ -218,6 +218,11 @@
         <div x-show="activeTab === 'branding'" x-cloak data-tab-panel="branding" class="ds-status-card p-4 space-y-5">
             <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Brand Colours</div>
             <p class="text-xs" style="color:var(--text-muted);">Four semantic colour roles control the entire platform look for this agency.</p>
+
+            @include('admin.branding._logo-palette', [
+                'logoUrl'     => $agency?->logo_path ? asset('storage/' . $agency->logo_path) : '',
+                'logoInputId' => 'agency-logo-input',
+            ])
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 @foreach([
@@ -988,7 +993,7 @@
                         {{-- Logo --}}
                         <div class="pt-4 space-y-3" style="border-top: 1px solid var(--border);">
                             <div class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Branch Logo</div>
-                            <p class="text-xs" style="color: var(--text-muted);">JPG, PNG, or WebP — max 2 MB. Leave blank to inherit Agency logo.</p>
+                            <p class="text-xs" style="color: var(--text-muted);">JPG, PNG, or WebP — max 1 GB. Leave blank to inherit Agency logo.</p>
 
                             @if($branch->logo_path)
                                 <div class="flex items-center gap-4">
