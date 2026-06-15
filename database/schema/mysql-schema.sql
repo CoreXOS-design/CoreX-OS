@@ -11797,8 +11797,8 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (802,'2026_06_26_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (803,'2026_06_26_000004_create_communication_mailboxes_table',140);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (804,'2026_06_26_000005_create_communication_wa_devices_table',140);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (805,'2026_06_26_000006_create_communication_pending_table',140);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (806,'2026_06_27_000001_create_communication_flags_table',141);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (807,'2026_06_27_000002_create_communication_flag_alerts_table',141);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (808,'2026_06_27_000003_add_classification_to_communication_pending_table',141);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (809,'2026_06_28_000001_add_user_fields_to_communication_mailboxes_table',142);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (810,'2026_06_28_000002_create_mailbox_credential_reveals_table',142);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (811,'2026_06_27_000001_create_communication_flags_table',143);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (812,'2026_06_27_000002_create_communication_flag_alerts_table',143);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (813,'2026_06_27_000003_add_classification_to_communication_pending_table',143);
