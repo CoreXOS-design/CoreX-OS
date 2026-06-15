@@ -2315,6 +2315,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/',                  [\App\Http\Controllers\CoreX\ContactController::class, 'store'])->name('store');
         Route::post('/check-duplicate',   [\App\Http\Controllers\CoreX\ContactController::class, 'checkDuplicate'])->name('check-duplicate');
         Route::post('/import',            [\App\Http\Controllers\CoreX\ContactImportController::class, 'import'])->name('import');
+        Route::get('/export',             [\App\Http\Controllers\CoreX\ContactExportController::class, 'export'])->middleware('permission:contacts.export')->name('export');
         Route::delete('/destroy-all',     [\App\Http\Controllers\CoreX\ContactController::class, 'destroyAll'])->name('destroy-all');
         Route::get('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'show'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':view')->name('show');
         Route::put('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'update'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('update');
