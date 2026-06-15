@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="w-full space-y-5">
 
     <nav class="text-xs" style="color: var(--text-muted);">
         <a href="{{ route('bm.my.dashboard') }}" style="color: var(--brand-icon);">Dashboard</a>
@@ -39,19 +40,10 @@
         </form>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[0.6875rem] font-medium uppercase" style="color: var(--text-muted); letter-spacing: 0.06em;">Total Count</div>
-            <div class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary); line-height: 1.2;">{{ number_format((int)$grandCount) }}</div>
-        </div>
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[0.6875rem] font-medium uppercase" style="color: var(--text-muted); letter-spacing: 0.06em;">Total Points</div>
-            <div class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary); line-height: 1.2;">{{ number_format((float)$grandPoints, 0) }}</div>
-        </div>
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[0.6875rem] font-medium uppercase" style="color: var(--text-muted); letter-spacing: 0.06em;">Activities Tracked</div>
-            <div class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary); line-height: 1.2;">{{ number_format(count($items)) }}</div>
-        </div>
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Total Count" :value="number_format((int)$grandCount)" />
+        <x-corex-kpi-card title="Total Points" :value="number_format((float)$grandPoints, 0)" />
+        <x-corex-kpi-card title="Activities Tracked" :value="number_format(count($items))" />
     </div>
 
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
@@ -80,7 +72,7 @@
                                 </a>
                             </td>
                             <td class="px-4 py-3 text-right">
-                                <a class="inline-flex items-center rounded-md px-2.5 py-1 font-semibold transition-all duration-300"
+                                <a class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold whitespace-nowrap transition-all duration-300"
                                    style="background: var(--surface-2); color: var(--text-primary);"
                                    href="{{ route('bm.daily.summary.activity', array_filter(['definition'=>$it['id'],'range'=>$range,'month'=>$month])) }}">
                                     {{ number_format((int)$it['count']) }}

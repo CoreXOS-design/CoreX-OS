@@ -1,8 +1,10 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
+    {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
@@ -24,7 +26,7 @@
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
                     color: var(--text-primary);">
-            {{ session('status') }}
+            <div class="flex-1">{{ session('status') }}</div>
         </div>
     @endif
 
@@ -59,9 +61,7 @@
                     </thead>
                     <tbody>
                         @foreach($webPacks as $webPack)
-                        <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                            onmouseover="this.style.background='var(--surface-2)'"
-                            onmouseout="this.style.background=''">
+                        <tr style="border-top: 1px solid var(--border);">
                             <td class="px-4 py-3">
                                 <div class="font-semibold flex items-center gap-2" style="color: var(--text-primary);">
                                     {{ $webPack->name }}

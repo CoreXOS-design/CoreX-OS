@@ -431,6 +431,17 @@ class Agency extends Model
     }
 
     /**
+     * True when this agency has at least one live website — i.e. an API key
+     * that is neither revoked nor expired. Drives whether the public Website
+     * tab/settings are shown. Mirrors the "active website" check used by
+     * CompanySettingsController::pushSoldToWebsite().
+     */
+    public function hasActiveWebsite(): bool
+    {
+        return $this->apiKeys->contains(fn (AgencyApiKey $key) => $key->isActive());
+    }
+
+    /**
      * Active Admin users for this agency.
      * "Admin" = role string equal to 'admin' (per Role.name convention).
      * See .ai/specs/agency-admin-rule.md.

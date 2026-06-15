@@ -1,20 +1,40 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
+@push('head')
+<style>
+    .lease-row-card { background: var(--surface); transition: background 300ms ease, box-shadow 300ms ease; }
+    .lease-row-card:hover { background: var(--surface-2); }
+</style>
+@endpush
+
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight tracking-tight">Expired Leases</h1>
-                <p class="text-sm text-white/60 mt-1">
+                <h1 class="text-xl font-bold text-white leading-tight">Expired Leases</h1>
+                <p class="text-sm text-white/60">
                     <a href="{{ route('rental.dashboard') }}" class="text-white/60 hover:text-white transition-all duration-300">&larr; Rentals</a>
                     &middot; Expired and terminated lease agreements.
                 </p>
             </div>
         </div>
     </div>
+
+    @if(session('status'))
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--ds-green);">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+            <div class="flex-1">{{ session('status') }}</div>
+        </div>
+    @endif
 
     <div class="space-y-3">
         @forelse($leases as $lease)
@@ -23,9 +43,8 @@
                 $isTerminated = $lease->status === 'terminated';
                 $borderAccent = $isTerminated ? 'var(--text-muted)' : 'var(--ds-crimson)';
             @endphp
-            <div class="rounded-md p-5 transition-all duration-300"
-                 style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid {{ $borderAccent }};"
-                 onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='var(--surface)'">
+            <div class="lease-row-card rounded-md p-5"
+                 style="border: 1px solid var(--border); border-left: 3px solid {{ $borderAccent }};">
                 <div class="flex items-start justify-between gap-4">
                     <div class="flex-1 min-w-0">
                         <div class="font-semibold" style="color: var(--text-primary);">{{ $lease->property_address ?: ($lease->document->name ?? 'Unnamed') }}</div>

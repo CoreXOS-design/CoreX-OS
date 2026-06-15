@@ -1,5 +1,7 @@
 @extends('layouts.corex')
 
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+
 @section('corex-content')
 @php
   $activeTab = ($defaultTab ?? 'calc');
@@ -17,10 +19,13 @@
   color: var(--text-primary);
 }
 
+/* Full-width content — matches Contacts / Core Matches / Listings index pages.
+   The corex layout's <main> already supplies horizontal padding (p-4 lg:p-6),
+   so the wrap spans the full content area instead of a centred 980px column. */
 #hf-tool-root .wrap {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 0 1.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 /* Tab navigation */
@@ -329,7 +334,7 @@
 }
 </style>
 
-<div id="hf-tool-root" class="py-6">
+<div id="hf-tool-root">
 <div class="wrap flex flex-col gap-6">
 
   {{-- Page Header --}}

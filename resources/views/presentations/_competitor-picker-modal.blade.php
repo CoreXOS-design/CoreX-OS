@@ -38,7 +38,7 @@
                 </p>
             </div>
             <button type="button" @click="closeModal()"
-                    style="background:transparent;border:1px solid var(--border);color:var(--text-secondary);padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;"
+                    style="background:transparent;border:1px solid var(--border);color:var(--text-secondary);padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;"
                     title="Close — section re-renders with your selection">
                 Close
             </button>
@@ -106,7 +106,7 @@
             </div>
             <div>
                 <button type="button" @click="resetFilters()"
-                        style="width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text-secondary);padding:7px 10px;border-radius:4px;font-size:11px;cursor:pointer;"
+                        style="width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text-secondary);padding:7px 10px;border-radius:6px;font-size:11px;cursor:pointer;"
                         title="Reset to the auto-picker defaults">
                     Reset
                 </button>
@@ -133,7 +133,7 @@
                 <template x-for="row in results" :key="row.listing_id">
                     <div :class="'competitor-picker-card' + (row.is_included ? ' included' : '')"
                          style="border:1px solid var(--border);border-radius:6px;background:var(--surface);padding:10px;display:flex;flex-direction:column;gap:6px;position:relative;"
-                         :style="row.is_included ? 'border-color:#10b981;background:color-mix(in srgb,#10b981 6%,var(--surface));' : ''">
+                         :style="row.is_included ? 'border-color:var(--ds-green,#10b981);background:color-mix(in srgb,var(--ds-green,#10b981) 6%,var(--surface));' : ''">
                         <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
                             <div style="flex:1;min-width:0;">
                                 <div style="font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"

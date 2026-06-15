@@ -225,4 +225,111 @@ The public `/api/v1/website/testimonials` routes are gated by `auth:agency-api` 
 - Linking a testimonial to the Deal/Property it arose from (v2).
 - Testimonial photos/avatars on the public site (v2 — needs media handling).
 - Website-side moderation workflow beyond the single publish tick.
+
+---
+
+## 13. Client submission from the mobile app (added 2026-06-15)
+
+The mobile client app lets a client leave a testimonial about their agent. It
+syncs straight to the web (the agent's Contact tab) and notifies the connected
+agent. This is the same two-step model as §1 — the client **captures**, the
+agency still **curates/publishes** to the public website via Company Settings.
+Nothing a client writes reaches the public site automatically.
+
+### 13.1 Endpoints (client portal, `auth:sanctum` + `client.ability`)
+
+| Method | URI | Name | Notes |
+|--------|-----|------|-------|
+| GET  | `/api/v1/client/testimonials` | `client.testimonials.index`  | The signed-in client's own testimonials in their current agency, newest first. Each carries `published` so the app can show "Submitted" vs "Live on website". |
+| POST | `/api/v1/client/testimonials` | `client.testimonials.create` | Client leaves a testimonial. Body: `{ body (required, ≤5000), rating? (1–5), display_name? (≤150) }`. Created **unpublished**. Returns `201` with the shaped testimonial. |
+
+Both live in `ClientPortalController` and are listed under the client group at
+`/admin/api` (non-negotiable #7). The contact is resolved via the existing
+`resolveContact()` (current agency + client_user_id); the agent the testimonial
+is **about** (`agent_id`) is the contact's connected agent
+(`created_by_user_id`), resolved via `resolveAssignedAgent()`. `user_id` is
+**null** — the author is the client, not a staff User. `display_name` defaults
+to the contact's full name, then "Client".
+
+### 13.2 Cross-pillar reactivity (non-negotiable #9) — Contact → Agent
+
+On create the controller dispatches **`App\Events\Contact\ContactTestimonialSubmitted`**
+(`$testimonial, $contact, $agentUserId`), an `AbstractDomainEvent`. Listener
+**`App\Listeners\Contacts\NotifyAgentOfClientTestimonial`** notifies the
+connected agent via `PillarEventNotification` on **both** the `database`
+(in-app bell) and `mail` channels:
+
+- title `"{client} left you a testimonial"`, body = ★rating + the quote,
+  `action_url` → `/corex/contacts/{id}#tab-notes`, `event_key`
+  `contact.testimonial_submitted`, pillar `Contact`.
+- Failure-isolated: the testimonial is already saved; a mail hiccup or a
+  departed/unassigned agent never breaks the client's submit response (the
+  listener returns quietly when there is no agent or no email).
+
+This event is **only** emitted on client submission — agent-side web capture
+(§1) stays silent (the agent already knows). Website publish fan-out remains the
+separate `TestimonialVisibilityChanged` concern (§5), unchanged.
+
+### 13.3 Input space
+
+| Input | Decision |
+|-------|----------|
+| `body` empty | Required → 422. |
+| `rating` empty | Accept (null). |
+| `rating` out of 1–5 | 422. |
+| `display_name` empty | Default to contact full name, else "Client". |
+| Contact has no connected agent | Testimonial still saves; no notification sent (no crash). |
+| Other agency's data | `resolveContact()` pins to the client's current agency; cross-tenant impossible. |
+
+### 13.4 Listener wiring — auto-discovery only (do NOT also Event::listen)
+
+The event→listener binding is created by **Laravel's automatic listener discovery**
+(`shouldDiscoverEvents = true` by default in L11+; it scans `app/Listeners` and
+registers each `handle()` against its type-hinted event). `NotifyAgentOfClientTestimonial`
+is therefore wired the moment the file exists — **no `Event::listen()` is added in
+`AppServiceProvider`.** Adding one double-registers the listener so it fires twice
+(two emails + two in-app rows per submission — found in staging on 2026-06-15).
+Regression-locked by `Notification::assertSentToTimes(..., 1)` in the feature test.
+
+> **Codebase-wide caveat:** any listener in `app/Listeners` that is *also*
+> explicitly registered in `AppServiceProvider` double-fires. It's only harmless
+> where the handler is idempotent (e.g. `RecordDomainEvent` uses `insertOrIgnore`
+> on a unique `event_id`). A separate cleanup should make explicit registration
+> vs discovery consistent across all listeners (webhooks, syndication, leads,
+> activity loggers).
+
+### 13.6 Email delivery — dedicated `corex` mailer
+
+The agent email must deliver even on staging, where the **default** mailer is
+intentionally `log` (DEPLOY.md — don't email real people from staging). So the
+notification does NOT use the default mailer: `PillarEventNotification` is given
+`mailer: 'corex'`, a dedicated SMTP mailer (config/mail.php → `mailers.corex`)
+that sends from **mail@corexos.co.za** via real SMTP — mirroring the existing
+`otp` mailer. The From header is set to that mailer's `from_address` so it
+matches the authenticated SMTP account (avoids SPF/sender rejection). The
+recipient is the connected agent's `users.email` (resolved server-side from
+`contact.created_by_user_id`); the mobile app never supplies it.
+
+`PillarEventNotification` gained an optional `?string $mailer = null` param —
+null preserves the prior default-mailer behaviour for every other caller.
+
+**Required .env (production AND staging — secrets in .env only, never committed):**
+```
+MAIL_COREX_HOST=mail.corexos.co.za
+MAIL_COREX_PORT=587
+MAIL_COREX_ENCRYPTION=tls
+MAIL_COREX_USERNAME=mail@corexos.co.za
+MAIL_COREX_PASSWORD="Mail@corexos.co.za"
+MAIL_COREX_FROM_ADDRESS=mail@corexos.co.za
+MAIL_COREX_FROM_NAME="CoreX OS"
+```
+After editing .env: `php artisan config:clear` (and re-`config:cache` if cached).
+
+### 13.5 Files (client submission)
+**Create:** `app/Events/Contact/ContactTestimonialSubmitted.php`,
+`app/Listeners/Contacts/NotifyAgentOfClientTestimonial.php` (auto-discovered),
+`tests/Feature/Api/Client/ClientTestimonialTest.php`.
+**Modify:** `app/Http/Controllers/Api/V1/ClientPortalController.php`
+(`testimonials`, `testimonialCreate` + `shapeTestimonial`/`resolveTestimonialDisplayName`),
+`routes/api.php` (client group).
 </content>

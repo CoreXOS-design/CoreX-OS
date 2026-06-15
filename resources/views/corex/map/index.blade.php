@@ -1,5 +1,11 @@
 {{-- Phase 3g V1 — CoreX Map module (Leaflet + OSM/Esri).
-     Spec: .ai/specs/presentations.md (Phase 3g build prompt). --}}
+     Spec: .ai/specs/presentations.md (Phase 3g build prompt).
+     DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 —
+     full-bleed map app shell; branded header per §2.4 Pattern A; all
+     surfaces use token-based inline styles (§5.7 allowed pattern). Pin /
+     cluster / detail-card colours are the deliberate single-source
+     visual-identity palette (.ai/specs/map-visual-identity-spec.md) rendered
+     into SVG/markup by JS — intentionally literal, not token-driven. --}}
 @extends('layouts.corex-app')
 
 @push('head')
@@ -94,13 +100,22 @@
 @section('corex-content')
 <div id="corex-map-root" style="position: relative; height: calc(100vh - 64px); margin: -16px -20px -16px; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
 
-    {{-- ── Header bar ────────────────────────────────────────────────────── --}}
-    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--brand-default, #0b2a4a); border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 500;">
-        <div style="display: flex; align-items: center; gap: 16px;">
-            <h1 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin: 0; line-height: 1.2;">CoreX Map</h1>
-            <div id="map-loading-pill" style="display: none; padding: 4px 10px; font-size: 0.6875rem; font-weight: 500; background: var(--surface-2); color: var(--text-secondary); border-radius: 999px;">Loading pins…</div>
+    {{-- ── Header bar (UI_DESIGN_SYSTEM.md §2.4 Pattern A — branded header).
+         Rendered as an inset rounded-md card with the exact px-6 py-5
+         proportions, title text-xl/700 and text-sm white/60 subtitle used by
+         the Contacts / Core Matches index headers — so the blue bar is the
+         same size, not a full-bleed slab. The positive margin counteracts the
+         full-bleed negative margin on #corex-map-root so the card sits inside
+         the normal page padding while the map body below stays edge-to-edge. --}}
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 20px 12px; padding: 20px 24px; background: var(--brand-default, #0b2a4a); border-radius: 6px; flex-shrink: 0; z-index: 500;">
+        <div style="min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <h1 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin: 0; line-height: 1.2;">CoreX Map</h1>
+                <div id="map-loading-pill" style="display: none; padding: 4px 10px; font-size: 0.6875rem; font-weight: 500; background: var(--surface-2); color: var(--text-secondary); border-radius: 999px;">Loading pins…</div>
+            </div>
+            <p style="margin: 2px 0 0; font-size: 0.875rem; color: rgba(255,255,255,0.6); line-height: 1.2;">Spatial view of your stock, sold comps and prospecting candidates.</p>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
             {{-- Base-layer toggle --}}
             <div id="base-layer-toggle" style="display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
                 <button data-base="streets" class="base-pill active" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: var(--brand-button); color: #fff; border: 0; border-radius: 4px; cursor: pointer;">Streets</button>
@@ -136,12 +151,14 @@
     </div>
 
     {{-- ── Seller View banner ────────────────────────────────────────────── --}}
-    <div id="seller-banner" style="display: none; padding: 6px 16px; background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent); color: var(--ds-amber, #d97706); border-bottom: 1px solid var(--ds-amber, #d97706); font-size: 0.75rem; text-align: center;">
+    <div id="seller-banner" style="display: none; margin: 0 20px 12px; padding: 6px 16px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); border-radius: 6px; font-size: 0.75rem; text-align: center; flex-shrink: 0;">
         Seller view active — owner/contact info hidden
     </div>
 
-    {{-- ── Body ──────────────────────────────────────────────────────────── --}}
-    <div style="display: flex; flex: 1; overflow: hidden;">
+    {{-- ── Body — contained to the same width as the header card (matching the
+         Properties / Contacts pages); the side margins align it with the
+         header and the rounded border + overflow:hidden frame the map. ────── --}}
+    <div style="display: flex; flex: 1; min-height: 0; margin: 0 20px 16px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
 
         {{-- Left rail. Phase A.3.1 — restructured into scope-first layout:
              stock-scope pills → compact layer icons → search → collapsible
@@ -230,7 +247,7 @@
                     </button>
                     @endforeach
                 </div>
-                <div id="layer-cap-notice" style="display: none; margin-top: 8px; padding: 6px 8px; font-size: 0.625rem; color: var(--ds-amber, #d97706); background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent); border-radius: 4px;"></div>
+                <div id="layer-cap-notice" style="display: none; margin-top: 8px; padding: 6px 8px; font-size: 0.625rem; color: var(--ds-amber, #f59e0b); background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border-radius: 4px;"></div>
             </div>
 
             {{-- Phase A.3.1 — search input. 500ms debounce in JS. --}}
@@ -270,45 +287,45 @@
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Bedrooms</summary>
                     <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
-                        <input type="number" id="filter-bedrooms-min" min="0" max="20" placeholder="min" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-bedrooms-min" min="0" max="20" placeholder="min" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                         <span style="color: var(--text-muted);">–</span>
-                        <input type="number" id="filter-bedrooms-max" min="0" max="20" placeholder="max" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-bedrooms-max" min="0" max="20" placeholder="max" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                     </div>
                 </details>
 
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Bathrooms</summary>
                     <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
-                        <input type="number" id="filter-bathrooms-min" min="0" max="20" placeholder="min" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-bathrooms-min" min="0" max="20" placeholder="min" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                         <span style="color: var(--text-muted);">–</span>
-                        <input type="number" id="filter-bathrooms-max" min="0" max="20" placeholder="max" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-bathrooms-max" min="0" max="20" placeholder="max" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                     </div>
                 </details>
 
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Price (R)</summary>
                     <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
-                        <input type="number" id="filter-price-min" min="0" max="100000000" step="100000" placeholder="min" style="width: 90px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-price-min" min="0" max="100000000" step="100000" placeholder="min" style="width: 90px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                         <span style="color: var(--text-muted);">–</span>
-                        <input type="number" id="filter-price-max" min="0" max="100000000" step="100000" placeholder="max" style="width: 90px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-price-max" min="0" max="100000000" step="100000" placeholder="max" style="width: 90px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                     </div>
                 </details>
 
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Stand size (m²)</summary>
                     <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
-                        <input type="number" id="filter-stand-min" min="0" max="1000000" step="50" placeholder="min" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-stand-min" min="0" max="1000000" step="50" placeholder="min" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                         <span style="color: var(--text-muted);">–</span>
-                        <input type="number" id="filter-stand-max" min="0" max="1000000" step="50" placeholder="max" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-stand-max" min="0" max="1000000" step="50" placeholder="max" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                     </div>
                 </details>
 
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Building size (m²)</summary>
                     <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
-                        <input type="number" id="filter-building-min" min="0" max="100000" step="10" placeholder="min" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-building-min" min="0" max="100000" step="10" placeholder="min" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                         <span style="color: var(--text-muted);">–</span>
-                        <input type="number" id="filter-building-max" min="0" max="100000" step="10" placeholder="max" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-building-max" min="0" max="100000" step="10" placeholder="max" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                     </div>
                 </details>
 
@@ -327,7 +344,7 @@
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Sold date window</summary>
                     <div style="padding: 6px 4px 8px; font-size: 0.75rem;">
-                        <select id="filter-sold-window" style="width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <select id="filter-sold-window" style="width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                             <option value="">All sold</option>
                             <option value="3mo">Last 3 months</option>
                             <option value="6mo">Last 6 months</option>
@@ -340,18 +357,18 @@
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Days on market</summary>
                     <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
-                        <input type="number" id="filter-dom-min" min="0" max="10000" placeholder="min" style="width: 70px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-dom-min" min="0" max="10000" placeholder="min" style="width: 70px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                         <span style="color: var(--text-muted);">–</span>
-                        <input type="number" id="filter-dom-max" min="0" max="10000" placeholder="max" style="width: 70px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-dom-max" min="0" max="10000" placeholder="max" style="width: 70px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                     </div>
                 </details>
 
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Date range (year)</summary>
                     <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
-                        <input type="number" id="filter-year-from" min="2018" max="2030" placeholder="{{ now()->year - 5 }}" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-year-from" min="2018" max="2030" placeholder="{{ now()->year - 5 }}" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                         <span style="color: var(--text-muted);">to</span>
-                        <input type="number" id="filter-year-to"   min="2018" max="2030" placeholder="{{ now()->year }}" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <input type="number" id="filter-year-to"   min="2018" max="2030" placeholder="{{ now()->year }}" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                     </div>
                 </details>
 

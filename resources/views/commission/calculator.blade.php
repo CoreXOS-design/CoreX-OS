@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+<div class="w-full space-y-5"
      x-data="revShareCalc()">
 
     {{-- Page header (Pattern A) --}}
@@ -35,7 +36,7 @@
                 <input type="range" x-model.number="tier1Agents" min="1" max="20" step="1"
                        aria-label="Agents you sponsor"
                        class="w-full h-2 rounded-full appearance-none cursor-pointer"
-                       style="background: var(--border); accent-color: var(--brand-button);">
+                       style="background: var(--border); accent-color: var(--brand-button, #0ea5e9);">
                 <div class="flex justify-between text-xs mt-1" style="color: var(--text-muted);">
                     <span>1</span><span>5</span><span>10</span><span>15</span><span>20</span>
                 </div>
@@ -55,7 +56,7 @@
                 <input type="range" x-model.number="dealsPerMonth" min="1" max="10" step="1"
                        aria-label="Avg deals per agent per month"
                        class="w-full h-2 rounded-full appearance-none cursor-pointer"
-                       style="background: var(--border); accent-color: var(--brand-button);">
+                       style="background: var(--border); accent-color: var(--brand-button, #0ea5e9);">
                 <div class="flex justify-between text-xs mt-1" style="color: var(--text-muted);">
                     <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
                 </div>
@@ -75,7 +76,7 @@
                 <input type="range" x-model.number="avgCommission" min="10000" max="200000" step="5000"
                        aria-label="Average commission per deal"
                        class="w-full h-2 rounded-full appearance-none cursor-pointer"
-                       style="background: var(--border); accent-color: var(--brand-button);">
+                       style="background: var(--border); accent-color: var(--brand-button, #0ea5e9);">
                 <div class="flex justify-between text-xs mt-1" style="color: var(--text-muted);">
                     <span>R 10k</span><span>R 50k</span><span>R 100k</span><span>R 150k</span><span>R 200k</span>
                 </div>
@@ -91,7 +92,7 @@
         {{-- Card 1: Monthly Revenue Share --}}
         <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Monthly Revenue Share</div>
-            <div class="text-[1.625rem] font-semibold mb-3" style="color: var(--brand-icon);">
+            <div class="text-[1.625rem] font-semibold mb-3" style="color: var(--brand-icon, #0ea5e9);">
                 R <span x-text="fmt(monthlyTotal)"></span>
             </div>
             <div class="space-y-1.5 pt-3" style="border-top: 1px solid var(--border);">
@@ -132,11 +133,12 @@
                 {{-- Tier 1 --}}
                 <div class="flex items-center gap-3">
                     <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                         style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">T1</div>
+                         title="Tier 1 — agents you sponsor directly"
+                         style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);">T1</div>
                     <div class="flex-1">
                         <div class="h-5 rounded-full overflow-hidden" style="background: var(--surface-2);">
                             <div class="h-full rounded-full transition-all duration-300"
-                                 style="background: var(--brand-icon);"
+                                 style="background: var(--brand-icon, #0ea5e9);"
                                  :style="'width:' + Math.min(100, tier1Agents * 5) + '%'"></div>
                         </div>
                     </div>
@@ -146,11 +148,12 @@
                 {{-- Tier 2 --}}
                 <div class="flex items-center gap-3">
                     <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                         style="background: color-mix(in srgb, var(--brand-button) 15%, transparent); color: var(--brand-button);">T2</div>
+                         title="Tier 2 — agents sponsored by your Tier 1"
+                         style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 15%, transparent); color: var(--brand-button, #0ea5e9);">T2</div>
                     <div class="flex-1">
                         <div class="h-5 rounded-full overflow-hidden" style="background: var(--surface-2);">
                             <div class="h-full rounded-full transition-all duration-300"
-                                 style="background: var(--brand-button);"
+                                 style="background: var(--brand-button, #0ea5e9);"
                                  :style="'width:' + Math.min(100, tier2Agents * 2.5) + '%'"></div>
                         </div>
                     </div>
@@ -160,6 +163,7 @@
                 {{-- Tier 3 --}}
                 <div class="flex items-center gap-3">
                     <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                         title="Tier 3 — agents sponsored by your Tier 2"
                          style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">T3</div>
                     <div class="flex-1">
                         <div class="h-5 rounded-full overflow-hidden" style="background: var(--surface-2);">
@@ -207,7 +211,7 @@
             @foreach($steps as $step)
             <div class="flex gap-3">
                 <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                     style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
                     {{ $step['num'] }}
                 </div>
                 <div>

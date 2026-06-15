@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-    <div x-data="depositCalculator()" class="space-y-6">
+    <div x-data="depositCalculator()" class="w-full space-y-5">
         {{-- Page header (Pattern A — branded) --}}
         <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -18,7 +19,7 @@
             </div>
         </div>
 
-        <div class="max-w-6xl mx-auto w-full space-y-6">
+        <div class="space-y-5">
             {{-- Flash --}}
             @if(session('status'))
                 <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
@@ -106,13 +107,13 @@
                         <div class="flex items-center gap-3 mb-2">
                             <div class="flex-1">
                                 <input type="date" :name="'topups[' + index + '][date]'" x-model="topup.date" required
-                                       class="w-full rounded-md text-sm px-3 py-1.5"
+                                       class="w-full rounded-md text-sm px-3 py-2"
                                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                             </div>
                             <div class="flex-1">
                                 <input type="number" step="0.01" min="0.01" :name="'topups[' + index + '][amount]'" x-model="topup.amount" required
                                        placeholder="0.00"
-                                       class="w-full rounded-md text-sm px-3 py-1.5"
+                                       class="w-full rounded-md text-sm px-3 py-2"
                                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                             </div>
                             <button type="button" @click="removeTopup(index)"

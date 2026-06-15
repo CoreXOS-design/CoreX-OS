@@ -809,11 +809,23 @@ class MobilePropertyController extends Controller
         $photoCount = count($property->gallery_images_json ?? [])
                     + count($property->images_json ?? []);
 
+        // Snapshot attribution — mirrors the web panel's
+        // "Compliance Live — captured {date} by {name}" header so the mobile
+        // can render the same LIVE state. Derive a single status label too so
+        // the app doesn't have to re-compute LIVE/READY/BLOCKED itself.
+        $isLive  = $property->compliance_snapshot_at !== null;
+        $isReady = $report->ready && !$isLive;
+        $statusLabel = $isLive ? 'LIVE' : ($isReady ? 'READY' : 'BLOCKED');
+
         return response()->json([
             'property_id'  => $property->id,
-            'marketable'   => $report->ready || $property->compliance_snapshot_at !== null,
+            'status'       => $statusLabel,         // LIVE | READY | BLOCKED
+            'marketable'   => $report->ready || $isLive,
             'ready'        => $report->ready,
             'snapshot_at'  => $report->snapshotAt?->toIso8601String(),
+            'snapshotted_by' => $isLive
+                ? ($property->compliance_snapshot_data['snapshotted_by_name'] ?? null)
+                : null,
             'first_marketed_at' => $property->first_marketed_at?->toIso8601String(),
             'blocked_by'   => $report->blockedBy,
             'next_actions' => $report->nextActions,

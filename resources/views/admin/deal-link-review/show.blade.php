@@ -1,52 +1,96 @@
 @extends('layouts.corex-app')
 
-@section('corex-content')
-<div style="max-width:1100px;margin:0 auto;padding:0 20px;">
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 
-    <div style="margin-bottom:14px;">
+@section('corex-content')
+<div class="w-full max-w-5xl mx-auto space-y-4">
+
+    {{-- Header --}}
+    <div>
         <a href="{{ route('corex.admin.deal-link-review.index') }}"
-           style="font-size:0.75rem;color:var(--text-muted);text-decoration:none;">← Back to queue</a>
-        <h1 style="font-size:1.25rem;font-weight:600;color:var(--text-primary);margin:6px 0 0 0;">
-            Review match for: {{ $deal?->property_address }}
+           class="text-xs no-underline" style="color: var(--text-muted);">← Back to queue</a>
+        <h1 class="text-xl font-bold leading-tight mt-1.5" style="color: var(--text-primary);">
+            Review match for: {{ $deal?->property_address ?: '—' }}
         </h1>
     </div>
 
     @if($errors->any())
-        <div style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:6px;padding:10px 14px;font-size:0.8125rem;margin-bottom:14px;">
-            {{ $errors->first() }}
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-crimson, #c41e3a);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
+            <div class="flex-1">{{ $errors->first() }}</div>
         </div>
     @endif
 
     {{-- Deal summary --}}
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:14px;">
-        <h2 class="ds-section-header" style="margin:0 0 8px 0;">Deal details</h2>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;font-size:0.8125rem;">
-            <div><div style="font-size:0.625rem;color:var(--text-muted);text-transform:uppercase;">Deal #</div>{{ $deal?->deal_no ?? '—' }}</div>
-            <div><div style="font-size:0.625rem;color:var(--text-muted);text-transform:uppercase;">Deal date</div>{{ $deal?->deal_date?->format('j M Y') ?: '—' }}</div>
-            <div><div style="font-size:0.625rem;color:var(--text-muted);text-transform:uppercase;">Registration</div>{{ $deal?->registration_date?->format('j M Y') ?: '—' }}</div>
-            <div><div style="font-size:0.625rem;color:var(--text-muted);text-transform:uppercase;">Sale price</div>@if($deal?->sale_price)R {{ number_format((int) $deal->sale_price) }}@elseif($deal?->property_value)R {{ number_format((float) $deal->property_value, 0) }}@else —@endif</div>
-            <div><div style="font-size:0.625rem;color:var(--text-muted);text-transform:uppercase;">Seller</div>{{ $deal?->seller_name ?: '—' }}</div>
-            <div><div style="font-size:0.625rem;color:var(--text-muted);text-transform:uppercase;">Buyer</div>{{ $deal?->buyer_name ?: '—' }}</div>
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="ds-section-header" style="margin: 0 0 8px 0;">Deal details</h2>
+        <div class="grid gap-3 text-sm" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
+            <div>
+                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Deal #</div>
+                <span style="color: var(--text-primary);">{{ $deal?->deal_no ?? '—' }}</span>
+            </div>
+            <div>
+                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Deal date</div>
+                <span style="color: var(--text-primary);">{{ $deal?->deal_date?->format('j M Y') ?: '—' }}</span>
+            </div>
+            <div>
+                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Registration</div>
+                <span style="color: var(--text-primary);">{{ $deal?->registration_date?->format('j M Y') ?: '—' }}</span>
+            </div>
+            <div>
+                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Sale price</div>
+                <span style="color: var(--text-primary);">
+                    @if($deal?->sale_price)
+                        R {{ number_format((int) $deal->sale_price) }}
+                    @elseif($deal?->property_value)
+                        R {{ number_format((float) $deal->property_value, 0) }}
+                    @else
+                        —
+                    @endif
+                </span>
+            </div>
+            <div>
+                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Seller</div>
+                <span style="color: var(--text-primary);">{{ $deal?->seller_name ?: '—' }}</span>
+            </div>
+            <div>
+                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Buyer</div>
+                <span style="color: var(--text-primary);">{{ $deal?->buyer_name ?: '—' }}</span>
+            </div>
         </div>
     </div>
 
     {{-- Candidate properties --}}
-    <div style="margin-bottom:14px;">
-        <h2 class="ds-section-header" style="margin:0 0 8px 0;">Candidate properties ({{ $candidates->count() }})</h2>
+    <div>
+        <h2 class="ds-section-header" style="margin: 0 0 8px 0;">Candidate properties ({{ number_format($candidates->count()) }})</h2>
         @if($candidates->isEmpty())
-            <div style="padding:16px;background:var(--surface);border:1px dashed var(--border);border-radius:6px;color:var(--text-muted);font-size:0.875rem;">
+            <div class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px dashed var(--border); color: var(--text-muted);">
                 No candidates were found. Use the manual search below to pick a property anyway.
             </div>
         @else
-            <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="flex flex-col gap-2.5">
                 @foreach($candidates as $cand)
-                    @php $prop = $properties->get($cand['property_id'] ?? null); @endphp
-                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px 14px;display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;">
+                    @php
+                        $prop = $properties->get($cand['property_id'] ?? null);
+                        $confidence = $cand['confidence'] ?? null;
+                        $confClass = match ($confidence) {
+                            'exact'  => 'ds-badge-success',
+                            'high'   => 'ds-badge-info',
+                            'medium' => 'ds-badge-warning',
+                            default  => 'ds-badge-default',
+                        };
+                    @endphp
+                    <div class="rounded-md p-3.5 grid items-center gap-3.5" style="background: var(--surface); border: 1px solid var(--border); grid-template-columns: 1fr auto;">
                         <div>
-                            <div style="font-weight:600;color:var(--text-primary);font-size:0.875rem;">
+                            <div class="text-sm font-semibold" style="color: var(--text-primary);">
                                 {{ $cand['address'] ?? ($prop?->address ?? 'unknown') }}
                             </div>
-                            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:3px;">
+                            <div class="text-xs mt-1" style="color: var(--text-secondary);">
                                 @if($cand['suburb'] ?? null){{ $cand['suburb'] }} · @endif
                                 Property #{{ $cand['property_id'] }}
                                 @if($prop)
@@ -55,16 +99,19 @@
                                     @if($prop->last_activity_at) · Active {{ \Carbon\Carbon::parse($prop->last_activity_at)->diffForHumans() }}@endif
                                 @endif
                             </div>
-                            <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:3px;">
-                                Match score: <strong>{{ $cand['score'] ?? 0 }}</strong> ({{ $cand['confidence'] ?? '?' }})
-                                @if(!empty($cand['date_match']))· date proximity confirmed @endif
+                            <div class="flex items-center gap-2 flex-wrap mt-1.5 text-[0.6875rem]" style="color: var(--text-muted);">
+                                <span>Match score: <strong style="color: var(--text-secondary);">{{ number_format((int) ($cand['score'] ?? 0)) }}</strong></span>
+                                @if($confidence)
+                                    <span class="ds-badge {{ $confClass }}">{{ $confidence }}</span>
+                                @endif
+                                @if(!empty($cand['date_match']))<span>· date proximity confirmed</span>@endif
                             </div>
                         </div>
                         <div>
                             <form method="POST" action="{{ route('corex.admin.deal-link-review.link', $item->id) }}">
                                 @csrf
                                 <input type="hidden" name="property_id" value="{{ $cand['property_id'] }}">
-                                <button type="submit" class="corex-btn-primary" style="font-size:0.75rem;padding:7px 14px;">Link this property →</button>
+                                <button type="submit" class="corex-btn-primary whitespace-nowrap">Link this property →</button>
                             </form>
                         </div>
                     </div>
@@ -74,34 +121,39 @@
     </div>
 
     {{-- Manual search --}}
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:14px;">
-        <h2 class="ds-section-header" style="margin:0 0 8px 0;">Or link manually</h2>
-        <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 10px 0;">
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="ds-section-header" style="margin: 0 0 8px 0;">Or link manually</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
             Paste the property ID if you already know it (visible on /corex/properties/N).
         </p>
-        <form method="POST" action="{{ route('corex.admin.deal-link-review.link', $item->id) }}" style="display:flex;gap:10px;align-items:center;">
+        <form method="POST" action="{{ route('corex.admin.deal-link-review.link', $item->id) }}"
+              class="flex flex-col sm:flex-row gap-2.5 sm:items-end">
             @csrf
-            <input type="number" name="property_id" required min="1" placeholder="Property ID"
-                   style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;width:160px;">
-            <input type="text" name="review_note" maxlength="2000" placeholder="Optional note explaining the pick"
-                   style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;flex:1;">
-            <button type="submit" class="corex-btn-primary" style="font-size:0.75rem;padding:7px 14px;">Link</button>
+            <div class="sm:w-40">
+                <label for="property_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property ID</label>
+                <input id="property_id" type="number" name="property_id" required min="1" placeholder="e.g. 1234"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
+            <div class="flex-1">
+                <label for="review_note" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Note <span style="color: var(--text-muted);">(optional)</span></label>
+                <input id="review_note" type="text" name="review_note" maxlength="2000" placeholder="Why you picked this property"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
+            <button type="submit" class="corex-btn-primary whitespace-nowrap">Link</button>
         </form>
     </div>
 
     {{-- Resolve without linking --}}
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
+    <div class="flex flex-wrap gap-2 justify-end">
         <form method="POST" action="{{ route('corex.admin.deal-link-review.skip', $item->id) }}">
             @csrf
-            <button type="submit" style="font-size:0.75rem;padding:7px 14px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);border-radius:4px;cursor:pointer;">
-                Defer for later
-            </button>
+            <button type="submit" class="corex-btn-outline whitespace-nowrap">Defer for later</button>
         </form>
         <form method="POST" action="{{ route('corex.admin.deal-link-review.unlink', $item->id) }}">
             @csrf
-            <button type="submit" style="font-size:0.75rem;padding:7px 14px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:4px;cursor:pointer;">
-                None of these — mark unmatched
-            </button>
+            <button type="submit" class="corex-btn-outline whitespace-nowrap">None of these — mark unmatched</button>
         </form>
     </div>
 </div>

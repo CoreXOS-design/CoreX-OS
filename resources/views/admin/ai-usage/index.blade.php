@@ -2,7 +2,7 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto w-full space-y-5">
+<div class="w-full space-y-5">
 
     {{-- Page header (branded) --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
@@ -25,29 +25,25 @@
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
              style="background:color-mix(in srgb, var(--ds-green,#059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green,#059669) 30%, transparent); color:var(--text-primary);">
-            {{ session('status') }}
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" style="color:var(--ds-green,#059669);">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <div class="flex-1">{{ session('status') }}</div>
         </div>
     @endif
 
     {{-- Hero metrics --}}
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        @foreach([
-            ['Total spend', 'R ' . number_format($totalZar, 2)],
-            ['Input tokens', number_format($tokens['input'])],
-            ['Output tokens', number_format($tokens['output'])],
-            ['Cache hit rate (30d)', number_format($cacheHitRate30, 1) . '%'],
-        ] as [$label, $value])
-        <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
-            <div class="text-xs font-medium uppercase tracking-wider" style="color:var(--text-muted);">{{ $label }}</div>
-            <div class="font-semibold mt-1" style="color:var(--text-primary); font-size:1.625rem;">{{ $value }}</div>
-        </div>
-        @endforeach
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Total spend" :value="'R ' . number_format($totalZar, 2)" />
+        <x-corex-kpi-card title="Input tokens" :value="number_format($tokens['input'])" />
+        <x-corex-kpi-card title="Output tokens" :value="number_format($tokens['output'])" />
+        <x-corex-kpi-card title="Cache hit rate (30d)" :value="number_format($cacheHitRate30, 1) . '%'" />
     </div>
 
     {{-- Cache footprint --}}
     <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Cache footprint</div>
-        <div class="grid grid-cols-3 gap-4 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
             <div>
                 <div class="text-xs" style="color:var(--text-secondary);">Active rows</div>
                 <div class="font-semibold" style="color:var(--text-primary);">{{ number_format($cacheStats['active_rows']) }}</div>

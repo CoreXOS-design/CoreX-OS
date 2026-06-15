@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\ClientUser;
 use App\Models\Contact;
+use App\Events\Contact\ContactTestimonialSubmitted;
 use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
+use App\Models\ContactTestimonial;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\Scopes\ContactScope;
@@ -362,6 +364,84 @@ class ClientPortalController extends Controller
         ]);
     }
 
+    /**
+     * GET /api/v1/client/testimonials
+     * The signed-in client's own testimonials in the current agency, newest
+     * first, each carrying its current website-publish status so the app can
+     * show "Submitted" vs "Live on website".
+     */
+    public function testimonials(Request $request): JsonResponse
+    {
+        $contact = $this->resolveContact($request);
+        if (!$contact instanceof Contact) {
+            return $contact;
+        }
+
+        $testimonials = ContactTestimonial::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('contact_id', $contact->id)
+            ->where('agency_id', $contact->agency_id)
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'agency_id'    => $contact->agency_id,
+            'testimonials' => $testimonials->map(fn (ContactTestimonial $t) => $this->shapeTestimonial($t))->values(),
+        ]);
+    }
+
+    /**
+     * POST /api/v1/client/testimonials
+     * The signed-in client leaves a testimonial about their agent.
+     *
+     * Captured unpublished (published = false) — identical to agent-side
+     * capture (.ai/specs/testimonials.md §1): the agency curates what reaches
+     * the public website via Company Settings. It is immediately visible to the
+     * agent on the Contact's "Notes & Testimonials" tab (the web sync), and the
+     * connected agent is notified (in-app + email) via the domain event.
+     *
+     * Body: { body: string (required), rating?: 1..5, display_name?: string }
+     */
+    public function testimonialCreate(Request $request): JsonResponse
+    {
+        $contact = $this->resolveContact($request);
+        if (!$contact instanceof Contact) {
+            return $contact;
+        }
+
+        $data = $request->validate([
+            'body'         => ['required', 'string', 'max:5000'],
+            'rating'       => ['nullable', 'integer', 'min:1', 'max:5'],
+            'display_name' => ['nullable', 'string', 'max:150'],
+        ]);
+
+        // The testimonial is about the agent connected to this contact (the
+        // agent who captured them). May be null for an unassigned contact.
+        $agent = $this->resolveAssignedAgent($contact);
+
+        $testimonial = new ContactTestimonial();
+        $testimonial->agency_id    = $contact->agency_id;
+        $testimonial->contact_id   = $contact->id;
+        $testimonial->user_id      = null; // submitted by the client, not a User
+        $testimonial->agent_id     = $agent?->id;
+        $testimonial->body         = trim($data['body']);
+        $testimonial->display_name = $this->resolveTestimonialDisplayName($data['display_name'] ?? null, $contact);
+        $testimonial->rating       = $data['rating'] ?? null;
+        $testimonial->published    = false; // capture never publishes
+        $testimonial->save();
+
+        // Cross-pillar Contact → Agent: notify the connected agent (in-app +
+        // email). Failure-isolated in the listener; never breaks this response.
+        ContactTestimonialSubmitted::dispatch($testimonial, $contact, $agent?->id);
+
+        $this->service->log($request->user(), $contact->agency_id, $contact->id, 'testimonial_created', $request, [
+            'testimonial_id' => $testimonial->id,
+            'rating'         => $testimonial->rating,
+        ]);
+
+        return response()->json(['testimonial' => $this->shapeTestimonial($testimonial)], 201);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────
@@ -486,6 +566,40 @@ class ClientPortalController extends Controller
             'phone'      => $contact->phone,
             'agency_id'  => $contact->agency_id,
         ];
+    }
+
+    /**
+     * Public shape of a client's own testimonial. `published` reflects the
+     * agency's website-publish tick so the app can show "Live on website".
+     */
+    private function shapeTestimonial(ContactTestimonial $t): array
+    {
+        return [
+            'id'           => $t->id,
+            'body'         => $t->body,
+            'rating'       => $t->rating !== null ? (int) $t->rating : null,
+            'display_name' => $t->display_name,
+            'published'    => (bool) $t->published,
+            'created_at'   => $t->created_at,
+        ];
+    }
+
+    /**
+     * Resolve the public author name for a client-submitted testimonial. Trims
+     * a supplied name; falls back to the contact's full name, then "Client".
+     * The column is NOT NULL, so a value is always produced. Mirrors the
+     * agent-side ContactTestimonialController::resolveDisplayName.
+     */
+    private function resolveTestimonialDisplayName(?string $supplied, Contact $contact): string
+    {
+        $name = trim((string) $supplied);
+        if ($name !== '') {
+            return $name;
+        }
+
+        $full = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
+
+        return $full !== '' ? $full : 'Client';
     }
 
     /**

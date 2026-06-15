@@ -1,15 +1,72 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-7xl mx-auto">
+@section('corex-content')
+@php
+    $hasActiveFilters = request('search')
+        || (request('status', 'active') !== 'active')
+        || request('category')
+        || request('type')
+        || request('document_type')
+        || request('visibility');
+@endphp
+<div class="w-full space-y-5" x-data="{ viewMode: localStorage.getItem('docuperfect_tpl_view') || 'grid' }">
 
-    <x-list-header
-        title="Template Management"
-        :form-action="route('docuperfect.templates.index')"
-        :paginator="$templates"
-        search-placeholder="Search templates..."
-    >
-        <x-slot:filters>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Template Management</h1>
+                <p class="text-sm text-white/60">Upload, organise, and configure your document templates.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <form method="POST" action="{{ route('docuperfect.templates.upload') }}" enctype="multipart/form-data" class="flex items-center" id="tplUploadForm">
+                    @csrf
+                    <label class="corex-btn-primary cursor-pointer text-sm inline-flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Upload Template
+                        <input type="file" name="pdf" accept=".pdf" class="hidden" onchange="document.getElementById('tplUploadForm').submit();">
+                    </label>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    {{-- Flash --}}
+    @if(session('status'))
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-green);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+            </svg>
+            <div class="flex-1">{{ session('status') }}</div>
+        </div>
+    @endif
+
+    {{-- Filter bar --}}
+    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" action="{{ route('docuperfect.templates.index') }}" class="flex flex-wrap items-center gap-3">
+            @if(request('sort'))
+            <input type="hidden" name="sort" value="{{ request('sort') }}">
+            <input type="hidden" name="direction" value="{{ request('direction', 'asc') }}">
+            @endif
+
+            {{-- Search --}}
+            <div class="relative flex-1 min-w-[180px] max-w-xs">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value="{{ request('search') }}"
+                       placeholder="Search templates..."
+                       onchange="this.form.submit()"
+                       class="list-header-filter w-full"
+                       style="padding-left: 2.25rem;">
+            </div>
+
             <select name="status" onchange="this.form.submit()" class="list-header-filter">
                 <option value="active" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
                 <option value="archived" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
@@ -38,32 +95,20 @@
                 <option value="global" {{ request('visibility') === 'global' ? 'selected' : '' }}>Global</option>
                 <option value="branch" {{ request('visibility') === 'branch' ? 'selected' : '' }}>Branch-specific</option>
             </select>
-        </x-slot:filters>
-        <x-slot:actions>
-            <form method="POST" action="{{ route('docuperfect.templates.upload') }}" enctype="multipart/form-data" class="flex items-center" id="tplUploadForm">
-                @csrf
-                <label class="corex-btn-primary cursor-pointer text-sm">
-                    + Upload Template
-                    <input type="file" name="pdf" accept=".pdf" class="hidden" onchange="document.getElementById('tplUploadForm').submit();">
-                </label>
-            </form>
-        </x-slot:actions>
-    </x-list-header>
 
-    @if(session('status'))
-        <div class="rounded-md px-4 py-3 text-sm mt-4 flex items-start gap-3"
-             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
-                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
-                    color: var(--text-primary);">
-            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-green);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-            </svg>
-            <div class="flex-1">{{ session('status') }}</div>
-        </div>
-    @endif
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            @if($hasActiveFilters)
+            <a href="{{ route('docuperfect.templates.index') }}" class="text-xs underline transition-all duration-300" style="color: var(--text-muted);">Clear</a>
+            @endif
+
+            <span class="ml-auto text-xs flex-shrink-0" style="color: var(--text-muted);">
+                {{ number_format($templates->total()) }} {{ \Illuminate\Support\Str::plural('template', $templates->total()) }}
+            </span>
+        </form>
+    </div>
 
     @if($templates->isEmpty())
-        <div class="rounded-md py-12 px-6 text-center mt-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                  style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
                 <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -89,9 +134,9 @@
             @endif
         </div>
     @else
-        <div x-data="{ viewMode: localStorage.getItem('docuperfect_tpl_view') || 'grid' }" class="mt-4">
+        <div>
             {{-- View toggle --}}
-            <div class="flex items-center justify-end gap-2 mb-4">
+            <div class="flex items-center justify-end gap-2">
                 <div class="flex items-center rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                     <button @click="viewMode = 'grid'; localStorage.setItem('docuperfect_tpl_view', 'grid')"
                             :style="viewMode === 'grid' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);'"
@@ -111,7 +156,7 @@
             </div>
 
             {{-- Grid View --}}
-            <div x-show="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div x-show="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-4">
                 @foreach($templates as $tpl)
                 <div class="corex-template-card rounded-md p-4 flex flex-col transition-all duration-300"
                      style="background: var(--surface); border: 1px solid var(--border);">
@@ -188,7 +233,7 @@
             </div>
 
             {{-- List View --}}
-            <div x-show="viewMode === 'list'" x-cloak>
+            <div x-show="viewMode === 'list'" x-cloak class="mt-4">
                 <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
                     <table class="w-full text-sm ds-table">
                         <thead>
@@ -205,9 +250,7 @@
                         </thead>
                         <tbody>
                             @foreach($templates as $tpl)
-                            <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                                onmouseover="this.style.background='var(--surface-2)'"
-                                onmouseout="this.style.background=''">
+                            <tr style="border-top: 1px solid var(--border);">
                                 <td class="px-4 py-2">
                                     @if($tpl->render_type === 'web')
                                     <div class="w-10 h-14 flex items-center justify-center rounded-md" style="background: var(--surface-2); border: 1px dashed var(--border);">
@@ -281,7 +324,7 @@
             </div>
         </div>
 
-        <div class="mt-4">
+        <div>
             {{ $templates->links() }}
         </div>
     @endif

@@ -1,12 +1,36 @@
-<x-app-layout>
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+@extends('layouts.corex')
+
+@section('corex-content')
+<div class="w-full space-y-5">
+
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Deal Register</h1>
+                <p class="text-sm text-white/60">Track sales, commission and settlement across the agency.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @permission('deals.create')
+                <a href="{{ route('admin.deals.create') }}" class="corex-btn-primary text-sm inline-flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Add Deal
+                </a>
+                @endpermission
+            </div>
+        </div>
+    </div>
 
     @if(isset($paidNotSettledDeals) && $paidNotSettledDeals->count() > 0 && auth()->user()?->hasPermission('settle_deals'))
-        <div x-data="{ openPaidExceptions: false }" class="mb-6">
+        <div x-data="{ openPaidExceptions: false }">
             <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-                 style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent);
-                        border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);
+                 style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);
                         color: var(--text-primary);">
-                <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-amber);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-amber, #f59e0b);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
                 </svg>
                 <div class="flex-1">
@@ -16,7 +40,7 @@
                 <button type="button"
                         @click="openPaidExceptions = true"
                         class="text-xs font-semibold flex-shrink-0"
-                        style="color: var(--ds-amber);">
+                        style="color: var(--ds-amber, #f59e0b);">
                     View exceptions
                 </button>
             </div>
@@ -81,13 +105,26 @@
         @endpush
     @endif
 
-    <x-list-header
-        title="Deal Register"
-        :form-action="route('admin.deals')"
-        :paginator="$deals"
-        search-placeholder="Search seller, buyer, property, deal no..."
-    >
-        <x-slot:filters>
+    {{-- Filter bar --}}
+    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" action="{{ route('admin.deals') }}" class="flex flex-wrap items-center gap-3">
+            {{-- Preserve sort params --}}
+            @if(request('sort'))
+            <input type="hidden" name="sort" value="{{ request('sort') }}">
+            <input type="hidden" name="direction" value="{{ request('direction', 'asc') }}">
+            @endif
+
+            {{-- Search --}}
+            <div class="relative flex-1 min-w-[180px] max-w-xs">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value="{{ request('search') }}"
+                       placeholder="Search seller, buyer, property, deal no…"
+                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); outline: none;">
+            </div>
+
             <select name="status" onchange="this.form.submit()" class="list-header-filter">
                 <option value="">All statuses</option>
                 <option value="Pending" {{ request('status') === 'Pending' ? 'selected' : '' }}>Pending</option>
@@ -118,23 +155,28 @@
                 <option value="{{ $ag->id }}" {{ request('agent') == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
                 @endforeach
             </select>
-        </x-slot:filters>
 
-        <x-slot:actions>
-            @permission('deals.create')
-            <a href="{{ route('admin.deals.create') }}" class="corex-btn-primary text-sm">+ Add Deal</a>
-            @endpermission
-        </x-slot:actions>
-    </x-list-header>
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            @if(collect(request()->except(['sort', 'direction', 'page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
+            <a href="{{ route('admin.deals') }}" class="text-xs underline transition-all duration-300" style="color: var(--text-muted);">Clear</a>
+            @endif
+
+            @if($deals->total() > 0)
+            <span class="text-sm ml-auto whitespace-nowrap" style="color: var(--text-muted);">
+                Showing {{ number_format($deals->firstItem()) }} to {{ number_format($deals->lastItem()) }} of {{ number_format($deals->total()) }} results
+            </span>
+            @endif
+        </form>
+    </div>
 
     <div class="space-y-6">
 
         @if($errors->any())
             <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-                 style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
-                        border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                 style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);
                         color: var(--text-primary);">
-                <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-crimson);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-crimson, #c41e3a);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
                 </svg>
                 <div class="flex-1">{{ $errors->first() }}</div>
@@ -280,7 +322,7 @@
                             <tr>
                                 <td colspan="{{ ($branchIdContext ?? 0) > 0 ? 9 : 8 }}" class="px-6 py-12 text-center">
                                     <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                                         style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                                         style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
                                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z"/>
                                         </svg>
@@ -312,9 +354,11 @@
 
     </div>
 
-    @push('head')
-    <style>
-        .deals-quick-edit:hover { background: var(--surface-2); }
-    </style>
-    @endpush
-</x-app-layout>
+</div>
+
+@push('head')
+<style>
+    .deals-quick-edit:hover { background: var(--surface-2); }
+</style>
+@endpush
+@endsection

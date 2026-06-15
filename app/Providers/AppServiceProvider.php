@@ -432,6 +432,13 @@ class AppServiceProvider extends ServiceProvider
         );
         \App\Models\ContactTestimonial::observe(\App\Observers\ContactTestimonialObserver::class);
 
+        // NOTE: ContactTestimonialSubmitted → NotifyAgentOfClientTestimonial is
+        // wired by Laravel's automatic listener discovery (it scans app/Listeners
+        // and registers each handle() against its type-hinted event). Do NOT add
+        // an explicit Event::listen() for it here — that double-registers the
+        // listener and it fires twice (two emails / two in-app rows per submit).
+        // Cross-pillar Contact → Agent per non-negotiable #9. Spec: testimonials.md §13.
+
         // Agent Articles — publish/unpublish/edit fans out to per-website
         // article.* webhooks. Payload carries id + agent_id so the consuming
         // site can bust its per-agent article cache. Spec: agency-public-api.md §6.1.

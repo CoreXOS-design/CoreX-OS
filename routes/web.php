@@ -2315,6 +2315,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/',                  [\App\Http\Controllers\CoreX\ContactController::class, 'store'])->name('store');
         Route::post('/check-duplicate',   [\App\Http\Controllers\CoreX\ContactController::class, 'checkDuplicate'])->name('check-duplicate');
         Route::post('/import',            [\App\Http\Controllers\CoreX\ContactImportController::class, 'import'])->name('import');
+        Route::get('/export',             [\App\Http\Controllers\CoreX\ContactExportController::class, 'export'])->middleware('permission:contacts.export')->name('export');
         Route::delete('/destroy-all',     [\App\Http\Controllers\CoreX\ContactController::class, 'destroyAll'])->name('destroy-all');
         Route::get('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'show'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':view')->name('show');
         Route::put('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'update'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('update');
@@ -3349,4 +3350,18 @@ Route::middleware(['auth.portal_capture'])->post('/portal-captures/ingest', [\Ap
 // read-only WhatsApp Web extension, not the session API.
 Route::middleware(['auth.wa_capture'])->post('/communications/wa/ingest', [\App\Http\Controllers\Communications\WaIngestController::class, 'ingest'])
     ->name('communications.wa.ingest');
+
+// WhatsApp capture contact-check (AT-44). Same per-device Bearer auth as ingest.
+// Answers "is each of these numbers a CoreX contact?" so the extension can pick
+// per-chat capture depth (contact → backfill history; unknown → forward-only)
+// WITHOUT the agency contact list ever leaving the server. Read-only lookup;
+// the authoritative archive gate still runs in WaArchiveIngestor on ingest.
+Route::middleware(['auth.wa_capture'])->post('/communications/wa/contact-check', [\App\Http\Controllers\Communications\WaIngestController::class, 'contactCheck'])
+    ->name('communications.wa.contact-check');
+
+// WhatsApp capture liveness heartbeat (AT-44). Same per-device Bearer auth.
+// The extension pings on load + interval; auth.wa_capture stamps last_seen_at.
+// Proves the injection -> CORS -> auth pipe independent of WhatsApp DOM detection.
+Route::middleware(['auth.wa_capture'])->post('/communications/wa/ping', [\App\Http\Controllers\Communications\WaIngestController::class, 'ping'])
+    ->name('communications.wa.ping');
 
