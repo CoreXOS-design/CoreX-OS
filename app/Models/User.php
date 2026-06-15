@@ -245,6 +245,12 @@ class User extends Authenticatable
         return $this->hasMany(AgentArticle::class, 'user_id');
     }
 
+    /** Communication Archive mailboxes whose address belongs to this user (AT-37). */
+    public function commMailboxes(): HasMany
+    {
+        return $this->hasMany(\App\Models\Communications\CommunicationMailbox::class, 'user_id');
+    }
+
     public function verifiedDocuments(): HasMany
     {
         return $this->documents()->where('status', 'verified');

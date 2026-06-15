@@ -17,9 +17,9 @@ class CommunicationMailbox extends Model
     protected $table = 'communication_mailboxes';
 
     protected $fillable = [
-        'agency_id', 'email_address', 'imap_host', 'imap_port', 'username',
-        'encrypted_password', 'poll_inbox', 'poll_sent', 'poll_interval_minutes',
-        'last_polled_at', 'last_uid_seen', 'active',
+        'agency_id', 'user_id', 'email_address', 'imap_host', 'imap_port', 'username',
+        'encrypted_password', 'auth_type', 'set_by', 'poll_inbox', 'poll_sent',
+        'poll_interval_minutes', 'last_polled_at', 'last_uid_seen', 'active',
     ];
 
     protected $casts = [
@@ -32,9 +32,23 @@ class CommunicationMailbox extends Model
         'active'             => 'boolean',
     ];
 
+    // Never serialised. The encrypted password is write-only from every UI/API —
+    // the single sanctioned read path is the audited reveal (AT-37), which reads
+    // the attribute server-side and logs the access; it never goes through
+    // toArray()/toJson().
     protected $hidden = [
         'encrypted_password',
     ];
+
+    public function user(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class);
+    }
+
+    public function reveals(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(MailboxCredentialReveal::class, 'mailbox_id');
+    }
 
     public function scopeActive($query)
     {

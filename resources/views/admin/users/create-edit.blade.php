@@ -711,6 +711,20 @@
         </div>
     </form>
 
+    {{-- Communication Capture (AT-37) — rendered OUTSIDE the main user form (forms
+         cannot nest). Reuses the Settings → Email Setup per-user component so the
+         same management lives on the user record. Edit-only: a mailbox links to an
+         existing user. --}}
+    @if($isEdit)
+        @permission('manage_communication_mailboxes')
+        <div class="mt-6 rounded-md p-4 lg:p-6" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb);">
+            <h3 class="text-sm font-bold uppercase tracking-wider mb-1" style="color:var(--text-primary, #1f2937);">Communication Capture</h3>
+            <p class="text-xs mb-4" style="color: var(--text-muted, #6b7280);">Link this user's mailbox to feed the Communication Archive. The password is stored encrypted and never shown — retrieving it is a separate, logged action.</p>
+            @include('settings.email-setup._user-mailbox', ['user' => $user])
+        </div>
+        @endpermission
+    @endif
+
 </div>
 
 @isset($user)

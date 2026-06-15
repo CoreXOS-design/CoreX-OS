@@ -1587,6 +1587,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\CommunicationFlagRegisterController::class, 'index'])->name('index');
     });
 
+    // ── Communication Capture Setup — Settings → Email Setup (AT-37) ──
+    // Per-user IMAP capture management. Write-only credentials; the reveal route
+    // below is separately gated by the principal-only reveal_mailbox_credential.
+    Route::middleware(['permission:manage_communication_mailboxes', 'agency.required'])->prefix('settings/email-setup')->name('settings.email-setup.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Settings\EmailSetupController::class, 'index'])->name('index');
+        Route::post('/users/{user}/mailbox', [\App\Http\Controllers\Settings\EmailSetupController::class, 'store'])->name('store');
+        Route::put('/mailbox/{mailbox}', [\App\Http\Controllers\Settings\EmailSetupController::class, 'update'])->name('update');
+        Route::delete('/mailbox/{mailbox}', [\App\Http\Controllers\Settings\EmailSetupController::class, 'destroy'])->name('destroy');
+    });
+    // The audited reveal — principal-only, separate permission from management.
+    Route::middleware(['permission:reveal_mailbox_credential', 'agency.required'])
+        ->post('settings/email-setup/mailbox/{mailbox}/reveal', [\App\Http\Controllers\Settings\EmailSetupController::class, 'reveal'])
+        ->name('settings.email-setup.reveal');
+
     // ── Document Verification Queue ──
     Route::middleware(['permission:verify_user_documents', 'agency.required'])->prefix('compliance/verification-queue')->name('compliance.verification.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'index'])->name('index');

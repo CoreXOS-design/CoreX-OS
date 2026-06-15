@@ -125,6 +125,11 @@ return [
         ['key' => 'triage_communications',            'label' => 'Triage Pending Communications',                     'section' => 'compliance', 'type' => 'access', 'module' => 'communication_archive', 'sort_order' => 19],
         // BM flag register: audit of who discarded what (privacy-sensitive, no message content).
         ['key' => 'view_communication_flag_register', 'label' => 'View Communication Flag Register (triage audit)',   'section' => 'compliance', 'type' => 'access', 'module' => 'communication_archive', 'sort_order' => 20],
+        // PRINCIPAL-ONLY (AT-37): retrieving a stored mailbox password. Every use
+        // is itself audited (mailbox_credential_reveals). Owner gets it via the
+        // '*' wildcard; explicitly EXCLUDED from admin (admin is exclude-based, so
+        // it would otherwise inherit this) and never added to any other role.
+        ['key' => 'reveal_mailbox_credential',      'label' => 'Reveal Mailbox Password (audited, principal only)',     'section' => 'compliance', 'type' => 'action', 'module' => 'communication_archive', 'sort_order' => 21],
 
         // ── RMCP ──
         ['key' => 'access_rmcp',                 'label' => 'View RMCP',                       'section' => 'compliance',       'type' => 'access',  'module' => 'rmcp',             'sort_order' => 20],
@@ -497,7 +502,9 @@ return [
         'super_admin' => '*', // Owner role — gets all permissions
 
         'admin' => [
-            'exclude' => ['manage_agency_switching'],
+            // reveal_mailbox_credential is principal-only — admin must NOT inherit
+            // it via the all-minus-exclude default (AT-37).
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',

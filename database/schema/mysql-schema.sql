@@ -2428,11 +2428,14 @@ DROP TABLE IF EXISTS `communication_mailboxes`;
 CREATE TABLE `communication_mailboxes` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
   `email_address` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `imap_host` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `imap_port` int unsigned NOT NULL DEFAULT '993',
   `username` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `encrypted_password` text COLLATE utf8mb4_unicode_ci,
+  `auth_type` enum('imap','oauth') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'imap',
+  `set_by` enum('agency','user') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `poll_inbox` tinyint(1) NOT NULL DEFAULT '1',
   `poll_sent` tinyint(1) NOT NULL DEFAULT '1',
   `poll_interval_minutes` int unsigned NOT NULL DEFAULT '15',
@@ -2444,7 +2447,10 @@ CREATE TABLE `communication_mailboxes` (
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `comm_mbx_agency_active_idx` (`agency_id`,`active`),
-  CONSTRAINT `comm_mbx_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+  KEY `comm_mbx_user_fk` (`user_id`),
+  KEY `comm_mbx_agency_user_idx` (`agency_id`,`user_id`),
+  CONSTRAINT `comm_mbx_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `comm_mbx_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_pending`;
@@ -5690,6 +5696,30 @@ CREATE TABLE `listing_targets` (
   KEY `listing_targets_agency_id_idx` (`agency_id`),
   CONSTRAINT `listing_targets_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `listing_targets_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mailbox_credential_reveals`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mailbox_credential_reveals` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `mailbox_id` bigint unsigned NOT NULL,
+  `revealed_by` bigint unsigned NOT NULL,
+  `revealed_for_user_id` bigint unsigned DEFAULT NULL,
+  `revealed_at` timestamp NOT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `mbx_rvl_mailbox_fk` (`mailbox_id`),
+  KEY `mbx_rvl_by_fk` (`revealed_by`),
+  KEY `mbx_rvl_for_fk` (`revealed_for_user_id`),
+  KEY `mbx_rvl_agency_mailbox_idx` (`agency_id`,`mailbox_id`),
+  CONSTRAINT `mbx_rvl_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `mbx_rvl_by_fk` FOREIGN KEY (`revealed_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `mbx_rvl_for_fk` FOREIGN KEY (`revealed_for_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `mbx_rvl_mailbox_fk` FOREIGN KEY (`mailbox_id`) REFERENCES `communication_mailboxes` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `map_saved_searches`;
@@ -11770,3 +11800,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (805,'2026_06_26_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (806,'2026_06_27_000001_create_communication_flags_table',141);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (807,'2026_06_27_000002_create_communication_flag_alerts_table',141);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (808,'2026_06_27_000003_add_classification_to_communication_pending_table',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (809,'2026_06_28_000001_add_user_fields_to_communication_mailboxes_table',142);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (810,'2026_06_28_000002_create_mailbox_credential_reveals_table',142);
