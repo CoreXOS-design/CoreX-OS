@@ -652,42 +652,29 @@ class PresentationPdfService
 
         // CMA values — the RECOMMENDED band. These are NOT the imported CMA
         // Info PDF figures (that band lives in cma_valuation.cma_info_benchmark
-        // and is never rendered on the seller PDF). They are the comparable-
-        // sales quartiles (pool_stats p25/median/p75) AFTER the condition
-        // adjustment factor is applied by ConditionAdjustmentService::applyToBand
-        // — i.e. cma_lower = p25 × (1 + condition_pct/100), etc. So the band
-        // is the recommendation FOR THIS PROPERTY GIVEN ITS CONDITION, not a
-        // raw read of the comp distribution.
+        // and is never rendered on the seller PDF). PRES-CMA-REALFIX: they are
+        // the RAW comparable-sales quartiles (pool_stats p25/median/p75) with
+        // NO condition factor applied — condition is already embodied in the
+        // comp selection / agent setup, so re-scaling here double-counts it.
+        // The band is therefore the comp distribution itself.
         $cmaLower  = $cma['cma_lower'] ?? null;
         $cmaMiddle = $cma['cma_middle'] ?? null;
         $cmaUpper  = $cma['cma_upper'] ?? null;
         $askVsCmaPct = $cma['asking_vs_cma_pct'] ?? null;
 
-        // PRES-CMA-REALFIX — honest §5/§6 labelling. The condition-adjusted
-        // band above must NEVER be printed under a bare "P25/P75" label, or
-        // the seller reads an inflated/deflated number as if it were the raw
-        // comp evidence (Grindewald: raw R2.5M shown as R3.0M with no mention
-        // of the +20% condition uplift). Pull the RAW comparable-sales
-        // quartiles (un-adjusted) so "Why This Range?" can show the true comp
-        // distribution, then the condition adjustment, then the recommendation
-        // — an honest, self-justifying chain. Source: cma_computed.pool_stats,
-        // the same distribution cma_valuation scales; null when the pool is
-        // empty/too thin (in which case the band itself is null and §5 is
-        // suppressed, so these stay null and unused).
+        // PRES-CMA-REALFIX — "Why This Range?" shows the comparable-sales
+        // quartiles directly. Since the band is now the raw distribution,
+        // cma_lower/middle/upper EQUAL these pool_stats quartiles; we read
+        // pool_stats so the evidence rows label the percentiles explicitly and
+        // fall back to the band values if pool_stats is somehow absent (then
+        // the band itself is null and the card is suppressed). The condition
+        // adjustment is no longer applied to the band, so no "adjusted +N%"
+        // row is printed — condition_applied is always false now.
         $cmaComputed = $data['cma_computed'] ?? [];
         $poolStats   = $cmaComputed['pool_stats'] ?? [];
         $compP25     = isset($poolStats['p25'])    && $poolStats['p25']    !== null ? (int) $poolStats['p25']    : null;
         $compMedian  = isset($poolStats['median']) && $poolStats['median'] !== null ? (int) $poolStats['median'] : null;
         $compP75     = isset($poolStats['p75'])    && $poolStats['p75']    !== null ? (int) $poolStats['p75']    : null;
-        $conditionApplied = (bool) ($cma['condition_applied'] ?? false);
-        $conditionPct     = isset($cma['condition_pct']) && is_numeric($cma['condition_pct'])
-            ? (float) $cma['condition_pct'] : null;
-        // Only treat the adjustment as visible when it is genuinely applied AND
-        // materially non-zero (≥0.5%), so a 0.0% "applied" flag never prints a
-        // pointless "+0% for condition" line.
-        $conditionVisible = $conditionApplied && $conditionPct !== null && abs($conditionPct) >= 0.5;
-        $condPctStr = $conditionPct === null ? '' :
-            (($conditionPct > 0 ? '+' : '') . rtrim(rtrim(number_format($conditionPct, 1, '.', ''), '0'), '.') . '%');
 
         // Suburb overview
         $suburbMedian    = $suburb['median_price'] ?? null;
@@ -2996,20 +2983,13 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
     <div class="metric-card highlight">
         <div class="label">Recommended Range</div>
         <?php /* AT-22 §5 — range is the comparable-sales P25–P75 band around
-                 the cleaned-pool CMA mid. Was $cmaMiddle—$cmaUpper (median→P75),
-                 which read "too wide" and let the subject's own high asking
-                 leak into the top via the polluted pool. Both bounds are now
-                 evidence-backed from the comp set; asking is a reference only.
-                 PRES-CMA-REALFIX — when a condition adjustment is applied the
-                 band is the comp quartiles SCALED by that factor, so the
-                 subtitle says so explicitly (with the raw P25–P75 base) instead
-                 of claiming a bare "P25–P75" that the printed figures aren't. */ ?>
+                 the cleaned-pool CMA mid. Both bounds are evidence-backed from
+                 the comp set; asking is a reference only.
+                 PRES-CMA-REALFIX — the band is the RAW comparable-sales
+                 distribution (no condition factor), so the printed figures ARE
+                 the P25–P75 the subtitle names — honest by construction. */ ?>
         <div class="value" style="font-size:17px;"><?= $zar($cmaLower) ?> — <?= $zar($cmaUpper) ?></div>
-        <?php if ($conditionVisible && $compP25 !== null && $compP75 !== null): ?>
-        <div class="sub">Comparable-sales P25–P75 (<?= $zar($compP25) ?> — <?= $zar($compP75) ?>), adjusted <?= $esc($condPctStr) ?> for property condition</div>
-        <?php else: ?>
         <div class="sub">Comparable-sales range (P25–P75) around the comparable-sales median</div>
-        <?php endif ?>
     </div>
     <?php if ($askingPrice): ?>
     <div class="metric-card <?= $askVsCmaPct !== null && $askVsCmaPct > 10 ? 'danger' : ($askVsCmaPct !== null && $askVsCmaPct > 5 ? 'warning' : 'success') ?>">
@@ -3027,17 +3007,15 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <table>
     <thead><tr><th>Evidence Source</th><th class="num">Indicated Value</th><th>Status</th></tr></thead>
     <tbody>
-        <?php /* PRES-CMA-REALFIX — the comp-distribution rows show the RAW
-                 (un-adjusted) P25 / median / P75 of the comparable-sales set,
-                 sourced from cma_computed.pool_stats. The recommended band
-                 (cma_lower/middle/upper) is these quartiles SCALED by the
-                 condition adjustment, so we show the chain honestly: comp
-                 evidence → condition adjustment → recommendation. Before this
-                 fix the adjusted figures were printed under the bare "P25/P75"
-                 labels, so a +20% uplift (Grindewald: R2.5M → R3.0M) read as
-                 if it were the raw comp evidence. Fall back to the band value
-                 only if pool_stats is somehow absent — but then the band is
-                 itself null and this whole card is suppressed. */ ?>
+        <?php /* PRES-CMA-REALFIX — the comp-distribution rows show the
+                 P25 / median / P75 of the comparable-sales set, sourced from
+                 cma_computed.pool_stats. The recommended band
+                 (cma_lower/middle/upper) IS this raw distribution — no
+                 condition factor is applied — so the evidence rows and the
+                 recommended range are the same figures by construction. Fall
+                 back to the band value only if pool_stats is somehow absent —
+                 but then the band is itself null and this whole card is
+                 suppressed. */ ?>
         <?php $rawP25 = $compP25 ?? $cmaLower; $rawMed = $compMedian ?? $cmaMiddle; $rawP75 = $compP75 ?? $cmaUpper; ?>
         <?php if ($rawP25): ?>
         <tr>
@@ -3059,20 +3037,6 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
             <td class="num"><?= $zar($rawP75) ?></td>
             <td><span class="cmp-badge cmp-success">Comp evidence</span></td>
         </tr>
-        <?php endif ?>
-        <?php if ($conditionVisible): ?>
-        <tr>
-            <td>Condition adjustment (this property vs comparable sales)</td>
-            <td class="num"><?= $esc($condPctStr) ?></td>
-            <td><span class="cmp-badge cmp-warning">Applied</span></td>
-        </tr>
-        <?php if ($cmaLower && $cmaUpper): ?>
-        <tr>
-            <td>Recommended range (condition-adjusted)</td>
-            <td class="num"><?= $zar($cmaLower) ?> — <?= $zar($cmaUpper) ?></td>
-            <td><span class="cmp-badge cmp-success">Recommendation</span></td>
-        </tr>
-        <?php endif ?>
         <?php endif ?>
         <?php if ($vicAvgPrice): ?>
         <tr>

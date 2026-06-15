@@ -417,50 +417,45 @@ class AnalysisDataService
         $upperBaseline  = $this->intOrNull($poolStats['p75']    ?? null);
         $middleBaseline = $this->intOrNull($methodMedian['raw'] ?? null);
 
-        // Build 8 — scale the WHOLE band by the condition factor, not just
-        // the median. Pre-fix only the median was scaled (inside
-        // CmaComputeService::methodResult), so at +20% the Uvongo PDF
-        // produced Middle R864k > Upper R747,500 — broken ordering, and
-        // the recommended-band "R864k — R747,500" pair read backwards.
-        // ConditionAdjustmentService::applyToBand reuses the same bcmath
-        // factor CmaComputeService applies to the median (round(base *
-        // (1 + pct/100))) so all three tiles stay on the same scale.
-        // No-op when pct is null / ~0 — baseline values pass through.
-        $bandPct      = isset($conditionContext['pct']) && is_numeric($conditionContext['pct'])
-            ? (float) $conditionContext['pct']
-            : null;
-        $bandScaled   = app(\App\Services\Presentations\ConditionAdjustmentService::class)
-            ->applyToBand($lowerBaseline, $middleBaseline, $upperBaseline, $bandPct);
-        $lower        = $bandScaled['lower_adjusted'];
-        $upper        = $bandScaled['upper_adjusted'];
-        // Middle still flows through method_median.condition_adjusted so
-        // the existing thin-pool / clean-pool fallbacks in
-        // CmaComputeService stay authoritative; applyToBand's middle
-        // output is a sanity check (must equal method_median.condition_adjusted).
-        $middle       = $this->intOrNull($methodMedian['condition_adjusted'] ?? null) ?? $middleBaseline;
+        // PRES-CMA-REALFIX (Johan, 2026-06-15) — the §4/§5/§6 valuation band
+        // is the RAW comparable-sales distribution: p25 / median / p75 of the
+        // selected comps, with NO condition factor applied to any tile. The
+        // agent's condition assessment is already embodied in WHICH comps they
+        // select and the asking they set up; re-scaling the comp band by a
+        // condition % double-counts condition — it inflated good properties
+        // (Grindewald: raw ~R2.5M printed as ~R3.0M at +20%) and would short
+        // bad ones by the same factor. Condition is applied ONCE, by the
+        // agent's setup — never again by the code. The condition picker lives
+        // on as an informational record of the property's condition; it no
+        // longer scales the valuation band. (ConditionAdjustmentService::
+        // applyToBand is retained for any external caller but is no longer
+        // invoked from this render path — see the prior Build-8 history below.)
+        //
+        // Build-8 history, for the record: applyToBand was added so the
+        // condition factor scaled all three tiles uniformly (fixing a
+        // middle > upper ordering bug from scaling the median alone). That
+        // whole scaling step is now removed per Johan's domain call; the raw
+        // p25/median/p75 are already correctly ordered by construction.
+        $lower  = $lowerBaseline;   // raw pool_stats.p25
+        $upper  = $upperBaseline;   // raw pool_stats.p75
+        $middle = $middleBaseline;  // raw method_median (un-adjusted)
 
-        // middle_from_fallback no longer applies to the tile values —
-        // CmaComputeService handles thin-pool fallback via Build 8b's
-        // min-n ladder. Preserved as a benchmark-only flag for the
-        // CMA Info reference line.
         $middleFromFallback = false;
 
-        // Build 3 — condition context surfacing. The CMA-computed middle
-        // already has the condition adjustment baked in (CmaComputeService
-        // applies it inside method_median via bcmath). Surface the
-        // metadata for the review-screen condition strip's display.
+        // Condition surfacing is now INFORMATIONAL ONLY. condition_applied is
+        // always false because the band is never condition-scaled — the §5/§6
+        // "adjusted +N%" labels and the public-view condition line both gate on
+        // condition_applied, so they correctly fall silent. We still surface
+        // the recorded condition pct/label/source so the review screen can show
+        // the property's condition for reference without implying it moved the
+        // band.
         $conditionApplied = false;
-        $conditionPct     = null;
-        $conditionLabel   = null;
+        $conditionPct     = isset($conditionContext['pct']) && is_numeric($conditionContext['pct'])
+            ? (float) $conditionContext['pct']
+            : null;
+        $conditionLabel   = $conditionContext['label'] ?? null;
         $conditionSource  = $conditionContext['source'] ?? 'none';
-        if (!empty($conditionContext['pct'])) {
-            $conditionPct     = (float) $conditionContext['pct'];
-            $conditionApplied = $middle !== null
-                && $middleBaseline !== null
-                && abs($conditionPct) >= 0.005
-                && $middle !== $middleBaseline;
-            $conditionLabel   = $conditionContext['label'] ?? null;
-        } elseif ($conditionSource === 'none') {
+        if ($conditionSource === 'none') {
             \Illuminate\Support\Facades\Log::info('[PRES-INFO] cma_valuation_baseline_only (no condition resolved)');
         }
 
