@@ -3350,3 +3350,11 @@ Route::middleware(['auth.portal_capture'])->post('/portal-captures/ingest', [\Ap
 Route::middleware(['auth.wa_capture'])->post('/communications/wa/ingest', [\App\Http\Controllers\Communications\WaIngestController::class, 'ingest'])
     ->name('communications.wa.ingest');
 
+// WhatsApp capture contact-check (AT-44). Same per-device Bearer auth as ingest.
+// Answers "is each of these numbers a CoreX contact?" so the extension can pick
+// per-chat capture depth (contact → backfill history; unknown → forward-only)
+// WITHOUT the agency contact list ever leaving the server. Read-only lookup;
+// the authoritative archive gate still runs in WaArchiveIngestor on ingest.
+Route::middleware(['auth.wa_capture'])->post('/communications/wa/contact-check', [\App\Http\Controllers\Communications\WaIngestController::class, 'contactCheck'])
+    ->name('communications.wa.contact-check');
+
