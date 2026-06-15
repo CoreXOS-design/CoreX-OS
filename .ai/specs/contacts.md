@@ -18,8 +18,19 @@
 **Pillars:** Contact (read/write), Agent/User (read — ownership resolution).
 
 The import and export share one column layout so a file exported from CoreX
-re-imports cleanly. PhpSpreadsheet (no Laravel-Excel). Round-trip twin
-controllers:
+re-imports cleanly. **Engine: `openspout/openspout`** — a streaming reader/writer
+that holds constant memory regardless of row count. (PhpSpreadsheet loads the
+whole workbook into memory as cell objects and exhausts the 128 MB
+`memory_limit` at a few thousand rows — it caused a hard 500 on staging,
+`Allowed memory size exhausted … Cell.php`. Streaming is the root-cause fix, not
+a higher memory_limit.) Legacy binary `.xls` (which openspout can't read) still
+falls back to PhpSpreadsheet on import — those files are capped at 65k rows.
+
+**Deploy note:** openspout is a new Composer dependency — every environment must
+run `composer install` after pulling, or both import and export 500 with
+"Class OpenSpout\… not found".
+
+Round-trip twin controllers:
 
 - Export: `app/Http/Controllers/CoreX/ContactExportController.php` →
   `GET /corex/contacts/export` (`corex.contacts.export`), gated

@@ -9,13 +9,17 @@ use App\Models\User;
 use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
-use PhpOffice\PhpSpreadsheet\Cell\DataType;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use OpenSpout\Common\Entity\Row;
+use OpenSpout\Writer\XLSX\Writer;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Excel export of agency contacts.
+ *
+ * Streams the `.xlsx` with OpenSpout — a row-at-a-time writer that holds
+ * constant memory regardless of how many contacts the agency has. (PhpSpreadsheet
+ * builds the whole workbook as objects in memory and exhausts the 128 MB
+ * `memory_limit` on a few thousand rows — the exact failure this replaces.)
  *
  * The column layout is the round-trip twin of {@see ContactImportController}:
  * a file produced here can be re-imported and every backed field lands back
@@ -40,9 +44,6 @@ class ContactExportController extends Controller
         'Loaded', 'Modified', 'Last Contacted', 'Additional Info',
     ];
 
-    /** 1-indexed columns whose values must stay textual (no numeric coercion). */
-    private const TEXT_COLUMNS = [5, 6, 8]; // Cell, Phone, *ID Number
-
     public function export(Request $request): StreamedResponse
     {
         $user = auth()->user();
@@ -51,39 +52,29 @@ class ContactExportController extends Controller
             ->with(['type', 'source', 'tags', 'createdBy'])
             ->withCount('matches');
 
-        $spreadsheet = new Spreadsheet();
-        $sheet       = $spreadsheet->getActiveSheet();
-        $sheet->setTitle('Contacts');
-
-        // Header row
-        foreach (self::HEADERS as $i => $label) {
-            $sheet->setCellValue([$i + 1, 1], $label);
-        }
-        $sheet->getStyle('A1:' . $sheet->getHighestColumn() . '1')->getFont()->setBold(true);
-
-        // Data rows — lazy() keeps memory flat on large agencies.
-        $rowNum = 2;
-        foreach ($query->lazy(500) as $contact) {
-            foreach ($this->rowFor($contact) as $i => $value) {
-                $col = $i + 1;
-                if (in_array($col, self::TEXT_COLUMNS, true) && $value !== '' && $value !== null) {
-                    $sheet->setCellValueExplicit([$col, $rowNum], (string) $value, DataType::TYPE_STRING);
-                } else {
-                    $sheet->setCellValue([$col, $rowNum], $value);
-                }
-            }
-            $rowNum++;
-        }
-
-        foreach (range('A', $sheet->getHighestColumn()) as $col) {
-            $sheet->getColumnDimension($col)->setAutoSize(true);
-        }
-
         $filename = 'contacts-' . now()->format('Y-m-d') . '.xlsx';
 
-        return new StreamedResponse(function () use ($spreadsheet) {
-            (new Xlsx($spreadsheet))->save('php://output');
-            $spreadsheet->disconnectWorksheets();
+        return new StreamedResponse(function () use ($query) {
+            // OpenSpout streams sheet XML to a temp file as rows are added, so
+            // peak memory stays flat. We write to a temp path (a non-seekable
+            // php://output can corrupt the zip central directory), then stream
+            // the finished file out and delete it.
+            $tmp    = tempnam(sys_get_temp_dir(), 'cexp');
+            $writer = new Writer();
+            $writer->openToFile($tmp);
+
+            try {
+                $writer->addRow(Row::fromValues(self::HEADERS));
+
+                foreach ($query->lazy(500) as $contact) {
+                    $writer->addRow(Row::fromValues($this->rowFor($contact)));
+                }
+            } finally {
+                $writer->close();
+            }
+
+            readfile($tmp);
+            @unlink($tmp);
         }, 200, [
             'Content-Type'        => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
@@ -93,34 +84,36 @@ class ContactExportController extends Controller
 
     /**
      * One spreadsheet row, in HEADERS order. Blank strings for columns with
-     * no native field (Category, Phone, Wish Lists, SMS, Opt-In).
+     * no native field (Category, Phone, Wish Lists, SMS, Opt-In). String values
+     * (phone, ID number) are written as text cells by OpenSpout, so no numeric
+     * coercion / scientific-notation mangling occurs.
      */
     private function rowFor(Contact $contact): array
     {
         return [
             '',                                                        // Category
-            $contact->first_name,                                      // Name
-            $contact->last_name,                                       // Surname
-            $contact->email,                                           // Email
-            $contact->phone,                                           // Cell
+            (string) $contact->first_name,                             // Name
+            (string) $contact->last_name,                              // Surname
+            (string) $contact->email,                                  // Email
+            (string) $contact->phone,                                  // Cell
             '',                                                        // Phone (no secondary field stored)
-            $contact->type?->name,                                     // Type
-            $contact->id_number,                                       // *ID Number
-            optional($contact->birthday)->format('Y-m-d'),             // BirthDay
+            (string) ($contact->type?->name ?? ''),                    // Type
+            (string) $contact->id_number,                              // *ID Number
+            optional($contact->birthday)->format('Y-m-d') ?? '',       // BirthDay
             $contact->tags->pluck('name')->implode(', '),              // Tags
-            $contact->source?->name,                                   // Source
-            $contact->address,                                         // Address
+            (string) ($contact->source?->name ?? ''),                  // Source
+            (string) $contact->address,                                // Address
             '',                                                        // Wish Lists
             (int) ($contact->matches_count ?? 0),                      // Matches
             '',                                                        // SMS
             (int) $contact->email_count,                               // Emails
             (int) $contact->whatsapp_count,                            // WhatsApp
             '',                                                        // Opt-In
-            $contact->createdBy?->name,                                // Agents
-            optional($contact->loaded_at ?? $contact->created_at)->format('Y-m-d H:i'),     // Loaded
-            optional($contact->modified_at ?? $contact->updated_at)->format('Y-m-d H:i'),   // Modified
-            optional($contact->last_contacted_at)->format('Y-m-d H:i'),                     // Last Contacted
-            $contact->notes,                                           // Additional Info
+            (string) ($contact->createdBy?->name ?? ''),               // Agents
+            optional($contact->loaded_at ?? $contact->created_at)->format('Y-m-d H:i') ?? '',     // Loaded
+            optional($contact->modified_at ?? $contact->updated_at)->format('Y-m-d H:i') ?? '',   // Modified
+            optional($contact->last_contacted_at)->format('Y-m-d H:i') ?? '',                     // Last Contacted
+            (string) $contact->notes,                                  // Additional Info
         ];
     }
 

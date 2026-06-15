@@ -13,6 +13,8 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use OpenSpout\Reader\CSV\Reader as CsvReader;
+use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
@@ -120,21 +122,23 @@ class ContactImportController extends Controller
 
         $file     = $request->file('file');
         $fullPath = $file->getRealPath();
+        $ext      = strtolower($file->getClientOriginalExtension() ?: 'xlsx');
+
+        // Stream the rows. OpenSpout reads one row at a time at constant memory,
+        // so a 50k-contact import no longer exhausts the PHP memory_limit the way
+        // PhpSpreadsheet's load-everything-into-objects approach did.
+        $rows = $this->streamRows($fullPath, $ext);
 
         try {
-            $spreadsheet = IOFactory::load($fullPath);
-            $sheet       = $spreadsheet->getActiveSheet();
-            $rawRows     = $sheet->toArray(null, true, true, false);
+            // First row = headers. valid() lazily opens the file / reads row 1.
+            if (!$rows->valid()) {
+                return back()->with('error', 'Spreadsheet contains no data rows.');
+            }
+            $headers = array_map(fn($x) => is_string($x) ? trim($x) : (string) ($x ?? ''), $rows->current());
+            $rows->next();
         } catch (\Throwable $e) {
             return back()->with('error', 'Could not read spreadsheet: ' . $e->getMessage());
         }
-
-        if (count($rawRows) < 2) {
-            return back()->with('error', 'Spreadsheet contains no data rows.');
-        }
-
-        $headers  = array_map(fn($x) => is_string($x) ? trim($x) : (string) $x, $rawRows[0] ?? []);
-        $dataRows = array_slice($rawRows, 1);
 
         // Build column index → field mapping
         $mapping = $this->buildMapping($headers);
@@ -185,6 +189,7 @@ class ContactImportController extends Controller
         $created  = 0;
         $skipped  = 0;
         $errors   = [];
+        $rowNum   = 1; // header occupied row 1
 
         // Collect (contact, tagIds) for post-commit domain event emission.
         $pendingTagEvents = [];
@@ -193,8 +198,11 @@ class ContactImportController extends Controller
         DB::beginTransaction();
 
         try {
-            foreach ($dataRows as $rowIdx => $row) {
-                $rowNum  = $rowIdx + 2; // Excel row number (1-indexed + header)
+            // for-loop (not foreach) so the existing `continue` skips still advance
+            // the row generator via the loop's increment expression.
+            for (; $rows->valid(); $rows->next()) {
+                $rowNum++;
+                $row     = $rows->current();
                 $mapped  = $this->mapRow($row, $mapping);
 
                 $firstName = trim($mapped['first_name'] ?? '');
@@ -339,6 +347,48 @@ class ContactImportController extends Controller
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Yield spreadsheet rows one at a time as 0-indexed arrays of cell values.
+     *
+     * .xlsx / .csv stream through OpenSpout at constant memory. Legacy binary
+     * .xls (which OpenSpout cannot read) falls back to PhpSpreadsheet — those
+     * files are capped at 65k rows so the in-memory load is acceptable.
+     */
+    private function streamRows(string $path, string $ext): \Generator
+    {
+        if ($ext === 'xls') {
+            yield from $this->streamRowsLegacyXls($path);
+            return;
+        }
+
+        $reader = $ext === 'csv' ? new CsvReader() : new XlsxReader();
+        $reader->open($path);
+
+        try {
+            foreach ($reader->getSheetIterator() as $sheet) {
+                foreach ($sheet->getRowIterator() as $row) {
+                    yield $row->toArray();
+                }
+                break; // first sheet only — mirrors the previous getActiveSheet()
+            }
+        } finally {
+            $reader->close();
+        }
+    }
+
+    /** PhpSpreadsheet fallback for legacy .xls (small, legacy files only). */
+    private function streamRowsLegacyXls(string $path): \Generator
+    {
+        $spreadsheet = IOFactory::load($path);
+        $rawRows     = $spreadsheet->getActiveSheet()->toArray(null, true, true, false);
+        $spreadsheet->disconnectWorksheets();
+        unset($spreadsheet);
+
+        foreach ($rawRows as $row) {
+            yield $row;
+        }
+    }
 
     private function buildMapping(array $headers): array
     {
@@ -604,6 +654,11 @@ class ContactImportController extends Controller
     {
         if ($val === null || $val === '') return null;
 
+        // OpenSpout returns date-typed cells as DateTime objects.
+        if ($val instanceof \DateTimeInterface) {
+            return Carbon::parse($val->format('Y-m-d H:i:s'))->toDateString();
+        }
+
         try {
             if (is_int($val) || is_float($val) || (is_string($val) && is_numeric($val))) {
                 $dt = ExcelDate::excelToDateTimeObject((float) $val);
@@ -624,6 +679,11 @@ class ContactImportController extends Controller
     private function parseDateTime(mixed $val): ?string
     {
         if ($val === null || $val === '') return null;
+
+        // OpenSpout returns date-typed cells as DateTime objects.
+        if ($val instanceof \DateTimeInterface) {
+            return Carbon::parse($val->format('Y-m-d H:i:s'))->toDateTimeString();
+        }
 
         try {
             if (is_int($val) || is_float($val) || (is_string($val) && is_numeric($val))) {
