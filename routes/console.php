@@ -84,6 +84,11 @@ Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
 // Private Property activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncPrivatePropertyActivations())->everyFifteenMinutes()->withoutOverlapping();
 
+// Communication Archive (AT-32) — nightly retention + inbound-grace maintenance.
+// 5-year soft-purge of the archive index, and attach/prune of inbound pending.
+Schedule::command('communications:prune-retention')->dailyAt('03:20')->withoutOverlapping();
+Schedule::command('communications:prune-pending')->dailyAt('03:35')->withoutOverlapping();
+
 // Private Property listing event feed — authoritative source for activations,
 // deactivations and image errors. Runs every 15 minutes.
 Schedule::job(new \App\Jobs\ProcessPrivatePropertyEventFeed())

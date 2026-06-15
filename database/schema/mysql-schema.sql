@@ -2315,6 +2315,172 @@ CREATE TABLE `commission_settings` (
   CONSTRAINT `commission_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_attachments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_attachments` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `communication_id` bigint unsigned NOT NULL,
+  `filename` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `mime` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `size_bytes` bigint unsigned NOT NULL DEFAULT '0',
+  `content_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `storage_path` varchar(1024) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `comm_att_agency_fk` (`agency_id`),
+  KEY `comm_att_comm_fk` (`communication_id`),
+  KEY `comm_att_hash_idx` (`content_hash`),
+  CONSTRAINT `comm_att_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `comm_att_comm_fk` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_links`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_links` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `communication_id` bigint unsigned NOT NULL,
+  `linkable_type` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `linkable_id` bigint unsigned NOT NULL,
+  `link_method` enum('deterministic','attorney_ref','ellie_suggested','manual') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `confidence` decimal(5,2) DEFAULT NULL,
+  `confirmed_by` bigint unsigned DEFAULT NULL,
+  `confirmed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `comm_link_agency_fk` (`agency_id`),
+  KEY `comm_link_comm_fk` (`communication_id`),
+  KEY `comm_link_confby_fk` (`confirmed_by`),
+  KEY `comm_link_morph_idx` (`linkable_type`,`linkable_id`),
+  CONSTRAINT `comm_link_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `comm_link_comm_fk` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `comm_link_confby_fk` FOREIGN KEY (`confirmed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_mailboxes`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_mailboxes` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `email_address` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `imap_host` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `imap_port` int unsigned NOT NULL DEFAULT '993',
+  `username` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `encrypted_password` text COLLATE utf8mb4_unicode_ci,
+  `poll_inbox` tinyint(1) NOT NULL DEFAULT '1',
+  `poll_sent` tinyint(1) NOT NULL DEFAULT '1',
+  `poll_interval_minutes` int unsigned NOT NULL DEFAULT '15',
+  `last_polled_at` timestamp NULL DEFAULT NULL,
+  `last_uid_seen` bigint unsigned DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `comm_mbx_agency_active_idx` (`agency_id`,`active`),
+  CONSTRAINT `comm_mbx_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_pending`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_pending` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `channel` enum('email','whatsapp') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `direction` enum('inbound','outbound') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'inbound',
+  `external_id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `thread_key` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `from_identifier` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `participant_identifiers` json DEFAULT NULL,
+  `occurred_at` datetime NOT NULL,
+  `captured_at` datetime NOT NULL,
+  `subject` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `body_text` mediumtext COLLATE utf8mb4_unicode_ci,
+  `body_preview` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `raw_path` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `has_attachments` tinyint(1) NOT NULL DEFAULT '0',
+  `content_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `expires_at` datetime NOT NULL,
+  `nudged_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `purged_at` timestamp NULL DEFAULT NULL,
+  `purged_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `comm_pend_agency_ext_uq` (`agency_id`,`external_id`),
+  KEY `comm_pend_expires_idx` (`expires_at`),
+  KEY `comm_pend_from_idx` (`from_identifier`),
+  CONSTRAINT `comm_pend_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_wa_devices`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_wa_devices` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `wa_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `device_token` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `last_seen_at` timestamp NULL DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `comm_wa_token_uq` (`device_token`),
+  KEY `comm_wa_user_fk` (`user_id`),
+  KEY `comm_wa_agency_active_idx` (`agency_id`,`active`),
+  CONSTRAINT `comm_wa_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `comm_wa_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communications`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communications` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `channel` enum('email','whatsapp') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `direction` enum('inbound','outbound') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `external_id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `thread_key` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `from_identifier` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `participant_identifiers` json DEFAULT NULL,
+  `occurred_at` datetime NOT NULL,
+  `captured_at` datetime NOT NULL,
+  `subject` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `body_text` mediumtext COLLATE utf8mb4_unicode_ci,
+  `body_preview` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `raw_path` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `has_attachments` tinyint(1) NOT NULL DEFAULT '0',
+  `content_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `purged_at` timestamp NULL DEFAULT NULL,
+  `purged_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `comm_agency_ext_uq` (`agency_id`,`external_id`),
+  KEY `comm_thread_idx` (`thread_key`),
+  KEY `comm_occurred_idx` (`occurred_at`),
+  KEY `comm_agency_channel_idx` (`agency_id`,`channel`),
+  KEY `comm_hash_idx` (`content_hash`),
+  CONSTRAINT `comm_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `company_expenses`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -11532,3 +11698,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (796,'2026_06_25_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (797,'2026_06_25_000003_create_policy_sections_table',138);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (798,'2026_06_25_000004_create_policy_acknowledgements_table',138);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (799,'2026_06_25_000005_create_policy_section_acknowledgements_table',139);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (800,'2026_06_26_000001_create_communications_table',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (801,'2026_06_26_000002_create_communication_attachments_table',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (802,'2026_06_26_000003_create_communication_links_table',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (803,'2026_06_26_000004_create_communication_mailboxes_table',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (804,'2026_06_26_000005_create_communication_wa_devices_table',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (805,'2026_06_26_000006_create_communication_pending_table',140);
