@@ -125,9 +125,16 @@ class ClientTestimonialTest extends TestCase
             $agent,
             PillarEventNotification::class,
             function (PillarEventNotification $n) use ($agent) {
+                // Mail goes through the dedicated 'corex' mailer (mail@corexos.co.za)
+                // so it delivers even where the default mailer is a sink (staging).
+                $mail = $n->toMail($agent);
+                $fromOk = collect($mail->from)->first() === config('mail.mailers.corex.from_address');
+
                 return in_array('mail', $n->channels, true)
                     && in_array('database', $n->channels, true)
-                    && $n->eventKey === 'contact.testimonial_submitted';
+                    && $n->eventKey === 'contact.testimonial_submitted'
+                    && $n->mailer === 'corex'
+                    && $fromOk;
             }
         );
 
