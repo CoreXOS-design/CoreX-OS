@@ -298,6 +298,33 @@ Regression-locked by `Notification::assertSentToTimes(..., 1)` in the feature te
 > vs discovery consistent across all listeners (webhooks, syndication, leads,
 > activity loggers).
 
+### 13.6 Email delivery — dedicated `corex` mailer
+
+The agent email must deliver even on staging, where the **default** mailer is
+intentionally `log` (DEPLOY.md — don't email real people from staging). So the
+notification does NOT use the default mailer: `PillarEventNotification` is given
+`mailer: 'corex'`, a dedicated SMTP mailer (config/mail.php → `mailers.corex`)
+that sends from **mail@corexos.co.za** via real SMTP — mirroring the existing
+`otp` mailer. The From header is set to that mailer's `from_address` so it
+matches the authenticated SMTP account (avoids SPF/sender rejection). The
+recipient is the connected agent's `users.email` (resolved server-side from
+`contact.created_by_user_id`); the mobile app never supplies it.
+
+`PillarEventNotification` gained an optional `?string $mailer = null` param —
+null preserves the prior default-mailer behaviour for every other caller.
+
+**Required .env (production AND staging — secrets in .env only, never committed):**
+```
+MAIL_COREX_HOST=mail.corexos.co.za
+MAIL_COREX_PORT=587
+MAIL_COREX_ENCRYPTION=tls
+MAIL_COREX_USERNAME=mail@corexos.co.za
+MAIL_COREX_PASSWORD="Mail@corexos.co.za"
+MAIL_COREX_FROM_ADDRESS=mail@corexos.co.za
+MAIL_COREX_FROM_NAME="CoreX OS"
+```
+After editing .env: `php artisan config:clear` (and re-`config:cache` if cached).
+
 ### 13.5 Files (client submission)
 **Create:** `app/Events/Contact/ContactTestimonialSubmitted.php`,
 `app/Listeners/Contacts/NotifyAgentOfClientTestimonial.php` (auto-discovered),

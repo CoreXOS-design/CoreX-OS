@@ -72,6 +72,10 @@ class NotifyAgentOfClientTestimonial
                     'rating'         => $testimonial->rating,
                 ],
                 channels:     ['database', 'mail'],
+                // Send via the dedicated CoreX mailer (from mail@corexos.co.za)
+                // so the email delivers through real SMTP even where the default
+                // mailer is a sink (staging). config/mail.php → mailers.corex.
+                mailer:       'corex',
             ));
         } catch (Throwable $e) {
             Log::error('Failed to notify agent of client testimonial', [

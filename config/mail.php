@@ -111,6 +111,26 @@ return [
             'local_domain'=> env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
         ],
 
+        // Dedicated mailer for CoreX system/agent notifications (e.g. the
+        // client-testimonial alert). Sends from mail@corexos.co.za so these
+        // emails deliver via real SMTP regardless of the default mailer — which
+        // is intentionally 'log' on staging. Mirrors the 'otp' mailer.
+        // `from_address`/`from_name` are read by PillarEventNotification so the
+        // From header matches the authenticated SMTP account (avoids SPF/sender
+        // rejection). SMTP credentials live in .env only. Spec: testimonials.md §13.6.
+        'corex' => [
+            'transport'    => 'smtp',
+            'host'         => env('MAIL_COREX_HOST', env('MAIL_OTP_HOST', 'mail.corexos.co.za')),
+            'port'         => env('MAIL_COREX_PORT', 587),
+            'encryption'   => env('MAIL_COREX_ENCRYPTION', 'tls'),
+            'username'     => env('MAIL_COREX_USERNAME'),
+            'password'     => env('MAIL_COREX_PASSWORD'),
+            'timeout'      => null,
+            'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
+            'from_address' => env('MAIL_COREX_FROM_ADDRESS', env('MAIL_COREX_USERNAME', 'mail@corexos.co.za')),
+            'from_name'    => env('MAIL_COREX_FROM_NAME', 'CoreX OS'),
+        ],
+
     ],
 
     /*
