@@ -42,9 +42,14 @@
  */
 let DEBUG = false;
 const TAG = '[CoreX WA]';
+// Version straight from the loaded manifest — logged on load so it's instantly
+// obvious whether a reload actually took (vs Chrome running stale code).
+const VERSION = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest)
+  ? (chrome.runtime.getManifest().version || '?') : '?';
 function log(...a) { try { console.log(TAG, ...a); } catch (e) {} }
 function vlog(...a) { if (DEBUG) { try { console.log(TAG, ...a); } catch (e) {} } }
 function warn(...a) { try { console.warn(TAG, ...a); } catch (e) {} }
+let _lastDiagAt = 0;
 
 const SELECTORS = {
   main: '#main',
@@ -111,7 +116,7 @@ async function init() {
     }
   } catch (e) { /* storage may be unavailable very early; defaults are fine */ }
 
-  log('content script loaded on', location.host, '— debug:', DEBUG, '| history sweep:', historySweepEnabled);
+  log('v' + VERSION + ' content script loaded on', location.host, '— debug:', DEBUG, '| history sweep:', historySweepEnabled);
 
   // Heartbeat FIRST — proves the whole pipe (injection → background → network →
   // CORS → auth → DB) independent of WhatsApp's DOM. It hits an authenticated
@@ -329,8 +334,46 @@ function parseTimestamp(meta) {
   return isNaN(d.getTime()) ? '' : d.toISOString();
 }
 
+/**
+ * LOUD diagnostic — logged on (almost) every sweep, match or no match, so we can
+ * SEE where the messages are vs where we're looking. Throttled to ~2s so the
+ * MutationObserver can't flood the console. This is the instrument that ends
+ * blind selector-guessing: the counts say definitively whether #main exists,
+ * whether .copyable-text / [data-pre-plain-text] are present at all, and whether
+ * they're inside #main or somewhere else (e.g. a shadow root / different host).
+ */
+function sweepDiag(reason) {
+  const now = Date.now();
+  if (now - _lastDiagAt < 2000) return;
+  _lastDiagAt = now;
+
+  const main = document.querySelector('#main');
+  const docCopyable = document.querySelectorAll('.copyable-text').length;
+  const docPre = document.querySelectorAll('[data-pre-plain-text]').length;
+  const docAnchor = document.querySelectorAll('.copyable-text[data-pre-plain-text]').length;
+  const inMain = main ? main.querySelectorAll('.copyable-text[data-pre-plain-text]').length : 0;
+
+  log('DIAG[' + reason + '] #main=' + (!!main) +
+      ' | .copyable-text(doc)=' + docCopyable +
+      ' | [data-pre-plain-text](doc)=' + docPre +
+      ' | .copyable-text[data-pre-plain-text](doc)=' + docAnchor +
+      ' | inMain=' + inMain + ' outsideMain=' + (docAnchor - inMain));
+
+  const first = (main && main.querySelector('.copyable-text[data-pre-plain-text]'))
+    || document.querySelector('.copyable-text[data-pre-plain-text]')
+    || document.querySelector('[data-pre-plain-text]');
+  if (first) {
+    log('DIAG first anchor outerHTML[0:400]:', (first.outerHTML || '').slice(0, 400));
+  } else if (docCopyable === 0 && docPre === 0) {
+    warn('DIAG no .copyable-text and no [data-pre-plain-text] ANYWHERE in document — ' +
+         'WA may have renamed them OR the messages are inside a shadow DOM / iframe (querySelector can\'t see those).');
+  }
+}
+
 /* ── Sweep (focused chat) ────────────────────────────────────────────────── */
 function sweep(reason) {
+  sweepDiag(reason); // always (throttled) — runs even when nothing matches
+
   const root = document.querySelector(SELECTORS.main);
   if (!root) { vlog('sweep skipped — no #main (no chat open)'); return; }
 
@@ -338,9 +381,9 @@ function sweep(reason) {
   if (!chatId) { vlog('sweep skipped — no chat id'); return; }
 
   const els = messageEls(root);
-  vlog('sweep[' + reason + '] chat', chatId, '— matched', els.length, 'message rows');
+  log('sweep[' + reason + '] chat ' + chatId + ' — matched ' + els.length + ' message rows');
   if (!els.length) {
-    if (reason !== 'observer') warn('0 message rows matched for', chatId, '— if a chat is open, WA DOM may have changed (check SELECTORS).');
+    if (reason !== 'observer') warn('0 message rows matched for', chatId, '— see DIAG line above for where .copyable-text actually is.');
     return;
   }
 

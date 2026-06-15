@@ -11,11 +11,18 @@
     button { margin-top: 12px; width: 100%; padding: 8px; font-size: 12px; font-weight: 600; background: #00b4d8; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
     .status { margin-top: 10px; font-size: 11px; color: #64748b; }
     .ro { margin-top: 12px; font-size: 10px; color: #16a34a; }
+    .conn { margin: 10px 0 4px; padding: 8px 10px; font-size: 11px; border-radius: 6px; background: #f1f5f9; color: #334155; line-height: 1.4; word-break: break-word; }
+    .conn.ok { background: #dcfce7; color: #166534; }
+    .conn.bad { background: #fee2e2; color: #991b1b; }
+    .ver { font-size: 10px; color: #94a3b8; margin-top: 2px; }
   </style>
 </head>
 <body>
   <h1>CoreX WhatsApp Capture</h1>
   <p class="note">Read-only. Captures business WhatsApp conversations into the CoreX Communication Archive. It never sends messages.</p>
+
+  <div class="conn" id="conn">Checking connection…</div>
+  <div class="ver" id="ver"></div>
 
   <label for="base-url">CoreX URL</label>
   <input id="base-url" type="text" placeholder="https://corex.hfcoastal.co.za">
