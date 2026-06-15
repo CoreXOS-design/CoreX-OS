@@ -19,5 +19,30 @@ after a short grace window — your personal chats are not retained).
 5. Open `https://web.whatsapp.com` and use WhatsApp normally. New messages in
    open chats are captured automatically.
 
+## Options (extension popup)
+
+- **Backfill history for known contacts** (default ON): while WhatsApp Web is
+  open and you are not actively using it, the extension quietly walks your chat
+  list one chat at a time, paced like a human. For chats whose number is already
+  a CoreX contact it backfills the full visible history; for everyone else it
+  only captures from now forward. It is still **read-only** — it only opens
+  chats (the same click you would make) and never touches the compose box. It
+  pauses the moment you start using WhatsApp again and returns you to your chat.
+- **Verbose console logging** (default OFF): turn on for troubleshooting, then
+  open DevTools → Console.
+
+## What you should see (verifying it works)
+
+Open DevTools (F12) → **Console** on the WhatsApp Web tab. You should see, even
+with verbose logging off:
+
+- `[CoreX WA] content script loaded on web.whatsapp.com — debug: … | history sweep: …`
+- when you open a chat: `[CoreX WA] sweep[…] chat <jid> — matched N message rows`
+- when new messages send: `[CoreX WA] POST ok — status 200 | stats {"archived":1}`
+
+Back in CoreX, **My Portal → WhatsApp Capture** shows the device's
+**Last seen** stamp updating, and archived messages appear in the contact's
+Communications tab.
+
 To stop capturing, click **Revoke** on the device in My Portal → WhatsApp
 Capture (the token stops working immediately).

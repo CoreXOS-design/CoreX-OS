@@ -6,12 +6,22 @@
  * background.js Bearer-POST shape. Sends NOTHING to WhatsApp.
  */
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg || msg.type !== 'WA_CAPTURE_BATCH') return;
-  postBatch(msg.messages).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
-  return true; // async response
+  if (!msg) return;
+  if (msg.type === 'WA_CAPTURE_BATCH') {
+    post('/communications/wa/ingest', { messages: msg.messages })
+      .then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true; // async response
+  }
+  if (msg.type === 'WA_CONTACT_CHECK') {
+    // AT-44: ask the server which numbers are CoreX contacts (read-only lookup;
+    // the contact list never reaches the browser — only yes/no per number).
+    post('/communications/wa/contact-check', { numbers: msg.numbers })
+      .then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true; // async response
+  }
 });
 
-async function postBatch(messages) {
+async function post(path, payload) {
   const cfg = await chrome.storage.local.get(['baseUrl', 'deviceToken']);
   const baseUrl = (cfg.baseUrl || '').replace(/\/+$/, '');
   const token = cfg.deviceToken || '';
@@ -20,7 +30,7 @@ async function postBatch(messages) {
     return { ok: false, error: 'not_configured' };
   }
 
-  const res = await fetch(baseUrl + '/communications/wa/ingest', {
+  const res = await fetch(baseUrl + path, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -28,7 +38,7 @@ async function postBatch(messages) {
       'X-Requested-With': 'XMLHttpRequest',
       'Authorization': 'Bearer ' + token,
     },
-    body: JSON.stringify({ messages: messages }),
+    body: JSON.stringify(payload),
   });
 
   let body = null;

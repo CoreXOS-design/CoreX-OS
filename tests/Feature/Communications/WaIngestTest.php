@@ -108,6 +108,41 @@ final class WaIngestTest extends TestCase
         $this->assertSame(1, Communication::where('external_id', 'WA-DUP-1')->count());
     }
 
+    public function test_contact_check_distinguishes_known_from_unknown_numbers(): void
+    {
+        // Known contact (stored 0821234567 → normalised last-9 822123456 → matches 27821234567).
+        Contact::create([
+            'agency_id' => $this->agencyId, 'first_name' => 'Wendy', 'last_name' => 'WA', 'phone' => '0821234567',
+        ]);
+
+        $this->withToken($this->plainToken)
+            ->postJson(route('communications.wa.contact-check'), [
+                'numbers' => ['27821234567', '27999999999', '27821234567@c.us'],
+            ])
+            ->assertOk()
+            ->assertJson(['success' => true, 'matches' => [
+                '27821234567'       => true,   // known
+                '27999999999'      => false,  // unknown
+                '27821234567@c.us'  => true,   // jid suffix stripped server-side
+            ]]);
+    }
+
+    public function test_contact_check_requires_a_valid_device_token(): void
+    {
+        Contact::create(['agency_id' => $this->agencyId, 'first_name' => 'W', 'last_name' => 'A', 'phone' => '0821234567']);
+
+        $this->withToken('not-a-real-token')
+            ->postJson(route('communications.wa.contact-check'), ['numbers' => ['27821234567']])
+            ->assertStatus(401);
+    }
+
+    public function test_contact_check_rejects_empty_payload(): void
+    {
+        $this->withToken($this->plainToken)
+            ->postJson(route('communications.wa.contact-check'), ['numbers' => []])
+            ->assertStatus(422);
+    }
+
     public function test_bad_token_is_rejected(): void
     {
         $this->withToken('not-a-real-token')

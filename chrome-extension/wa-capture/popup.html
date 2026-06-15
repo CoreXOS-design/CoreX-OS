@@ -23,6 +23,13 @@
   <label for="device-token">Device token</label>
   <input id="device-token" type="password" placeholder="Paste the token from My Portal → WhatsApp Capture">
 
+  <label style="display:flex;align-items:center;gap:6px;font-weight:500;margin-top:12px;">
+    <input id="history-sweep" type="checkbox" style="width:auto;margin:0;"> Backfill history for known contacts (paced, read-only)
+  </label>
+  <label style="display:flex;align-items:center;gap:6px;font-weight:500;margin-top:6px;">
+    <input id="wa-debug" type="checkbox" style="width:auto;margin:0;"> Verbose console logging (DevTools → Console)
+  </label>
+
   <button id="save">Save</button>
   <div class="status" id="status"></div>
   <div class="ro">● Read-only — this extension cannot send WhatsApp messages.</div>
