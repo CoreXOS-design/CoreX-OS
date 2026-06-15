@@ -1,11 +1,14 @@
 {
   "manifest_version": 3,
   "name": "CoreX WhatsApp Capture (read-only)",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Read-only capture of business WhatsApp Web conversations into the CoreX Communication Archive. Never sends or automates messages.",
   "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://web.whatsapp.com/*",
+    "https://staging.corexos.co.za/*",
+    "https://corexos.co.za/*",
+    "https://*.corexos.co.za/*",
     "https://corex.hfcoastal.co.za/*",
     "http://127.0.0.1:8000/*",
     "http://localhost:8000/*"
