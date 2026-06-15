@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -27,7 +28,7 @@
         .acty-defs-table tbody tr:hover td { background: var(--surface-2); }
     </style>
 
-    <div class="max-w-7xl mx-auto space-y-6">
+    <div class="w-full space-y-5">
 
         {{-- Page Header (Pattern A: branded) --}}
         <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -108,6 +109,15 @@
         </div>
 
         {{-- Existing Definitions --}}
+        {{-- Per-row forms live outside the table; inputs associate via the HTML5 form= attribute.
+             A <form> cannot be a valid child of <tr> — the parser foster-parents it out of the table. --}}
+        @foreach($definitions as $d)
+            <form id="acty-def-{{ $d->id }}" method="POST" action="{{ route('admin.targets.activity.definitions.save') }}" class="hidden">
+                @csrf
+                <input type="hidden" name="id" value="{{ $d->id }}">
+            </form>
+        @endforeach
+
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
                 <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Existing Definitions</h2>
@@ -128,42 +138,37 @@
                     <tbody>
                         @forelse($definitions as $d)
                             <tr style="border-top: 1px solid var(--border);">
-                                <form method="POST" action="{{ route('admin.targets.activity.definitions.save') }}">
-                                    @csrf
-                                    <input type="hidden" name="id" value="{{ $d->id }}">
+                                <td class="px-4 py-3">
+                                    <input form="acty-def-{{ $d->id }}" name="name" value="{{ $d->name }}" class="acty-input acty-input-sm">
+                                </td>
 
-                                    <td class="px-4 py-3">
-                                        <input name="name" value="{{ $d->name }}" class="acty-input acty-input-sm">
-                                    </td>
+                                <td class="px-4 py-3">
+                                    <input form="acty-def-{{ $d->id }}" name="weight" type="number" step="0.01" min="0"
+                                           value="{{ number_format((float)$d->weight, 2, '.', '') }}"
+                                           class="acty-input acty-input-sm acty-num w-24">
+                                </td>
 
-                                    <td class="px-4 py-3">
-                                        <input name="weight" type="number" step="0.01" min="0"
-                                               value="{{ number_format((float)$d->weight, 2, '.', '') }}"
-                                               class="acty-input acty-input-sm acty-num w-24">
-                                    </td>
+                                <td class="px-4 py-3">
+                                    <input form="acty-def-{{ $d->id }}" name="sort_order" type="number" min="0"
+                                           value="{{ (int)$d->sort_order }}"
+                                           class="acty-input acty-input-sm acty-num w-24">
+                                </td>
 
-                                    <td class="px-4 py-3">
-                                        <input name="sort_order" type="number" min="0"
-                                               value="{{ (int)$d->sort_order }}"
-                                               class="acty-input acty-input-sm acty-num w-24">
-                                    </td>
+                                <td class="px-4 py-3">
+                                    @php($sm = (string)($d->scoring_mode ?? 'count'))
+                                    <select form="acty-def-{{ $d->id }}" name="scoring_mode" class="acty-input acty-input-sm w-32">
+                                        <option value="count" @selected($sm === 'count')>Per action</option>
+                                        <option value="once" @selected($sm === 'once')>Once (tick)</option>
+                                    </select>
+                                </td>
 
-                                    <td class="px-4 py-3">
-                                        @php($sm = (string)($d->scoring_mode ?? 'count'))
-                                        <select name="scoring_mode" class="acty-input acty-input-sm w-32">
-                                            <option value="count" @selected($sm === 'count')>Per action</option>
-                                            <option value="once" @selected($sm === 'once')>Once (tick)</option>
-                                        </select>
-                                    </td>
+                                <td class="px-4 py-3">
+                                    <input form="acty-def-{{ $d->id }}" type="checkbox" name="is_enabled" value="1" @checked((int)$d->is_enabled === 1)>
+                                </td>
 
-                                    <td class="px-4 py-3">
-                                        <input type="checkbox" name="is_enabled" value="1" @checked((int)$d->is_enabled === 1)>
-                                    </td>
-
-                                    <td class="px-4 py-3 text-right">
-                                        <button class="corex-btn-primary text-xs">Save</button>
-                                    </td>
-                                </form>
+                                <td class="px-4 py-3 text-right">
+                                    <button form="acty-def-{{ $d->id }}" class="corex-btn-primary text-xs">Save</button>
+                                </td>
                             </tr>
                         @empty
                             <tr>

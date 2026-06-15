@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-6">
 
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -58,9 +59,7 @@
                     </thead>
                     <tbody>
                         @foreach($documents as $doc)
-                        <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                            onmouseover="this.style.background='var(--surface-2)'"
-                            onmouseout="this.style.background=''">
+                        <tr class="transition-colors" style="border-top: 1px solid var(--border);">
                             <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $doc->name }}</td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $doc->template->name ?? '—' }}</td>
                             <td class="px-4 py-3" style="color: var(--text-muted);">{{ $doc->updated_at->format('d M Y H:i') }}</td>

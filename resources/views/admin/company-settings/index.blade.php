@@ -1,12 +1,17 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+<div class="w-full space-y-5"
      x-data="companySettingsPage({{ $agency?->id ?? 'null' }})">
 
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <h1 class="text-xl font-bold text-white leading-tight">Company Settings</h1>
-        <p class="text-sm text-white/60">Agency identity, branches, and performance defaults.</p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Company Settings</h1>
+                <p class="text-sm text-white/60">Agency identity, branches, and performance defaults.</p>
+            </div>
+        </div>
     </div>
 
     @if(session('success') || session('status'))
@@ -42,13 +47,13 @@
     @if($agency)
         {{-- Tab nav --}}
         <div class="flex gap-1 rounded-md p-1" style="background: var(--surface); border:1px solid var(--border);">
-            @foreach([
+            @foreach(array_filter([
                 'company'     => 'Company',
                 'branding'    => 'Branding',
                 'branches'    => 'Branches',
-                'website'     => 'Website',
+                'website'     => $websiteActive ? 'Website' : null,
                 'performance' => 'Performance',
-            ] as $key => $label)
+            ]) as $key => $label)
                 <button type="button" @click="activeTab = '{{ $key }}'"
                         :class="activeTab === '{{ $key }}' ? 'corex-tab-active' : ''"
                         class="flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-md transition-colors"
@@ -208,7 +213,7 @@
 
                     <div class="flex items-center gap-3 flex-wrap">
                         @if($isPublished)
-                            <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded"
+                            <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-md"
                                   style="background: color-mix(in srgb, var(--ds-green) 15%, transparent); color: var(--ds-green);">Published</span>
                             <button type="button"
                                     onclick="navigator.clipboard.writeText('{{ $publicUrl }}'); this.innerText='Copied ✓'; setTimeout(()=>this.innerText='Copy public link',1500);"
@@ -216,7 +221,7 @@
                             <a href="{{ $publicUrl }}" target="_blank" rel="noopener" class="text-xs" style="color:var(--text-secondary);">View public page →</a>
                             <button type="submit" name="privacy_policy_action" value="unpublish" class="corex-btn-outline text-xs ml-auto">Unpublish</button>
                         @elseif($hasContent)
-                            <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded"
+                            <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-md"
                                   style="background: color-mix(in srgb, var(--ds-amber) 15%, transparent); color: var(--ds-amber);">Draft — not yet public</span>
                             <button type="submit" name="privacy_policy_action" value="publish" class="corex-btn-primary text-xs ml-auto">Publish</button>
                         @else
@@ -297,8 +302,8 @@
                     </label>
                     <input type="number" name="prospecting_pitch_temp_lock_minutes" min="5" max="240"
                            value="{{ old('prospecting_pitch_temp_lock_minutes', $agency->prospecting_pitch_temp_lock_minutes ?? 30) }}"
-                           class="w-32 px-3 py-2 text-sm rounded"
-                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                           class="w-32 px-3 py-2 text-sm rounded-md"
+                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                     <p class="text-xs mt-1" style="color: var(--text-muted);">
                         How long an agent's "Pitch Seller" click holds a temporary lock before auto-releasing.
                         Prevents two agents from pitching the same listing concurrently. Range 5–240. Default: 30.
@@ -612,14 +617,14 @@
                                     @endphp
                                     <div class="flex items-center gap-3 flex-wrap mt-2 text-xs">
                                         @if($branchIsPublished)
-                                            <span class="inline-flex items-center px-2 py-0.5 font-semibold rounded"
+                                            <span class="inline-flex items-center px-2 py-0.5 font-semibold rounded-md"
                                                   style="background: color-mix(in srgb, var(--ds-green) 15%, transparent); color: var(--ds-green);">Published — branch override active</span>
                                             <button type="button"
                                                     onclick="navigator.clipboard.writeText('{{ $branchPublicUrl }}'); this.innerText='Copied ✓'; setTimeout(()=>this.innerText='Copy branch link',1500);"
                                                     class="corex-btn-outline text-xs">Copy branch link</button>
                                             <button type="submit" name="privacy_policy_action" value="unpublish" class="corex-btn-outline text-xs ml-auto">Unpublish branch override</button>
                                         @elseif($branchHasContent)
-                                            <span class="inline-flex items-center px-2 py-0.5 font-semibold rounded"
+                                            <span class="inline-flex items-center px-2 py-0.5 font-semibold rounded-md"
                                                   style="background: color-mix(in srgb, var(--ds-amber) 15%, transparent); color: var(--ds-amber);">Draft — branch override not yet public</span>
                                             <button type="submit" name="privacy_policy_action" value="publish" class="corex-btn-primary text-xs ml-auto">Publish branch override</button>
                                         @else
@@ -719,7 +724,10 @@
 
         {{-- ============================================================
              WEBSITE TAB — public website settings (Agency Public API §3.7)
+             Only rendered when the agency has a live website (active API key);
+             otherwise the tab is hidden and these settings are unreachable.
              ============================================================ --}}
+        @if($websiteActive)
         <div x-show="activeTab === 'website'" x-cloak>
             <form method="POST" action="{{ route('admin.company-settings.website.update', $agency) }}"
                   class="ds-status-card p-4 space-y-5">
@@ -971,10 +979,10 @@
                                 <div class="flex items-center gap-2 flex-wrap">
                                     <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $t->display_name }}</span>
                                     @if($t->rating)
-                                        <span class="text-xs" style="color:var(--ds-amber, #f5b301);">{{ str_repeat('★', (int) $t->rating) }}</span>
+                                        <span class="text-xs" style="color:var(--ds-amber, #f59e0b);">{{ str_repeat('★', (int) $t->rating) }}</span>
                                     @endif
                                     @if($t->published)
-                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">On website</span>
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">On website</span>
                                     @endif
                                 </div>
                                 <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-show="!open">{{ \Illuminate\Support\Str::limit($t->body, 110) }}</div>
@@ -1011,6 +1019,7 @@
                 </div>{{-- /x-show testimonials --}}
             </div>
         </div>
+        @endif{{-- /$websiteActive --}}
 
         {{-- ============================================================
              PERFORMANCE TAB

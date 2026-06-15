@@ -1,17 +1,18 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+<div class="w-full space-y-5">
 
     {{-- Page Header --}}
     <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight tracking-tight">Finance Definitions</h2>
-                <div class="text-sm text-white/60">
+                <h1 class="text-xl font-bold text-white leading-tight tracking-tight">Finance Definitions</h1>
+                <p class="text-sm text-white/60">
                     All formula definitions registered in the Finance Engine.
                     <span class="font-medium text-white/80">{{ number_format($computedCount) }}</span> computed values stored.
-                </div>
+                </p>
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
@@ -69,8 +70,8 @@
                             onmouseover="this.style.background='var(--surface-2)'"
                             onmouseout="this.style.background=''">
                             <td class="px-4 py-3 font-mono text-xs" style="color: var(--text-primary);">{{ $def->key }}</td>
-                            <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $def->entity_type }}</td>
-                            <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $def->value_type }}</td>
+                            <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $def->entity_type ? ucfirst(str_replace('_', ' ', $def->entity_type)) : '—' }}</td>
+                            <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $def->value_type ? ucfirst(str_replace('_', ' ', $def->value_type)) : '—' }}</td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">v{{ $def->version }}</td>
                             <td class="px-4 py-3">
                                 <span class="ds-badge {{ $def->status === 'active' ? 'ds-badge-success' : 'ds-badge-default' }}" style="white-space: nowrap;">

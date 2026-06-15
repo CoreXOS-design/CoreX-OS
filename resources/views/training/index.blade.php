@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page header (§2.4 Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -28,7 +29,7 @@
             <p class="text-sm" style="color: var(--text-muted);">Courses will appear here as soon as your agency publishes them.</p>
         </div>
     @else
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         @foreach($courses as $course)
         @php
             $pct = $course->completionPercentForUser($userId);
@@ -36,7 +37,23 @@
             $completion = $isCompleted ? $course->completionForUser($userId) : null;
             $isExpiring = $completion && $completion->expires_at && $completion->expires_at->lte(now()->addDays(30)) && $completion->expires_at->gt(now());
             $isExpired = $completion && $completion->expires_at && $completion->expires_at->lte(now());
-            $catColor = \App\Models\TrainingCourse::CATEGORY_COLORS[$course->category] ?? ['bg' => 'rgba(148,163,184,0.12)', 'color' => '#94a3b8'];
+            // Category tag colour mapped to design tokens (§3.4 tinted variant). Never red — red is danger-only (§5.3).
+            $catTokens = [
+                'compliance' => '--ds-navy',
+                'onboarding' => '--ds-amber',
+                'sales'      => '--ds-green',
+                'systems'    => '--brand-icon',
+                'general'    => '--text-muted',
+            ];
+            $catFallbacks = [
+                '--ds-navy'     => '#0b2a4a',
+                '--ds-amber'    => '#f59e0b',
+                '--ds-green'    => '#059669',
+                '--brand-icon'  => '#0ea5e9',
+                '--text-muted'  => '#9ca3af',
+            ];
+            $catToken = $catTokens[$course->category] ?? '--text-muted';
+            $catFallback = $catFallbacks[$catToken];
             $barVariant = $isCompleted ? 'ds-bar-green' : 'ds-bar-navy';
         @endphp
         <a href="{{ route('training.show', $course) }}" class="block no-underline rounded-md transition-colors"
@@ -45,7 +62,7 @@
                 <div class="flex items-start justify-between gap-2 mb-2">
                     <h3 class="text-sm font-bold" style="color: var(--text-primary);">{{ $course->title }}</h3>
                     <div class="flex items-center gap-1.5 flex-shrink-0">
-                        <span class="ds-badge" style="background: {{ $catColor['bg'] }}; color: {{ $catColor['color'] }};">
+                        <span class="ds-badge" style="background: color-mix(in srgb, var({{ $catToken }}, {{ $catFallback }}) 14%, transparent); color: var({{ $catToken }}, {{ $catFallback }});">
                             {{ $course->category_label }}
                         </span>
                         @if($course->is_required)

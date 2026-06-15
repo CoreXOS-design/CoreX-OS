@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">

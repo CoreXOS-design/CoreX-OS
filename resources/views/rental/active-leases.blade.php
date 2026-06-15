@@ -1,14 +1,22 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
+@push('head')
+<style>
+    .lease-row-card { background: var(--surface); transition: background 300ms ease, box-shadow 300ms ease; }
+    .lease-row-card:hover { background: var(--surface-2); }
+</style>
+@endpush
+
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight tracking-tight">Active Leases</h1>
-                <p class="text-sm text-white/60 mt-1">
+                <h1 class="text-xl font-bold text-white leading-tight">Active Leases</h1>
+                <p class="text-sm text-white/60">
                     <a href="{{ route('rental.dashboard') }}" class="text-white/60 hover:text-white transition-all duration-300">&larr; Rentals</a>
                     &middot; Completed and signed lease agreements.
                 </p>
@@ -47,9 +55,8 @@
                     default         => 'var(--ds-green)',
                 };
             @endphp
-            <div class="rounded-md p-5 transition-all duration-300"
-                 style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid {{ $borderAccent }};"
-                 onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='var(--surface)'">
+            <div class="lease-row-card rounded-md p-5"
+                 style="border: 1px solid var(--border); border-left: 3px solid {{ $borderAccent }};">
                 <div class="flex items-start justify-between gap-4">
                     <div class="flex-1 min-w-0">
                         <div class="font-semibold" style="color: var(--text-primary);">{{ $lease->property_address ?: ($lease->document->name ?? 'Unnamed') }}</div>
@@ -65,7 +72,8 @@
                         </div>
                         @if($lease->lease_end_date)
                         <div class="mt-3">
-                            <span class="ds-badge {{ $badgeVariant }}">
+                            <span class="ds-badge {{ $badgeVariant }}"
+                                  @if($daysLeft > 0 && $daysLeft <= 90) title="{{ $daysLeft }} days until lease expiry" @endif>
                                 @if($daysLeft <= 0)
                                     Expired
                                 @elseif($daysLeft <= 90)

@@ -51,8 +51,13 @@ class CompanySettingsController extends Controller
         $vatRate = (float) PerformanceSetting::get('vat_rate', 15);
         $listingsPerSale = (float) PerformanceSetting::get('listings_per_sale', 5);
 
+        // The Website tab is only shown when the agency has a live website
+        // (at least one active API key). Activation happens under Admin →
+        // Agencies → API Access.
+        $websiteActive = $agency?->hasActiveWebsite() ?? false;
+
         return view('admin.company-settings.index', compact(
-            'agencies', 'agency', 'agents', 'branches', 'vatRate', 'listingsPerSale'
+            'agencies', 'agency', 'agents', 'branches', 'vatRate', 'listingsPerSale', 'websiteActive'
         ));
     }
 

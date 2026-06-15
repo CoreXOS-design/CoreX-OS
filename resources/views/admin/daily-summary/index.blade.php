@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+@section('corex-content')
+<div class="w-full space-y-5"
      x-data="{
         search: '',
         get filteredCount() {
@@ -18,10 +19,10 @@
                 <div class="text-sm text-white/60">
                     <a class="hover:underline text-white/60 transition-all duration-300" href="{{ route('admin.dashboard') }}">&larr; Dashboard</a>
                 </div>
-                <h2 class="text-xl font-bold text-white leading-tight tracking-tight mt-1">Daily Activity Summary (Company)</h2>
-                <div class="text-sm text-white/60">
+                <h1 class="text-xl font-bold text-white leading-tight tracking-tight mt-1">Daily Activity Summary (Company)</h1>
+                <p class="text-sm text-white/60">
                     {{ $start->toFormattedDateString() }} &rarr; {{ $end->toFormattedDateString() }}
-                </div>
+                </p>
             </div>
 
             <form method="GET" action="{{ route('admin.daily.summary') }}" class="flex flex-wrap items-center gap-2">
@@ -44,19 +45,10 @@
     </div>
 
     {{-- Stats Cards --}}
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="ds-status-card">
-            <div class="ds-label">Total Count</div>
-            <div class="ds-value-xl">{{ number_format((int)$grandCount) }}</div>
-        </div>
-        <div class="ds-status-card">
-            <div class="ds-label">Total Points</div>
-            <div class="ds-value-xl">{{ number_format((float)$grandPoints, 0) }}</div>
-        </div>
-        <div class="ds-status-card">
-            <div class="ds-label">Activities Tracked</div>
-            <div class="ds-value-xl">{{ number_format(count($items)) }}</div>
-        </div>
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Total Count" :value="number_format((int)$grandCount)" />
+        <x-corex-kpi-card title="Total Points" :value="number_format((float)$grandPoints, 0)" />
+        <x-corex-kpi-card title="Activities Tracked" :value="number_format(count($items))" />
     </div>
 
     {{-- Search Bar --}}

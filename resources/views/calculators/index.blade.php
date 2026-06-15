@@ -1,17 +1,21 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 py-6" x-data="calculatorsApp()">
+<div class="w-full space-y-5" x-data="calculatorsApp()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-4 mb-6" style="background: var(--brand-default, #0b2a4a);">
-        <h2 class="text-xl font-bold text-white leading-tight tracking-tight">Calculators</h2>
-        <div class="text-sm text-white/60 mt-0.5">Commission, bond repayments, transfer costs & overpayment savings</div>
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Calculators</h1>
+                <p class="text-sm text-white/60">Commission, bond repayments, transfer costs &amp; overpayment savings.</p>
+            </div>
+        </div>
     </div>
 
     {{-- Admin: Fee Scale Management --}}
     @permission('calculators.manage')
-    <div class="ds-status-card mb-6">
+    <div class="ds-status-card">
         <div class="ds-section-header" style="margin-bottom:0.5rem;">Fee Scale Management (Admin)</div>
         <p class="text-sm mb-3" style="color: var(--text-secondary);">
             Upload the annual attorney cost sheet to update all calculator fees.
@@ -37,10 +41,22 @@
             </button>
         </form>
         @if(session('fee_upload_success'))
-            <div class="mt-3 text-green-600 text-sm font-medium">{{ session('fee_upload_success') }}</div>
+            <div class="mt-3 rounded-md px-4 py-3 text-sm flex items-start gap-3"
+                 style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
+                        color: var(--text-primary);">
+                <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+                <div class="flex-1">{{ session('fee_upload_success') }}</div>
+            </div>
         @endif
         @if(session('fee_upload_error'))
-            <div class="mt-3 text-red-600 text-sm font-medium">{{ session('fee_upload_error') }}</div>
+            <div class="mt-3 rounded-md px-4 py-3 text-sm flex items-start gap-3"
+                 style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);
+                        color: var(--text-primary);">
+                <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-crimson, #c41e3a);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>
+                <div class="flex-1">{{ session('fee_upload_error') }}</div>
+            </div>
         @endif
     </div>
     @endpermission
@@ -230,14 +246,14 @@
                     </div>
                 </div>
 
-                <div class="text-xs rounded-md p-2 mt-3" style="background: color-mix(in srgb, #f59e0b 10%, transparent); color: #b45309; border: 1px solid color-mix(in srgb, #f59e0b 25%, transparent);">These are ESTIMATES based on guideline tariffs. Actual costs vary by attorney. Always request a formal quotation from your conveyancer. Fees based on Van Dyk & Swart Inc. — Guideline Tariff 2025.</div>
+                <div class="text-xs rounded-md p-2 mt-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); color: var(--text-primary); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);">These are ESTIMATES based on guideline tariffs. Actual costs vary by attorney. Always request a formal quotation from your conveyancer. Fees based on Van Dyk &amp; Swart Inc. — Guideline Tariff 2025.</div>
             </div>
         </div>
 
     </div>
 
     {{-- CARD 5: Bond Overpayment Savings (full width) --}}
-    <div class="ds-status-card mt-6">
+    <div class="ds-status-card">
         <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Bond Overpayment Savings</h3>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -314,18 +330,18 @@
             </div>
 
             {{-- Savings Summary --}}
-            <div class="mt-4 rounded-md p-5" style="background: color-mix(in srgb, #059669 10%, var(--surface)); border: 1px solid color-mix(in srgb, #059669 25%, transparent);">
+            <div class="mt-4 rounded-md p-5" style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
                     <div>
-                        <div class="text-2xl font-bold" style="color: #059669;" x-text="overpay.result?.savings?.years_saved + ' years ' + overpay.result?.savings?.months_saved_remainder + ' months'"></div>
+                        <div class="text-2xl font-bold" style="color: var(--ds-green, #059669);" x-text="overpay.result?.savings?.years_saved + ' years ' + overpay.result?.savings?.months_saved_remainder + ' months'"></div>
                         <div class="text-sm mt-1" style="color: var(--text-secondary);">Time saved</div>
                     </div>
                     <div>
-                        <div class="text-2xl font-bold" style="color: #059669;" x-text="'R ' + fmt(overpay.result?.savings?.interest_saved)"></div>
+                        <div class="text-2xl font-bold" style="color: var(--ds-green, #059669);" x-text="'R ' + fmt(overpay.result?.savings?.interest_saved)"></div>
                         <div class="text-sm mt-1" style="color: var(--text-secondary);">Interest saved</div>
                     </div>
                     <div>
-                        <div class="text-2xl font-bold" style="color: #059669;" x-text="overpay.result?.savings?.interest_saved_pct + '%'"></div>
+                        <div class="text-2xl font-bold" style="color: var(--ds-green, #059669);" x-text="overpay.result?.savings?.interest_saved_pct + '%'"></div>
                         <div class="text-sm mt-1" style="color: var(--text-secondary);">Less interest paid</div>
                     </div>
                 </div>
@@ -354,7 +370,7 @@
                                     <td class="px-3 py-1.5 font-medium" x-text="i + 1"></td>
                                     <td class="px-3 py-1.5 text-right" x-text="'R ' + fmt(nb)"></td>
                                     <td class="px-3 py-1.5 text-right" x-text="'R ' + fmt(overpay.result?.yearly_comparison?.accelerated[i])"></td>
-                                    <td class="px-3 py-1.5 text-right font-semibold" style="color: #059669;" x-text="'R ' + fmt(nb - (overpay.result?.yearly_comparison?.accelerated[i] || 0))"></td>
+                                    <td class="px-3 py-1.5 text-right font-semibold" style="color: var(--ds-green, #059669);" x-text="'R ' + fmt(nb - (overpay.result?.yearly_comparison?.accelerated[i] || 0))"></td>
                                 </tr>
                             </template>
                         </tbody>
