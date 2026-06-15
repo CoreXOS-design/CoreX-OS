@@ -221,4 +221,94 @@ class CompPoolBuilderTest extends TestCase
         $this->assertSame([], $res['selected_keys']);
         $this->assertNull($res['anchor']);
     }
+
+    // ── PRES-CMA-FIX — subject self-exclusion ────────────────────────────────
+
+    /** Candidate carrying an explicit address (the self-exclusion signal). */
+    private function candAddr(int $price, string $address, string $type = 'House', ?int $size = null, ?float $lat = null, ?float $lng = null, $key = null, ?string $titleType = null): array
+    {
+        $c = $this->cand($price, $type, $size, $lat, $lng, false, $key ?? $address, $titleType);
+        $c['address'] = $address;
+        return $c;
+    }
+
+    public function test_subject_excluded_from_its_own_pool_by_address(): void
+    {
+        // Freehold subject; the subject's own prior sale sits in the candidate
+        // pool at the same address. It must NEVER count as its own comparable.
+        $subject = [
+            'title_type' => null, 'property_type' => 'House',
+            'lat' => null, 'lng' => null, 'erf_m2' => 1375,
+            'anchor_price' => 2_900_000, 'address' => '36 Grindewald Drive, Uvongo',
+        ];
+        $candidates = [
+            $this->candAddr(2_950_000, '36 Grindewald Drive Uvongo', 'House', 1375, key: 'SELF'),  // the subject
+            $this->candAddr(2_500_000, '12 Marine Drive Uvongo',     'House', 1300, key: 'c1'),
+            $this->candAddr(2_480_000, '8 Beach Road Uvongo',        'House', 1280, key: 'c2'),
+            $this->candAddr(2_520_000, '21 Ridge Road Uvongo',       'House', 1320, key: 'c3'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        $this->assertNotContains('SELF', $res['selected_keys'], 'Subject must be excluded from its own comp pool by address');
+        $this->assertContains('c1', $res['selected_keys']);
+        $this->assertSame(1, $res['diagnostics']['n_subject_self_excluded']);
+    }
+
+    public function test_subject_excluded_from_its_own_pool_by_gps_coincidence(): void
+    {
+        // Freehold subject with GPS; a sold comp on the subject's exact
+        // coordinates (different/blank address) is the subject's own erf.
+        $subject = [
+            'title_type' => null, 'property_type' => 'House',
+            'lat' => -30.8400, 'lng' => 30.3900, 'erf_m2' => 1375,
+            'anchor_price' => 2_900_000, 'address' => null,
+        ];
+        $candidates = [
+            $this->candAddr(2_950_000, '', 'House', 1375, lat: -30.8400, lng: 30.3900, key: 'SELF'), // 0m → subject
+            $this->candAddr(2_500_000, 'A', 'House', 1300, lat: -30.8470, lng: 30.3900, key: 'c1'),  // ~780m away
+            $this->candAddr(2_480_000, 'B', 'House', 1280, lat: -30.8475, lng: 30.3905, key: 'c2'),
+            $this->candAddr(2_520_000, 'C', 'House', 1320, lat: -30.8465, lng: 30.3895, key: 'c3'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        $this->assertNotContains('SELF', $res['selected_keys'], 'Subject on its own coordinates must be excluded');
+        $this->assertSame(1, $res['diagnostics']['n_subject_self_excluded']);
+    }
+
+    public function test_sectional_scheme_mate_at_same_gps_is_kept(): void
+    {
+        // CRITICAL no-regression: a sectional subject's scheme-mates share one
+        // GPS point and are the BEST comps. The GPS cut must NOT drop them —
+        // only an exact same-address (same unit) match excludes.
+        $subject = [
+            'title_type' => \App\Services\TitleTypeClassifier::TITLE_SECTIONAL,
+            'property_type' => 'Apartment',
+            'lat' => -30.8400, 'lng' => 30.3900, 'erf_m2' => 95,
+            'anchor_price' => 1_500_000, 'address' => 'Unit 5 Seaview, 10 Marine Drive Uvongo',
+        ];
+        $candidates = [
+            $this->candAddr(1_480_000, 'Unit 5 Seaview, 10 Marine Drive Uvongo', 'Apartment', 95, lat: -30.8400, lng: 30.3900, titleType: \App\Services\TitleTypeClassifier::TITLE_SECTIONAL, key: 'SELF'),    // same unit → excluded
+            $this->candAddr(1_520_000, 'Unit 6 Seaview, 10 Marine Drive Uvongo', 'Apartment', 98, lat: -30.8400, lng: 30.3900, titleType: \App\Services\TitleTypeClassifier::TITLE_SECTIONAL, key: 'mate1'), // scheme-mate, same GPS → KEPT
+            $this->candAddr(1_450_000, 'Unit 7 Seaview, 10 Marine Drive Uvongo', 'Apartment', 92, lat: -30.8400, lng: 30.3900, titleType: \App\Services\TitleTypeClassifier::TITLE_SECTIONAL, key: 'mate2'),
+            $this->candAddr(1_500_000, 'Unit 2 Seaview, 10 Marine Drive Uvongo', 'Apartment', 96, lat: -30.8400, lng: 30.3900, titleType: \App\Services\TitleTypeClassifier::TITLE_SECTIONAL, key: 'mate3'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        $this->assertNotContains('SELF', $res['selected_keys'], 'Same unit must be excluded');
+        $this->assertContains('mate1', $res['selected_keys'], 'Scheme-mate at shared GPS must be kept — it is the best comp');
+        $this->assertContains('mate2', $res['selected_keys']);
+        $this->assertSame(1, $res['diagnostics']['n_subject_self_excluded'], 'Only the same-unit row is the subject');
+    }
+
+    public function test_no_self_exclusion_when_subject_has_no_address_or_gps(): void
+    {
+        // Absorb: with no subject identity signals, nothing is dropped as
+        // "self" — the pipeline behaves exactly as before.
+        $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => null, 'lng' => null, 'erf_m2' => null, 'address' => null];
+        $candidates = [
+            $this->candAddr(2_400_000, '1 A St', 'House', key: 'h1'),
+            $this->candAddr(2_500_000, '2 B St', 'House', key: 'h2'),
+            $this->candAddr(2_300_000, '3 C St', 'House', key: 'h3'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+        $this->assertSame(0, $res['diagnostics']['n_subject_self_excluded']);
+        $this->assertContains('h1', $res['selected_keys']);
+    }
 }

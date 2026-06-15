@@ -56,6 +56,21 @@ final class CompPoolBuilder
     public const DEF_RANGE_UPPER_PCT = 75;
 
     /**
+     * PRES-CMA-FIX — subject self-exclusion GPS threshold (metres).
+     *
+     * A sold comp whose coordinates sit within this radius of the subject
+     * IS the subject's own erf — its prior sale, a duplicate scrape, or a
+     * deeds-office echo of the same physical property — and must never
+     * count as its own comparable (it would leak the subject's own value
+     * into the P25–P75 band). 8m mirrors the Match-or-Create GPS strategy
+     * (~5m) with a little slack for geocode jitter, while staying far below
+     * neighbouring-erf separation. NOT applied to sectional subjects —
+     * units in one scheme legitimately share a GPS point and are the BEST
+     * comps; for those the address signal alone identifies the same unit.
+     */
+    public const SUBJECT_SELF_RADIUS_M = 8;
+
+    /**
      * Resolve the agency-configurable thresholds (AT-22 migration columns),
      * each falling back to the service constant when the column is null
      * (legacy agencies).
@@ -90,13 +105,17 @@ final class CompPoolBuilder
      *
      * @param  array  $subject  ['title_type'=>?string, 'property_type'=>?string,
      *                           'lat'=>?float, 'lng'=>?float, 'erf_m2'=>?int,
-     *                           'anchor_price'=>?int]  (anchor_price = subject
-     *                           asking / market estimate for the price band)
+     *                           'anchor_price'=>?int, 'address'=>?string]
+     *                           (anchor_price = subject asking / market estimate
+     *                           for the price band; address feeds the subject
+     *                           self-exclusion guard.)
      * @param  list<array>  $candidates  each:
      *     ['key'=>mixed, 'price'=>int, 'size_m2'=>?int, 'property_type'=>?string,
-     *      'title_type'=>?string, 'lat'=>?float, 'lng'=>?float, 'exempt'=>bool]
+     *      'title_type'=>?string, 'lat'=>?float, 'lng'=>?float, 'exempt'=>bool,
+     *      'address'=>?string]
      *     ('exempt' = same-subject report OR trusted-internal deal — waives the
-     *      PRICE band ONLY; still type-gated, radius-bound and shortlist-capped.)
+     *      PRICE band ONLY; still type-gated, radius-bound and shortlist-capped.
+     *      'address' is optional; it feeds the subject self-exclusion guard.)
      * @param  array  $config  output of configForAgency()
      * @return array{
      *   selected: list<array>,        // candidate rows that survived, ranked
@@ -119,6 +138,13 @@ final class CompPoolBuilder
         // When present it anchors the price gate, so a pool polluted with
         // off-profile sales cannot drag the band down (the R927k/R1.1M trap).
         $sAnchorPrice = $this->intOrNull($subject['anchor_price'] ?? null);
+        // PRES-CMA-FIX — subject self-exclusion inputs. Address equality is
+        // the type-safe signal (works for sectional too — unit numbers
+        // differ); GPS coincidence is the secondary signal, gated off for
+        // sectional subjects (scheme-mates share a point).
+        $sAddrNorm        = $this->normaliseAddr($subject['address'] ?? null);
+        $subjectSectional = ($subjectCat === TitleTypeClassifier::TITLE_SECTIONAL);
+        $nSelfExcluded    = 0;
 
         // Normalise candidates: attach category, kind, distance.
         $norm = [];
@@ -132,6 +158,13 @@ final class CompPoolBuilder
             $dist = ($sLat !== null && $sLng !== null && $cLat !== null && $cLng !== null)
                 ? \App\Support\MarketAnalytics\HaversineDistance::distanceMetres($sLat, $sLng, $cLat, $cLng)
                 : null;
+            // PRES-CMA-FIX — the subject can never be its own comparable.
+            // Drop a candidate that resolves to the subject property before
+            // it ever reaches the gates/ranking/quartiles.
+            if ($this->isSubjectSelf($subjectSectional, $sAddrNorm, $dist, $c['address'] ?? null)) {
+                $nSelfExcluded++;
+                continue;
+            }
             $norm[] = [
                 'key'        => $c['key'] ?? null,
                 'price'      => $price,
@@ -144,7 +177,10 @@ final class CompPoolBuilder
             ];
         }
 
-        $diagnostics = ['n_candidates' => count($norm)];
+        $diagnostics = [
+            'n_candidates'           => count($norm),
+            'n_subject_self_excluded' => $nSelfExcluded,
+        ];
 
         // ── Stage A.1 — TYPE hard-gate (never cross freehold ↔ sectional) ──
         // A candidate is dropped only when BOTH the subject and candidate
@@ -400,6 +436,50 @@ final class CompPoolBuilder
         // rank(), so a genuinely relevant vetted comp wins its slot; it just
         // can't blow the pool past the cap (PRES 87: 94 exempt → capped to 15).
         return array_slice($ranked, 0, $maxCount);
+    }
+
+    // ── Subject self-exclusion ──────────────────────────────────────────────
+
+    /**
+     * PRES-CMA-FIX — true when a candidate IS the subject property and must
+     * be dropped from its own comparable-sales pool.
+     *
+     * Two signals, in priority order:
+     *   1. Address equality (normalised) — strongest, type-safe. A comp at
+     *      the subject's exact address is the same unit, even inside a
+     *      sectional scheme (unit numbers differ between neighbours).
+     *   2. GPS coincidence within SUBJECT_SELF_RADIUS_M — a sold comp on the
+     *      subject's own coordinates is the subject's erf. SKIPPED for
+     *      sectional subjects: scheme-mates legitimately share one GPS point
+     *      and are the best comps; a coordinate cut would gut that pool.
+     */
+    private function isSubjectSelf(bool $subjectSectional, ?string $subjAddrNorm, ?float $distanceM, ?string $candAddr): bool
+    {
+        if ($subjAddrNorm !== null && $subjAddrNorm !== '') {
+            $candNorm = $this->normaliseAddr($candAddr);
+            if ($candNorm !== null && $candNorm === $subjAddrNorm) {
+                return true;
+            }
+        }
+        if (!$subjectSectional && $distanceM !== null && $distanceM <= self::SUBJECT_SELF_RADIUS_M) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Lower-case, strip punctuation, collapse whitespace — so "12 Smith St."
+     * and "12  smith st" compare equal. Returns null for empty input.
+     */
+    private function normaliseAddr(?string $addr): ?string
+    {
+        if ($addr === null) {
+            return null;
+        }
+        $a = mb_strtolower(trim($addr));
+        $a = preg_replace('/[^a-z0-9]+/u', ' ', $a) ?? '';
+        $a = trim(preg_replace('/\s+/', ' ', $a) ?? '');
+        return $a === '' ? null : $a;
     }
 
     // ── Classification helpers ─────────────────────────────────────────────

@@ -2968,7 +2968,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
                  leak into the top via the polluted pool. Both bounds are now
                  evidence-backed from the comp set; asking is a reference only. */ ?>
         <div class="value" style="font-size:17px;"><?= $zar($cmaLower) ?> — <?= $zar($cmaUpper) ?></div>
-        <div class="sub">Comparable-sales range (P25–P75) around the CMA mid</div>
+        <div class="sub">Comparable-sales range (P25–P75) around the comparable-sales median</div>
     </div>
     <?php if ($askingPrice): ?>
     <div class="metric-card <?= $askVsCmaPct !== null && $askVsCmaPct > 10 ? 'danger' : ($askVsCmaPct !== null && $askVsCmaPct > 5 ? 'warning' : 'success') ?>">
@@ -2995,9 +2995,16 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
             <td><span class="cmp-badge cmp-success">Range floor</span></td>
         </tr>
         <?php endif ?>
+        <?php /* PRES-CMA-FIX — this row is the comparable-sales MEDIAN
+                 (CmaComputeService method_median off the cleaned pool), NOT
+                 the imported CMA Info valuation. Label it as what it is so
+                 the "Why This Range?" table is honest end to end: P25 / median
+                 / P75 are all the comparable-sales distribution. The imported
+                 CMA Info figure is held separately (cma_info_benchmark) and is
+                 never rendered on the seller PDF. */ ?>
         <?php if ($cmaMiddle): ?>
         <tr>
-            <td>CMA Valuation (Middle)</td>
+            <td>Comparable sales — median</td>
             <td class="num"><?= $zar($cmaMiddle) ?></td>
             <td><span class="cmp-badge cmp-success">Primary</span></td>
         </tr>

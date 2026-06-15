@@ -121,6 +121,10 @@ final class MicSnapshotHydrator
                 'title_type'    => $this->deriveCompTitleType($row),
                 'lat'           => $row->latitude,
                 'lng'           => $row->longitude,
+                // PRES-CMA-FIX — address feeds CompPoolBuilder's subject
+                // self-exclusion guard (a comp at the subject's own address
+                // is the subject, never its own comparable).
+                'address'       => $row->address ?? null,
                 'exempt'        => $exempt,
                 'row'           => $row,
             ];
@@ -143,6 +147,8 @@ final class MicSnapshotHydrator
             // P25–P75 (CmaComputeService); this only governs which comps the
             // gate admits. Asking is the expected-value input the agent gave.
             'anchor_price'  => $this->resolveSubjectAnchorPrice($presentation),
+            // PRES-CMA-FIX — subject address for the self-exclusion guard.
+            'address'       => $presentation->property_address ?? $presentation->property?->property_address ?? null,
         ];
 
         $poolResult  = (new CompPoolBuilder())->select($subjectProfile, $candidates, $poolConfig);
@@ -280,6 +286,10 @@ final class MicSnapshotHydrator
         }
 
         $subjectIsDemo = (bool) ($presentation->property?->is_demo ?? false);
+        // PRES-CMA-FIX — the subject's own closed deal must not enter its
+        // comparable-sales pool. property_id is the exact, zero-false-positive
+        // subject match (same Property pillar record).
+        $subjectPropertyId = $presentation->property_id !== null ? (int) $presentation->property_id : null;
         $suburbNorm    = mb_strtolower(trim($suburb));
         // SuburbMatcher core token — strips "Beach"/"Bay"/etc so SQL pre-
         // filter matches "uvongo" comps when subject is "Uvongo Beach".
@@ -360,6 +370,15 @@ final class MicSnapshotHydrator
             // appear in the free-text address — accept those as-is.
             if (!empty($r->prop_suburb)
                 && !SuburbMatcher::matches($r->prop_suburb, $suburb)) {
+                continue;
+            }
+
+            // PRES-CMA-FIX — skip the subject's own deal (same Property
+            // pillar record); it can never be its own comparable.
+            if ($subjectPropertyId !== null
+                && $r->deal_property_id !== null
+                && (int) $r->deal_property_id === $subjectPropertyId) {
+                $skipped++;
                 continue;
             }
 
