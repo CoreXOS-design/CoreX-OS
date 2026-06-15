@@ -39,20 +39,7 @@ class ImapMailboxPoller
         }
 
         try {
-            $client = (new ClientManager([
-                'default'  => 'mbx',
-                'accounts' => ['mbx' => [
-                    'host'          => $mailbox->imap_host,
-                    'port'          => (int) $mailbox->imap_port,
-                    'protocol'      => 'imap',
-                    'encryption'    => $mailbox->imap_port == 143 ? 'tls' : 'ssl',
-                    'username'      => $mailbox->username,
-                    'password'      => $mailbox->encrypted_password, // decrypted by the model cast
-                    'validate_cert' => true,
-                    'timeout'       => 30,
-                ]],
-            ]))->account();
-            $client->connect();
+            $client = $this->connect($mailbox);
         } catch (\Throwable $e) {
             Log::error("Communication archive IMAP connect failed (mailbox {$mailbox->id}): {$e->getMessage()}");
             return ['status' => 'error', 'reason' => 'connect_failed', 'stats' => $stats];
@@ -73,11 +60,21 @@ class ImapMailboxPoller
             }
         }
 
+        // Hard time budget so a non-responsive folder read can never spin to the
+        // queue job timeout (webklex's stream timeout is unreliable on a TLS
+        // stream). The watchdog throws ImapPollTimeoutException; we log + stop.
+        $budget  = max(1, (int) config('communications.imap_poll_budget_seconds', 50));
+        $started = $this->startWatchdog($budget, (int) $mailbox->id);
+        $status  = 'success';
+        $reason  = null;
+
         try {
             foreach ($folders as $folderName => $direction) {
                 $folder = null;
                 try {
                     $folder = $client->getFolderByName($folderName);
+                } catch (ImapPollTimeoutException $e) {
+                    throw $e;
                 } catch (\Throwable $e) {
                     $folder = null; // folder doesn't exist on this server — skip quietly
                 }
@@ -88,6 +85,8 @@ class ImapMailboxPoller
 
                 try {
                     $messages = $folder->query()->since($since)->get();
+                } catch (ImapPollTimeoutException $e) {
+                    throw $e;
                 } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
                     Log::info("Communication archive IMAP search empty (mailbox {$mailbox->id}, {$folderName}): {$e->getMessage()}");
                     continue;
@@ -98,6 +97,8 @@ class ImapMailboxPoller
                         $normalized = $this->normalize($message, $direction);
                         $result = $this->ingestor->ingest($mailbox, $normalized, $direction);
                         $stats[$result] = ($stats[$result] ?? 0) + 1;
+                    } catch (ImapPollTimeoutException $e) {
+                        throw $e; // the budget fired mid-message — abort the whole poll
                     } catch (\Throwable $e) {
                         // One bad message must never block the rest or crash the worker.
                         $stats['errors']++;
@@ -105,12 +106,85 @@ class ImapMailboxPoller
                     }
                 }
             }
+        } catch (ImapPollTimeoutException $e) {
+            // A non-responsive folder read tripped the budget. Clean, logged
+            // error — never a TimeoutExceededException from the queue worker.
+            Log::error("Communication archive IMAP poll timed out (mailbox {$mailbox->id}): {$e->getMessage()}");
+            $status = 'error';
+            $reason = 'read_timeout';
         } finally {
+            $this->stopWatchdog($started);
             try { $client->disconnect(); } catch (\Throwable $e) { /* ignore */ }
             $mailbox->forceFill(['last_polled_at' => now()])->save();
         }
 
-        return ['status' => 'success', 'stats' => $stats];
+        return ['status' => $status, 'reason' => $reason, 'stats' => $stats];
+    }
+
+    /**
+     * Connect to the mailbox and harden the live stream against a silent server.
+     * Overridable seam so the read-timeout path is testable without a server.
+     */
+    protected function connect(CommunicationMailbox $mailbox)
+    {
+        $timeout = max(1, (int) config('communications.imap_timeout_seconds', 20));
+
+        $client = (new ClientManager([
+            'default'  => 'mbx',
+            'accounts' => ['mbx' => [
+                'host'          => $mailbox->imap_host,
+                'port'          => (int) $mailbox->imap_port,
+                'protocol'      => 'imap',
+                'encryption'    => $mailbox->imap_port == 143 ? 'tls' : 'ssl',
+                'username'      => $mailbox->username,
+                'password'      => $mailbox->encrypted_password, // decrypted by the model cast
+                'validate_cert' => true,
+                'timeout'       => $timeout,
+            ]],
+        ]))->account();
+        $client->connect();
+
+        // webklex sets stream_set_timeout() on the raw socket BEFORE enabling
+        // crypto, so fread() on the TLS-wrapped stream can ignore it. Re-apply
+        // the read timeout on the live stream so a silent server fails the read.
+        try {
+            $stream = $client->getConnection()->getStream();
+            if (is_resource($stream)) {
+                stream_set_timeout($stream, $timeout);
+            }
+        } catch (\Throwable $e) {
+            // best effort — the pcntl budget below is the hard backstop
+        }
+
+        return $client;
+    }
+
+    /**
+     * Arm a pcntl alarm that throws ImapPollTimeoutException after $seconds.
+     * Returns whether the alarm was armed (pcntl present) so stopWatchdog can
+     * restore the previous handler. No-op (returns false) when pcntl is absent.
+     */
+    private function startWatchdog(int $seconds, int $mailboxId): bool
+    {
+        if (! function_exists('pcntl_async_signals') || ! function_exists('pcntl_alarm')) {
+            return false;
+        }
+        pcntl_async_signals(true);
+        pcntl_signal(SIGALRM, function () use ($seconds, $mailboxId) {
+            throw new ImapPollTimeoutException("mailbox {$mailboxId} read exceeded {$seconds}s budget");
+        });
+        pcntl_alarm($seconds);
+
+        return true;
+    }
+
+    private function stopWatchdog(bool $armed): void
+    {
+        if (! $armed) {
+            return;
+        }
+        pcntl_alarm(0);
+        pcntl_signal(SIGALRM, SIG_DFL);
     }
 
     /**
@@ -210,17 +284,11 @@ class ImapMailboxPoller
 
     private function addresses($message, string $method): array
     {
-        return $this->safe(function () use ($message, $method) {
-            $collection = $message->{$method}();
-            $out = [];
-            foreach ($collection as $addr) {
-                $mail = is_object($addr) ? ($addr->mail ?? null) : (is_string($addr) ? $addr : null);
-                if ($mail) {
-                    $out[] = strtolower(trim($mail));
-                }
-            }
-            return $out;
-        }) ?? [];
+        // webklex getFrom()/getTo()/getCc() return an Attribute that is NOT
+        // Traversable — a plain foreach yields nothing (AT-40). Extract via the
+        // shared EmailAddressExtractor (->all()) so this never regresses and the
+        // pending-reprocess command uses identical parsing.
+        return $this->safe(fn () => EmailAddressExtractor::normalize($message->{$method}())) ?? [];
     }
 
     private function stripHtml(?string $html): ?string
