@@ -1,11 +1,11 @@
 /**
  * CoreX WhatsApp Capture — content script (READ-ONLY).
  *
- * Reads the already-rendered (already-decrypted) WhatsApp Web DOM and extracts
- * messages. It NEVER sends a message, never touches the compose box, never
- * automates anything outbound — it only observes the DOM the user already
- * loaded (and, for the history sweep, opens chats the user could open by hand)
- * and POSTs (via the background worker) to CoreX.
+ * v1.2.0: PRIMARY message source is WhatsApp Web's `model-storage` IndexedDB
+ * (durable cleartext metadata + plaintext body), read READ-ONLY — see the
+ * "IndexedDB reader" section below. DOM scraping is retained ONLY as a body
+ * fallback for any non-plaintext message. It NEVER sends a message, never
+ * touches the compose box, never writes to the DB — capture only.
  *
  * ── AT-44 detection (v1.1.2 — re-pinned to current WA Web) ───────────────────
  * WhatsApp Web obfuscated ALL message class names (no more .message-in/.message-out)
@@ -133,11 +133,15 @@ async function init() {
   });
   markInteraction();
 
+  // The MutationObserver is just a cheap "something changed, re-read the DB now"
+  // trigger; the actual read is from IndexedDB (model-storage), not the DOM.
   attachObserver();
-  setInterval(attachObserver, 8000);            // re-attach if WA re-mounts the list
-  setInterval(() => sweep('interval'), SWEEP_INTERVAL_MS);
+  setInterval(attachObserver, 8000);                 // re-attach if WA re-mounts the pane
+  setInterval(() => sweep('interval'), SWEEP_INTERVAL_MS); // catches background-chat messages
   setTimeout(() => sweep('first-load'), FIRST_SWEEP_MS);
-  setInterval(maybeRunHistorySweep, HISTORY_SWEEP_INTERVAL_MS);
+  // NOTE: the old DOM chat-list walk (auto-opening chats) is GONE — IndexedDB
+  // exposes every chat's messages without navigating, which is both reliable and
+  // lower ToS risk. maybeRunHistorySweep is retained but no longer scheduled.
 }
 
 /**
@@ -370,8 +374,9 @@ function sweepDiag(reason) {
   }
 }
 
-/* ── Sweep (focused chat) ────────────────────────────────────────────────── */
-function sweep(reason) {
+/* ── DOM sweep (RETAINED as the encrypted-body fallback + DIAG; not scheduled
+ *    in v1.2.0 — the IndexedDB reader below is the primary path) ──────────── */
+function domSweep(reason) {
   sweepDiag(reason); // always (throttled) — runs even when nothing matches
 
   const root = document.querySelector(SELECTORS.main);
@@ -427,6 +432,202 @@ function send(messages) {
     if (resp.ok) log('POST ok — status', resp.status, '| stats', JSON.stringify(resp.body && resp.body.stats || {}));
     else warn('POST not ok — status', resp.status, '| error', resp.error || (resp.body && resp.body.error));
   });
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * IndexedDB reader (v1.2.0) — the PRIMARY, durable message source.
+ *
+ * WhatsApp Web keeps its data in the `model-storage` IndexedDB. A content script
+ * shares the page origin, so it can open that DB and read it — READ-ONLY, never
+ * a write. The `message` store's record `id` is the canonical
+ * `{true|false}_{chatJid}_{msgId}` (direction + chat + id, no obfuscated classes),
+ * with cleartext `t` (unix seconds), `from`/`author`, `type`, and `body`.
+ * `sweep()` now delegates here; the DOM path above is kept only as a body
+ * fallback for any message whose body is not plaintext in the DB.
+ * ════════════════════════════════════════════════════════════════════════════ */
+const MODEL_DB = 'model-storage';
+const MAX_MSG_SCAN = 1500;        // newest-N messages read per sweep
+let idbSweeping = false;
+let schemaDumped = false;
+let contactNameByJid = {};        // jid -> display name (from the contact store)
+
+function sweep(reason) { idbSweep(reason); } // the scheduled entry point
+
+function serId(x) {
+  if (typeof x === 'string') return x;
+  if (x && typeof x._serialized === 'string') return x._serialized;
+  return '';
+}
+
+function idbOpen(name) {
+  return new Promise((res) => {
+    let r;
+    try { r = indexedDB.open(name); } catch (e) { return res(null); }
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => res(null);
+    r.onblocked = () => res(null);
+  });
+}
+
+function pickStore(db, preferred, re) {
+  const names = Array.from(db.objectStoreNames);
+  for (const n of preferred) if (names.includes(n)) return n;
+  return names.find((n) => re.test(n)) || null;
+}
+
+/** Read newest-first via a `t` (timestamp) index if present; else scan + sort. */
+function idbReadNewest(db, store, limit) {
+  return new Promise((res) => {
+    const recs = [];
+    try {
+      const os = db.transaction(store, 'readonly').objectStore(store);
+      const hasT = os.indexNames && os.indexNames.contains('t');
+      if (hasT) {
+        const cur = os.index('t').openCursor(null, 'prev');
+        cur.onsuccess = (e) => { const c = e.target.result; if (c && recs.length < limit) { recs.push({ key: c.primaryKey, value: c.value }); c.continue(); } else res({ recs, indexed: true }); };
+        cur.onerror = () => res({ recs, indexed: true });
+      } else {
+        const cap = limit * 8; // read more, then sort by t desc in memory
+        const cur = os.openCursor();
+        cur.onsuccess = (e) => {
+          const c = e.target.result;
+          if (c && recs.length < cap) { recs.push({ key: c.primaryKey, value: c.value }); c.continue(); }
+          else { recs.sort((a, b) => ((b.value && b.value.t) || 0) - ((a.value && a.value.t) || 0)); res({ recs: recs.slice(0, limit), indexed: false }); }
+        };
+        cur.onerror = () => { recs.sort((a, b) => ((b.value && b.value.t) || 0) - ((a.value && a.value.t) || 0)); res({ recs: recs.slice(0, limit), indexed: false }); };
+      }
+    } catch (e) { res({ recs, indexed: false }); }
+  });
+}
+
+function idbReadAll(db, store, limit) {
+  return new Promise((res) => {
+    const recs = [];
+    try {
+      const cur = db.transaction(store, 'readonly').objectStore(store).openCursor();
+      cur.onsuccess = (e) => { const c = e.target.result; if (c && recs.length < limit) { recs.push({ key: c.primaryKey, value: c.value }); c.continue(); } else res(recs); };
+      cur.onerror = () => res(recs);
+    } catch (e) { res(recs); }
+  });
+}
+
+/** Map a message record → our payload shape (cleartext metadata + body). */
+function idbExtract(rec) {
+  const v = rec.value || {};
+  let idStr = serId(v.id) || (typeof rec.key === 'string' ? rec.key : serId(rec.key));
+  if (!idStr) return null;
+  const parts = idStr.split('_');
+  const fromMe = parts[0] === 'true';
+  const chatJid = parts.length >= 2 ? parts[1] : '';
+  const msgId = parts.length >= 3 ? parts.slice(2).join('_') : idStr;
+  if (!chatJid || !msgId) return null;
+
+  const t = typeof v.t === 'number' ? v.t : (typeof v.ts === 'number' ? v.ts : 0);
+  const timestamp = t ? new Date(t * 1000).toISOString() : '';
+
+  let text = '';
+  if (typeof v.body === 'string') text = v.body;
+  else if (typeof v.caption === 'string') text = v.caption;
+
+  const type = v.type || 'chat';
+  const hasMedia = ['image', 'video', 'audio', 'ptt', 'document', 'sticker', 'gif'].indexOf(type) >= 0;
+
+  const senderJid = fromMe ? '' : (serId(v.author) || serId(v.from) || chatJid);
+  const sender = senderJid ? (contactNameByJid[senderJid] || senderJid.split('@')[0]) : '';
+
+  return {
+    message_id: msgId,
+    chat_id: chatJid,
+    direction: fromMe ? 'out' : 'in',
+    sender: sender,
+    timestamp: timestamp,
+    text: text || '',
+    has_media: hasMedia,
+    media: [],
+    _t: t,
+    _bodyReadable: !!text,
+  };
+}
+
+async function idbSweep(reason) {
+  if (idbSweeping) return;
+  idbSweeping = true;
+  const db = await idbOpen(MODEL_DB);
+  try {
+    if (!db) { warn('idbSweep[' + reason + '] could NOT open ' + MODEL_DB + ' — is this web.whatsapp.com, logged in?'); return; }
+    const msgStore = pickStore(db, ['message', 'messages'], /mess/i);
+    const contactStore = pickStore(db, ['contact', 'contacts'], /contact/i);
+    if (!msgStore) { warn('idbSweep[' + reason + '] no message store; stores=[' + Array.from(db.objectStoreNames).join(',') + ']'); return; }
+
+    // contact index: jid -> display name (best-effort, cleartext)
+    if (contactStore) {
+      const crecs = await idbReadAll(db, contactStore, 5000);
+      const idx = {};
+      for (const r of crecs) {
+        const c = r.value || {};
+        const j = serId(c.id) || (typeof r.key === 'string' ? r.key : '');
+        const nm = c.name || c.pushname || c.notify || c.shortName || c.verifiedName || c.displayName || '';
+        if (j && nm) idx[j] = nm;
+      }
+      contactNameByJid = idx;
+    }
+
+    const { recs, indexed } = await idbReadNewest(db, msgStore, MAX_MSG_SCAN);
+
+    // ONE-TIME schema dump (field names only, no body content) — confirms the
+    // real message-store shape so we know we're building against reality.
+    if (!schemaDumped && recs.length) {
+      schemaDumped = true;
+      const v0 = recs[0].value || {};
+      log('SCHEMA message store "' + msgStore + '" (newest-via-t-index=' + indexed + ') key=' + JSON.stringify(recs[0].key).slice(0, 120));
+      log('SCHEMA fields=[' + Object.keys(v0).join(',') + ']');
+      log('SCHEMA body: present=' + ('body' in v0) + ' type=' + typeof v0.body + ' readable=' + (typeof v0.body === 'string' && v0.body.length > 0) +
+          ' | msgRowOpaqueData present=' + ('msgRowOpaqueData' in v0) + ' | id sample=' + JSON.stringify(serId(v0.id) || recs[0].key).slice(0, 80));
+    }
+
+    // group newest-N by chat, send messages after each chat's stored cursor
+    const byChat = {};
+    for (const r of recs) { const m = idbExtract(r); if (m) (byChat[m.chat_id] = byChat[m.chat_id] || []).push(m); }
+
+    let sent = 0, chatsWithNew = 0, firstSeen = 0, unreadableBodies = 0;
+    for (const jid of Object.keys(byChat)) {
+      const msgs = byChat[jid].sort((a, b) => (a._t - b._t)); // oldest -> newest
+      const key = jid; // store cursor keyed by jid
+      const seen = lastSeenByChat[key] || null;
+
+      if (!seen) {
+        // First sight of this chat: set the cursor to newest and DON'T backfill the
+        // whole history (forward-only baseline). Contact-aware history backfill is
+        // the next increment; the server still gates archive vs pending per contact.
+        const newest = msgs[msgs.length - 1];
+        if (newest) recordLastSeen(key, newest.message_id);
+        firstSeen++;
+        continue;
+      }
+
+      const batch = [];
+      let newLast = seen, passed = false;
+      for (const m of msgs) {
+        if (!passed) { if (m.message_id === seen) passed = true; continue; }
+        if (!m._bodyReadable && !m.has_media) unreadableBodies++;
+        batch.push({ message_id: m.message_id, chat_id: String(m.chat_id), direction: m.direction, sender: m.sender, timestamp: m.timestamp, text: m.text, has_media: m.has_media, media: [] });
+        newLast = m.message_id;
+      }
+      // If the cursor message wasn't in the newest-N window (long-idle chat), the
+      // loop sent nothing and passed stayed false — leave the cursor as-is.
+      if (batch.length) { recordLastSeen(key, newLast); sent += batch.length; chatsWithNew++; send(batch); }
+    }
+
+    log('idbSweep[' + reason + '] store=' + msgStore + ' scanned=' + recs.length +
+        ' chats=' + Object.keys(byChat).length + ' firstSeen=' + firstSeen +
+        ' sent=' + sent + ' across ' + chatsWithNew + ' chats' +
+        (unreadableBodies ? ' | ' + unreadableBodies + ' bodies not plaintext (DOM fallback TBD)' : ''));
+  } catch (e) {
+    warn('idbSweep[' + reason + '] error: ' + String(e));
+  } finally {
+    if (db) { try { db.close(); } catch (e) {} }
+    idbSweeping = false;
+  }
 }
 
 /* ── History sweep (chat list, contact-aware, paced, READ-ONLY) ──────────────
