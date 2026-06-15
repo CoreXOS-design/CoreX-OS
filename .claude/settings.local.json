@@ -105,7 +105,58 @@
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; Set-Location \"c:\\\\Users\\\\USER-PC\\\\Documents\\\\Projects\\\\hfc-dash\"; & powershell -ExecutionPolicy Bypass -File scripts\\\\dev-check.ps1 2>&1 | Select-Object -Last 45)",
       "PowerShell($env:PATH = \"C:\\\\xampp\\\\mysql\\\\bin;$env:PATH\"; Set-Location \"c:\\\\Users\\\\USER-PC\\\\Documents\\\\Projects\\\\hfc-dash\"; & C:\\\\xampp\\\\php\\\\php.exe artisan test --filter=AgentProfileArticlesTest 2>&1 | Select-Object -Last 15)",
       "PowerShell($gh = \\(Get-Command gh -ErrorAction SilentlyContinue\\).Source; if \\($gh\\) { \"FOUND: $gh\" } else { \"gh not found\"; Test-Path \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" })",
-      "PowerShell(git stash pop 2>&1)"
+      "PowerShell(git stash pop 2>&1)",
+      "mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue",
+      "mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue",
+
+      "mcp__claude_ai_Atlassian_Rovo__createJiraIssue",
+      "mcp__claude_ai_Atlassian_Rovo__editJiraIssue",
+      "mcp__claude_ai_Atlassian_Rovo__searchJiraIssuesUsingJql",
+      "mcp__claude_ai_Atlassian_Rovo__getJiraIssue",
+      "mcp__claude_ai_Atlassian_Rovo__getTransitionsForJiraIssue",
+      "mcp__claude_ai_Atlassian_Rovo__getVisibleJiraProjects",
+      "mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources",
+
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git fetch:*)",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git branch:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git show:*)",
+
+      "Bash(php artisan migrate)",
+      "Bash(php artisan migrate --force)",
+      "Bash(php artisan schema:dump:*)",
+      "Bash(php artisan view:clear)",
+      "Bash(php artisan view:cache)",
+      "Bash(php artisan route:clear)",
+      "Bash(php artisan route:list:*)",
+      "Bash(php artisan cache:clear)",
+      "Bash(php artisan config:clear)",
+      "Bash(php artisan test:*)",
+      "Bash(php artisan corex:sync-permissions:*)",
+      "Bash(php -l:*)",
+
+      "Read(/tmp/**)"
+    ],
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(php artisan migrate:fresh:*)",
+      "Bash(php artisan migrate:reset:*)",
+      "Bash(php artisan db:wipe:*)",
+      "Bash(*DROP DATABASE*)",
+      "Bash(*drop database*)"
     ]
   }
 }
