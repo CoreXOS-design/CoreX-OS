@@ -152,6 +152,12 @@ Route::prefix('v1/client')->middleware(['auth:sanctum', 'client.ability'])->grou
 
     Route::get('/properties/{property}',  [ClientPortalController::class, 'propertyShow'])->name('client.properties.show');
 
+    // Testimonials — the client leaves feedback about their agent from the app.
+    // Captured unpublished; syncs to the agent's Contact tab + notifies them.
+    // Spec: .ai/specs/testimonials.md §13.
+    Route::get('/testimonials',  [ClientPortalController::class, 'testimonials'])->name('client.testimonials.index');
+    Route::post('/testimonials', [ClientPortalController::class, 'testimonialCreate'])->name('client.testimonials.create');
+
     // Seller-side property intelligence — client sees the same seller-facing
     // dataset as the Seller Live Link page for properties they own/sell.
     // Spec: .ai/specs/client-seller-insights.md

@@ -432,6 +432,15 @@ class AppServiceProvider extends ServiceProvider
         );
         \App\Models\ContactTestimonial::observe(\App\Observers\ContactTestimonialObserver::class);
 
+        // Client submits a testimonial from the mobile app → notify the
+        // connected agent (in-app bell + email). Cross-pillar Contact → Agent,
+        // routed through a domain event per non-negotiable #9.
+        // Spec: .ai/specs/testimonials.md §13.
+        Event::listen(
+            \App\Events\Contact\ContactTestimonialSubmitted::class,
+            \App\Listeners\Contacts\NotifyAgentOfClientTestimonial::class,
+        );
+
         // Agent Articles — publish/unpublish/edit fans out to per-website
         // article.* webhooks. Payload carries id + agent_id so the consuming
         // site can bust its per-agent article cache. Spec: agency-public-api.md §6.1.
