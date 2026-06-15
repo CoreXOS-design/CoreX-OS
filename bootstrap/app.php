@@ -33,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'super_admin' => \App\Http\Middleware\SuperAdminMiddleware::class,
                 'admin_or_bm' => \App\Http\Middleware\AdminOrBranchManager::class,
                 'auth.portal_capture' => \App\Http\Middleware\AuthenticatePortalCapture::class,
+                'auth.wa_capture' => \App\Http\Middleware\AuthenticateWaCapture::class,
                 'permission' => \App\Http\Middleware\CheckPermission::class,
                 'owner_only' => \App\Http\Middleware\OwnerOnly::class,
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
@@ -47,6 +48,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             '/internal/ai-chat-proxy',
             'portal-captures/ingest',
+            'communications/wa/ingest',
         ]);
 
     })

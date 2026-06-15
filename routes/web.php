@@ -1568,6 +1568,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{mailbox}', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'destroy'])->name('destroy');
     });
 
+    // ── WhatsApp capture device registration (AT-34) — agent self-service. ──
+    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/wa-devices')->name('communications.wa-devices.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'index'])->name('index');
+        Route::post('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'store'])->name('store');
+        Route::delete('/{waDevice}', [\App\Http\Controllers\Communications\WaDeviceController::class, 'destroy'])->name('destroy');
+    });
+
     // ── Document Verification Queue ──
     Route::middleware(['permission:verify_user_documents', 'agency.required'])->prefix('compliance/verification-queue')->name('compliance.verification.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'index'])->name('index');
@@ -3301,4 +3308,10 @@ Route::prefix('fica')->group(function () {
 // Uses auth.portal_capture: session auth OR bearer token (for Chrome extension)
 Route::middleware(['auth.portal_capture'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
     ->name('portal-captures.ingest');
+
+// WhatsApp capture ingest (AT-34). Per-device Bearer token (auth.wa_capture).
+// Mirrors the portal-capture ingest pattern — a machine endpoint for the
+// read-only WhatsApp Web extension, not the session API.
+Route::middleware(['auth.wa_capture'])->post('/communications/wa/ingest', [\App\Http\Controllers\Communications\WaIngestController::class, 'ingest'])
+    ->name('communications.wa.ingest');
 
