@@ -121,6 +121,10 @@ return [
         //    full immutable archive of staff email/WhatsApp. Restricted by default. ──
         ['key' => 'access_communication_archive',  'label' => 'View Communication Archive (all staff email/WhatsApp)', 'section' => 'compliance', 'type' => 'access', 'module' => 'communication_archive', 'sort_order' => 17],
         ['key' => 'manage_communication_mailboxes', 'label' => 'Manage Archive Mailboxes (IMAP credentials)',          'section' => 'compliance', 'type' => 'action', 'module' => 'communication_archive', 'sort_order' => 18],
+        // Pending triage (AT-36): staff-facing triage of unknown-contact messages (agents).
+        ['key' => 'triage_communications',            'label' => 'Triage Pending Communications',                     'section' => 'compliance', 'type' => 'access', 'module' => 'communication_archive', 'sort_order' => 19],
+        // BM flag register: audit of who discarded what (privacy-sensitive, no message content).
+        ['key' => 'view_communication_flag_register', 'label' => 'View Communication Flag Register (triage audit)',   'section' => 'compliance', 'type' => 'access', 'module' => 'communication_archive', 'sort_order' => 20],
 
         // ── RMCP ──
         ['key' => 'access_rmcp',                 'label' => 'View RMCP',                       'section' => 'compliance',       'type' => 'access',  'module' => 'rmcp',             'sort_order' => 20],
@@ -550,6 +554,7 @@ return [
                 'compliance.view', 'compliance.manage',
                 'verify_user_documents', 'access_compliance_dashboard',
                 'access_communication_archive',
+                'triage_communications', 'view_communication_flag_register',
                 'access_rmcp', 'edit_rmcp', 'manage_compliance_officer', 'manage_information_officer',
                 'access_policy', 'edit_policy',
                 'manage_activity_mappings',
@@ -639,6 +644,7 @@ return [
                 'access_training', 'training.view',
                 'access_communication', 'send_messages',
                 'communication.view', 'communication.send',
+                'triage_communications',
                 'access_client_portal',
                 'access_docuperfect', 'create_docuperfect_docs',
                 'access_docuperfect_packs', 'access_clause_library',

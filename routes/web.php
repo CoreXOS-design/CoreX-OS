@@ -1575,6 +1575,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{waDevice}', [\App\Http\Controllers\Communications\WaDeviceController::class, 'destroy'])->name('destroy');
     });
 
+    // ── Communication Archive — pending triage (AT-36, staff-facing) ──
+    Route::middleware(['permission:triage_communications', 'agency.required'])->prefix('communications/triage')->name('communications.triage.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'index'])->name('index');
+        Route::post('/add-contact', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'addContact'])->name('add-contact');
+        Route::post('/not-real-estate', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'notRealEstate'])->name('not-real-estate');
+    });
+
+    // ── Communication Archive — BM flag register (AT-36, audit; no message content) ──
+    Route::middleware(['permission:view_communication_flag_register', 'agency.required'])->prefix('compliance/communication-flags')->name('compliance.comm-flags.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Communications\CommunicationFlagRegisterController::class, 'index'])->name('index');
+    });
+
     // ── Document Verification Queue ──
     Route::middleware(['permission:verify_user_documents', 'agency.required'])->prefix('compliance/verification-queue')->name('compliance.verification.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'index'])->name('index');
