@@ -7,11 +7,6 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<x-page-header
-    title="Flow Map"
-    subtitle="Your guide to all of CoreX — what each part does, how to use it, and what comes next. New here? Start at the top and follow the arrows."
-    :flush="true" />
-
 @php
     $svgFor = function (string $key) {
         return match ($key) {
@@ -50,11 +45,20 @@
     $nodeIndex = collect($nodes)->keyBy('key');
 @endphp
 
-<div class="p-4 lg:p-8" x-data="{ cat: 'all' }">
-    <div class="max-w-screen-xl mx-auto">
+<div class="w-full space-y-5" x-data="{ cat: 'all' }">
+
+    {{-- Page header (branded, Pattern A) --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Flow Map</h1>
+                <p class="text-sm text-white/60">Your guide to all of CoreX — what each part does, how to use it, and what comes next. New here? Start at the top and follow the arrows.</p>
+            </div>
+        </div>
+    </div>
 
         {{-- Section jump / filter chips --}}
-        <div class="flex flex-wrap gap-2 mb-8">
+        <div class="flex flex-wrap gap-2">
             <button type="button" @click="cat = 'all'"
                     class="text-xs font-semibold px-3 py-1.5 rounded-md transition"
                     :style="cat === 'all'
@@ -76,7 +80,7 @@
         @foreach($categories as $ci => $category)
         @php $catNodes = $nodesByCategory->get($category['key'], collect()); @endphp
         @if($catNodes->isNotEmpty())
-        <section class="mb-10"
+        <section
                  x-show="cat === 'all' || cat === '{{ $category['key'] }}'"
                  x-transition>
 
@@ -177,14 +181,20 @@
         @endforeach
 
         @if(empty($nodes))
-        <div class="rounded-md p-8 text-center text-sm" style="background: var(--surface, #ffffff); border: 1px solid var(--border, rgba(0,0,0,0.07)); color: var(--text-muted, #9ca3af);">
-            No parts of CoreX are visible for your access level yet.
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface, #ffffff); border: 1px solid var(--border, rgba(0,0,0,0.07));">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M6 9v6a3 3 0 0 0 3 3h6"/>
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary, #111827);">Nothing to map yet</h3>
+            <p class="text-sm" style="color: var(--text-muted, #9ca3af);">No parts of CoreX are visible for your access level yet.</p>
         </div>
         @endif
 
-        <p class="mt-4 text-xs" style="color: var(--text-muted, #9ca3af);">
+        <p class="text-xs" style="color: var(--text-muted, #9ca3af);">
             You only see the parts of CoreX you have access to. Click any card with an arrow to jump straight there.
         </p>
-    </div>
 </div>
 @endsection

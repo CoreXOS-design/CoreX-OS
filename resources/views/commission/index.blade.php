@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -16,10 +17,10 @@
     {{-- Session success message (alert pattern §3.9) --}}
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
-                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+             style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
                     color: var(--text-primary);">
-            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-green);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-green, #059669);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
             <div class="flex-1">{{ session('success') }}</div>
@@ -107,7 +108,7 @@
         {{-- Empty state (§3.10) --}}
         <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                 style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                 style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
                 </svg>
@@ -136,11 +137,11 @@
                         @foreach($entries as $entry)
                             @php
                                 $typeBadge = match($entry->transaction_type) {
-                                    'sale'              => ['tint' => 'var(--brand-icon)', 'label' => 'Sale'],
-                                    'rental_letting'    => ['tint' => 'var(--ds-green)',   'label' => 'Letting'],
-                                    'rental_management' => ['tint' => 'var(--ds-green)',   'label' => 'Rental'],
-                                    'referral'          => ['tint' => 'var(--ds-amber)',   'label' => 'Referral'],
-                                    default             => ['tint' => 'var(--text-muted)', 'label' => 'Other'],
+                                    'sale'              => ['tint' => 'var(--brand-icon, #0ea5e9)', 'label' => 'Sale'],
+                                    'rental_letting'    => ['tint' => 'var(--ds-green, #059669)',   'label' => 'Letting'],
+                                    'rental_management' => ['tint' => 'var(--ds-green, #059669)',   'label' => 'Rental'],
+                                    'referral'          => ['tint' => 'var(--ds-amber, #f59e0b)',   'label' => 'Referral'],
+                                    default             => ['tint' => 'var(--text-muted, #9ca3af)', 'label' => 'Other'],
                                 };
 
                                 $statusBadgeClass = match($entry->status) {
@@ -175,13 +176,13 @@
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 text-right whitespace-nowrap" style="color: var(--text-primary);">
-                                    R {{ number_format((float) $entry->gross_commission, 2) }}
+                                    R {{ number_format((float) $entry->gross_commission, 0) }}
                                 </td>
                                 <td class="px-4 py-3 text-right whitespace-nowrap" style="color: var(--text-secondary);">
-                                    R {{ number_format((float) $entry->net_agent_amount, 2) }}
+                                    R {{ number_format((float) $entry->net_agent_amount, 0) }}
                                 </td>
                                 <td class="px-4 py-3 text-right whitespace-nowrap font-semibold" style="color: var(--text-primary);">
-                                    R {{ number_format((float) $entry->company_dollar, 2) }}
+                                    R {{ number_format((float) $entry->company_dollar, 0) }}
                                 </td>
                                 <td class="px-4 py-3 text-center whitespace-nowrap">
                                     <span class="{{ $statusBadgeClass }}">{{ $statusBadgeLabel }}</span>
@@ -194,9 +195,9 @@
                                                 @csrf
                                                 <button type="submit"
                                                         class="px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
-                                                        style="background: color-mix(in srgb, var(--brand-button) 12%, transparent);
-                                                               color: var(--brand-button);
-                                                               border: 1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);">
+                                                        style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 12%, transparent);
+                                                               color: var(--brand-button, #0ea5e9);
+                                                               border: 1px solid color-mix(in srgb, var(--brand-button, #0ea5e9) 25%, transparent);">
                                                     Confirm
                                                 </button>
                                             </form>
@@ -206,9 +207,9 @@
                                                 @csrf
                                                 <button type="submit"
                                                         class="px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
-                                                        style="background: color-mix(in srgb, var(--ds-green) 12%, transparent);
-                                                               color: var(--ds-green);
-                                                               border: 1px solid color-mix(in srgb, var(--ds-green) 25%, transparent);">
+                                                        style="background: color-mix(in srgb, var(--ds-green, #059669) 12%, transparent);
+                                                               color: var(--ds-green, #059669);
+                                                               border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">
                                                     Mark Paid
                                                 </button>
                                             </form>

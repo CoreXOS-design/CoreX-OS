@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+<div class="w-full space-y-6"
      x-data="{
         showRejectModal: false,
         rejectDocId: null,
@@ -186,11 +187,11 @@
                             <div class="mb-3">
                                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Termination Date</label>
                                 <input type="date" name="termination_date" value="{{ now()->format('Y-m-d') }}" required
-                                       class="w-full rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                       class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             </div>
                             <div class="mb-4">
                                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Reason (optional)</label>
-                                <textarea name="reason" rows="2" maxlength="500" class="w-full rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="Reason for termination..."></textarea>
+                                <textarea name="reason" rows="2" maxlength="500" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="Reason for termination..."></textarea>
                             </div>
                             <div class="flex gap-2 justify-end">
                                 <button type="button" class="text-xs px-3 py-1.5 rounded-md transition-all duration-300" style="border: 1px solid var(--border); color: var(--text-secondary);"
@@ -428,7 +429,7 @@
                                             <span class="mt-0.5" style="color: var(--ds-amber);" title="Wet ink uploaded">&#9888;</span>
                                             <div>
                                                 <span class="capitalize" style="color: var(--text-secondary);">{{ $role }}</span>
-                                                <span class="font-medium" style="color: var(--ds-amber);">wet ink â€” pending review</span>
+                                                <span class="font-medium" style="color: var(--ds-amber);">wet ink — pending review</span>
                                             </div>
                                         @elseif(in_array($req->status, ['pending', 'viewed', 'partially_signed']))
                                             @php
@@ -441,7 +442,7 @@
                                                     <span class="capitalize" style="color: var(--text-secondary);">{{ $role }}</span>
                                                     <span style="color: var(--brand-icon);">
                                                         {{ $req->signer_name }}
-                                                        â€” {{ $req->status === 'viewed' ? 'viewed' : ($req->status === 'partially_signed' ? 'signing' : 'sent') }}
+                                                        — {{ $req->status === 'viewed' ? 'viewed' : ($req->status === 'partially_signed' ? 'signing' : 'sent') }}
                                                     </span>
                                                 </div>
                                                 <div class="flex items-center gap-2 mt-0.5">
@@ -456,7 +457,7 @@
                                                     @endif
                                                 </div>
                                                 @if($days >= 7)
-                                                    <div class="text-[10px] font-medium mt-0.5" style="color: var(--ds-crimson);">&#9888; {{ $days }} days without signing â€” follow up recommended</div>
+                                                    <div class="text-[10px] font-medium mt-0.5" style="color: var(--ds-crimson);">&#9888; {{ $days }} days without signing — follow up recommended</div>
                                                 @endif
                                             </div>
                                         @elseif($req->status === 'waiting')
@@ -576,7 +577,7 @@
     {{-- Draft --}}
     @if($groups['draft']->isNotEmpty())
     <div id="section-draft" class="space-y-3 scroll-mt-4">
-        <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-secondary);">Draft â€” Fields Incomplete</h3>
+        <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-secondary);">Draft — Fields Incomplete</h3>
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto"><table class="min-w-full text-sm ds-table">
                 <thead>
@@ -682,7 +683,7 @@
     </div>
     @endif
 
-    {{-- Properties â€” documents grouped by property --}}
+    {{-- Properties — documents grouped by property --}}
     @if($documentsByProperty->isNotEmpty())
     <div id="section-properties" class="space-y-3 scroll-mt-4">
         <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--brand-icon);">
@@ -748,7 +749,7 @@
                                             @if($doc->document_type)
                                                 <span class="ds-badge ds-badge-default">{{ ucwords(str_replace('_', ' ', $doc->document_type)) }}</span>
                                             @else
-                                                <span class="text-xs" style="color: var(--text-muted);">â€”</span>
+                                                <span class="text-xs" style="color: var(--text-muted);">—</span>
                                             @endif
                                         </td>
                                         <td class="px-4 py-2 font-medium" style="color: var(--text-primary);">{{ $doc->name }}</td>
@@ -805,9 +806,9 @@
                                 <span class="font-semibold" style="color: var(--text-primary);">{{ $lease->property_address ?: ($lease->document->name ?? 'Unnamed') }}</span>
                             </div>
                             <div class="text-xs mt-1" style="color: var(--text-secondary);">
-                                Tenant: {{ $lease->tenant_name ?? 'â€”' }}
+                                Tenant: {{ $lease->tenant_name ?? '—' }}
                                 <span class="mx-1.5">|</span>
-                                Landlord: {{ $lease->landlord_name ?? 'â€”' }}
+                                Landlord: {{ $lease->landlord_name ?? '—' }}
                             </div>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                 @if($lease->rental_amount)
@@ -856,7 +857,7 @@
         @if($completedLeaseDocs->isNotEmpty())
         <div class="rounded-md overflow-hidden mt-3" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="px-4 py-2.5" style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
-                <span class="text-xs font-medium" style="color: var(--text-secondary);">Lease Documents â€” Set Expiry Dates</span>
+                <span class="text-xs font-medium" style="color: var(--text-secondary);">Lease Documents — Set Expiry Dates</span>
             </div>
             <div class="overflow-x-auto"><table class="min-w-full text-sm ds-table">
                 <thead>
@@ -883,9 +884,9 @@
                     @endphp
                     <tr class="transition-all duration-300" style="border-bottom: 1px solid var(--border);"
                         >
-                        <td class="px-4 py-2 font-medium" style="color: var(--text-primary);">{{ $doc->property_address ?: 'â€”' }}</td>
+                        <td class="px-4 py-2 font-medium" style="color: var(--text-primary);">{{ $doc->property_address ?: '—' }}</td>
                         <td class="px-4 py-2" style="color: var(--text-secondary);">{{ $doc->name }}</td>
-                        <td class="px-4 py-2 text-xs" style="color: var(--text-muted);">{{ $signedDate?->format('d M Y') ?? 'â€”' }}</td>
+                        <td class="px-4 py-2 text-xs" style="color: var(--text-muted);">{{ $signedDate?->format('d M Y') ?? '—' }}</td>
                         <td class="px-4 py-2">
                             <div class="flex items-center gap-2">
                                 <span class="inline-block w-2 h-2 rounded-full" style="background: {{ $expiryIndicatorColor }};"></span>

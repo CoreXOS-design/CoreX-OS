@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6" x-data="{ tab: 'templates', viewMode: localStorage.getItem('docuperfect_view_mode') || 'grid', typeFilter: '', tplTypeFilter: '', search: '' }">
+<div class="w-full space-y-5" x-data="{ tab: 'templates', viewMode: localStorage.getItem('docuperfect_view_mode') || 'grid', typeFilter: '', tplTypeFilter: '', search: '' }">
 
     {{-- Page Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -11,7 +12,7 @@
                 <p class="text-sm text-white/60">Choose a template or document pack to get started — {{ number_format($templates->count()) }} template{{ $templates->count() === 1 ? '' : 's' }} available.</p>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-outline">Back to Documents</a>
+                <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-outline corex-btn-on-brand">Back to Documents</a>
             </div>
         </div>
     </div>
@@ -34,12 +35,12 @@
         <div class="flex items-center justify-between gap-4">
             <div class="flex items-center rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                 <button type="button" @click="tab = 'templates'"
-                        :style="tab === 'templates' ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'"
+                        :style="tab === 'templates' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'"
                         class="px-4 py-2 text-sm font-medium transition-all duration-300">
                     Templates
                 </button>
                 <button type="button" @click="tab = 'packs'"
-                        :style="tab === 'packs' ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'"
+                        :style="tab === 'packs' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'"
                         class="px-4 py-2 text-sm font-medium transition-all duration-300">
                     Document Packs
                 </button>
@@ -48,14 +49,14 @@
             <div class="flex items-center gap-3">
                 <div class="flex items-center rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                     <button type="button" @click="viewMode = 'grid'; localStorage.setItem('docuperfect_view_mode', 'grid')"
-                            :style="viewMode === 'grid' ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted);'"
+                            :style="viewMode === 'grid' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted);'"
                             class="px-2.5 py-2 transition-all duration-300" title="Grid view">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path d="M4 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5ZM14 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5ZM4 15a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-4ZM14 15a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-4Z"/>
                         </svg>
                     </button>
                     <button type="button" @click="viewMode = 'list'; localStorage.setItem('docuperfect_view_mode', 'list')"
-                            :style="viewMode === 'list' ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted);'"
+                            :style="viewMode === 'list' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted);'"
                             class="px-2.5 py-2 transition-all duration-300" title="List view">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
@@ -162,9 +163,7 @@
                             </thead>
                             <tbody>
                                 @foreach($templates as $tpl)
-                                <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                                    onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''"
-                                    x-show="(tplTypeFilter === '' || tplTypeFilter === '{{ $tpl->template_type ?? '' }}') && (typeFilter === '' || typeFilter === '{{ $tpl->document_type_id ?? 'none' }}') && (search === '' || '{{ strtolower(addslashes($tpl->name)) }}'.includes(search.toLowerCase()))" x-cloak>
+                                <tr x-show="(tplTypeFilter === '' || tplTypeFilter === '{{ $tpl->template_type ?? '' }}') && (typeFilter === '' || typeFilter === '{{ $tpl->document_type_id ?? 'none' }}') && (search === '' || '{{ strtolower(addslashes($tpl->name)) }}'.includes(search.toLowerCase()))" x-cloak>
                                     <td class="px-4 py-3">
                                         @if($tpl->page_count > 0)
                                         <img src="{{ route('docuperfect.page.image', ['id' => $tpl->id, 'page' => 0]) }}"

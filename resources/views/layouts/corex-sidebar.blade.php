@@ -139,16 +139,22 @@
         'commercial-evaluations.*'
     )) {
         $activeGroup = 'real-estate';
+    } elseif (request()->routeIs('payroll.leave.*')) {
+        $activeGroup = 'leave';
     } elseif (request()->routeIs('payroll.*')) {
         $activeGroup = 'payroll';
-    } elseif (request()->routeIs('leave.*')) {
-        $activeGroup = 'leave';
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
     } elseif (request()->routeIs('deals-v2.*')) {
         $activeGroup = 'deals-v2';
     } elseif (request()->routeIs('admin.integrations.*')) {
         $activeGroup = 'integration';
+    } elseif (request()->routeIs(
+        'admin.deposit-trust-interest.*',
+        'deposit-interest-calculator.*',
+        'calculators.*'
+    )) {
+        $activeGroup = 'trust-interest';
     }
 @endphp
 
@@ -790,7 +796,7 @@
                 @permission('create_docuperfect_docs')
                 <a href="{{ route('docuperfect.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.create') ? 'active' : '' }}">Create Document</a>
                 <a href="{{ route('docuperfect.esign.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.create') ? 'active' : '' }}">E-Sign Document</a>
-                <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') ? 'active' : '' }}">My E-Sign Documents</a>
+                <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') !== 'authorisation' ? 'active' : '' }}">My E-Sign Documents</a>
                 @if(app(\App\Services\CandidatePractitionerService::class)->canAuthorise(auth()->user()))
                 <a href="{{ route('docuperfect.esign.myDocuments', ['filter' => 'authorisation']) }}" class="corex-nav-subitem {{ request()->query('filter') === 'authorisation' ? 'active' : '' }}">Authorise Documents</a>
                 @endif
@@ -934,7 +940,7 @@
                 @endpermission
                 @permission('compliance.whistleblow.view')
                 <a href="{{ route('compliance.communications.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.communications.*') ? 'active' : '' }}">Communications Log</a>
-                <a href="{{ route('compliance.seller-info.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.seller-info.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Send Standalone Info Pack</a>
+                <a href="{{ route('compliance.seller-info.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.seller-info.*') ? 'active' : '' }}">Send Standalone Info Pack</a>
                 @endpermission
                 @permission('access_communication_archive')
                 <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}">Communication Archive</a>

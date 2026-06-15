@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+@section('corex-content')
+<div class="w-full space-y-5"
      x-data="fieldGroupManager()"
      x-cloak>
 
@@ -113,14 +114,14 @@
                         <button type="button" @click="form.layout = 'vertical'"
                                 class="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
                                 :style="form.layout === 'vertical'
-                                    ? 'background: var(--brand-button); color: #fff; border: 1px solid var(--brand-button);'
+                                    ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);'
                                     : 'background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);'">
                             Vertical
                         </button>
                         <button type="button" @click="form.layout = 'horizontal'"
                                 class="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
                                 :style="form.layout === 'horizontal'
-                                    ? 'background: var(--brand-button); color: #fff; border: 1px solid var(--brand-button);'
+                                    ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);'
                                     : 'background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);'">
                             Horizontal
                         </button>

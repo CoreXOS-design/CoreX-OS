@@ -1,8 +1,9 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
 
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="w-full space-y-6">
 
     {{-- Page Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -16,7 +17,7 @@
 
     {{-- Upload Section --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-        <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Upload Document</h3>
+        <h3 class="text-base font-semibold mb-4" style="color: var(--text-primary);">Upload Document</h3>
         <form action="{{ route('admin.knowledge.upload') }}" method="POST" enctype="multipart/form-data">
             @csrf
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -286,7 +287,8 @@
                 <p class="text-sm" style="color: var(--text-muted);">Use the upload form above to add your first document.</p>
             </div>
         @else
-            <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="overflow-x-auto">
                 <table class="min-w-full text-sm ds-table">
                     <thead>
                         <tr style="background: var(--surface-2);">
@@ -352,6 +354,7 @@
                         @endforeach
                     </tbody>
                 </table>
+                </div>
             </div>
         @endif
     </div>

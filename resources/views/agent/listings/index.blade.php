@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -7,7 +8,7 @@
     $contextCount = (int)($context['count'] ?? 0);
 @endphp
 
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page Header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -21,18 +22,8 @@
 
     {{-- KPI Tiles --}}
     <div class="corex-kpi-grid">
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <p class="text-xs font-medium uppercase tracking-wide" style="color: var(--text-muted);">Active listings</p>
-            <p class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary);">
-                {{ number_format($activeCount) }}
-            </p>
-        </div>
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <p class="text-xs font-medium uppercase tracking-wide" style="color: var(--text-muted);">Total stock value</p>
-            <p class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary);">
-                R {{ number_format($totalValueRand) }}
-            </p>
-        </div>
+        <x-corex-kpi-card title="Active listings" :value="number_format($activeCount)" />
+        <x-corex-kpi-card title="Total stock value" :value="'R ' . number_format($totalValueRand)" />
     </div>
 
     {{-- Context Notice --}}

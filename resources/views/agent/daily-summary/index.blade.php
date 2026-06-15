@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -36,19 +37,10 @@
     </div>
 
     {{-- Stats Cards --}}
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="ds-status-card">
-            <div class="ds-label">Total Count</div>
-            <div class="ds-value-xl">{{ number_format((int)$grandCount) }}</div>
-        </div>
-        <div class="ds-status-card">
-            <div class="ds-label">Total Points</div>
-            <div class="ds-value-xl">{{ number_format((float)$grandPoints, 0) }}</div>
-        </div>
-        <div class="ds-status-card">
-            <div class="ds-label">Activities Tracked</div>
-            <div class="ds-value-xl">{{ number_format(count($items)) }}</div>
-        </div>
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Total Count" :value="number_format((int)$grandCount)" />
+        <x-corex-kpi-card title="Total Points" :value="number_format((float)$grandPoints, 0)" />
+        <x-corex-kpi-card title="Activities Tracked" :value="number_format(count($items))" />
     </div>
 
     {{-- By Activity Table --}}
@@ -62,10 +54,10 @@
             <table class="min-w-full text-sm ds-table">
                 <thead>
                     <tr style="background: var(--surface-2);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Activity</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Count</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Points</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">% (Points)</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Activity</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Count</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Points</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">% (Points)</th>
                     </tr>
                 </thead>
                 <tbody>

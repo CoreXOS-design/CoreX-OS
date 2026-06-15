@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+<div class="w-full space-y-5">
 
     {{-- Page Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -34,7 +35,7 @@
     <div class="ds-status-card" style="border-left: 3px solid var(--brand-icon, #0ea5e9);">
         <div class="flex items-center justify-between gap-6">
             <div class="min-w-0">
-                <div class="ds-label">{{ strtoupper((string)($context['filter'] ?? 'view')) }}</div>
+                <div class="ds-label">{{ strtoupper((string)($context['filter'] ?: 'view')) }}</div>
                 <div class="ds-value text-xl">{{ $context['title'] ?? 'Listings' }}</div>
                 <div class="text-sm mt-1" style="color: var(--text-muted);">{{ $context['note'] ?? '' }}</div>
             </div>
@@ -133,8 +134,8 @@
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Mandate</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Type</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">DOM</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Since edit</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);" title="Days on Market">DOM</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);" title="Days since the listing was last edited">Since edit</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Expiry</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Price</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">CMA (R)</th>

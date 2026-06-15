@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5"
+<div class="w-full space-y-5"
      x-data="settingsHub('{{ $activeSection }}')"
      x-init="$watch('activeSection', v => { const u = new URL(window.location); u.searchParams.set('s', v); u.searchParams.delete('tab'); u.searchParams.delete('fsec'); window.history.replaceState({}, '', u); })">
 
@@ -434,12 +434,10 @@
                      style="border-top:1px solid var(--border);">
                     <div class="text-xs" style="color:var(--text-muted);">
                         Currently:
-                        <span class="font-semibold" :class="on ? 'text-amber-500' : 'text-emerald-500'"
+                        <span class="font-semibold" :style="on ? 'color:var(--ds-amber, #f59e0b);' : 'color:var(--ds-green, #059669);'"
                               x-text="on ? 'ON — consent required' : 'OFF — open access'"></span>
                     </div>
-                    <button type="submit"
-                            class="px-4 py-2 rounded-md text-sm font-semibold text-white"
-                            style="background:var(--brand-button, #0ea5e9);">
+                    <button type="submit" class="corex-btn-primary text-sm">
                         Save
                     </button>
                 </div>
@@ -663,7 +661,7 @@
                         <div class="space-y-1 max-h-48 overflow-y-auto mb-3 rounded-md p-2" style="border:1px solid var(--border); background:var(--surface);">
                             @foreach($agencyUsers as $u)
                             <label class="flex items-center gap-2 py-1 px-1 text-sm cursor-pointer hover:bg-white/5 rounded">
-                                <input type="checkbox" name="mlro_user_ids[]" value="{{ $u->id }}" {{ in_array($u->id, $activeMlroUserIds) ? 'checked' : '' }} style="accent-color: #0d9488;">
+                                <input type="checkbox" name="mlro_user_ids[]" value="{{ $u->id }}" {{ in_array($u->id, $activeMlroUserIds) ? 'checked' : '' }} style="accent-color: var(--brand-button, #0ea5e9);">
                                 <span style="color:var(--text-primary);">{{ $u->name }}</span>
                                 <span class="text-xs" style="color:var(--text-muted);">{{ $u->role }}</span>
                             </label>
@@ -788,7 +786,7 @@
                         <div class="space-y-1 max-h-48 overflow-y-auto mb-3 rounded-md p-2" style="border:1px solid var(--border); background:var(--surface);">
                             @foreach($agencyUsers as $u)
                             <label class="flex items-center gap-2 py-1 px-1 text-sm cursor-pointer hover:bg-white/5 rounded">
-                                <input type="checkbox" name="deputy_user_ids[]" value="{{ $u->id }}" {{ in_array($u->id, $activeDeputyIOUserIds) ? 'checked' : '' }} style="accent-color: #0d9488;">
+                                <input type="checkbox" name="deputy_user_ids[]" value="{{ $u->id }}" {{ in_array($u->id, $activeDeputyIOUserIds) ? 'checked' : '' }} style="accent-color: var(--brand-button, #0ea5e9);">
                                 <span style="color:var(--text-primary);">{{ $u->name }}</span>
                                 <span class="text-xs" style="color:var(--text-muted);">{{ $u->role }}</span>
                             </label>
@@ -1990,8 +1988,8 @@
                                     <span class="text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded tabular-nums"
                                           x-text="(item.adjustment_pct >= 0 ? '+' : '') + item.adjustment_pct + '%'"
                                           :style="item.adjustment_pct >= 0
-                                                ? 'background:color-mix(in srgb, var(--ds-emerald, #10b981) 12%, transparent); color: var(--ds-emerald, #10b981);'
-                                                : 'background:color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent); color: var(--ds-amber, #d97706);'"></span>
+                                                ? 'background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color: var(--ds-green, #059669);'
+                                                : 'background:color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b);'"></span>
                                     @endif
                                     <span class="text-xs tabular-nums" x-text="'#' + (idx+1)" style="color:var(--text-muted);"></span>
                                     <button type="button" @click="startEdit(item)"
@@ -2425,7 +2423,7 @@
                         </div>
 
                         <div class="pt-2 flex items-center gap-2">
-                            <button type="submit" class="prop-action-btn prop-action-btn-brand">Save Thresholds</button>
+                            <button type="submit" class="corex-btn-primary text-sm">Save Thresholds</button>
                             <p class="text-[11px]" style="color:var(--text-muted);">Thresholds must satisfy: rich ≥ moderate ≥ thin ≥ 1; comp min ≤ max; range lower &lt; upper.</p>
                         </div>
                     </form>
@@ -2511,7 +2509,7 @@
                             </div>
                         @endforeach
                         <div class="pt-2">
-                            <button type="submit" class="prop-action-btn prop-action-btn-brand">Save Section Defaults</button>
+                            <button type="submit" class="corex-btn-primary text-sm">Save Section Defaults</button>
                         </div>
                     </form>
                 </div>
@@ -2677,7 +2675,7 @@
                         </div>
 
                         <div class="mt-4 flex justify-end">
-                            <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button);">Save Mode</button>
+                            <button type="submit" class="corex-btn-primary text-sm">Save Mode</button>
                         </div>
                     </form>
                 </div>
@@ -2766,7 +2764,7 @@
                             </div>
 
                             <div class="mt-4 flex justify-end">
-                                <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button);">Save Agency Settings</button>
+                                <button type="submit" class="corex-btn-primary text-sm">Save Agency Settings</button>
                             </div>
                         </form>
                     </div>
@@ -2782,7 +2780,8 @@
         <div x-show="activeSection === 'leave-visibility'" x-cloak class="p-6 space-y-5">
             @if(isset($leaveVisibilityRoles) && isset($leaveVisibilityGrid))
                 @if(session('success'))
-                    <div class="px-4 py-2.5 rounded-md text-sm" style="background:rgba(16,185,129,0.1); color:#10b981; border:1px solid rgba(16,185,129,0.2);">
+                    <div class="px-4 py-2.5 rounded-md text-sm font-medium"
+                         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
                         {{ session('success') }}
                     </div>
                 @endif
@@ -2844,7 +2843,7 @@
                     </p>
 
                     <div class="flex justify-end pt-2 border-t" style="border-color:var(--border);">
-                        <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button);">
+                        <button type="submit" class="corex-btn-primary text-sm">
                             Save Matrix
                         </button>
                     </div>
@@ -3018,7 +3017,7 @@
                     <input type="email" name="whistleblow_compliance_officer_email"
                            value="{{ $agency->whistleblow_compliance_officer_email ?? '' }}"
                            class="w-full rounded-md text-sm px-3 py-2"
-                           style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="compliance@youragency.co.za">
                 </div>
 
@@ -3031,13 +3030,13 @@
                         @foreach(['tier_1' => 'Tier 1 (paperwork breach)', 'tier_2' => 'Tier 2 (no FFC displayed)', 'tier_3' => 'Tier 3 (unregistered)'] as $tKey => $tLabel)
                         <div>
                             <label class="text-xs font-medium mb-1 block" style="color:var(--text-secondary);">{{ $tLabel }}</label>
-                            <textarea name="tier_recipients[{{ $tKey }}]" rows="2" class="w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="complaints@theppra.org.za">{{ implode("\n", $tierRecipients[$tKey] ?? []) }}</textarea>
+                            <textarea name="tier_recipients[{{ $tKey }}]" rows="2" class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="complaints@theppra.org.za">{{ implode("\n", $tierRecipients[$tKey] ?? []) }}</textarea>
                         </div>
                         @endforeach
                     </div>
                 </div>
 
-                <button type="submit" class="px-5 py-2.5 rounded-md text-sm font-semibold text-white" style="background:var(--brand-default);">
+                <button type="submit" class="corex-btn-primary">
                     Save Settings
                 </button>
             </form>

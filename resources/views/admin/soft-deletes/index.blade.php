@@ -1,8 +1,8 @@
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md --}}
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -66,9 +66,15 @@
             </div>
         </div>
     @empty
-        <div class="rounded-md px-4 py-16 text-center" style="background: var(--surface); border: 1px solid var(--border);">
-            <p class="text-sm font-semibold" style="color: var(--text-primary);">Nothing archived</p>
-            <p class="text-sm mt-1" style="color: var(--text-muted);">When records are deleted anywhere in CoreX, they will appear here for you to restore.</p>
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+                <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 4.5 19.5a1.5 1.5 0 0 0 1.5 1.4h12a1.5 1.5 0 0 0 1.5-1.4L21 7.5M3 7.5h18M3 7.5l1-3h16l1 3M9.75 11.25l4.5 4.5m0-4.5-4.5 4.5" />
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">Nothing archived</h3>
+            <p class="text-sm" style="color: var(--text-muted);">When records are deleted anywhere in CoreX, they will appear here for you to restore.</p>
         </div>
     @endforelse
 

@@ -9,27 +9,53 @@
     .clause-cancel-link:hover { color: var(--text-primary); }
     .clause-input:focus { border-color: var(--brand-button) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button) 15%, transparent); outline: none; }
 </style>
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+<div class="w-full space-y-5">
 
-    <x-list-header
-        title="Clause Library"
-        :form-action="route('docuperfect.clauses.index')"
-        :paginator="$clauses"
-        search-placeholder="Search clauses..."
-    >
-        <x-slot:filters>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Clause Library</h1>
+                <p class="text-sm text-white/60">Reusable clauses for documents and agreements.</p>
+            </div>
+            @if($canEdit)
+            <div class="flex items-center gap-2 flex-wrap">
+                <button type="button" onclick="document.getElementById('addClauseSection').classList.toggle('hidden')" class="corex-btn-primary inline-flex items-center gap-2 text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    New Clause
+                </button>
+            </div>
+            @endif
+        </div>
+    </div>
+
+    {{-- Filter bar --}}
+    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" action="{{ route('docuperfect.clauses.index') }}" class="flex flex-wrap items-center gap-3">
+            <div class="relative flex-1 min-w-[180px] max-w-xs">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value="{{ request('search') }}"
+                       placeholder="Search clauses..."
+                       onchange="this.form.submit()"
+                       class="list-header-filter w-full" style="padding-left: 2.25rem;">
+            </div>
             <select name="visibility" onchange="this.form.submit()" class="list-header-filter">
                 <option value="">All visibility</option>
                 <option value="global" {{ request('visibility') === 'global' ? 'selected' : '' }}>Global</option>
                 <option value="branch" {{ request('visibility') === 'branch' ? 'selected' : '' }}>Branch-specific</option>
             </select>
-        </x-slot:filters>
-        @if($canEdit)
-        <x-slot:actions>
-            <button type="button" onclick="document.getElementById('addClauseSection').classList.toggle('hidden')" class="corex-btn-primary text-sm">+ New Clause</button>
-        </x-slot:actions>
-        @endif
-    </x-list-header>
+            @if(request('search') || request('visibility'))
+                <a href="{{ route('docuperfect.clauses.index') }}" class="text-xs font-semibold transition-colors" style="color: var(--brand-icon);">Clear</a>
+            @endif
+            <div class="ml-auto text-xs" style="color: var(--text-muted);">
+                {{ number_format($clauses->total()) }} {{ Str::plural('clause', $clauses->total()) }}
+            </div>
+        </form>
+    </div>
 
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
