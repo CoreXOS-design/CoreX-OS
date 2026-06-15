@@ -27,7 +27,31 @@
                 Import
             </button>
             @endif
-            <button type="button" @click="showAdd = !showAdd" class="corex-btn-primary text-sm">
+            @permission('contacts.export')
+            <div class="relative" x-data="{ exportOpen: false }" @keydown.escape="exportOpen = false">
+                <button type="button" @click="exportOpen = !exportOpen" @click.outside="exportOpen = false" class="corex-btn-outline text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+                    </svg>
+                    Export
+                </button>
+                <div x-show="exportOpen" x-cloak x-transition.opacity
+                     class="absolute right-0 mt-1 w-56 rounded-md py-1 z-20 shadow-lg"
+                     style="background:var(--surface); border:1px solid var(--border);">
+                    <a href="{{ route('corex.contacts.export', request()->only(['search', 'type', 'agent_id'])) }}"
+                       class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
+                       onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        Export current view
+                    </a>
+                    <a href="{{ route('corex.contacts.export', ['all' => 1]) }}"
+                       class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
+                       onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        Export all contacts
+                    </a>
+                </div>
+            </div>
+            @endpermission
+            <button type="button" @click="showAdd = !showAdd" class="corex-btn-primary text-sm"
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
