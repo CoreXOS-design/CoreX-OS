@@ -36,4 +36,53 @@ return [
     'imap_timeout_seconds'     => (int) env('COMMUNICATIONS_IMAP_TIMEOUT', 20),
     'imap_poll_budget_seconds' => (int) env('COMMUNICATIONS_IMAP_POLL_BUDGET', 50),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Sent-folder candidates (AT-43)
+    |--------------------------------------------------------------------------
+    | Fallback paths tried (in order) when a server does not advertise the
+    | RFC 6154 \Sent special-use flag. Special-use detection is preferred; this
+    | only kicks in for older servers. Non-empty, selectable folders win.
+    */
+    'sent_folder_candidates' => [
+        'INBOX.Sent', 'Sent', '[Gmail]/Sent Mail', 'Sent Items', 'Sent Mail', 'INBOX.Sent Items',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Deterministic ingestion filter (AT-43, POPIA data-minimisation)
+    |--------------------------------------------------------------------------
+    | DEFAULTS only — agencies override via communication_ingest_drop_noreply
+    | and communication_ingest_blocklist_domains columns (CommunicationIngestFilter
+    | merges agency settings over these). A sender that matches a CoreX contact is
+    | NEVER dropped — contact always wins; the filter only runs when no contact
+    | matched. Dropped mail is not stored; the drop is logged for audit.
+    |
+    | ingest_drop_noreply        — drop machine senders (no-reply@, system@, …).
+    | ingest_noreply_local_parts — local-part (before @) markers, matched as a
+    |                              substring, case-insensitive.
+    | ingest_blocklist_domains   — service/bank/portal-notification domains whose
+    |                              mail is never a client communication. Matched on
+    |                              the email domain (incl. subdomains).
+    */
+    'ingest_drop_noreply' => (bool) env('COMMUNICATIONS_INGEST_DROP_NOREPLY', true),
+
+    'ingest_noreply_local_parts' => [
+        'no-reply', 'noreply', 'no_reply', 'do-not-reply', 'donotreply', 'do_not_reply',
+        'system', 'mailer-daemon', 'mailerdaemon', 'postmaster', 'bounce', 'bounces',
+        'notification', 'notifications', 'auto-reply', 'autoreply', 'noreplay',
+    ],
+
+    'ingest_blocklist_domains' => [
+        // Banks
+        'fnb.co.za', 'absa.co.za', 'standardbank.co.za', 'nedbank.co.za', 'capitecbank.co.za',
+        // Accounting / payroll / tax
+        'sageone.co.za', 'accounting.sageone.co.za', 'xero.com', 'ktaxsa.co.za',
+        // Property portals / industry notification senders
+        'tpn.co.za', 'propcon.co.za', 'privateproperty.co.za', 'property24.com', 'reos.co.za',
+        'thevirtualagent.co.za', 'consumercontactcentre.co.za',
+        // Generic SaaS / analytics notifications
+        'google.com', 'data-studio-noreply.google.com', 'handicaps.co.za',
+    ],
+
 ];

@@ -288,7 +288,25 @@ class ContactController extends Controller
             }
         }
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents'));
+        // Communication Archive (AT-43) — this contact's linked archive comms
+        // (email + WhatsApp). Gated by access_communication_archive: the archive
+        // is a privacy-sensitive surface, so a user without that permission sees
+        // no Communications tab at all. Deleted/purged rows excluded.
+        $canViewComms = (bool) auth()->user()?->hasPermission('access_communication_archive');
+        $contactComms = collect();
+        if ($canViewComms) {
+            $contactComms = \App\Models\Communications\Communication::query()
+                ->whereNull('purged_at')
+                ->whereHas('links', function ($q) use ($contact) {
+                    $q->where('linkable_type', \App\Models\Contact::class)
+                      ->where('linkable_id', $contact->id);
+                })
+                ->orderByDesc('occurred_at')
+                ->limit(200)
+                ->get();
+        }
+
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms'));
     }
 
     public function checkDuplicate(Request $request)

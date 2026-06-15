@@ -294,6 +294,8 @@ CREATE TABLE `agencies` (
   `website_show_branches` tinyint(1) NOT NULL DEFAULT '0',
   `website_agent_order_mode` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'alphabetical',
   `website_branch_order_mode` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'alphabetical',
+  `communication_ingest_drop_noreply` tinyint(1) DEFAULT NULL,
+  `communication_ingest_blocklist_domains` json DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `agencies_slug_unique` (`slug`),
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
@@ -11802,3 +11804,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (810,'2026_06_28_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (811,'2026_06_27_000001_create_communication_flags_table',143);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (812,'2026_06_27_000002_create_communication_flag_alerts_table',143);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (813,'2026_06_27_000003_add_classification_to_communication_pending_table',143);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (814,'2026_06_15_140000_add_communication_ingest_filter_to_agencies',144);

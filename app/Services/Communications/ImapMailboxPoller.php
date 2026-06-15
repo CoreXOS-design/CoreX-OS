@@ -49,14 +49,24 @@ class ImapMailboxPoller
             ? Carbon::parse($mailbox->last_polled_at)->subDay()->startOfDay()
             : now()->subDays(30);
 
-        $folders = [];
+        // Resolve actual Folder objects up front. Sent is resolved by its IMAP
+        // SPECIAL-USE \Sent flag (RFC 6154), not by name-guessing — a mailbox
+        // can have several "Sent"-named folders (e.g. Afrihost INBOX.Sent + an
+        // empty client-local one), and leaf-name matching grabbed the wrong one,
+        // losing all outbound capture (AT-43).
+        $folders = []; // [ ['folder'=>Folder, 'direction'=>..., 'label'=>string] ]
         if ($mailbox->poll_inbox) {
-            $folders['INBOX'] = Communication::DIRECTION_INBOUND;
+            $inbox = $this->resolveFolder($client, ['INBOX']);
+            if ($inbox) {
+                $folders[] = ['folder' => $inbox, 'direction' => Communication::DIRECTION_INBOUND, 'label' => $inbox->path ?? 'INBOX'];
+            }
         }
         if ($mailbox->poll_sent) {
-            // Sent folder naming varies by server; try the common ones.
-            foreach (['Sent', 'INBOX.Sent', 'Sent Items', 'Sent Mail'] as $name) {
-                $folders[$name] = Communication::DIRECTION_OUTBOUND;
+            $sent = $this->resolveSentFolder($client);
+            if ($sent) {
+                $folders[] = ['folder' => $sent, 'direction' => Communication::DIRECTION_OUTBOUND, 'label' => $sent->path ?? 'Sent'];
+            } else {
+                Log::warning("Communication archive: no Sent folder resolved (mailbox {$mailbox->id})");
             }
         }
 
@@ -69,18 +79,10 @@ class ImapMailboxPoller
         $reason  = null;
 
         try {
-            foreach ($folders as $folderName => $direction) {
-                $folder = null;
-                try {
-                    $folder = $client->getFolderByName($folderName);
-                } catch (ImapPollTimeoutException $e) {
-                    throw $e;
-                } catch (\Throwable $e) {
-                    $folder = null; // folder doesn't exist on this server — skip quietly
-                }
-                if (! $folder) {
-                    continue;
-                }
+            foreach ($folders as $entry) {
+                $folder    = $entry['folder'];
+                $direction = $entry['direction'];
+                $folderName = $entry['label'];
                 $stats['folders']++;
 
                 try {
@@ -157,6 +159,120 @@ class ImapMailboxPoller
         }
 
         return $client;
+    }
+
+    /**
+     * Resolve the outbound "Sent" folder robustly across servers (AT-43).
+     *
+     * Strategy, in order:
+     *   1. IMAP SPECIAL-USE \Sent flag (RFC 6154) from the raw LIST response —
+     *      the authoritative, name-independent signal. Works for Gmail
+     *      ([Gmail]/Sent Mail), Afrihost, Outlook, etc.
+     *   2. Path-aware fallback over common Sent paths, preferring a SELECTABLE,
+     *      NON-EMPTY folder (skips empty client-local homonyms).
+     * Returns null if nothing usable is found (caller logs + skips outbound).
+     */
+    protected function resolveSentFolder($client): ?object
+    {
+        // ── 1. Special-use \Sent ─────────────────────────────────────────────
+        $listed = []; // path => flags[]
+        try {
+            $listed = $client->getConnection()->folders('', '*')->validatedData();
+        } catch (ImapPollTimeoutException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $listed = [];
+        }
+
+        $specialUse = [];
+        foreach ($listed as $path => $meta) {
+            $flags = array_map(fn ($f) => strtolower((string) $f), (array) ($meta['flags'] ?? []));
+            if (in_array('\\sent', $flags, true) && ! in_array('\\noselect', $flags, true)) {
+                $specialUse[] = (string) $path;
+            }
+        }
+        // If multiple advertise \Sent (rare), prefer the non-empty one;
+        // firstNonEmptyFolder falls back to the first that resolves at all.
+        if ($specialUse) {
+            $sent = $this->firstNonEmptyFolder($client, $specialUse);
+            if ($sent) {
+                return $sent;
+            }
+        }
+
+        // ── 2. Path-aware fallback (no special-use advertised) ───────────────
+        $candidates = (array) config('communications.sent_folder_candidates', [
+            'INBOX.Sent', 'Sent', '[Gmail]/Sent Mail', 'Sent Items', 'Sent Mail', 'INBOX.Sent Items',
+        ]);
+        // Only consider candidates that actually exist + are selectable, in the
+        // server's real listing; rank non-empty first so an empty homonym never wins.
+        $existing = [];
+        foreach ($candidates as $path) {
+            if (! array_key_exists($path, $listed)) {
+                continue;
+            }
+            $flags = array_map(fn ($f) => strtolower((string) $f), (array) ($listed[$path]['flags'] ?? []));
+            if (in_array('\\noselect', $flags, true)) {
+                continue;
+            }
+            $existing[] = $path;
+        }
+        // If the LIST was unavailable, fall back to trying the paths blind.
+        if (empty($listed)) {
+            $existing = $candidates;
+        }
+
+        return $this->firstNonEmptyFolder($client, $existing)
+            ?? ($existing ? $this->getFolderByPathSafe($client, $existing[0]) : null);
+    }
+
+    /**
+     * Resolve a folder by trying each path; INBOX uses the canonical lookup.
+     */
+    protected function resolveFolder($client, array $paths): ?object
+    {
+        foreach ($paths as $path) {
+            $f = $this->getFolderByPathSafe($client, $path);
+            if ($f) {
+                return $f;
+            }
+        }
+        return null;
+    }
+
+    /** Return the first path that resolves to a folder holding ≥1 message. */
+    private function firstNonEmptyFolder($client, array $paths): ?object
+    {
+        $firstResolved = null;
+        foreach ($paths as $path) {
+            $f = $this->getFolderByPathSafe($client, $path);
+            if (! $f) {
+                continue;
+            }
+            $firstResolved = $firstResolved ?? $f;
+            try {
+                if ($f->query()->all()->count() > 0) {
+                    return $f;
+                }
+            } catch (ImapPollTimeoutException $e) {
+                throw $e;
+            } catch (\Throwable $e) {
+                // can't count — treat as a usable candidate rather than skip
+                return $f;
+            }
+        }
+        return $firstResolved;
+    }
+
+    private function getFolderByPathSafe($client, string $path): ?object
+    {
+        try {
+            return $client->getFolderByPath($path);
+        } catch (ImapPollTimeoutException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**

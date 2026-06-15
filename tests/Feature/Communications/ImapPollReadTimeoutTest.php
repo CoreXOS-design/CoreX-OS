@@ -84,9 +84,10 @@ final class ImapPollReadTimeoutTest extends TestCase
                     {
                     }
 
-                    public function getFolderByName($name)
+                    // AT-43: the poller resolves folders by path now.
+                    public function getFolderByPath($path)
                     {
-                        return $this->folder;
+                        return $this->folder; // INBOX → the hanging folder
                     }
 
                     public function disconnect(): void

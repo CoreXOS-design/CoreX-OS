@@ -175,9 +175,13 @@
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'consent','label'=>'Consent'],
+                ['key'=>'communications','label'=>'Communications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. (($canViewComms ?? false) ? $contactComms->count() : 0) .'</span>'],
                 ['key'=>'outreach','label'=>'Outreach <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $outreachCount .'</span>' . $outreachOptOutBadge],
             ] as $t)
             @if($t['key'] === 'outreach' && !auth()->user()->hasPermission('outreach.compose'))
+                @continue
+            @endif
+            @if($t['key'] === 'communications' && !($canViewComms ?? false))
                 @continue
             @endif
             <button type="button"
@@ -311,7 +315,12 @@
                             <span class="text-[10px] font-semibold px-2 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9);">Click to send</span>
                         </div>
                         <div class="text-2xl font-bold" style="color:var(--text-primary);" x-text="emailCount"></div>
-                        <div class="text-xs mt-0.5" style="color:var(--text-muted);">emails sent</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-muted);">sent from CoreX</div>
+                        @if(($canViewComms ?? false) && $contactComms->count())
+                        <button type="button" @click.stop="activeTab = 'communications'" class="text-[11px] font-semibold mt-1 underline" style="color:var(--brand-icon, #0ea5e9);">
+                            {{ $contactComms->count() }} in archive →
+                        </button>
+                        @endif
                     </div>
                     @endif
                 </div>
@@ -1512,6 +1521,62 @@
         {{-- ════════════════════════════
              OUTREACH TAB (Prompt 07)
              ════════════════════════════ --}}
+        {{-- ════════════════════════════
+             COMMUNICATIONS TAB (AT-43) — linked archive comms (email + WhatsApp)
+             ════════════════════════════ --}}
+        @if($canViewComms ?? false)
+        <div x-show="activeTab === 'communications'" x-cloak class="p-6 space-y-4" id="tab-communications">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Communication Archive</h3>
+                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Captured email &amp; WhatsApp linked to this contact. This is the legal archive — separate from "sent from CoreX" counts.</p>
+                </div>
+                <a href="{{ route('compliance.comm-archive.index') }}" class="text-xs font-semibold underline" style="color:var(--brand-icon, #0ea5e9);">Open full archive →</a>
+            </div>
+
+            @forelse($contactComms as $comm)
+                @php
+                    $isOut = $comm->direction === \App\Models\Communications\Communication::DIRECTION_OUTBOUND;
+                    $isWa  = $comm->channel === \App\Models\Communications\Communication::CHANNEL_WHATSAPP;
+                @endphp
+                <a href="{{ route('compliance.comm-archive.show', $comm) }}"
+                   class="block rounded-md px-4 py-3 transition-all hover:opacity-90"
+                   style="background:var(--surface-2); border:1px solid var(--border); border-left:3px solid {{ $isWa ? '#25d366' : 'var(--brand-icon, #0ea5e9)' }};">
+                    <div class="flex items-center justify-between gap-3 mb-1">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                                  style="background:color-mix(in srgb, {{ $isWa ? '#25d366' : 'var(--brand-icon, #0ea5e9)' }} 14%, transparent); color:{{ $isWa ? '#1a9e4b' : 'var(--brand-icon, #0ea5e9)' }};">
+                                {{ $isWa ? 'WhatsApp' : 'Email' }}
+                            </span>
+                            <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                                  style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
+                                  title="{{ $isOut ? 'Sent by the agency' : 'Received from the contact' }}">
+                                {{ $isOut ? '↑ Outbound' : '↓ Inbound' }}
+                            </span>
+                            <span class="text-sm font-semibold truncate" style="color:var(--text-primary);">{{ $comm->subject ?: '(no subject)' }}</span>
+                        </div>
+                        <span class="text-xs whitespace-nowrap" style="color:var(--text-muted);">{{ optional($comm->occurred_at)->format('d M Y, H:i') ?? '—' }}</span>
+                    </div>
+                    @if($comm->body_preview)
+                    <p class="text-xs line-clamp-2" style="color:var(--text-secondary);">{{ $comm->body_preview }}</p>
+                    @endif
+                    <div class="flex items-center gap-3 mt-1.5">
+                        <span class="text-[11px]" style="color:var(--text-muted);">{{ $comm->from_identifier }}</span>
+                        @if($comm->has_attachments)
+                        <span class="text-[11px] inline-flex items-center gap-1" style="color:var(--text-muted);">📎 attachment</span>
+                        @endif
+                        <span class="text-[11px] font-semibold ml-auto" style="color:var(--brand-icon, #0ea5e9);">Open thread →</span>
+                    </div>
+                </a>
+            @empty
+                <div class="rounded-md px-4 py-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border);">
+                    <p class="text-sm" style="color:var(--text-secondary);">No archived communications linked to this contact yet.</p>
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">Captured email/WhatsApp with this contact's address or number will appear here automatically.</p>
+                </div>
+            @endforelse
+        </div>
+        @endif
+
         @if(auth()->user()->hasPermission('outreach.compose') && isset($outreachSends))
         <div x-show="activeTab === 'outreach'" x-cloak class="p-6 space-y-6" id="tab-outreach">
             @include('seller-outreach.contact-timeline._panel', [

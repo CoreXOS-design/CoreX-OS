@@ -100,6 +100,9 @@ class Agency extends Model
         'whistleblow_approver_user_ids',
         'whistleblow_compliance_officer_email',
         'whistleblow_tier_recipients',
+        // Communication Archive ingestion filter (AT-43).
+        'communication_ingest_drop_noreply',
+        'communication_ingest_blocklist_domains',
         // MIC Phase B2 — per-agency AI monthly budget cap.
         'ai_monthly_budget_zar',
         'ai_budget_warning_pct',
@@ -212,6 +215,9 @@ class Agency extends Model
         'pp_locations_synced_at' => 'datetime',
         'whistleblow_approver_user_ids' => 'array',
         'whistleblow_tier_recipients' => 'array',
+        // Communication Archive ingestion filter (AT-43) — null = inherit config default.
+        'communication_ingest_drop_noreply'      => 'boolean',
+        'communication_ingest_blocklist_domains' => 'array',
         // MIC Phase B2 — AI budget casts.
         'ai_monthly_budget_zar'          => 'decimal:2',
         'ai_budget_warning_pct'          => 'integer',

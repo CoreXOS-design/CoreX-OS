@@ -9,6 +9,7 @@ use App\Models\Communications\CommunicationMailbox;
 use App\Models\Communications\CommunicationPending;
 use App\Models\Contact;
 use App\Models\Scopes\AgencyScope;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -24,10 +25,12 @@ class EmailArchiveIngestor
     public const RESULT_ARCHIVED  = 'archived';
     public const RESULT_PENDING   = 'pending';
     public const RESULT_DUPLICATE = 'duplicate';
+    public const RESULT_DROPPED   = 'dropped';
 
     public function __construct(
         private CommunicationStorageService $storage,
         private ContactIdentifierResolver $resolver,
+        private CommunicationIngestFilter $ingestFilter,
     ) {
     }
 
@@ -50,10 +53,33 @@ class EmailArchiveIngestor
             return self::RESULT_DUPLICATE;
         }
 
-        $stored = $this->storage->store($agencyId, 'email', (string) ($msg['raw'] ?? ''));
         $attachments = $msg['attachments'] ?? [];
         $counterpart = (string) ($msg['counterpart'] ?? $msg['from'] ?? '');
         $contact = $counterpart !== '' ? $this->resolver->resolve($counterpart, $agencyId) : null;
+
+        // Deterministic ingestion filter (AT-43, POPIA minimisation). Runs ONLY
+        // when no contact matched (contact always wins). A never-business sender
+        // (no-reply / bank / service domain) is dropped BEFORE anything is
+        // stored — nothing written to disk or DB; the drop is logged for audit.
+        if (! $contact) {
+            $dropReason = $this->ingestFilter->dropReasonForUnknown($counterpart, $mailbox->agency);
+            if ($dropReason !== null) {
+                Log::info('Communication archive: ingestion dropped (not stored)', [
+                    'agency_id'   => $agencyId,
+                    'mailbox_id'  => $mailbox->id,
+                    'channel'     => Communication::CHANNEL_EMAIL,
+                    'direction'   => $direction,
+                    'sender'      => $counterpart,
+                    'reason'      => $dropReason,
+                    'occurred_at' => optional($msg['occurred_at'] ?? null)?->toIso8601String(),
+                    'dropped_at'  => now()->toIso8601String(),
+                ]);
+
+                return self::RESULT_DROPPED;
+            }
+        }
+
+        $stored = $this->storage->store($agencyId, 'email', (string) ($msg['raw'] ?? ''));
 
         $common = [
             'agency_id'              => $agencyId,
