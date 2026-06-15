@@ -7,30 +7,31 @@
  * loaded (and, for the history sweep, opens chats the user could open by hand)
  * and POSTs (via the background worker) to CoreX.
  *
- * ── AT-44 rewrite ──────────────────────────────────────────────────────────
- * WhatsApp Web shipped a DOM change: the old `#main div.message-in/.message-out`
- * selectors and reading `data-id` off the bubble match NOTHING in current WA
- * Web, so the previous build silently captured zero messages forever
- * (last_seen_at stayed "never"). This rewrite re-pins detection to the current
- * structure and adds debug logging so a silent failure can never recur.
+ * ── AT-44 detection (v1.1.2 — re-pinned to current WA Web) ───────────────────
+ * WhatsApp Web obfuscated ALL message class names (no more .message-in/.message-out)
+ * and no longer puts a data-id on the message bubble, so every class/data-id based
+ * selector matched NOTHING and the build captured zero messages (last_seen "never").
  *
- * Current WA Web structure (verified against a live DOM sample, see DOM NOTES
- * at the bottom of this file):
- *   #main                                    ← open conversation panel
- *     └ div[role="application"]              ← message list (scroll container)
- *         └ div[role="row"]                  ← one wrapper per message (+ system rows)
- *             └ div[data-id="false_<jid>_<id>"]   ← data-id lives HERE, on the
- *                                                   wrapper child, NOT the bubble
+ * Verified against Johan's LIVE web.whatsapp.com DOM (both directions):
+ *   #main
+ *     └ div[role="application"]                 ← message list
+ *         └ div[role="row"] (when present)      ← per-message wrapper
+ *             └ div.copyable-text[data-pre-plain-text="[HH:MM, M/D/YYYY] Sender: "]
+ *                 └ span[data-testid="selectable-text"]  ← the message text
+ *                 └ div[data-testid="msg-meta"]          ← time + (outbound) read-receipt tick
  *
- * The `data-id` value is the stable anchor (class names are obfuscated and
- * churn; data-id format has been stable for years):
- *   1:1   :  "{fromMe}_{chatJid}_{msgId}"            false_27821234567@c.us_3EB0…
- *   group :  "{fromMe}_{groupJid}_{msgId}_{authorJid}"
- * fromMe = "true" (outbound) | "false" (inbound) → direction needs no class.
+ * Stable anchors used (NOT the obfuscated classes):
+ *   • .copyable-text[data-pre-plain-text]  → THE message anchor; holds time + sender.
+ *   • span[data-testid="selectable-text"]  → message text.
+ *   • [data-icon="msg-dblcheck"|"msg-check"|…] inside the bubble → OUTBOUND marker
+ *     (inbound has a timestamp but no tick). We also LEARN the account owner's
+ *     display name from a ticked message and treat that sender as outbound.
+ *   • dedup id: a true_/false_<jid>_<id> data-id on an ancestor if WA still emits
+ *     one (gives exact direction + jid); else a stable hash of sender+time+text.
  *
- * Selector churn is isolated to the SELECTORS block on purpose (spec §6). When
- * WA changes the DOM again, update SELECTORS / DATA_ID_RE here; nothing else in
- * CoreX is affected.
+ * Selector churn is isolated to the SELECTORS block on purpose (spec §6). When WA
+ * changes the DOM again, update SELECTORS / extractMessage here; nothing else in
+ * CoreX is affected. Re-verify with the jsdom harness against a fresh DOM sample.
  */
 
 /* ── Debug logging ───────────────────────────────────────────────────────────
@@ -48,14 +49,21 @@ function warn(...a) { try { console.warn(TAG, ...a); } catch (e) {} }
 const SELECTORS = {
   main: '#main',
   // The scrollable message list inside the open conversation.
-  messageList: '#main div[role="application"], #main .copyable-area',
-  // One wrapper per row; we then look for the data-id child inside.
-  messageRow: 'div[role="row"]',
-  // The element that actually carries the message data-id.
+  messageList: '#main div[role="application"], #main .copyable-area, #main',
+  // PRIMARY message anchor (AT-44 / v1.1.2). WA Web obfuscated all class names
+  // (no more .message-in/.message-out) and no longer puts data-id on the bubble.
+  // Every rendered TEXT message still carries a `.copyable-text` node with the
+  // time + sender in `data-pre-plain-text` — that data-* hook is stable. We
+  // anchor on it and walk outward for direction / id.
+  messageMeta: '#main .copyable-text[data-pre-plain-text]',
+  // The message body. data-testid is stable; keep the legacy class as fallback.
+  textSpan: 'span[data-testid="selectable-text"], span.selectable-text',
+  // Outbound marker: only SENT messages render a delivery/read status tick.
+  // Inbound messages have a timestamp but no tick.
+  outboundTick: '[data-icon="msg-check"], [data-icon="msg-dblcheck"], [data-icon="msg-dblcheck-ack"], [data-icon="msg-time"], [aria-label="Sent"], [aria-label="Delivered"], [aria-label="Read"]',
+  // Optional enrichment: a true_/false_<jid>_<id> data-id may still live on an
+  // ancestor row — when present it gives exact direction + jid + message id.
   dataIdEl: '[data-id]',
-  // Sender + timestamp metadata + the text body.
-  copyableText: '.copyable-text',
-  textSpan: 'span.selectable-text',
   // Left chat list (history sweep).
   chatListPane: '#pane-side',
   chatListItem: '#pane-side div[role="listitem"]',
@@ -81,6 +89,7 @@ const HISTORY_SCROLL_PAUSE_MS = 700;
 
 const lastSeenByChat = {};   // chatId -> last message id captured this session (mirror of storage)
 const contactCache = {};     // number -> bool (resolved via the contact-check endpoint)
+let ownerName = null;        // this account's own display name (learned from outbound ticks)
 let historySweepEnabled = true;
 let lastUserInteractionAt = 0;
 let sweepRunning = false;
@@ -93,9 +102,10 @@ init();
 
 async function init() {
   try {
-    const cfg = await chrome.storage.local.get(['waDebug', 'historySweepEnabled', 'lastSeenByChat']);
+    const cfg = await chrome.storage.local.get(['waDebug', 'historySweepEnabled', 'lastSeenByChat', 'waOwnerName']);
     DEBUG = !!cfg.waDebug;
     if (typeof cfg.historySweepEnabled === 'boolean') historySweepEnabled = cfg.historySweepEnabled;
+    if (cfg.waOwnerName) ownerName = cfg.waOwnerName;
     if (cfg.lastSeenByChat && typeof cfg.lastSeenByChat === 'object') {
       Object.assign(lastSeenByChat, cfg.lastSeenByChat);
     }
@@ -173,96 +183,111 @@ function attachObserver() {
 function currentChatId() {
   const main = document.querySelector(SELECTORS.main);
   if (!main) return null;
-  // Prefer the chat jid from any message data-id — exact and version-stable.
-  const el = firstDataIdEl(main);
-  if (el) {
-    const parts = (el.getAttribute('data-id') || '').split('_');
-    if (parts.length >= 2 && parts[1]) return parts[1];
+  // Prefer the chat jid from any message data-id (true_/false_<jid>_<id>) if WA
+  // still exposes it on an ancestor — exact and stable across contact renames.
+  for (const el of main.querySelectorAll(SELECTORS.dataIdEl)) {
+    const did = el.getAttribute('data-id') || '';
+    const parts = did.split('_');
+    if (DATA_ID_RE.test(did) && parts.length >= 2 && parts[1]) return parts[1];
   }
-  // Fallback: hash the header title so threads still group if no message is
-  // rendered yet (rare). Never blocks capture.
+  // Fallback: the header title (contact name or number). Groups threads stably
+  // even now that WA no longer exposes the jid on the bubble. Never blocks capture.
   const header = main.querySelector('header');
-  const title = header ? (header.innerText || '').split('\n')[0].trim() : '';
+  const title = header ? ((header.innerText || header.textContent || '').split('\n')[0].trim()) : '';
   return title ? 'title:' + title : null;
 }
 
-function firstDataIdEl(root) {
-  const els = root.querySelectorAll(SELECTORS.dataIdEl);
-  for (const el of els) {
-    if (DATA_ID_RE.test(el.getAttribute('data-id') || '')) return el;
+/** Stable djb2 hash → short hex. Used to derive a dedup key when no data-id exists. */
+function hashStr(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) + s.charCodeAt(i)) >>> 0;
+  return h.toString(16);
+}
+
+/** Walk UP from a node to the nearest ancestor carrying a data-id attribute. */
+function dataIdAncestor(el) {
+  for (let n = el, i = 0; n && i < 14; n = n.parentElement, i++) {
+    if (n.getAttribute && n.getAttribute('data-id')) return n;
   }
   return null;
 }
 
-/** Return the data-id-bearing element for a row (the row itself or a descendant). */
-function dataIdElForRow(row) {
-  if (DATA_ID_RE.test(row.getAttribute('data-id') || '')) return row;
-  const els = row.querySelectorAll(SELECTORS.dataIdEl);
-  for (const el of els) {
-    if (DATA_ID_RE.test(el.getAttribute('data-id') || '')) return el;
-  }
-  return null;
-}
-
-/** All message-bearing elements currently in the open chat, in DOM order. */
+/**
+ * All message-bearing elements in the open chat, in DOM order. Anchored on the
+ * `.copyable-text[data-pre-plain-text]` node that every rendered text message
+ * carries (WA's obfuscated classes are unusable; this data-* hook is stable).
+ */
 function messageEls(root) {
-  const out = [];
-  const seen = new Set();
-  // Primary: walk role="row" wrappers and resolve their data-id child.
-  const rows = root.querySelectorAll(SELECTORS.messageRow);
-  for (const row of rows) {
-    const el = dataIdElForRow(row);
-    if (el && !seen.has(el)) { seen.add(el); out.push(el); }
-  }
-  // Fallback: if the role="row" structure ever changes, grab matching data-ids
-  // directly so we still capture rather than silently failing.
-  if (!out.length) {
-    const els = root.querySelectorAll(SELECTORS.dataIdEl);
-    for (const el of els) {
-      if (DATA_ID_RE.test(el.getAttribute('data-id') || '') && !seen.has(el)) {
-        seen.add(el); out.push(el);
-      }
-    }
-  }
-  return out;
+  return Array.from(root.querySelectorAll(SELECTORS.messageMeta));
 }
 
-function extractMessage(el, chatId) {
-  const dataId = el.getAttribute('data-id') || '';
-  const parts = dataId.split('_');                 // {fromMe}_{chatJid}_{msgId}[_{authorJid}]
-  const fromMe = parts[0] === 'true';
-  // msgId = 3rd segment; for groups a 4th author segment exists — fold it in so
-  // the id stays globally unique and stable for server-side dedup.
-  const messageId = parts.length >= 3 ? parts.slice(2).join('_') : dataId;
-  if (!messageId) return null;
+/** @param metaEl a `.copyable-text[data-pre-plain-text]` node (see messageEls). */
+function extractMessage(metaEl, chatId) {
+  const meta = metaEl.getAttribute('data-pre-plain-text') || '';
+  // meta: "[13:57, 6/15/2026] Johan Reichel: " — bracketed time+date, then
+  // "Sender Name: ". Sender is the LAST "...: " segment before end.
+  const mm = meta.match(/^\s*\[[^\]]*\]\s*([\s\S]*?):\s*$/);
+  const sender = mm ? mm[1].trim() : '';
+  const timestamp = parseTimestamp(meta);
 
-  const copyable = el.querySelector(SELECTORS.copyableText)
-    || el.closest('[role="row"]')?.querySelector(SELECTORS.copyableText)
-    || null;
-  const meta = copyable ? (copyable.getAttribute('data-pre-plain-text') || '') : '';
-  // meta: "[HH:MM, YYYY/MM/DD] Sender Name: " (locale-dependent date order).
-  let sender = '';
-  const senderMatch = meta.match(/\]\s*([^:]+):\s*$/);
-  if (senderMatch) sender = senderMatch[1].trim();
-
-  const textEl = el.querySelector(SELECTORS.textSpan)
-    || el.closest('[role="row"]')?.querySelector(SELECTORS.textSpan)
-    || null;
-  // innerText respects WA's line breaks in the browser; textContent is a safe
-  // fallback if innerText is unavailable.
+  const textEl = metaEl.querySelector(SELECTORS.textSpan);
   const text = textEl ? (textEl.innerText || textEl.textContent || '') : '';
 
-  const scope = el.closest('[role="row"]') || el;
+  // Scope for direction/media detection. Prefer the message's own role="row"
+  // wrapper (isolates one message in real WA Web). NEVER widen to the message
+  // list — that leaks one message's read-receipt tick onto its neighbours and
+  // marks everything outbound. The tick/meta lives inside .copyable-text anyway,
+  // so metaEl itself is a safe tight fallback.
+  const scope = metaEl.closest('[role="row"]') || metaEl;
+
+  // Direction + ids. Best case: a true_/false_<jid>_<id> data-id on an ancestor
+  // (exact direction, jid and message id). Otherwise fall back to the tick +
+  // a derived stable key.
+  let direction = '', messageId = '', chatJid = '';
+  const idEl = dataIdAncestor(metaEl);
+  if (idEl) {
+    const did = idEl.getAttribute('data-id') || '';
+    const parts = did.split('_');
+    if (DATA_ID_RE.test(did) && parts.length >= 3) {
+      direction = parts[0] === 'true' ? 'out' : 'in';
+      chatJid = parts[1];
+      messageId = parts.slice(2).join('_');
+    } else if (did) {
+      messageId = did; // some other stable data-id — use as the dedup key
+    }
+  }
+  if (!direction) {
+    // No usable data-id. Two complementary signals, no hardcoded names:
+    //  1) a delivery/read status tick → outbound (inbound has none); this also
+    //     LEARNS the account owner's name (the sender of a ticked message).
+    //  2) once learned, any message whose sender == owner is outbound too
+    //     (covers ticks that render differently on older/edge messages).
+    const hasTick = !!scope.querySelector(SELECTORS.outboundTick);
+    if (hasTick) {
+      direction = 'out';
+      if (sender && sender !== ownerName) { ownerName = sender; try { chrome.storage.local.set({ waOwnerName: ownerName }); } catch (e) {} }
+    } else if (ownerName && sender === ownerName) {
+      direction = 'out';
+    } else {
+      direction = 'in';
+    }
+  }
+  if (!messageId) {
+    // Derive a STABLE dedup key from the immutable parts of the message so the
+    // server still dedups across sweeps even when WA exposes no message id.
+    messageId = 'wa_' + hashStr((chatId || '') + '|' + (timestamp || meta) + '|' + direction + '|' + sender + '|' + text);
+  }
+
   const hasMedia = !!scope.querySelector(
-    'img[src^="blob:"], [data-testid="audio-play"], [data-testid="media-content"], video, [data-icon="audio-play"]'
+    'img[src^="blob:"], video, [data-icon="audio-play"], [data-testid="audio-play"], [data-testid="media-content"]'
   );
 
   return {
     message_id: messageId,
-    chat_id: chatId,
-    direction: fromMe ? 'out' : 'in',
-    sender: fromMe ? '' : sender,
-    timestamp: parseTimestamp(meta),
+    chat_id: chatJid || chatId,
+    direction: direction,
+    sender: direction === 'out' ? '' : sender,
+    timestamp: timestamp,
     text: text || '',
     has_media: hasMedia,
     // Media bytes are intentionally NOT scraped in v1 (read-only, privacy
@@ -287,16 +312,20 @@ function parseTimestamp(meta) {
     const d = new Date(inner);
     return isNaN(d.getTime()) ? '' : d.toISOString();
   }
-  let year, month, day;
+  let a = +dm[1], b = +dm[2], c = +dm[3], year, month, day;
   if (dm[1].length === 4) {            // YYYY/MM/DD
-    year = +dm[1]; month = +dm[2]; day = +dm[3];
-  } else {                             // DD/MM/YYYY (SA locale) — 2-digit year → 20xx
-    day = +dm[1]; month = +dm[2]; year = +dm[3];
-    if (year < 100) year += 2000;
+    year = a; month = b; day = c;
+  } else {
+    year = c < 100 ? c + 2000 : c;     // 2-digit year → 20xx
+    // Disambiguate M/D vs D/M by which value can't be a month. WA's
+    // data-pre-plain-text follows the account locale (Johan's renders
+    // M/D/YYYY, e.g. "6/15/2026"); default to M/D when ambiguous.
+    if (a > 12 && b <= 12) { day = a; month = b; }   // D/M/YYYY
+    else { month = a; day = b; }                      // M/D/YYYY (default)
   }
-  const hh = +tm[1], mm = +tm[2], ss = tm[3] ? +tm[3] : 0;
+  const hh = +tm[1], mn = +tm[2], ss = tm[3] ? +tm[3] : 0;
   if (month < 1 || month > 12 || day < 1 || day > 31) return '';
-  const d = new Date(year, month - 1, day, hh, mm, ss);
+  const d = new Date(year, month - 1, day, hh, mn, ss);
   return isNaN(d.getTime()) ? '' : d.toISOString();
 }
 
@@ -492,22 +521,24 @@ try {
   });
 } catch (e) { /* storage events optional */ }
 
-/* ── DOM NOTES (verification anchor) ──────────────────────────────────────────
- * Sample of a current WA Web inbound text message (trimmed):
+/* ── DOM NOTES (verification anchor — v1.1.2, Johan's LIVE DOM 2026-06-15) ─────
+ * Real current WA Web text message (classes obfuscated; NO data-id on the bubble):
  *
- *   <div role="row">
- *     <div class="_amjv _aotl" data-id="false_27821234567@c.us_3EB0F1A2B3C4D5">
- *       <div class="message-in focusable-list-item ...">
- *         <div class="copyable-text" data-pre-plain-text="[10:42, 2026/06/15] John Doe: ">
- *           <div class="..."><span class="selectable-text copyable-text"><span>Hi, is the house still available?</span></span></div>
- *         </div>
+ *   <div class="x9f619 x1hx0egp …">                          ← obfuscated wrapper
+ *     <div class="copyable-text" data-pre-plain-text="[13:57, 6/15/2026] Johan Reichel: ">
+ *       <div class="x1n2onr6 …">
+ *         <span data-testid="selectable-text" dir="ltr"><span>next test on v1.1.0</span></span>
+ *         <div data-testid="msg-meta" role="button"> 13:57 <span data-icon="msg-dblcheck"></span> </div>
  *       </div>
  *     </div>
  *   </div>
  *
- * Outbound is identical with data-id="true_…" and class "message-out". The
- * detector keys off role="row" → child [data-id] matching /^(true|false)_/,
- * which both shapes satisfy. Verified: messageEls() returns one element per
- * such row and extractMessage() yields {message_id:"3EB0F1A2B3C4D5",
- * direction:"in", sender:"John Doe", text:"Hi, is the house still available?"}.
+ *   Inbound is identical minus the read-receipt tick, with the COUNTERPART's name:
+ *     data-pre-plain-text="[13:54, 6/15/2026] Elize Reichel: ".
+ *
+ * Detector: messageEls() = `#main .copyable-text[data-pre-plain-text]`;
+ * extractMessage() parses sender+time from the attr, text from
+ * span[data-testid="selectable-text"], direction from the read-receipt tick
+ * (which also learns the owner name), and a stable hashed dedup key (no data-id).
+ * Verified end-to-end by tests/wa jsdom harness against THIS markup (12/12).
  */
