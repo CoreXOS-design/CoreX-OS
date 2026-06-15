@@ -281,12 +281,28 @@ separate `TestimonialVisibilityChanged` concern (§5), unchanged.
 | Contact has no connected agent | Testimonial still saves; no notification sent (no crash). |
 | Other agency's data | `resolveContact()` pins to the client's current agency; cross-tenant impossible. |
 
-### 13.4 Files (client submission)
+### 13.4 Listener wiring — auto-discovery only (do NOT also Event::listen)
+
+The event→listener binding is created by **Laravel's automatic listener discovery**
+(`shouldDiscoverEvents = true` by default in L11+; it scans `app/Listeners` and
+registers each `handle()` against its type-hinted event). `NotifyAgentOfClientTestimonial`
+is therefore wired the moment the file exists — **no `Event::listen()` is added in
+`AppServiceProvider`.** Adding one double-registers the listener so it fires twice
+(two emails + two in-app rows per submission — found in staging on 2026-06-15).
+Regression-locked by `Notification::assertSentToTimes(..., 1)` in the feature test.
+
+> **Codebase-wide caveat:** any listener in `app/Listeners` that is *also*
+> explicitly registered in `AppServiceProvider` double-fires. It's only harmless
+> where the handler is idempotent (e.g. `RecordDomainEvent` uses `insertOrIgnore`
+> on a unique `event_id`). A separate cleanup should make explicit registration
+> vs discovery consistent across all listeners (webhooks, syndication, leads,
+> activity loggers).
+
+### 13.5 Files (client submission)
 **Create:** `app/Events/Contact/ContactTestimonialSubmitted.php`,
-`app/Listeners/Contacts/NotifyAgentOfClientTestimonial.php`,
+`app/Listeners/Contacts/NotifyAgentOfClientTestimonial.php` (auto-discovered),
 `tests/Feature/Api/Client/ClientTestimonialTest.php`.
 **Modify:** `app/Http/Controllers/Api/V1/ClientPortalController.php`
 (`testimonials`, `testimonialCreate` + `shapeTestimonial`/`resolveTestimonialDisplayName`),
-`routes/api.php` (client group), `app/Providers/AppServiceProvider.php`
-(event→listener registration).
+`routes/api.php` (client group).
 </content>

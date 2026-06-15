@@ -130,6 +130,11 @@ class ClientTestimonialTest extends TestCase
                     && $n->eventKey === 'contact.testimonial_submitted';
             }
         );
+
+        // Regression lock: the listener must fire EXACTLY once. It is wired by
+        // Laravel auto-discovery only — adding an explicit Event::listen in
+        // AppServiceProvider double-registers it and sends two emails.
+        Notification::assertSentToTimes($agent, PillarEventNotification::class, 1);
     }
 
     public function test_body_is_required(): void
