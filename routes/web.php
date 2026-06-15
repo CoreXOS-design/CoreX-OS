@@ -1250,6 +1250,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Agent Portal ──
     Route::get('/my-portal', [\App\Http\Controllers\Agent\AgentPortalController::class, 'index'])
         ->middleware(['permission:access_my_portal', 'agency.required'])->name('agent.portal');
+
+    // ── My Portal → Communication Capture (AT-39) — email self-service. A user
+    //    manages their own mailbox credentials (set_by=user). No reveal here. ──
+    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('my-portal/communication-capture')->name('my-portal.comm-capture.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\MyPortal\CommunicationCaptureController::class, 'index'])->name('index');
+        Route::post('/', [\App\Http\Controllers\MyPortal\CommunicationCaptureController::class, 'store'])->name('store');
+        Route::put('/{mailbox}', [\App\Http\Controllers\MyPortal\CommunicationCaptureController::class, 'update'])->name('update');
+        Route::delete('/{mailbox}', [\App\Http\Controllers\MyPortal\CommunicationCaptureController::class, 'destroy'])->name('destroy');
+    });
     Route::post('/my-portal/upload', [\App\Http\Controllers\Agent\AgentPortalController::class, 'uploadDocument'])
         ->middleware('permission:upload_own_documents')->name('agent.portal.upload');
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
