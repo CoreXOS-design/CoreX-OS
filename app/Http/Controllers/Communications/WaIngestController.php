@@ -16,6 +16,28 @@ use Illuminate\Http\Request;
  */
 class WaIngestController extends Controller
 {
+    /**
+     * Liveness heartbeat (AT-44). The extension pings this on load and on an
+     * interval. Reaching here means the whole pipe works — injection → CORS →
+     * Bearer auth — and the auth.wa_capture middleware has already stamped
+     * last_seen_at. Returns the device id so the client console can confirm
+     * WHICH device row authenticated (catches the stale-token / multi-row case).
+     */
+    public function ping(Request $request): JsonResponse
+    {
+        /** @var CommunicationWaDevice|null $device */
+        $device = $request->attributes->get('wa_device');
+        if (! $device) {
+            return response()->json(['error' => 'No device context'], 401);
+        }
+
+        return response()->json([
+            'success'      => true,
+            'device_id'    => $device->id,
+            'last_seen_at' => optional($device->last_seen_at)->toIso8601String(),
+        ]);
+    }
+
     public function ingest(Request $request, WaArchiveIngestor $ingestor): JsonResponse
     {
         /** @var CommunicationWaDevice|null $device */

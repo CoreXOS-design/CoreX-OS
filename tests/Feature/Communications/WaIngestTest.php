@@ -159,4 +159,25 @@ final class WaIngestTest extends TestCase
             ->postJson(route('communications.wa.ingest'), $this->payload())
             ->assertStatus(401);
     }
+
+    public function test_ping_stamps_last_seen_and_returns_device(): void
+    {
+        $this->assertNull($this->device->fresh()->last_seen_at);
+
+        $this->withToken($this->plainToken)
+            ->postJson(route('communications.wa.ping'))
+            ->assertOk()
+            ->assertJson(['success' => true, 'device_id' => $this->device->id]);
+
+        // The auth.wa_capture middleware stamps last_seen_at on any authed hit.
+        $this->assertNotNull($this->device->fresh()->last_seen_at);
+    }
+
+    public function test_ping_with_bad_token_is_rejected(): void
+    {
+        $this->withToken('not-a-real-token')
+            ->postJson(route('communications.wa.ping'))
+            ->assertStatus(401);
+        $this->assertNull($this->device->fresh()->last_seen_at);
+    }
 }

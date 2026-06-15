@@ -68,6 +68,7 @@ const DATA_ID_RE = /^(true|false)_/;
 const SWEEP_INTERVAL_MS = 30000;     // fallback periodic sweep (the observer is primary)
 const FIRST_SWEEP_MS = 4000;         // first sweep shortly after load
 const OBSERVER_DEBOUNCE_MS = 600;    // coalesce rapid DOM mutations
+const HEARTBEAT_INTERVAL_MS = 120000; // liveness ping → stamps last_seen_at
 
 // History sweep pacing (human-like, ToS-conservative — spec §8).
 const HISTORY_SWEEP_INTERVAL_MS = 120000; // re-evaluate every 2 min
@@ -102,6 +103,14 @@ async function init() {
 
   log('content script loaded on', location.host, '— debug:', DEBUG, '| history sweep:', historySweepEnabled);
 
+  // Heartbeat FIRST — proves the whole pipe (injection → background → network →
+  // CORS → auth → DB) independent of WhatsApp's DOM. It hits an authenticated
+  // endpoint, so the auth.wa_capture middleware stamps last_seen_at on success.
+  // If this logs an error/401/wrong-URL, the break is config/token — NOT message
+  // detection. This is the diagnostic that ends "is it even sending?" forever.
+  heartbeat('load');
+  setInterval(() => heartbeat('interval'), HEARTBEAT_INTERVAL_MS);
+
   // Track user activity so the history walk only runs when the agent is idle
   // (never hijacks an active session — "built for agents, not screens").
   ['click', 'keydown', 'mousemove', 'wheel', 'touchstart'].forEach((ev) => {
@@ -114,6 +123,30 @@ async function init() {
   setInterval(() => sweep('interval'), SWEEP_INTERVAL_MS);
   setTimeout(() => sweep('first-load'), FIRST_SWEEP_MS);
   setInterval(maybeRunHistorySweep, HISTORY_SWEEP_INTERVAL_MS);
+}
+
+/**
+ * Liveness ping. Sends an authenticated no-op to the server so last_seen_at
+ * stamps the moment the extension is correctly configured — regardless of
+ * whether any message has been detected yet. Logs the EXACT target URL and
+ * outcome so a wrong baseUrl or a stale/revoked token is obvious at a glance.
+ */
+function heartbeat(reason) {
+  chrome.runtime.sendMessage({ type: 'WA_PING' }, (resp) => {
+    if (chrome.runtime.lastError) { warn('heartbeat[' + reason + '] no background:', chrome.runtime.lastError.message); return; }
+    if (!resp) { warn('heartbeat[' + reason + '] no response'); return; }
+    if (resp.error === 'not_configured') {
+      warn('heartbeat[' + reason + '] NOT CONFIGURED — set CoreX URL + device token in the extension popup.');
+      return;
+    }
+    if (resp.ok) {
+      log('heartbeat[' + reason + '] OK ' + resp.status + ' → ' + resp.url + ' | device #' + ((resp.body && resp.body.device_id) || '?') + ' last_seen stamped');
+    } else {
+      warn('heartbeat[' + reason + '] FAILED status=' + resp.status + ' → ' + resp.url +
+           (resp.status === 401 ? ' | TOKEN REJECTED — paste the CURRENT token from My Portal → WhatsApp Capture (you may be holding a revoked one).'
+            : ' | error=' + (resp.error || (resp.body && resp.body.error))));
+    }
+  });
 }
 
 function markInteraction() { lastUserInteractionAt = Date.now(); }

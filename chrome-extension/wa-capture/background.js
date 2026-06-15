@@ -19,29 +19,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true; // async response
   }
+  if (msg.type === 'WA_PING') {
+    // Liveness heartbeat — authenticated no-op; stamps last_seen_at server-side.
+    post('/communications/wa/ping', {})
+      .then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true; // async response
+  }
 });
 
 async function post(path, payload) {
   const cfg = await chrome.storage.local.get(['baseUrl', 'deviceToken']);
   const baseUrl = (cfg.baseUrl || '').replace(/\/+$/, '');
   const token = cfg.deviceToken || '';
+  const url = baseUrl + path;
 
   if (!baseUrl || !token) {
-    return { ok: false, error: 'not_configured' };
+    return { ok: false, error: 'not_configured', url: url };
   }
 
-  const res = await fetch(baseUrl + path, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
-      'Authorization': 'Bearer ' + token,
-    },
-    body: JSON.stringify(payload),
-  });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify(payload),
+    });
 
-  let body = null;
-  try { body = await res.json(); } catch (e) { /* ignore */ }
-  return { ok: res.ok, status: res.status, body: body };
+    let body = null;
+    try { body = await res.json(); } catch (e) { /* ignore */ }
+    // url echoed back so the content-script console shows EXACTLY where it went
+    // (catches a misconfigured baseUrl pointing at the wrong host).
+    return { ok: res.ok, status: res.status, body: body, url: url };
+  } catch (e) {
+    // Network/DNS/CORS failure never reaches a response — surface it with the URL.
+    return { ok: false, status: 0, error: 'network: ' + String(e), url: url };
+  }
 }

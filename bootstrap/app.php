@@ -50,6 +50,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'portal-captures/ingest',
             'communications/wa/ingest',
             'communications/wa/contact-check',
+            'communications/wa/ping',
         ]);
 
     })

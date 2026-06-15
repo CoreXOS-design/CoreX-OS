@@ -3358,3 +3358,9 @@ Route::middleware(['auth.wa_capture'])->post('/communications/wa/ingest', [\App\
 Route::middleware(['auth.wa_capture'])->post('/communications/wa/contact-check', [\App\Http\Controllers\Communications\WaIngestController::class, 'contactCheck'])
     ->name('communications.wa.contact-check');
 
+// WhatsApp capture liveness heartbeat (AT-44). Same per-device Bearer auth.
+// The extension pings on load + interval; auth.wa_capture stamps last_seen_at.
+// Proves the injection -> CORS -> auth pipe independent of WhatsApp DOM detection.
+Route::middleware(['auth.wa_capture'])->post('/communications/wa/ping', [\App\Http\Controllers\Communications\WaIngestController::class, 'ping'])
+    ->name('communications.wa.ping');
+
