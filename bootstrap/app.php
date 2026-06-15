@@ -49,6 +49,7 @@ return Application::configure(basePath: dirname(__DIR__))
             '/internal/ai-chat-proxy',
             'portal-captures/ingest',
             'communications/wa/ingest',
+            'communications/wa/contact-check',
         ]);
 
     })
