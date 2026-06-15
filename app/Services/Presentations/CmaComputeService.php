@@ -170,7 +170,7 @@ final class CmaComputeService
     // ── Build 8b — cleaning pipeline ────────────────────────────────────
 
     /**
-     * Apply recency cut then R/m² IQR lower-fence cut to the comp pool.
+     * Apply recency cut then R/m² IQR fences (lower AND upper) to the comp pool.
      *
      * Order matters: recency first (drops ancient outliers), THEN IQR
      * on the survivors (self-calibrates against the remaining pool's
@@ -207,9 +207,10 @@ final class CmaComputeService
         })->values();
         $nAfterRecency = $afterRecency->count();
 
-        // IQR cut on R/m² (lower fence only). Comps without size_m2
-        // are NOT evaluated by R/m² so they pass through unchanged.
-        $afterOutlier  = $this->applyIqrLowerFence($afterRecency, $iqrMultiplier);
+        // IQR cut on R/m² — BOTH lower (median − k×IQR) and upper (Q3 + k×IQR)
+        // fences. Comps without size_m2 are NOT evaluated by R/m² so they pass
+        // through unchanged.
+        $afterOutlier  = $this->applyIqrFences($afterRecency, $iqrMultiplier);
         $nAfterOutlier = $afterOutlier->count();
 
         // Min-n fallback ladder.
@@ -239,16 +240,27 @@ final class CmaComputeService
     }
 
     /**
-     * Apply the IQR lower-fence outlier cut on R/m². The fence is
-     * Q1 − (multiplier × IQR) where Q1 / Q3 are nearest-rank percentiles
-     * of the in-pool R/m² list. Comps without size_m2 pass through
-     * unconditionally (no R/m² to evaluate; their absolute price still
-     * counts for median/mean).
+     * Apply BOTH IQR outlier fences on R/m² — lower AND upper:
+     *
+     *   lower fence = median − (multiplier × IQR)   [median-anchored, aggressive]
+     *   upper fence = Q3     + (multiplier × IQR)    [Q3-anchored Tukey]
+     *
+     * where Q1 / median / Q3 are type-7 percentiles of the in-pool R/m²
+     * list. Comps without size_m2 pass through unconditionally (no R/m² to
+     * evaluate; their absolute price still counts for median/mean).
+     *
+     * PRES-CMA-SELLER-VOICE (Johan, 2026-06-15) — added the UPPER fence.
+     * Pre-fix only the lower side was cut, so a single high outlier (e.g. a
+     * lone 2024 sale ~R2,995,000 in a pool whose genuine P75 is ~R2,650,000)
+     * survived and became the recommended-band ceiling (cma_upper = p75),
+     * over-stating what comparable homes actually sold for. The upper fence
+     * is the standard Tukey Q3 + k×IQR with the SAME agency multiplier lever
+     * as the lower fence — agency-configurable, never hardcoded.
      *
      * @param  Collection<PresentationSoldComp>  $comps
      * @return Collection<PresentationSoldComp>
      */
-    private function applyIqrLowerFence(Collection $comps, float $multiplier): Collection
+    private function applyIqrFences(Collection $comps, float $multiplier): Collection
     {
         // Collect R/m² per comp where computable.
         $rm2List = [];
@@ -269,20 +281,23 @@ final class CmaComputeService
         $med = $this->percentile($rm2List, 0.5);
         $q3  = $this->percentile($rm2List, 0.75);
         $iqr = bcsub($q3, $q1, self::SCALE);
-        // Per locked spec: fence = median − multiplier × IQR.
-        // Median anchor is more aggressive than Q1 anchor — catches
-        // noise that pushes Q1 down into the outlier zone, at the cost
-        // of trimming legitimate borderline-low comps in pools with
-        // wide natural spread. The multiplier is the agency's lever.
         $multStr = number_format($multiplier, 4, '.', '');
-        $fence   = bcsub($med, bcmul($iqr, $multStr, self::SCALE), self::SCALE);
+        $iqrScaled = bcmul($iqr, $multStr, self::SCALE);
+        // Lower fence = median − k×IQR. Median anchor is more aggressive than
+        // Q1 anchor — catches noise that pushes Q1 down into the outlier zone.
+        $lowerFence = bcsub($med, $iqrScaled, self::SCALE);
+        // Upper fence = Q3 + k×IQR (standard Tukey). Q3 anchor is gentler than
+        // a median anchor would be, so genuinely high suburbs are not gutted —
+        // only the lone sale that sits well beyond the spread is dropped.
+        $upperFence = bcadd($q3, $iqrScaled, self::SCALE);
 
-        return $comps->filter(function ($c) use ($fence) {
+        return $comps->filter(function ($c) use ($lowerFence, $upperFence) {
             if ($c->sold_price_inc === null || $c->size_m2 === null || (int) $c->size_m2 <= 0) {
                 return true; // no R/m² to evaluate — pass through
             }
             $rm2 = bcdiv((string) (int) $c->sold_price_inc, (string) (int) $c->size_m2, self::SCALE);
-            return bccomp($rm2, $fence, self::SCALE) >= 0;
+            return bccomp($rm2, $lowerFence, self::SCALE) >= 0
+                && bccomp($rm2, $upperFence, self::SCALE) <= 0;
         })->values();
     }
 

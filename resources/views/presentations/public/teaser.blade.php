@@ -348,7 +348,7 @@
                 <div class="lock-title">Where Your Property Sits in the Market</div>
             </div>
             <div class="lock-blurb">
-                Your home's price percentile vs. the competition — are you priced for speed or for top dollar?
+                How your price compares with similar homes for sale right now — priced for a quick sale, or for top dollar?
             </div>
             <a class="lock-cta" href="#lead-form">Unlock to see →</a>
         </div>

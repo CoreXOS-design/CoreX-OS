@@ -470,9 +470,15 @@ class AnalysisDataService
             default => $middle,
         };
 
+        // PRES-CMA-SELLER-VOICE (Johan, 2026-06-15) — the asking-vs-value
+        // comparison is ALWAYS measured against the EVALUATED VALUE (the
+        // middle), never the selected range. Pre-fix it used $selectedValue;
+        // when the agent had picked 'upper' the seller saw "asking −3.3% vs
+        // (upper) → Ok/green" while the asking was in fact +15% OVER the
+        // evaluated value. The middle is the honest market reference.
         $askingVsCmaPct = null;
-        if ($askingPrice && $selectedValue && $selectedValue > 0) {
-            $askingVsCmaPct = round(($askingPrice - $selectedValue) / $selectedValue * 100, 1);
+        if ($askingPrice && $middle && $middle > 0) {
+            $askingVsCmaPct = round(($askingPrice - $middle) / $middle * 100, 1);
         }
 
         return [
@@ -1049,12 +1055,10 @@ class AnalysisDataService
                 $cmaMiddle = (int) round(($cmaLower + $cmaUpper) / 2);
             }
         }
-        $cmaValue = match($cmaSelectedRange) {
-            'lower' => $cmaLower,
-            'upper' => $cmaUpper,
-            default => $cmaMiddle,
-        };
-
+        // PRES-CMA-SELLER-VOICE — the seller-facing "vs evaluated value"
+        // benchmark is ALWAYS the middle (the evaluated value), never the
+        // agent-selected range. Anchoring on 'upper' let an above-market
+        // asking read as within tolerance.
         $vicinityValue = match($vicinitySelectedRange) {
             'lower'  => $this->intOrNull($fields->get('vicinity.lower_range')?->final_value),
             'upper'  => $this->intOrNull($fields->get('vicinity.upper_range')?->final_value),
@@ -1064,8 +1068,8 @@ class AnalysisDataService
 
         $benchmarks = [
             [
-                'label'     => 'vs CMA Evaluation (' . $cmaSelectedRange . ')',
-                'benchmark' => $cmaValue,
+                'label'     => 'vs evaluated value (middle)',
+                'benchmark' => $cmaMiddle,
                 'thresholds' => ['warning' => 5, 'danger' => 15],
             ],
             [

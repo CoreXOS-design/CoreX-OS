@@ -132,11 +132,16 @@ class PresentationPdfService
         ));
         $longestDom   = $domValues === [] ? null : max($domValues);
 
-        // ── §3 Bullet 4 tokens — recommendation (§4b: condition-adjusted
-        // CMA middle). The conditional above_clause (§4c) tells the truth
-        // for a well-priced subject — no false "you're too high" pitch.
+        // ── §3 Bullet 4 tokens — recommendation = the EVALUATED VALUE (the
+        // comp-median, R2,520,000 in the Grindewald case). PRES-CMA-SELLER-
+        // VOICE: the above-clause is anchored on the evaluated value (middle),
+        // NOT the upper band — pre-fix asking ≤ upper read an over-market
+        // asking as "priced right in the band", contradicting the recommended
+        // figure on the same line. "Well-priced" now means asking ≤ the
+        // evaluated value (genuinely fine); above it, the market's voice says
+        // so plainly.
         $recommendedPrice = $cmaMiddle;
-        $aboveClause      = $this->buildAboveClause($askingPrice, $cmaUpper, $soldHigh, $compHigh, $competingCount);
+        $aboveClause      = $this->buildAboveClause($askingPrice, $cmaMiddle, $soldHigh, $compHigh, $competingCount);
         $wellPriced       = $aboveClause['well_priced'];
 
         // ── §3 Bullet 5 — waiting cost from canonical (B0a) ─────────────
@@ -309,13 +314,16 @@ class PresentationPdfService
      *
      * @return array{text: string, well_priced: bool, above_competition: bool, above_sold: bool}
      */
-    private function buildAboveClause(?int $askingPrice, ?int $cmaUpper, ?int $soldHigh, ?int $compHigh, int $competingCount): array
+    private function buildAboveClause(?int $askingPrice, ?int $evaluatedValue, ?int $soldHigh, ?int $compHigh, int $competingCount): array
     {
-        // Well-priced: asking ≤ band. Spec §4c — softens the close.
-        if ($askingPrice === null || $cmaUpper === null) {
+        // Well-priced: asking ≤ the EVALUATED VALUE (the comp-median).
+        // PRES-CMA-SELLER-VOICE — anchored on the evaluated value, NOT the
+        // upper band, so an above-market asking is never reassured as "in the
+        // band". Spec §4c — softens the close only when genuinely well-placed.
+        if ($askingPrice === null || $evaluatedValue === null) {
             return ['text' => '', 'well_priced' => false, 'above_competition' => false, 'above_sold' => false];
         }
-        if ($askingPrice <= $cmaUpper) {
+        if ($askingPrice <= $evaluatedValue) {
             return [
                 'text'              => '',
                 'well_priced'       => true,
@@ -427,17 +435,21 @@ class PresentationPdfService
         if ($asking === null) {
             return $core;
         }
+        // PRES-CMA-SELLER-VOICE — let the market deliver the message, never the
+        // agent judging. Well-priced (asking ≤ evaluated value) gets a fair,
+        // un-pressured line; above the evaluated value states plainly that the
+        // asking is over what homes like this have actually sold for, and
+        // points back to the evaluated value as where buyers act.
         if ($aboveClause['well_priced']) {
             return $core . sprintf(
-                ' At <strong>%s</strong> you\'re priced right in the band buyers are paying.',
+                ' At <strong>%s</strong> you\'re priced at or below what homes like yours have sold for — right where buyers are active.',
                 $this->zarFormat($asking),
             );
         }
-        $clause = $aboveClause['text'] !== '' ? $aboveClause['text'] : 'the recommended band';
         return $core . sprintf(
-            ' At today\'s <strong>%s</strong> you\'re priced above %s.',
+            ' At <strong>%s</strong> you\'re asking more than homes like yours have actually sold for — they\'ve been selling around <strong>%s</strong>. Pricing closer to that is what brings buyers.',
             $this->zarFormat($asking),
-            htmlspecialchars($clause, ENT_QUOTES, 'UTF-8'),
+            $this->zarFormat($recommended),
         );
     }
 
@@ -2982,20 +2994,22 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <div class="metric-grid" style="grid-template-columns: 1fr 1fr;">
     <div class="metric-card highlight">
         <div class="label">Recommended Range</div>
-        <?php /* AT-22 §5 — range is the comparable-sales P25–P75 band around
-                 the cleaned-pool CMA mid. Both bounds are evidence-backed from
-                 the comp set; asking is a reference only.
-                 PRES-CMA-REALFIX — the band is the RAW comparable-sales
-                 distribution (no condition factor), so the printed figures ARE
-                 the P25–P75 the subtitle names — honest by construction. */ ?>
+        <?php /* AT-22 §5 — range is the comparable-sales band (lower→upper of
+                 the cleaned comp pool). Both bounds are evidence-backed from
+                 actual sales; asking is a reference only.
+                 PRES-CMA-REALFIX — band is the RAW comp distribution (no
+                 condition factor). PRES-CMA-SELLER-VOICE — upper bound now
+                 reflects genuine comps (lone high outliers removed by the IQR
+                 upper fence) and the seller-facing label drops the P25/P75
+                 jargon entirely. */ ?>
         <div class="value" style="font-size:17px;"><?= $zar($cmaLower) ?> — <?= $zar($cmaUpper) ?></div>
-        <div class="sub">Comparable-sales range (P25–P75) around the comparable-sales median</div>
+        <div class="sub">The range homes like yours have actually sold for</div>
     </div>
     <?php if ($askingPrice): ?>
     <div class="metric-card <?= $askVsCmaPct !== null && $askVsCmaPct > 10 ? 'danger' : ($askVsCmaPct !== null && $askVsCmaPct > 5 ? 'warning' : 'success') ?>">
         <div class="label">Current Asking Price</div>
         <div class="value"><?= $zar($askingPrice) ?></div>
-        <div class="sub"><?php if ($askVsCmaPct !== null): ?><?= $pct($askVsCmaPct) ?> vs CMA middle<?php endif ?></div>
+        <div class="sub"><?php if ($askVsCmaPct !== null): ?><?= $pct($askVsCmaPct) ?> vs evaluated value<?php endif ?></div>
     </div>
     <?php endif ?>
 </div>
@@ -3019,21 +3033,21 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         <?php $rawP25 = $compP25 ?? $cmaLower; $rawMed = $compMedian ?? $cmaMiddle; $rawP75 = $compP75 ?? $cmaUpper; ?>
         <?php if ($rawP25): ?>
         <tr>
-            <td>Comparable sales — lower quartile (P25)</td>
+            <td>Lower end of recent comparable sales</td>
             <td class="num"><?= $zar($rawP25) ?></td>
             <td><span class="cmp-badge cmp-success">Comp evidence</span></td>
         </tr>
         <?php endif ?>
         <?php if ($rawMed): ?>
         <tr>
-            <td>Comparable sales — median (P50)</td>
+            <td>What homes like yours typically sold for</td>
             <td class="num"><?= $zar($rawMed) ?></td>
             <td><span class="cmp-badge cmp-success">Comp evidence</span></td>
         </tr>
         <?php endif ?>
         <?php if ($rawP75): ?>
         <tr>
-            <td>Comparable sales — upper quartile (P75)</td>
+            <td>Upper end of recent comparable sales</td>
             <td class="num"><?= $zar($rawP75) ?></td>
             <td><span class="cmp-badge cmp-success">Comp evidence</span></td>
         </tr>
