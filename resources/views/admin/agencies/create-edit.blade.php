@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+<div class="w-full space-y-5"
      x-data="{
         activeTab: ['company','branding','branches','syndication','api-access','admin'].includes((window.location.hash || '').replace('#','')) ? (window.location.hash || '').replace('#','') : 'company',
         isDemo: {{ old('is_demo') ? 'true' : 'false' }}
@@ -183,7 +184,7 @@
             <div x-data="{ removelogo: false }" class="space-y-4">
                 @if($agency?->logo_path)
                     <div class="flex items-center gap-4">
-                        <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="Current logo"
+                        <img src="{{ asset('storage/' . $agency->logo_path) }}?v={{ $agency->updated_at?->timestamp }}" alt="Current logo"
                              class="h-14 rounded-md p-1"
                              style="background: var(--surface-2); border: 1px solid var(--border);">
                         <label class="inline-flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
@@ -220,7 +221,7 @@
             <p class="text-xs" style="color:var(--text-muted);">Four semantic colour roles control the entire platform look for this agency.</p>
 
             @include('admin.branding._logo-palette', [
-                'logoUrl'     => $agency?->logo_path ? asset('storage/' . $agency->logo_path) : '',
+                'logoUrl'     => $agency?->logo_path ? asset('storage/' . $agency->logo_path) . '?v=' . $agency->updated_at?->timestamp : '',
                 'logoInputId' => 'agency-logo-input',
             ])
 

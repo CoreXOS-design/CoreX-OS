@@ -314,7 +314,7 @@
                 <div>
                     @if($agency->logo_path)
                         <div class="mb-2 flex items-center gap-3">
-                            <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="Company Logo"
+                            <img src="{{ asset('storage/' . $agency->logo_path) }}?v={{ $agency->updated_at?->timestamp }}" alt="Company Logo"
                                  class="h-10 w-auto rounded-md p-1"
                                  style="background: var(--surface-2); border: 1px solid var(--border);">
                             <label class="inline-flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
@@ -350,7 +350,7 @@
                 <p class="text-xs" style="color:var(--text-muted);">Four semantic colour roles control the entire platform look for this agency.</p>
 
                 @include('admin.branding._logo-palette', [
-                    'logoUrl'     => $agency->logo_path ? asset('storage/' . $agency->logo_path) : '',
+                    'logoUrl'     => $agency->logo_path ? asset('storage/' . $agency->logo_path) . '?v=' . $agency->updated_at?->timestamp : '',
                     'logoInputId' => 'company-logo-input',
                 ])
 
