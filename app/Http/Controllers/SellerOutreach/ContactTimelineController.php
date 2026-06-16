@@ -82,6 +82,7 @@ final class ContactTimelineController extends Controller
             'sends'          => $sends,
             'clickCounts'    => $clickCounts,
             'optedOut'       => $contact->messaging_opt_out_at !== null,
+            'optedIn'        => $contact->messaging_opted_in_at !== null,
             'outcomeOptions' => $this->outcomeOptions(),
         ];
     }
@@ -151,6 +152,27 @@ final class ContactTimelineController extends Controller
         );
 
         return back()->with('status', 'Opt-out recorded. No further pitches will be sent.');
+    }
+
+    /**
+     * Record an explicit messaging opt-in (e.g. the seller replied YES to a
+     * consent request). Mirrors recordOptOut: same agency assertion, same
+     * `reason` validation, same permission gate (outreach.compose).
+     *
+     * Opt-in is a recorded FACT — it does NOT lift an opt-out and does NOT
+     * change the send gate.
+     */
+    public function recordOptIn(Request $request, Contact $contact)
+    {
+        $agencyId = $this->assertContactInAgency($request, $contact);
+
+        $validated = $request->validate([
+            'reason' => 'required|string|max:500',
+        ]);
+
+        $contact->recordOptIn($validated['reason'], (int) Auth::id());
+
+        return back()->with('status', 'Opt-in recorded. The seller has confirmed consent to receive messages.');
     }
 
     public function outcomeOptions(): array

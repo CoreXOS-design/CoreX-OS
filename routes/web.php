@@ -1901,6 +1901,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/timeline',                       [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'index'])->name('timeline');
             Route::post('/timeline/sends/{send}/outcome', [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'updateOutcome'])->name('outcome');
             Route::post('/timeline/opt-out',              [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'recordOptOut'])->name('opt-out');
+            // AT-45 — explicit opt-in marker (recorded fact; does NOT change the send gate)
+            Route::post('/timeline/opt-in',               [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'recordOptIn'])->name('opt-in');
         });
 
     // ── Seller Outreach Entry Points (Prompt 08) ──

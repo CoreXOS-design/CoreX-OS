@@ -40,6 +40,7 @@ class Contact extends Model
         'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
         'preapproval_amount', 'preapproval_expires_at', 'preapproval_institution',
         'messaging_opt_out_at', 'messaging_opt_out_reason', 'messaging_opt_out_recorded_by_user_id',
+        'messaging_opted_in_at', 'messaging_opt_in_reason', 'messaging_opt_in_recorded_by_user_id',
     ];
 
     protected $casts = [
@@ -55,6 +56,7 @@ class Contact extends Model
         'preapproval_amount'        => 'decimal:2',
         'preapproval_expires_at'    => 'date',
         'messaging_opt_out_at'      => 'datetime',
+        'messaging_opted_in_at'     => 'datetime',
     ];
 
     /**
@@ -305,6 +307,37 @@ class Contact extends Model
         }
 
         $this->updateQuietly($updates);
+    }
+
+    // ── Messaging opt-in (AT-45) ──
+
+    /**
+     * Record an explicit marketing opt-in — e.g. the seller replied YES to a
+     * consent-request message. A recorded FACT for compliance + re-engagement.
+     *
+     * It does NOT lift an existing opt-out: the send gate still honours
+     * messaging_opt_out_at. Mirrors the opt-out triplet that
+     * RecordOptOutOnContact sets on the contact.
+     */
+    public function recordOptIn(?string $reason, int $userId): void
+    {
+        $this->update([
+            'messaging_opted_in_at'                => now(),
+            'messaging_opt_in_reason'              => $reason,
+            'messaging_opt_in_recorded_by_user_id' => $userId,
+        ]);
+    }
+
+    /** True when an explicit messaging opt-in has been recorded. */
+    public function isOptedIn(): bool
+    {
+        return $this->messaging_opted_in_at !== null;
+    }
+
+    /** The user who recorded the messaging opt-in (for "by whom" display). */
+    public function optInRecordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'messaging_opt_in_recorded_by_user_id');
     }
 
     // ── Buyer CRM (M4) ──

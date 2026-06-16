@@ -1,6 +1,7 @@
-{{-- props: $contact, $sends, $clickCounts, $optedOut, $outcomeOptions --}}
+{{-- props: $contact, $sends, $clickCounts, $optedOut, $optedIn, $outcomeOptions --}}
+@php($optedIn = $optedIn ?? ($contact->messaging_opted_in_at !== null))
 
-<div x-data="{ openSendId: null, optOutFormOpen: false }" class="space-y-4">
+<div x-data="{ openSendId: null, optOutFormOpen: false, optInFormOpen: false }" class="space-y-4">
 
     {{-- Flash --}}
     @if(session('status'))
@@ -32,6 +33,25 @@
         </div>
     @endif
 
+    {{-- Opt-in banner (AT-45) — recorded consent fact; does not lift opt-out --}}
+    @if($optedIn)
+        <div class="rounded-md p-4"
+             style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border: 1px solid var(--ds-green);">
+            <div class="font-semibold mb-1" style="color: var(--ds-green);">
+                Contact opted in to messaging
+            </div>
+            <div class="text-xs" style="color: var(--text-secondary);">
+                Opted in on {{ optional($contact->messaging_opted_in_at)->format('j M Y g:i a') }}
+                @if($contact->messaging_opt_in_recorded_by_user_id)
+                    by {{ optional($contact->optInRecordedBy)->name ?? ('user #' . $contact->messaging_opt_in_recorded_by_user_id) }}
+                @endif.
+                @if($contact->messaging_opt_in_reason)
+                    <br>Reason: <em>{{ $contact->messaging_opt_in_reason }}</em>
+                @endif
+            </div>
+        </div>
+    @endif
+
     {{-- Header + actions --}}
     <div class="flex items-center justify-between flex-wrap gap-2">
         <div>
@@ -54,6 +74,14 @@
                         class="px-3 py-1.5 text-sm rounded"
                         style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson); border: 1px solid var(--ds-crimson);">
                     Record opt-out
+                </button>
+            @endif
+            @if(!$optedIn)
+                {{-- AT-45 — available even when opted out (the re-consent / "YES reply" path) --}}
+                <button type="button" @click="optInFormOpen = !optInFormOpen"
+                        class="px-3 py-1.5 text-sm rounded"
+                        style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green); border: 1px solid var(--ds-green);">
+                    Record opt-in (YES reply)
                 </button>
             @endif
         </div>
@@ -79,6 +107,34 @@
                     Confirm opt-out
                 </button>
                 <button type="button" @click="optOutFormOpen = false"
+                        class="px-4 py-2 text-sm rounded"
+                        style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
+                    Cancel
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {{-- Opt-in form (AT-45) --}}
+    <div x-show="optInFormOpen" x-cloak class="rounded-md p-4"
+         style="background: var(--surface); border: 1px solid var(--ds-green);">
+        <form method="POST" action="{{ route('seller-outreach.composer.opt-in', $contact) }}">
+            @csrf
+            <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
+                How the opt-in was given
+            </label>
+            <input type="text" name="reason" required maxlength="500"
+                   placeholder="e.g. Seller replied YES via WhatsApp"
+                   class="w-full px-3 py-2 text-sm rounded mb-3"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <div class="flex items-center gap-2">
+                <button type="submit"
+                        onclick="return confirm('Record opt-in? This logs that the seller has confirmed consent. It does not lift any existing opt-out.');"
+                        class="px-4 py-2 text-sm font-semibold rounded"
+                        style="background: var(--ds-green); color: #fff;">
+                    Confirm opt-in
+                </button>
+                <button type="button" @click="optInFormOpen = false"
                         class="px-4 py-2 text-sm rounded"
                         style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
                     Cancel

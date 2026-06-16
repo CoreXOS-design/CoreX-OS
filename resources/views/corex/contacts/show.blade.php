@@ -1584,6 +1584,7 @@
                 'sends'          => $outreachSends,
                 'clickCounts'    => $outreachClickCounts ?? collect(),
                 'optedOut'       => $contact->messaging_opt_out_at !== null,
+                'optedIn'        => $contact->messaging_opted_in_at !== null,
                 'outcomeOptions' => $outreachOutcomeOptions ?? [],
             ])
         </div>
