@@ -350,10 +350,13 @@ class Contact extends Model
 
     /**
      * The contact's communication status, DERIVED (never stored):
-     *   opted_in            — not opted out of marketing (default; receives all).
-     *   transaction_only    — opted out of marketing BUT in a live sale, so
-     *                         business comms about that sale continue.
-     *   marketing_opted_out — opted out of marketing and no live transaction.
+     *   opted_in            — not opted out (default; receives all).
+     *   transaction_only    — opted out BUT in a live sale, so business comms
+     *                         about that sale continue.
+     *   marketing_opted_out — opted out and NO live transaction. Because the
+     *                         opt-out path (MarketingConsentService::optOutContact)
+     *                         already suppresses every channel, this IS the full
+     *                         "all messages stopped" state (the badge says so).
      *
      * The live-transaction check only runs when the contact IS opted out, so the
      * common (opted-in) case costs no query.
@@ -390,7 +393,7 @@ class Contact extends Model
             ],
             self::COMM_MARKETING_OPTED_OUT => [
                 'key'   => self::COMM_MARKETING_OPTED_OUT,
-                'label' => 'Marketing opted out',
+                'label' => 'All messages stopped',
                 'class' => 'ds-badge-danger',
             ],
             default => [

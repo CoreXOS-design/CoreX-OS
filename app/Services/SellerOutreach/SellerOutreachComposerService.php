@@ -50,6 +50,24 @@ final class SellerOutreachComposerService
         }
 
         $template = $this->resolveTemplate($agencyId, $channel, $templateId);
+
+        // Email shared-body fallback — when the agency has no Email template (the
+        // HFC consent/default templates are WhatsApp-only), reuse a WhatsApp
+        // template's body so the Email channel isn't blank. The body is
+        // channel-neutral (merge fields + opt-out link); the e-sign wrapper adds
+        // the email branding. Only applies with no explicit template/body chosen.
+        if ($template === null && $channel === 'email' && $templateId === null && $bodyOverride === null) {
+            $template = $this->resolveTemplate($agencyId, 'whatsapp', null)
+                ?? SellerOutreachTemplate::withoutGlobalScopes()
+                    ->where('agency_id', $agencyId)
+                    ->where('channel', 'whatsapp')
+                    ->where('is_active', true)
+                    ->whereNull('deleted_at')
+                    ->orderByDesc('is_default_for_channel')
+                    ->orderBy('id')
+                    ->first();
+        }
+
         $mergeFields = $this->buildMergeFields($agencyId, $contact, $property, $agent);
 
         $bodyTemplate = $bodyOverride ?? ($template?->body ?? '');

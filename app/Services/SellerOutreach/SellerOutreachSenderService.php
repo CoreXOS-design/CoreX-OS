@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Services\SellerOutreach;
 
 use App\Events\SellerOutreach\PitchSent;
+use App\Mail\SellerOutreach\OutreachEmail;
 use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Support\SellerOutreach\OutreachContext;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 /**
@@ -100,6 +103,27 @@ final class SellerOutreachSenderService
             actorUserId: $context->agent->id,
             agencyId: $context->agencyId,
         ));
+
+        // EMAIL channel — the system sends the branded HTML email (reusing the
+        // e-sign signature wrapper). WhatsApp stays click-to-chat (wa.me). The
+        // body already has the per-send links substituted ($finalBody). A mail
+        // failure must NOT roll back the recorded send (PPRA evidence) — log it.
+        if ($context->channel === 'email' && $context->recipientEmail) {
+            try {
+                Mail::to($context->recipientEmail)->send(new OutreachEmail(
+                    recipientName: $context->contact->first_name ?: 'there',
+                    emailSubject:  (string) ($finalSubject ?? ''),
+                    body:          $finalBody,
+                    agent:         $context->agent,
+                ));
+            } catch (\Throwable $e) {
+                Log::error('SellerOutreach email send failed', [
+                    'send_id'   => $send->id,
+                    'agency_id' => $context->agencyId,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
+        }
 
         return $send;
     }

@@ -217,17 +217,21 @@ final class ComposerController extends Controller
             }
         }
 
-        $clientUrl = match ($validated['channel']) {
-            'whatsapp' => $this->sender->whatsappUrl($send),
-            'email'    => $this->sender->mailtoUrl($send),
-        };
+        // WhatsApp opens the agent's app (wa.me); Email is SENT by the system as a
+        // branded HTML email (SellerOutreachSenderService::send), so there is no
+        // client URL to open for email — avoids a mailto double-send.
+        $clientUrl = $validated['channel'] === 'whatsapp'
+            ? $this->sender->whatsappUrl($send)
+            : null;
 
         if ($request->wantsJson()) {
             return response()->json([
                 'send_id'             => $send->id,
                 'tracking_short_code' => $send->tracking_short_code,
                 'client_url'          => $clientUrl,
-                'message'             => "Pitch recorded — opening {$validated['channel']}.",
+                'message'             => $validated['channel'] === 'whatsapp'
+                    ? 'Pitch recorded — opening WhatsApp.'
+                    : 'Pitch recorded — branded email sent.',
             ]);
         }
 
@@ -247,9 +251,10 @@ final class ComposerController extends Controller
             ->whereNull('deleted_at')
             ->firstOrFail();
 
+        // Email is system-sent (branded HTML); only WhatsApp has a client URL.
         $clientUrl = $sendModel->channel === 'whatsapp'
             ? $this->sender->whatsappUrl($sendModel)
-            : $this->sender->mailtoUrl($sendModel);
+            : null;
 
         return view('seller-outreach.sent', [
             'contact'   => $contact,
