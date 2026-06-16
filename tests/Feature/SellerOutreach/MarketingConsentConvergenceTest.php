@@ -46,7 +46,7 @@ final class MarketingConsentConvergenceTest extends TestCase
         $this->post(route('seller-outreach.public.opt-out.confirm', $send->opt_out_token))->assertOk();
         $contact->refresh();
         $this->assertNotNull($contact->messaging_opt_out_at, 'pre-condition: opted out');
-        $this->assertTrue($contact->opt_out_whatsapp, 'pre-condition: channel off');
+        $this->assertTrue((bool) $contact->opt_out_whatsapp, 'pre-condition: channel off');
         $this->assertTrue($this->suppressionActive($agencyId, self::PHONE_CORE), 'pre-condition: phone suppressed');
 
         // GET is preview-safe (no write).
