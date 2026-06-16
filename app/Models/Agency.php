@@ -66,6 +66,7 @@ class Agency extends Model
         'ai_image_recognition_enabled',
         'logo_path',
         'email_disclaimer',
+        'marketing_unsubscribe_footer',
         'popi_url',
         'privacy_policy_markdown',
         'privacy_policy_token',
@@ -561,6 +562,31 @@ class Agency extends Model
     public function effectivePopiUrl(): ?string
     {
         return $this->privacyPolicyPublicUrl() ?: ($this->popi_url ?: null);
+    }
+
+    /**
+     * AT-49 — the marketing email-signature footer to render at the bottom of
+     * outgoing marketing email. Returns the agency's explicit override when set,
+     * otherwise a sensible default that already carries the generic /unsubscribe
+     * link, so the feature works out of the box with no configuration.
+     */
+    public function renderedMarketingUnsubscribeFooter(): string
+    {
+        $explicit = trim((string) $this->marketing_unsubscribe_footer);
+        if ($explicit !== '') {
+            return $explicit;
+        }
+
+        $url = $this->marketingUnsubscribeUrl();
+
+        return "You're receiving marketing updates from {$this->name}. "
+            . "To stop receiving these messages, unsubscribe here: {$url}";
+    }
+
+    /** The public, agency-scoped unsubscribe URL used in the marketing footer. */
+    public function marketingUnsubscribeUrl(): string
+    {
+        return route('seller-outreach.public.unsubscribe.show', ['agency' => $this->id]);
     }
 
     // ── Payroll ──

@@ -192,6 +192,7 @@ CREATE TABLE `agencies` (
   `ai_image_recognition_enabled` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'Allow agents at this agency to use AI property image recognition (advanced feature, mobile-only)',
   `logo_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email_disclaimer` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `marketing_unsubscribe_footer` text COLLATE utf8mb4_unicode_ci,
   `popi_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `privacy_policy_markdown` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `privacy_policy_token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -3039,6 +3040,7 @@ CREATE TABLE `contacts` (
   `messaging_opt_out_at` timestamp NULL DEFAULT NULL,
   `messaging_opt_out_reason` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `messaging_opt_out_recorded_by_user_id` bigint unsigned DEFAULT NULL,
+  `messaging_opt_out_source` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `messaging_opted_in_at` timestamp NULL DEFAULT NULL,
   `messaging_opt_in_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `messaging_opt_in_recorded_by_user_id` bigint unsigned DEFAULT NULL,
@@ -5971,6 +5973,38 @@ CREATE TABLE `marketing_share_log` (
   CONSTRAINT `marketing_share_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
   CONSTRAINT `marketing_share_log_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
   CONSTRAINT `marketing_share_log_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `marketing_suppressions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `marketing_suppressions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `identifier` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `identifier_type` enum('email','phone') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_id` bigint unsigned DEFAULT NULL,
+  `source` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `send_id` bigint unsigned DEFAULT NULL,
+  `suppressed_at` timestamp NOT NULL,
+  `lifted_at` timestamp NULL DEFAULT NULL,
+  `lifted_by_user_id` bigint unsigned DEFAULT NULL,
+  `recorded_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `marketing_suppr_lookup_idx` (`agency_id`,`identifier`,`lifted_at`),
+  KEY `marketing_suppr_agency_active_idx` (`agency_id`,`lifted_at`),
+  KEY `marketing_suppressions_contact_id_foreign` (`contact_id`),
+  KEY `marketing_suppressions_send_id_foreign` (`send_id`),
+  KEY `marketing_suppressions_recorded_by_user_id_foreign` (`recorded_by_user_id`),
+  KEY `marketing_suppressions_lifted_by_user_id_foreign` (`lifted_by_user_id`),
+  CONSTRAINT `marketing_suppressions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `marketing_suppressions_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `marketing_suppressions_lifted_by_user_id_foreign` FOREIGN KEY (`lifted_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `marketing_suppressions_recorded_by_user_id_foreign` FOREIGN KEY (`recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `marketing_suppressions_send_id_foreign` FOREIGN KEY (`send_id`) REFERENCES `seller_outreach_sends` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `migrations`;
@@ -9551,6 +9585,7 @@ CREATE TABLE `seller_outreach_sends` (
   `body_snapshot` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `facts_snapshot` json NOT NULL,
   `tracking_short_code` char(6) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `opt_out_token` varchar(48) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `recipient_phone_snapshot` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `recipient_email_snapshot` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sent_at` timestamp NOT NULL,
@@ -9564,6 +9599,7 @@ CREATE TABLE `seller_outreach_sends` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `outreach_send_agency_code_unique` (`agency_id`,`tracking_short_code`),
+  UNIQUE KEY `outreach_send_optout_token_uq` (`opt_out_token`),
   KEY `seller_outreach_sends_contact_id_foreign` (`contact_id`),
   KEY `seller_outreach_sends_property_id_foreign` (`property_id`),
   KEY `seller_outreach_sends_agent_id_foreign` (`agent_id`),
@@ -11820,3 +11856,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (816,'2026_06_16_16
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (818,'2026_06_16_180000_add_messaging_opt_in_to_contacts_table',147);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (821,'2026_06_16_181000_add_include_tracking_link_to_seller_outreach_templates',148);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (822,'2026_06_16_182000_add_public_contact_to_agencies',148);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (823,'2026_06_16_190000_add_opt_out_token_to_seller_outreach_sends',149);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (824,'2026_06_16_190001_add_messaging_opt_out_source_to_contacts',149);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (825,'2026_06_16_190002_create_marketing_suppressions_table',150);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_16_190003_add_marketing_unsubscribe_footer_to_agencies',150);

@@ -10,8 +10,9 @@ use Illuminate\Support\Facades\DB;
  * shipped with v1 of the module. Idempotent — re-runs do NOT create
  * duplicates (matched on agency_id + channel + name).
  *
- * Every body MUST contain {tracking_link} AND an opt-out clause ("STOP")
- * per spec Section 9 (POPIA) + Section S4.
+ * Every body MUST contain {tracking_link}, {opt_out_link} (AT-49 one-tap
+ * self-service opt-out) AND an opt-out clause ("STOP") per spec Section 9
+ * (POPIA) + Section S4.
  */
 class SellerOutreachTemplatesSeeder extends Seeder
 {
@@ -92,7 +93,7 @@ If you're considering selling — or curious about what your property could fetc
 
 See the live demand for your property here: {tracking_link}
 
-Reply STOP to opt out of further messages.
+To stop marketing messages, tap {opt_out_link} or reply STOP.
 
 Best,
 {agent_name}
@@ -113,7 +114,7 @@ Latest view here: {tracking_link}
 
 Happy to answer any questions, no pressure.
 
-Reply STOP to opt out.
+To stop marketing messages, tap {opt_out_link} or reply STOP.
 
 {agent_name}
 {agent_phone}
@@ -134,7 +135,7 @@ You can see the live demand and what we're seeing in your area here:
 
 If you're open to a conversation — whether about selling, market value, or just understanding what's happening in {property_town} — I'd love to chat. No commitment.
 
-To opt out of further messages, reply STOP.
+To stop marketing messages, tap {opt_out_link} or reply STOP.
 
 Best,
 {agent_name}

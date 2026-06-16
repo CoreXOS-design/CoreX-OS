@@ -39,7 +39,7 @@ class Contact extends Model
         'is_buyer', 'buyer_state', 'last_activity_at',
         'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
         'preapproval_amount', 'preapproval_expires_at', 'preapproval_institution',
-        'messaging_opt_out_at', 'messaging_opt_out_reason', 'messaging_opt_out_recorded_by_user_id',
+        'messaging_opt_out_at', 'messaging_opt_out_reason', 'messaging_opt_out_recorded_by_user_id', 'messaging_opt_out_source',
         'messaging_opted_in_at', 'messaging_opt_in_reason', 'messaging_opt_in_recorded_by_user_id',
     ];
 
@@ -250,7 +250,7 @@ class Contact extends Model
         ]);
     }
 
-    public function revokeConsent(string $type, int $userId, ?string $reason = null): void
+    public function revokeConsent(string $type, ?int $userId = null, ?string $reason = null): void
     {
         $this->consentRecords()
             ->where('consent_type', $type)
@@ -275,13 +275,21 @@ class Contact extends Model
      */
     public function canSendVia(string $channel): bool
     {
-        return match ($channel) {
+        $channelAllowed = match ($channel) {
             'email' => !$this->opt_out_email,
             'sms' => !$this->opt_out_sms,
             'whatsapp' => !$this->opt_out_whatsapp,
             'call' => !$this->opt_out_call,
             default => true,
         };
+        if (!$channelAllowed) {
+            return false;
+        }
+
+        // AT-49 — an identifier-level marketing suppression blocks every channel
+        // even when the per-channel boolean is clear (e.g. a re-imported contact
+        // that carries a previously-suppressed email or number).
+        return !app(\App\Services\SellerOutreach\MarketingConsentService::class)->isContactSuppressed($this);
     }
 
     /**
@@ -338,6 +346,16 @@ class Contact extends Model
     public function optInRecordedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'messaging_opt_in_recorded_by_user_id');
+    }
+
+    /**
+     * The user who recorded the messaging opt-out (for "by whom" display).
+     * NULL when the opt-out was self-service (the recipient tapped the per-send
+     * link) — see messaging_opt_out_source / [[at49-self-service-optout]].
+     */
+    public function optOutRecordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'messaging_opt_out_recorded_by_user_id');
     }
 
     // ── Buyer CRM (M4) ──

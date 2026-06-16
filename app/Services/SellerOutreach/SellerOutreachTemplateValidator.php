@@ -11,6 +11,8 @@ use App\Support\SellerOutreach\TemplateValidationResult;
  *
  * Hard rules from spec S4:
  *  - body MUST contain '{tracking_link}'
+ *  - body MUST contain '{opt_out_link}' (AT-49 — per-send self-service opt-out;
+ *    mandatory on EVERY outreach template, independent of the tracking-link flag)
  *  - body MUST contain 'STOP' (opt-out clause keyword)
  *  - if channel is email, subject MUST be non-empty
  *
@@ -28,6 +30,9 @@ final class SellerOutreachTemplateValidator
         'agency_ffc', 'agent_ffc', 'branch_or_company_tel',
         'buyer_count', 'matching_buyer_count',
         'tracking_link',
+        // AT-49 — per-send self-service opt-out link (mandatory on every template)
+        // + optional re-consent opt-in link.
+        'opt_out_link', 'opt_in_link',
     ];
 
     /**
@@ -46,6 +51,13 @@ final class SellerOutreachTemplateValidator
 
         if ($includeTrackingLink && !str_contains($body, '{tracking_link}')) {
             $errors['tracking_link_missing'] = 'Body must contain the {tracking_link} merge field (mandatory for click tracking) — or turn off "Include tracking link" for this template.';
+        }
+
+        // AT-49 — the per-send opt-out link is mandatory on every outreach
+        // template regardless of the tracking-link flag (POPIA: every marketing
+        // message must carry a one-tap opt-out).
+        if (!str_contains($body, '{opt_out_link}')) {
+            $errors['opt_out_link_missing'] = 'Body must contain the {opt_out_link} merge field (mandatory one-tap opt-out on every marketing message).';
         }
 
         if (!preg_match('/\bSTOP\b/i', $body)) {

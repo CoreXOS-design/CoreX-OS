@@ -17,12 +17,19 @@ use App\Models\SellerOutreach\SellerOutreachSend;
  */
 final class OptOutRecorded extends AbstractDomainEvent
 {
+    /** Recorded by an authenticated agent on the contact page (default). */
+    public const SOURCE_AGENT = 'agent';
+
+    /** Recorded by the recipient tapping the per-send self-service opt-out link (AT-49). */
+    public const SOURCE_SELF_SERVICE_LINK = 'self_service_link';
+
     public function __construct(
         public readonly Contact $contact,
         public readonly ?SellerOutreachSend $send,
         public readonly string $reason,
         public readonly ?int $actorUserId,
         public readonly int $agencyId,
+        public readonly ?string $source = null,
         ?string $traceId = null,
     ) {
         parent::__construct($traceId);
@@ -49,6 +56,7 @@ final class OptOutRecorded extends AbstractDomainEvent
             'reason' => $this->reason,
             'send_id' => $this->send?->id,
             'tracking_short_code' => $this->send?->tracking_short_code,
+            'source' => $this->source,
         ];
     }
 }

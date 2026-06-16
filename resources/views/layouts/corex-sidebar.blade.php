@@ -1249,7 +1249,7 @@
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
         @permission('sidebar.section.admin')
-        @if($user && $user->hasAnyPermission(['access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @if($user && $user->hasAnyPermission(['access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
@@ -1288,6 +1288,16 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 4.5 19.5a1.5 1.5 0 0 0 1.5 1.4h12a1.5 1.5 0 0 0 1.5-1.4L21 7.5M3 7.5h18M3 7.5l1-3h16l1 3M9.75 11.25l4.5 4.5m0-4.5-4.5 4.5" />
             </svg>
             <span>Soft Deletes</span>
+        </a>
+        @endpermission
+
+        {{-- Marketing Suppressions (AT-49) --}}
+        @permission('marketing_suppressions.view')
+        <a href="{{ route('admin.marketing-suppressions.index') }}" class="corex-nav-item {{ request()->routeIs('admin.marketing-suppressions.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75M3 3l18 18" />
+            </svg>
+            <span>Marketing Suppressions</span>
         </a>
         @endpermission
 

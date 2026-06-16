@@ -8,6 +8,7 @@ use App\Events\SellerOutreach\PitchSent;
 use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Support\SellerOutreach\OutreachContext;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Records a seller-outreach send.
@@ -24,6 +25,14 @@ final class SellerOutreachSenderService
     private const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
     private const MAX_GENERATION_ATTEMPTS = 10;
 
+    /**
+     * Self-service opt-out token length (AT-49). 48-char base62 from Str::random,
+     * matching SnapshotLinkService — entropy far beyond enumeration. Unlike the
+     * 6-char tracking code this is the credential for an irreversible action, so
+     * it must be unguessable, not merely human-typable.
+     */
+    private const OPT_OUT_TOKEN_LENGTH = 48;
+
     public function send(OutreachContext $context): SellerOutreachSend
     {
         if (!$context->isSendable()) {
@@ -39,20 +48,34 @@ final class SellerOutreachSenderService
         $shortCode = $this->generateUniqueShortCode($context->agencyId);
         $trackingUrl = $this->buildTrackingUrl($shortCode);
 
-        // Final substitution: the composer leaves `{tracking_link}` literal
-        // in the body so the agent can see/edit it. Replace it with the real
-        // URL now, at send time.
-        $finalBody = str_replace('{tracking_link}', $trackingUrl, $context->renderedBody);
+        // AT-49: per-send self-service opt-out token + public URL. Like the
+        // tracking link, the composer leaves `{opt_out_link}` literal so the
+        // agent sees the merge token; the real URL is substituted here at send
+        // time and frozen into body_snapshot.
+        $optOutToken = $this->generateUniqueOptOutToken();
+        $optOutUrl = $this->buildOptOutUrl($optOutToken);
+        // The opt-in link reuses the same per-send token — it resolves the same
+        // send/contact; only the route (and the action) differs.
+        $optInUrl = $this->buildOptInUrl($optOutToken);
+
+        // Final substitution: the composer leaves `{tracking_link}` /
+        // `{opt_out_link}` / `{opt_in_link}` literal in the body so the agent
+        // can see/edit them. Replace them with the real URLs now, at send time.
+        $search = ['{tracking_link}', '{opt_out_link}', '{opt_in_link}'];
+        $replace = [$trackingUrl, $optOutUrl, $optInUrl];
+        $finalBody = str_replace($search, $replace, $context->renderedBody);
         $finalSubject = $context->renderedSubject
-            ? str_replace('{tracking_link}', $trackingUrl, $context->renderedSubject)
+            ? str_replace($search, $replace, $context->renderedSubject)
             : null;
 
         $factsSnapshot = $context->factsSnapshot;
         if (isset($factsSnapshot['merge_fields']) && is_array($factsSnapshot['merge_fields'])) {
             $factsSnapshot['merge_fields']['tracking_link'] = $trackingUrl;
+            $factsSnapshot['merge_fields']['opt_out_link'] = $optOutUrl;
+            $factsSnapshot['merge_fields']['opt_in_link'] = $optInUrl;
         }
 
-        $send = DB::transaction(function () use ($context, $shortCode, $finalBody, $finalSubject, $factsSnapshot) {
+        $send = DB::transaction(function () use ($context, $shortCode, $optOutToken, $finalBody, $finalSubject, $factsSnapshot) {
             return SellerOutreachSend::create([
                 'agency_id' => $context->agencyId,
                 'contact_id' => $context->contact->id,
@@ -64,6 +87,7 @@ final class SellerOutreachSenderService
                 'body_snapshot' => $finalBody,
                 'facts_snapshot' => $factsSnapshot,
                 'tracking_short_code' => $shortCode,
+                'opt_out_token' => $optOutToken,
                 'recipient_phone_snapshot' => $context->recipientPhone,
                 'recipient_email_snapshot' => $context->recipientEmail,
                 'sent_at' => now(),
@@ -135,6 +159,37 @@ final class SellerOutreachSenderService
     private function buildTrackingUrl(string $shortCode): string
     {
         return rtrim((string) config('app.url'), '/') . '/m/' . $shortCode;
+    }
+
+    private function buildOptOutUrl(string $token): string
+    {
+        return rtrim((string) config('app.url'), '/') . '/outreach/opt-out/' . $token;
+    }
+
+    private function buildOptInUrl(string $token): string
+    {
+        return rtrim((string) config('app.url'), '/') . '/outreach/opt-in/' . $token;
+    }
+
+    /**
+     * 48-char base62 token, globally unique (the public opt-out route resolves
+     * by token alone, with no agency in the URL). Collision at this length is
+     * astronomically unlikely; the retry loop + the column's UNIQUE index are
+     * belt-and-braces.
+     */
+    private function generateUniqueOptOutToken(): string
+    {
+        for ($attempt = 0; $attempt < self::MAX_GENERATION_ATTEMPTS; $attempt++) {
+            $token = Str::random(self::OPT_OUT_TOKEN_LENGTH);
+            $exists = SellerOutreachSend::withoutGlobalScopes()
+                ->withTrashed()
+                ->where('opt_out_token', $token)
+                ->exists();
+            if (!$exists) {
+                return $token;
+            }
+        }
+        throw new \RuntimeException('Could not generate a unique opt-out token after ' . self::MAX_GENERATION_ATTEMPTS . ' attempts.');
     }
 
     private function generateUniqueShortCode(int $agencyId): string

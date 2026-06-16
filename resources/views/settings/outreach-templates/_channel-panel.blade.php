@@ -173,7 +173,7 @@
                           class="w-full px-3 py-2 text-sm rounded"
                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, monospace;"></textarea>
                 <div class="text-xs mt-1" style="color: var(--text-muted);">
-                    Always required: an opt-out clause with the word <code style="color:#00d4aa;">STOP</code>.
+                    Always required: the one-tap opt-out link <code style="color:#00d4aa;">{{ '{opt_out_link}' }}</code> and an opt-out clause with the word <code style="color:#00d4aa;">STOP</code>.
                     <span x-show="formState.include_tracking_link">Also required while <strong>Include tracking link</strong> is on: <code style="color:#00d4aa;">{{ '{tracking_link}' }}</code>.</span>
                 </div>
             </div>
