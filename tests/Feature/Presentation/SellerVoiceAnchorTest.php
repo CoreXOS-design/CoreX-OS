@@ -71,8 +71,14 @@ final class SellerVoiceAnchorTest extends TestCase
         // not R3,100,000 (which it would be without the upper fence).
         $this->assertSame(2_650_000, $ps['max'], 'lone high outlier must be fenced out');
         $this->assertSame(6, $ps['n_cleaned'], 'cleaned pool keeps the 6 genuine comps');
-        // Recommended-band ceiling (p75) reflects genuine comps, well under R3M.
-        $this->assertSame(2_587_500, $cma['cma_upper']);
+        // PRES-CMA-REALFIX — the band is the evaluated value (median of the
+        // CLEANED pool = R2,525,000) with the asymmetric market default (10%
+        // below / 13% above), NOT the raw P75. The fence still matters: keeping
+        // the R3.1M outlier out of the median holds the band ceiling under R3M
+        // (vs the ~R3.0M the outlier would otherwise force).
+        $this->assertSame(2_525_000, $cma['cma_middle'], 'middle = cleaned-pool median');
+        $this->assertSame(2_272_500, $cma['cma_lower'], 'lower = middle × 0.90 (10% below)');
+        $this->assertSame(2_853_250, $cma['cma_upper'], 'upper = middle × 1.13 (13% above)');
         $this->assertLessThan(3_000_000, $cma['cma_upper']);
     }
 
@@ -98,14 +104,61 @@ final class SellerVoiceAnchorTest extends TestCase
             $version,
         )['cma_valuation'];
 
-        // Evaluated value (middle) = R2,525,000; upper = R2,587,500.
+        // Evaluated value (middle) = R2,525,000; band +13% → upper R2,853,250.
         $this->assertSame(2_525_000, $cma['cma_middle']);
-        $this->assertSame(2_587_500, $cma['cma_upper']);
+        $this->assertSame(2_853_250, $cma['cma_upper']);
         $this->assertSame('upper', $cma['selected_range']);
-        // Asking R2.9M vs the MIDDLE R2,525,000 = +14.9% OVER — NOT the
-        // +12.1% it would read vs upper, and NOT a negative "Ok" figure.
+        // Asking R2.9M vs the MIDDLE R2,525,000 = +14.9% OVER — NOT a negative
+        // "Ok" figure measured against the selected upper range.
         $this->assertEqualsWithDelta(14.9, $cma['asking_vs_cma_pct'], 0.1);
+        // R2.9M sits above the upper band (R2,853,250) → overpriced.
         $this->assertTrue($cma['is_overpriced']);
+    }
+
+    // ── PRES-CMA-REALFIX — asymmetric band (10% below / 13% above), asking
+    //    above upper = overpriced ──────────────────────────────────────────
+
+    public function test_band_is_asymmetric_ten_below_thirteen_above_and_asking_above_upper_is_overpriced(): void
+    {
+        [$agencyId, $user] = $this->seedAgencyAndUser();
+        $property = $this->createProperty($agencyId, $user->id, ['price' => 2_900_000]);
+        $version  = $this->seedVersion($agencyId, $user->id, $property);
+        $version->presentation()->update([
+            'asking_price_inc'   => 2_900_000,
+            'cma_selected_range' => 'middle',
+        ]);
+        // No condition set (source 'none') — the agent condition % is applied
+        // once to the middle, so with none resolved the middle stays the
+        // indicated value (the comp median), exactly as the band fix requires.
+        $this->seedComps($version->presentation_id, $agencyId, [
+            2_400_000, 2_450_000, 2_500_000, 2_550_000, 2_600_000, 2_650_000,
+        ]);
+
+        $cma = (new AnalysisDataService())->compile(
+            $version->presentation()->with('property')->first(),
+            $version,
+        )['cma_valuation'];
+
+        // FIGURE-INTEGRITY PINS (exact rands), asymmetric market default 10/13:
+        //   middle  = comp median, UNCHANGED by this fix (no condition) ...
+        $this->assertSame(2_525_000, $cma['cma_middle'], 'middle = comp median, unchanged');
+        //   lower   = middle × (1 − 0.10) ...
+        $this->assertSame(2_272_500, $cma['cma_lower'], 'lower = middle × 0.90 (10% below)');
+        //   upper   = middle × (1 + 0.13).
+        $this->assertSame(2_853_250, $cma['cma_upper'], 'upper = middle × 1.13 (13% above)');
+
+        // Band is asymmetric: exactly 10% below, 13% above (default settings).
+        $this->assertSame(10.0, round(($cma['cma_middle'] - $cma['cma_lower']) / $cma['cma_middle'] * 100, 4));
+        $this->assertSame(13.0, round(($cma['cma_upper'] - $cma['cma_middle']) / $cma['cma_middle'] * 100, 4));
+
+        // Condition was NOT applied (none resolved) — so the middle is the raw
+        // indicated value and no second application could occur downstream.
+        $this->assertFalse($cma['condition_applied']);
+
+        // Asking R2.9M is ABOVE the upper band (R2,853,250) → OVERPRICED, never
+        // "ok / in band". The verdict is anchored to the evaluated value.
+        $this->assertGreaterThan($cma['cma_upper'], $cma['asking_price']);
+        $this->assertTrue($cma['is_overpriced'], 'asking above upper band must read overpriced');
     }
 
     // ── Bug 1 — recommendation bullet, market's voice, anchored on middle ─

@@ -3005,11 +3005,23 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         <div class="value" style="font-size:17px;"><?= $zar($cmaLower) ?> — <?= $zar($cmaUpper) ?></div>
         <div class="sub">The range homes like yours have actually sold for</div>
     </div>
-    <?php if ($askingPrice): ?>
-    <div class="metric-card <?= $askVsCmaPct !== null && $askVsCmaPct > 10 ? 'danger' : ($askVsCmaPct !== null && $askVsCmaPct > 5 ? 'warning' : 'success') ?>">
+    <?php if ($askingPrice):
+        /* PRES-CMA-REALFIX — the verdict is judged against the EVALUATED VALUE
+           (middle) and its band, never a softening threshold:
+             • asking ABOVE the upper band  → danger  (overpriced — plainly)
+             • asking ABOVE the middle, ≤ upper → warning (above value, in band)
+             • asking AT or BELOW the middle → success
+           Green is impossible once asking is above the upper band. */
+        $askVerdictClass = ($cmaUpper !== null && $askingPrice > $cmaUpper) ? 'danger'
+            : (($cmaMiddle !== null && $askingPrice > $cmaMiddle) ? 'warning' : 'success');
+        $askVerdictNote = ($cmaUpper !== null && $askingPrice > $cmaUpper)
+            ? 'above what homes like yours have sold for'
+            : null;
+    ?>
+    <div class="metric-card <?= $askVerdictClass ?>">
         <div class="label">Current Asking Price</div>
         <div class="value"><?= $zar($askingPrice) ?></div>
-        <div class="sub"><?php if ($askVsCmaPct !== null): ?><?= $pct($askVsCmaPct) ?> vs evaluated value<?php endif ?></div>
+        <div class="sub"><?php if ($askVsCmaPct !== null): ?><?= $pct($askVsCmaPct) ?> vs evaluated value<?php if ($askVerdictNote): ?> — <?= $askVerdictNote ?><?php endif ?><?php endif ?></div>
     </div>
     <?php endif ?>
 </div>

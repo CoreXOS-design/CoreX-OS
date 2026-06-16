@@ -105,6 +105,13 @@ final class CmaComputeService
         $lowerFrac = max(0.0, min(1.0, $rangeLowerPct / 100));
         $upperFrac = max(0.0, min(1.0, $rangeUpperPct / 100));
 
+        // PRES-CMA-REALFIX — recommended-band half-widths (± % around the
+        // evaluated value / middle). These are surfaced in pool_stats so
+        // compileCmaValuation derives lower/upper = middle ∓ pct WITHOUT
+        // re-resolving the agency. Distinct from range_*_pct (percentiles).
+        $bandLowerPct = (float) ($agency?->cma_band_lower_pct ?? CompPoolBuilder::DEF_BAND_LOWER_PCT);
+        $bandUpperPct = (float) ($agency?->cma_band_upper_pct ?? CompPoolBuilder::DEF_BAND_UPPER_PCT);
+
         // ── PRE-CLEAN POOL (Build 8a contract) ──────────────────────────
         $preCleanPrices       = $this->extractPrices($inPoolComps);
         $preCleanPricesWithSz = $this->extractPricesWithSize($inPoolComps);
@@ -136,6 +143,8 @@ final class CmaComputeService
                 'n_cleaned'            => count($cleanedPrices),
                 'range_lower_pct'      => $rangeLowerPct,
                 'range_upper_pct'      => $rangeUpperPct,
+                'band_lower_pct'       => $bandLowerPct,
+                'band_upper_pct'       => $bandUpperPct,
                 'n_after_recency_cut'  => $cleaning['n_after_recency'],
                 'n_after_outlier_cut'  => $cleaning['n_after_outlier'],
                 'excluded_by_recency'  => $nTotalPre - $cleaning['n_after_recency'],

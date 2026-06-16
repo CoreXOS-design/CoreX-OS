@@ -157,6 +157,11 @@ class Agency extends Model
         'anchor_divergence_pct',
         'range_lower_pct',
         'range_upper_pct',
+        // PRES-CMA-REALFIX — recommended-band half-widths (± % around the
+        // evaluated value / middle). Distinct from range_lower/upper_pct,
+        // which are pool-distribution PERCENTILES (25/75), not ± fractions.
+        'cma_band_lower_pct',
+        'cma_band_upper_pct',
         // Competitor Stock — agency-configurable scorer thresholds.
         'competitor_stock_default_beds_tolerance',
         'competitor_stock_default_price_tolerance_pct',
@@ -270,6 +275,8 @@ class Agency extends Model
         'anchor_divergence_pct' => 'decimal:2',
         'range_lower_pct'       => 'integer',
         'range_upper_pct'       => 'integer',
+        'cma_band_lower_pct'    => 'decimal:2',
+        'cma_band_upper_pct'    => 'decimal:2',
         // Competitor Stock — agency-configurable scorer thresholds.
         'competitor_stock_default_beds_tolerance'      => 'integer',
         'competitor_stock_default_price_tolerance_pct' => 'integer',

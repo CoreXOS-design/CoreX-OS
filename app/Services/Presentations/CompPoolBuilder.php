@@ -56,6 +56,19 @@ final class CompPoolBuilder
     public const DEF_RANGE_UPPER_PCT = 75;
 
     /**
+     * PRES-CMA-REALFIX — recommended-band half-widths (± % around the
+     * evaluated value / middle). NOT percentiles — the band is derived as
+     * lower = middle × (1 − DEF_BAND_LOWER_PCT/100), upper = middle ×
+     * (1 + DEF_BAND_UPPER_PCT/100). ASYMMETRIC: reverse-engineering CMA's own
+     * stated low/middle/high across 105 evidenced imported reports gave a
+     * market norm of ~10% below / ~13% above the indicated value (CMA sits the
+     * value closer to the floor than the ceiling). These are the code-level
+     * fallback when an agency has no value; the DB column default matches.
+     */
+    public const DEF_BAND_LOWER_PCT = 10.0;
+    public const DEF_BAND_UPPER_PCT = 13.0;
+
+    /**
      * PRES-CMA-FIX — subject self-exclusion GPS threshold (metres).
      *
      * A sold comp whose coordinates sit within this radius of the subject

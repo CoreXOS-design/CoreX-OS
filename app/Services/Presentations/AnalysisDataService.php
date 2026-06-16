@@ -417,47 +417,57 @@ class AnalysisDataService
         $upperBaseline  = $this->intOrNull($poolStats['p75']    ?? null);
         $middleBaseline = $this->intOrNull($methodMedian['raw'] ?? null);
 
-        // PRES-CMA-REALFIX (Johan, 2026-06-15) — the §4/§5/§6 valuation band
-        // is the RAW comparable-sales distribution: p25 / median / p75 of the
-        // selected comps, with NO condition factor applied to any tile. The
-        // agent's condition assessment is already embodied in WHICH comps they
-        // select and the asking they set up; re-scaling the comp band by a
-        // condition % double-counts condition — it inflated good properties
-        // (Grindewald: raw ~R2.5M printed as ~R3.0M at +20%) and would short
-        // bad ones by the same factor. Condition is applied ONCE, by the
-        // agent's setup — never again by the code. The condition picker lives
-        // on as an informational record of the property's condition; it no
-        // longer scales the valuation band. (ConditionAdjustmentService::
-        // applyToBand is retained for any external caller but is no longer
-        // invoked from this render path — see the prior Build-8 history below.)
+        // PRES-CMA-REALFIX (Johan, 2026-06-16) — the recommended band is the
+        // EVALUATED VALUE (middle) ± a tight, agency-configurable %. The middle
+        // is the comp-median (the "indicated value"); the agent's condition %
+        // is applied to it EXACTLY ONCE here, before the band is derived. The
+        // band edges are NO LONGER the raw pool P25/P75 — sourcing them from
+        // percentiles let a type-contaminated pool blow the band out to ±20%+
+        // (band-evidence pass: clean same-type pools cluster ~±6–7%, mixed
+        // pools ~±23%). Deriving lower/upper from the middle keeps the band
+        // tight and symmetric around the value the seller must hear. The raw
+        // P25/median/P75 remain in pool_stats for the "Why This Range?"
+        // evidence rows only ($lowerBaseline/$upperBaseline above).
         //
-        // Build-8 history, for the record: applyToBand was added so the
-        // condition factor scaled all three tiles uniformly (fixing a
-        // middle > upper ordering bug from scaling the median alone). That
-        // whole scaling step is now removed per Johan's domain call; the raw
-        // p25/median/p75 are already correctly ordered by construction.
-        $lower  = $lowerBaseline;   // raw pool_stats.p25
-        $upper  = $upperBaseline;   // raw pool_stats.p75
-        $middle = $middleBaseline;  // raw method_median (un-adjusted)
-
-        $middleFromFallback = false;
-
-        // Condition surfacing is now INFORMATIONAL ONLY. condition_applied is
-        // always false because the band is never condition-scaled — the §5/§6
-        // "adjusted +N%" labels and the public-view condition line both gate on
-        // condition_applied, so they correctly fall silent. We still surface
-        // the recorded condition pct/label/source so the review screen can show
-        // the property's condition for reference without implying it moved the
-        // band.
-        $conditionApplied = false;
+        // Condition is applied ONCE and ONLY here. Every other historical
+        // condition multiplier stays dormant/unread: CmaComputeService's
+        // method_median.condition_adjusted (we read .raw), and
+        // ConditionAdjustmentService::applyToBand / applyToMiddle (not invoked
+        // from this render path). No path applies condition twice.
         $conditionPct     = isset($conditionContext['pct']) && is_numeric($conditionContext['pct'])
             ? (float) $conditionContext['pct']
             : null;
         $conditionLabel   = $conditionContext['label'] ?? null;
         $conditionSource  = $conditionContext['source'] ?? 'none';
+
+        // Evaluated value = indicated (median) value with condition applied
+        // once. When no condition is resolved (the current state for every
+        // presentation — condition data is unpopulated) the multiplier is 1×,
+        // so the middle stays the indicated value.
+        $conditionApplied = false;
+        $middle = $middleBaseline;
+        if ($middle !== null && $conditionPct !== null && abs($conditionPct) > 0.0001) {
+            $middle = (int) round($middleBaseline * (1 + $conditionPct / 100));
+            $conditionApplied = true;
+        }
         if ($conditionSource === 'none') {
             \Illuminate\Support\Facades\Log::info('[PRES-INFO] cma_valuation_baseline_only (no condition resolved)');
         }
+
+        // Band half-widths from pool_stats (surfaced by CmaComputeService from
+        // agency settings cma_band_lower_pct / cma_band_upper_pct; default 7%).
+        // lower/upper are derived from the (condition-adjusted) middle.
+        $bandLowerPct = isset($poolStats['band_lower_pct']) && is_numeric($poolStats['band_lower_pct'])
+            ? (float) $poolStats['band_lower_pct']
+            : (float) CompPoolBuilder::DEF_BAND_LOWER_PCT;
+        $bandUpperPct = isset($poolStats['band_upper_pct']) && is_numeric($poolStats['band_upper_pct'])
+            ? (float) $poolStats['band_upper_pct']
+            : (float) CompPoolBuilder::DEF_BAND_UPPER_PCT;
+
+        $lower  = $middle !== null ? (int) round($middle * (1 - $bandLowerPct / 100)) : null;
+        $upper  = $middle !== null ? (int) round($middle * (1 + $bandUpperPct / 100)) : null;
+
+        $middleFromFallback = false;
 
         $vicinityLower  = $this->intOrNull($fields->get('vicinity.lower_range')?->final_value);
         $vicinityMiddle = $this->intOrNull($fields->get('vicinity.middle_range')?->final_value);
@@ -495,7 +505,10 @@ class AnalysisDataService
             'vicinity_ppm2'             => $vicinityPpm2,
             'asking_price'              => $askingPrice,
             'asking_vs_cma_pct'         => $askingVsCmaPct,
-            'is_overpriced'             => $askingVsCmaPct !== null && $askingVsCmaPct > 10,
+            // PRES-CMA-REALFIX — overpriced ⟺ asking sits ABOVE the upper band
+            // (middle × (1 + band_upper_pct)). No softening: an asking above
+            // the band that comparable homes actually sold within is overpriced.
+            'is_overpriced'             => $askingPrice !== null && $upper !== null && $askingPrice > $upper,
             // Build 3 — condition adjustment surfacing.
             'condition_applied'         => $conditionApplied,
             'condition_pct'             => $conditionPct,
