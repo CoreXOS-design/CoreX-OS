@@ -25,6 +25,11 @@ use Illuminate\Support\Facades\DB;
  * collapses when blank) and the branch-then-company tel ({branch_or_company_tel}),
  * replacing the PPRA-reg / public-contact pairing shipped in AT-46/AT-47.
  *
+ * AT-49 — the footer now leads with {opt_out_link}, the per-send one-tap
+ * self-service marketing opt-out (mandatory on every outreach template; the
+ * real URL is substituted by SellerOutreachSenderService at send time). The
+ * STOP keyword is retained alongside it.
+ *
  * Depends on AT-46 (include_tracking_link column + agency merge fields).
  *
  * Run: php artisan db:seed --class=HfcConsentTemplatesSeeder
@@ -123,7 +128,8 @@ We track live buyer demand, recent sales and property values for {property_subur
 May we contact you with {property_suburb} market and buyer-demand updates via WhatsApp?
 - Reply YES to opt in
 - Reply NO, or just ignore this, and we won't contact you again
-You can stop anytime by replying STOP. {agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
+Tap to stop marketing messages: {opt_out_link} — or reply STOP.
+{agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
 TXT,
             ],
             [
@@ -136,7 +142,8 @@ I have a buyer active in {property_suburb} and your property may suit them. With
 May I contact you about this via WhatsApp?
 - Reply YES and I'll share what my buyer is looking for
 - Reply NO, or just ignore this, and I won't contact you again
-You can stop anytime by replying STOP. {agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
+Tap to stop marketing messages: {opt_out_link} — or reply STOP.
+{agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
 TXT,
             ],
         ];

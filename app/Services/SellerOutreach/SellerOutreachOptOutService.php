@@ -17,10 +17,20 @@ use Illuminate\Support\Facades\Auth;
 final class SellerOutreachOptOutService
 {
     /**
+     * @param string|null $source Provenance marker for the opt-out. NULL (the
+     *   default) means an agent recorded it and the recorder is carried by
+     *   Auth::id(); pass OptOutRecorded::SOURCE_SELF_SERVICE_LINK for the public
+     *   per-send opt-out link, where there is no authenticated user (AT-49).
+     *
      * @throws \InvalidArgumentException if contact or send is in another agency
      */
-    public function recordOptOut(int $agencyId, Contact $contact, string $reason, ?SellerOutreachSend $send = null): void
-    {
+    public function recordOptOut(
+        int $agencyId,
+        Contact $contact,
+        string $reason,
+        ?SellerOutreachSend $send = null,
+        ?string $source = null,
+    ): void {
         if ((int) $contact->agency_id !== $agencyId) {
             throw new \InvalidArgumentException("Contact {$contact->id} is not in agency {$agencyId}.");
         }
@@ -34,6 +44,7 @@ final class SellerOutreachOptOutService
             reason: $reason,
             actorUserId: Auth::id(),
             agencyId: $agencyId,
+            source: $source,
         ));
     }
 }

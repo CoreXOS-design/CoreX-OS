@@ -39,7 +39,7 @@ class Contact extends Model
         'is_buyer', 'buyer_state', 'last_activity_at',
         'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
         'preapproval_amount', 'preapproval_expires_at', 'preapproval_institution',
-        'messaging_opt_out_at', 'messaging_opt_out_reason', 'messaging_opt_out_recorded_by_user_id',
+        'messaging_opt_out_at', 'messaging_opt_out_reason', 'messaging_opt_out_recorded_by_user_id', 'messaging_opt_out_source',
         'messaging_opted_in_at', 'messaging_opt_in_reason', 'messaging_opt_in_recorded_by_user_id',
     ];
 
@@ -338,6 +338,16 @@ class Contact extends Model
     public function optInRecordedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'messaging_opt_in_recorded_by_user_id');
+    }
+
+    /**
+     * The user who recorded the messaging opt-out (for "by whom" display).
+     * NULL when the opt-out was self-service (the recipient tapped the per-send
+     * link) — see messaging_opt_out_source / [[at49-self-service-optout]].
+     */
+    public function optOutRecordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'messaging_opt_out_recorded_by_user_id');
     }
 
     // ── Buyer CRM (M4) ──

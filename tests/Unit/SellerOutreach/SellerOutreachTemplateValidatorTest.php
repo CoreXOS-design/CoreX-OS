@@ -9,6 +9,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * AT-46 — optional tracking link + new agency merge fields.
+ * AT-49 — {opt_out_link} is mandatory on EVERY outreach template (independent
+ *         of the tracking-link flag); STOP stays mandatory too.
  *
  * Pure unit test (validator has no DB/Laravel deps), so it runs in ms and is
  * the single relevant test file for this change.
@@ -25,10 +27,11 @@ final class SellerOutreachTemplateValidatorTest extends TestCase
 
     public function test_consent_template_passes_without_tracking_link_when_flag_off(): void
     {
-        // HFC's WhatsApp consent ask: STOP clause, the new agency fields, NO link.
+        // HFC's WhatsApp consent ask: STOP clause, the new agency fields, the
+        // mandatory {opt_out_link}, NO tracking link.
         $body = "Hi {seller_name}, {agent_name} from {agency_name} here about your "
             . "place in {property_suburb}. PPRA {agency_ppra_no}. Reply YES to hear "
-            . "from us, or STOP to opt out. Contact us on {agency_contact}.";
+            . "from us, or tap {opt_out_link} / reply STOP to opt out. Contact us on {agency_contact}.";
 
         $result = $this->validator->validate('whatsapp', null, $body, includeTrackingLink: false);
 
@@ -53,8 +56,27 @@ final class SellerOutreachTemplateValidatorTest extends TestCase
 
     public function test_template_with_tracking_link_and_stop_passes(): void
     {
-        $body = "Hi {seller_name}. {tracking_link} Reply STOP to opt out.";
+        $body = "Hi {seller_name}. {tracking_link} Tap {opt_out_link} or reply STOP to opt out.";
         $this->assertTrue($this->validator->validate('whatsapp', null, $body)->passes());
+    }
+
+    public function test_opt_out_link_is_mandatory_on_every_template(): void
+    {
+        $this->assertContains('opt_out_link', SellerOutreachTemplateValidator::KNOWN_MERGE_FIELDS);
+
+        // Has tracking link + STOP but NO {opt_out_link} — must fail, flag on OR off.
+        $body = "Hi {seller_name}. {tracking_link} Reply STOP to opt out.";
+
+        $flagOn = $this->validator->validate('whatsapp', null, $body, includeTrackingLink: true);
+        $this->assertArrayHasKey('opt_out_link_missing', $flagOn->errors);
+
+        $flagOff = $this->validator->validate('whatsapp', null, $body, includeTrackingLink: false);
+        $this->assertArrayHasKey('opt_out_link_missing', $flagOff->errors, '{opt_out_link} required even with tracking link off');
+
+        // Add it → the opt_out_link error clears.
+        $withLink = $this->validator->validate('whatsapp', null, $body . ' {opt_out_link}', includeTrackingLink: true);
+        $this->assertArrayNotHasKey('opt_out_link_missing', $withLink->errors);
+        $this->assertTrue($withLink->passes());
     }
 
     public function test_stop_clause_is_mandatory_regardless_of_flag(): void
@@ -70,7 +92,7 @@ final class SellerOutreachTemplateValidatorTest extends TestCase
 
     public function test_email_subject_rule_unchanged(): void
     {
-        $body = "Hi {seller_name}. {tracking_link} Reply STOP to opt out.";
+        $body = "Hi {seller_name}. {tracking_link} Tap {opt_out_link} or reply STOP to opt out.";
         $missing = $this->validator->validate('email', '', $body);
         $this->assertArrayHasKey('subject_required', $missing->errors);
 
@@ -95,15 +117,16 @@ final class SellerOutreachTemplateValidatorTest extends TestCase
         $this->assertContains('agent_ffc', SellerOutreachTemplateValidator::KNOWN_MERGE_FIELDS);
         $this->assertContains('branch_or_company_tel', SellerOutreachTemplateValidator::KNOWN_MERGE_FIELDS);
 
-        // The literal HFC footer, optional-segment markers and all.
-        $footer = "You can stop anytime by replying STOP. {agency_name} · FFC "
-            . "{agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.";
+        // The literal HFC footer (AT-49 shape): opt-out link line + FFC/tel line.
+        $footer = "Tap to stop marketing messages: {opt_out_link} — or reply STOP.\n"
+            . "{agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.";
 
         // {?agent_ffc} / {/agent_ffc} control markers must NOT register as unknown fields.
         $this->assertSame([], $this->validator->unknownMergeFields($footer),
             'optional-segment markers and the new footer fields must be clean');
 
-        // And the footer still satisfies the consent-template rules (no link, STOP present).
+        // And the footer satisfies the consent-template rules (no tracking link,
+        // STOP present, {opt_out_link} present).
         $this->assertTrue(
             $this->validator->validate('whatsapp', null, $footer, includeTrackingLink: false)->passes()
         );

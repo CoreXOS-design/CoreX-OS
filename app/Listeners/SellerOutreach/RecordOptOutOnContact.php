@@ -37,6 +37,7 @@ final class RecordOptOutOnContact
                 'messaging_opt_out_at' => now(),
                 'messaging_opt_out_reason' => $event->reason,
                 'messaging_opt_out_recorded_by_user_id' => $event->actorUserId,
+                'messaging_opt_out_source' => $event->source,
             ]);
         } catch (Throwable $e) {
             Log::error('RecordOptOutOnContact failed', [

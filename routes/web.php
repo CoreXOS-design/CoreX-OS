@@ -28,6 +28,18 @@ Route::get('/m/{shortcode}', [\App\Http\Controllers\SellerOutreach\PublicLanding
     ->where('shortcode', '[A-Za-z0-9]{6}')
     ->name('seller-outreach.public.landing');
 
+// ── Seller-Outreach self-service opt-out (no auth) — AT-49 ──
+// 48-char unguessable token per send. GET is preview-safe (NO write); only the
+// POST records the opt-out. Throttled to blunt token-probing / abuse.
+Route::get('/outreach/opt-out/{token}', [\App\Http\Controllers\SellerOutreach\PublicOptOutController::class, 'show'])
+    ->where('token', '[A-Za-z0-9]{48}')
+    ->middleware('throttle:30,1')
+    ->name('seller-outreach.public.opt-out.show');
+Route::post('/outreach/opt-out/{token}', [\App\Http\Controllers\SellerOutreach\PublicOptOutController::class, 'confirm'])
+    ->where('token', '[A-Za-z0-9]{48}')
+    ->middleware('throttle:10,1')
+    ->name('seller-outreach.public.opt-out.confirm');
+
 // ── Presentations V2 Phase 4 — public snapshot share links (no auth).
 //    Token is the credential; controller checks revoked_at + expires_at.
 //    Track endpoint is rate-limited 60req/min/IP to stop beacon abuse.

@@ -183,6 +183,10 @@ final class SellerOutreachComposerService
             // (matches what they see in the template editor). The sender
             // service substitutes the real URL when it records the send.
             'tracking_link' => '{tracking_link}',
+            // `opt_out_link` (AT-49) is per-send — its token only exists once
+            // the send is recorded — so it stays literal here too and the
+            // sender service substitutes the real opt-out URL at send time.
+            'opt_out_link' => '{opt_out_link}',
             // Internal — not substituted into body; used to populate facts_snapshot.
             '__property_town_id' => $town?->id,
             '__property_type_option_id' => $propertyTypeOpt?->id,

@@ -30,7 +30,7 @@ class SellerOutreachSend extends Model
         'agency_id',
         'contact_id', 'property_id', 'agent_id', 'template_id', 'channel',
         'subject_snapshot', 'body_snapshot', 'facts_snapshot',
-        'tracking_short_code', 'recipient_phone_snapshot', 'recipient_email_snapshot',
+        'tracking_short_code', 'opt_out_token', 'recipient_phone_snapshot', 'recipient_email_snapshot',
         'sent_at', 'first_clicked_at', 'outcome', 'outcome_note',
         'outcome_set_by_user_id', 'outcome_set_at',
     ];
@@ -70,5 +70,13 @@ class SellerOutreachSend extends Model
     public function landingUrl(): string
     {
         return rtrim(config('app.url'), '/') . '/m/' . $this->tracking_short_code;
+    }
+
+    /** Public self-service opt-out URL for this send (AT-49); null if no token. */
+    public function optOutUrl(): ?string
+    {
+        return $this->opt_out_token
+            ? rtrim(config('app.url'), '/') . '/outreach/opt-out/' . $this->opt_out_token
+            : null;
     }
 }

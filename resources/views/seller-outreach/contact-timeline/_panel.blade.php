@@ -25,7 +25,12 @@
                 Contact opted out of messaging
             </div>
             <div class="text-xs" style="color: var(--text-secondary);">
-                Opted out on {{ optional($contact->messaging_opt_out_at)->format('j M Y g:i a') }}.
+                Opted out on {{ optional($contact->messaging_opt_out_at)->format('j M Y g:i a') }}
+                @if($contact->messaging_opt_out_source === \App\Events\SellerOutreach\OptOutRecorded::SOURCE_SELF_SERVICE_LINK)
+                    via the self-service opt-out link
+                @elseif($contact->messaging_opt_out_recorded_by_user_id)
+                    by {{ optional($contact->optOutRecordedBy)->name ?? ('user #' . $contact->messaging_opt_out_recorded_by_user_id) }}
+                @endif.
                 @if($contact->messaging_opt_out_reason)
                     <br>Reason: <em>{{ $contact->messaging_opt_out_reason }}</em>
                 @endif
