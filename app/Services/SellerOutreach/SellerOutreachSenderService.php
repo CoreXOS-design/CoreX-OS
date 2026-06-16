@@ -54,27 +54,25 @@ final class SellerOutreachSenderService
         // time and frozen into body_snapshot.
         $optOutToken = $this->generateUniqueOptOutToken();
         $optOutUrl = $this->buildOptOutUrl($optOutToken);
+        // The opt-in link reuses the same per-send token — it resolves the same
+        // send/contact; only the route (and the action) differs.
+        $optInUrl = $this->buildOptInUrl($optOutToken);
 
         // Final substitution: the composer leaves `{tracking_link}` /
-        // `{opt_out_link}` literal in the body so the agent can see/edit them.
-        // Replace them with the real URLs now, at send time.
-        $finalBody = str_replace(
-            ['{tracking_link}', '{opt_out_link}'],
-            [$trackingUrl, $optOutUrl],
-            $context->renderedBody
-        );
+        // `{opt_out_link}` / `{opt_in_link}` literal in the body so the agent
+        // can see/edit them. Replace them with the real URLs now, at send time.
+        $search = ['{tracking_link}', '{opt_out_link}', '{opt_in_link}'];
+        $replace = [$trackingUrl, $optOutUrl, $optInUrl];
+        $finalBody = str_replace($search, $replace, $context->renderedBody);
         $finalSubject = $context->renderedSubject
-            ? str_replace(
-                ['{tracking_link}', '{opt_out_link}'],
-                [$trackingUrl, $optOutUrl],
-                $context->renderedSubject
-            )
+            ? str_replace($search, $replace, $context->renderedSubject)
             : null;
 
         $factsSnapshot = $context->factsSnapshot;
         if (isset($factsSnapshot['merge_fields']) && is_array($factsSnapshot['merge_fields'])) {
             $factsSnapshot['merge_fields']['tracking_link'] = $trackingUrl;
             $factsSnapshot['merge_fields']['opt_out_link'] = $optOutUrl;
+            $factsSnapshot['merge_fields']['opt_in_link'] = $optInUrl;
         }
 
         $send = DB::transaction(function () use ($context, $shortCode, $optOutToken, $finalBody, $finalSubject, $factsSnapshot) {
@@ -166,6 +164,11 @@ final class SellerOutreachSenderService
     private function buildOptOutUrl(string $token): string
     {
         return rtrim((string) config('app.url'), '/') . '/outreach/opt-out/' . $token;
+    }
+
+    private function buildOptInUrl(string $token): string
+    {
+        return rtrim((string) config('app.url'), '/') . '/outreach/opt-in/' . $token;
     }
 
     /**

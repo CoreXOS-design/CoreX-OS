@@ -40,6 +40,32 @@ Route::post('/outreach/opt-out/{token}', [\App\Http\Controllers\SellerOutreach\P
     ->middleware('throttle:10,1')
     ->name('seller-outreach.public.opt-out.confirm');
 
+// ── Seller-Outreach self-service opt-IN / re-consent (no auth) — AT-49 ──
+// Reuses the SAME per-send token as the opt-out link. GET is preview-safe (NO
+// write); only the POST re-grants consent through MarketingConsentService.
+Route::get('/outreach/opt-in/{token}', [\App\Http\Controllers\SellerOutreach\PublicOptInController::class, 'show'])
+    ->where('token', '[A-Za-z0-9]{48}')
+    ->middleware('throttle:30,1')
+    ->name('seller-outreach.public.opt-in.show');
+Route::post('/outreach/opt-in/{token}', [\App\Http\Controllers\SellerOutreach\PublicOptInController::class, 'confirm'])
+    ->where('token', '[A-Za-z0-9]{48}')
+    ->middleware('throttle:10,1')
+    ->name('seller-outreach.public.opt-in.confirm');
+
+// ── Generic marketing unsubscribe page (no auth) — AT-49 ──
+// The agency-id is the only path segment (the email-signature footer embeds it).
+// The recipient enters their email or phone; MarketingConsentService resolves a
+// contact if one exists and ALWAYS records a suppression row, so a re-import of
+// that identifier stays blocked. GET is preview-safe; POST acts. Throttled.
+Route::get('/unsubscribe/{agency}', [\App\Http\Controllers\SellerOutreach\UnsubscribeController::class, 'show'])
+    ->where('agency', '[0-9]+')
+    ->middleware('throttle:30,1')
+    ->name('seller-outreach.public.unsubscribe.show');
+Route::post('/unsubscribe/{agency}', [\App\Http\Controllers\SellerOutreach\UnsubscribeController::class, 'submit'])
+    ->where('agency', '[0-9]+')
+    ->middleware('throttle:10,1')
+    ->name('seller-outreach.public.unsubscribe.submit');
+
 // ── Presentations V2 Phase 4 — public snapshot share links (no auth).
 //    Token is the credential; controller checks revoked_at + expires_at.
 //    Track endpoint is rate-limited 60req/min/IP to stop beacon abuse.
@@ -225,6 +251,16 @@ Route::middleware('auth')->group(function () {
         ->where('key', '[A-Za-z0-9.]+')
         ->where('id', '[0-9]+')
         ->name('admin.soft-deletes.restore');
+
+    // ── Admin: Marketing Suppression register (AT-49) ──
+    // Identifier-level "suppressed everywhere" list; lifting a row is an opt-in.
+    Route::get('/admin/marketing-suppressions', [\App\Http\Controllers\Admin\MarketingSuppressionController::class, 'index'])
+        ->middleware('permission:marketing_suppressions.view')
+        ->name('admin.marketing-suppressions.index');
+    Route::post('/admin/marketing-suppressions/{suppression}/lift', [\App\Http\Controllers\Admin\MarketingSuppressionController::class, 'lift'])
+        ->middleware('permission:marketing_suppressions.manage')
+        ->where('suppression', '[0-9]+')
+        ->name('admin.marketing-suppressions.lift');
 
     // ── Admin: AI usage / cost dashboard (MIC Phase B2) ──
     Route::get('/admin/ai-usage', [\App\Http\Controllers\Admin\AiUsageController::class, 'index'])

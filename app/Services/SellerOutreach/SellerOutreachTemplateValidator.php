@@ -30,8 +30,9 @@ final class SellerOutreachTemplateValidator
         'agency_ffc', 'agent_ffc', 'branch_or_company_tel',
         'buyer_count', 'matching_buyer_count',
         'tracking_link',
-        // AT-49 — per-send self-service opt-out link (mandatory on every template).
-        'opt_out_link',
+        // AT-49 — per-send self-service opt-out link (mandatory on every template)
+        // + optional re-consent opt-in link.
+        'opt_out_link', 'opt_in_link',
     ];
 
     /**

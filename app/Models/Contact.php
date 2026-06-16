@@ -250,7 +250,7 @@ class Contact extends Model
         ]);
     }
 
-    public function revokeConsent(string $type, int $userId, ?string $reason = null): void
+    public function revokeConsent(string $type, ?int $userId = null, ?string $reason = null): void
     {
         $this->consentRecords()
             ->where('consent_type', $type)
@@ -275,13 +275,21 @@ class Contact extends Model
      */
     public function canSendVia(string $channel): bool
     {
-        return match ($channel) {
+        $channelAllowed = match ($channel) {
             'email' => !$this->opt_out_email,
             'sms' => !$this->opt_out_sms,
             'whatsapp' => !$this->opt_out_whatsapp,
             'call' => !$this->opt_out_call,
             default => true,
         };
+        if (!$channelAllowed) {
+            return false;
+        }
+
+        // AT-49 — an identifier-level marketing suppression blocks every channel
+        // even when the per-channel boolean is clear (e.g. a re-imported contact
+        // that carries a previously-suppressed email or number).
+        return !app(\App\Services\SellerOutreach\MarketingConsentService::class)->isContactSuppressed($this);
     }
 
     /**

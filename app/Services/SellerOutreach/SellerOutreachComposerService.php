@@ -29,6 +29,7 @@ final class SellerOutreachComposerService
     public function __construct(
         private readonly ProspectingIntelligenceService $intelligence,
         private readonly ProspectingConfigurationService $config,
+        private readonly MarketingConsentService $marketingConsent,
     ) {}
 
     public function composeContext(
@@ -62,7 +63,10 @@ final class SellerOutreachComposerService
 
         $validationIssues = $this->buildValidationIssues($channel, $recipientPhone, $recipientEmail, $bodyTemplate);
 
-        $optOutBlocks = $contact->messaging_opt_out_at !== null;
+        // AT-49 — block on the opt-out flag OR an identifier-level suppression
+        // (the latter catches a re-imported contact with no flag set yet).
+        $optOutBlocks = $contact->messaging_opt_out_at !== null
+            || $this->marketingConsent->isContactSuppressed($contact);
         $cooldownSignal = $this->cooldownSignal($agencyId, $contact);
 
         $factsSnapshot = [
@@ -187,6 +191,9 @@ final class SellerOutreachComposerService
             // the send is recorded — so it stays literal here too and the
             // sender service substitutes the real opt-out URL at send time.
             'opt_out_link' => '{opt_out_link}',
+            // `opt_in_link` (AT-49) — optional re-consent link, same per-send
+            // token, substituted by the sender at send time.
+            'opt_in_link' => '{opt_in_link}',
             // Internal — not substituted into body; used to populate facts_snapshot.
             '__property_town_id' => $town?->id,
             '__property_type_option_id' => $propertyTypeOpt?->id,

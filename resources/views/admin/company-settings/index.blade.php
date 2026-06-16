@@ -199,6 +199,17 @@
                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                   placeholder="Email disclaimer text shown at bottom of all outgoing emails">{{ old('email_disclaimer', $agency->email_disclaimer) }}</textarea>
                     </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Marketing Unsubscribe Footer</label>
+                        <textarea name="marketing_unsubscribe_footer" rows="3"
+                                  class="w-full rounded-md px-3 py-2 text-sm"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                                  placeholder="{{ $agency->renderedMarketingUnsubscribeFooter() }}">{{ old('marketing_unsubscribe_footer', $agency->marketing_unsubscribe_footer) }}</textarea>
+                        <p class="text-xs mt-1" style="color:var(--text-muted);">
+                            Shown at the bottom of outgoing marketing emails (POPIA). Leave blank to use the default wording, which already includes your unsubscribe link:
+                            <a href="{{ $agency->marketingUnsubscribeUrl() }}" target="_blank" rel="noopener" style="color:var(--brand-icon, #0ea5e9);">{{ $agency->marketingUnsubscribeUrl() }}</a>
+                        </p>
+                    </div>
                 </div>
 
                 {{-- Phase 9c-3 rebuild — Privacy Policy lives next to Email Disclaimer. --}}

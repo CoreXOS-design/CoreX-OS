@@ -316,6 +316,10 @@ return [
         // Spec: .ai/specs/testimonials.md §8
         ['key' => 'testimonials.publish',        'label' => 'Publish Testimonials to Website', 'section' => 'admin',        'type' => 'action',  'module' => 'agency_api',       'sort_order' => 62],
 
+        // ── Marketing Suppressions (AT-49) — "one opt-out, suppressed everywhere" register ──
+        ['key' => 'marketing_suppressions.view',   'label' => 'View Marketing Suppressions',  'section' => 'admin',            'type' => 'access',  'module' => 'marketing',        'sort_order' => 70],
+        ['key' => 'marketing_suppressions.manage', 'label' => 'Lift Marketing Suppressions',  'section' => 'admin',            'type' => 'action',  'module' => 'marketing',        'sort_order' => 71],
+
         // ── Calculators / Tools ──
         ['key' => 'access_calculators',          'label' => 'Access Calculators & Tools',  'section' => 'calculators',      'type' => 'access',  'module' => 'calculators',      'sort_order' => 1],
 

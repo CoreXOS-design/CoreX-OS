@@ -33,12 +33,17 @@ final class RecordOptOutOnContact
         self::$seen[$event->eventId] = true;
 
         try {
-            $event->contact->update([
-                'messaging_opt_out_at' => now(),
-                'messaging_opt_out_reason' => $event->reason,
-                'messaging_opt_out_recorded_by_user_id' => $event->actorUserId,
-                'messaging_opt_out_source' => $event->source,
-            ]);
+            // AT-49 convergence: both the agent-marked opt-out and the
+            // self-service link reach here, so this is the ONE place that runs
+            // the full "suppressed everywhere" path — consent revoke + opt-out
+            // triplet (+ source) + channel booleans + identifier suppression.
+            app(\App\Services\SellerOutreach\MarketingConsentService::class)->optOutContact(
+                contact:     $event->contact,
+                reason:      $event->reason,
+                source:      $event->source,
+                actorUserId: $event->actorUserId,
+                send:        $event->send,
+            );
         } catch (Throwable $e) {
             Log::error('RecordOptOutOnContact failed', [
                 'contact_id' => $event->contact->id,

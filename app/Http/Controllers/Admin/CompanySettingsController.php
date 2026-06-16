@@ -83,6 +83,8 @@ class CompanySettingsController extends Controller
             'public_contact'        => ['nullable', 'string', 'max:255'],
             'fic_no'                => ['nullable', 'string', 'max:255'],
             'email_disclaimer'      => ['nullable', 'string', 'max:2000'],
+            // AT-49 — marketing email-signature footer (blank = Agency default w/ unsubscribe link).
+            'marketing_unsubscribe_footer' => ['nullable', 'string', 'max:2000'],
             'popi_url'              => ['nullable', 'string', 'max:500'],
             // Phase 9c-3 rebuild — privacy policy as Company Settings field.
             'privacy_policy_markdown' => ['nullable', 'string', 'max:200000'],
