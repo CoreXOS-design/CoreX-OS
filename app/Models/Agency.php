@@ -67,6 +67,7 @@ class Agency extends Model
         'logo_path',
         'email_disclaimer',
         'marketing_unsubscribe_footer',
+        'outreach_live_deal_statuses',
         'popi_url',
         'privacy_policy_markdown',
         'privacy_policy_token',
@@ -222,6 +223,8 @@ class Agency extends Model
         'pp_locations_synced_at' => 'datetime',
         'whistleblow_approver_user_ids' => 'array',
         'whistleblow_tier_recipients' => 'array',
+        // AT-50 — per-agency override of which deals_v2 statuses count as live.
+        'outreach_live_deal_statuses' => 'array',
         // Communication Archive ingestion filter (AT-43) — null = inherit config default.
         'communication_ingest_drop_noreply'      => 'boolean',
         'communication_ingest_blocklist_domains' => 'array',
@@ -587,6 +590,24 @@ class Agency extends Model
     public function marketingUnsubscribeUrl(): string
     {
         return route('seller-outreach.public.unsubscribe.show', ['agency' => $this->id]);
+    }
+
+    /**
+     * AT-50 — which deals_v2 statuses count as a LIVE transaction for this
+     * agency. Returns the agency override when set, else the system default
+     * from config/corex-outreach.php. Always a non-empty list of strings.
+     */
+    public function liveDealStatuses(): array
+    {
+        $override = $this->outreach_live_deal_statuses;
+        $statuses = is_array($override) && $override !== []
+            ? $override
+            : (array) config('corex-outreach.live_deal_statuses', ['active']);
+
+        // Defensive: never return empty (would make every contact "not live").
+        $statuses = array_values(array_filter(array_map('strval', $statuses), fn ($s) => $s !== ''));
+
+        return $statuses !== [] ? $statuses : ['active'];
     }
 
     // ── Payroll ──

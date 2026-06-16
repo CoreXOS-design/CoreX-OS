@@ -51,6 +51,20 @@
                         {{ $contact->type->name }}
                     </span>
                     @endif
+                    {{-- AT-50 — derived communication status (Opted in / Marketing opted out / Transaction-only) --}}
+                    @php
+                        $commMeta = $contact->communicationStatusMeta();
+                        $commTint = match ($commMeta['key']) {
+                            \App\Models\Contact::COMM_TRANSACTION_ONLY     => 'rgba(217,119,6,0.85)',
+                            \App\Models\Contact::COMM_MARKETING_OPTED_OUT  => 'rgba(220,38,38,0.85)',
+                            default                                        => 'rgba(22,163,74,0.85)',
+                        };
+                    @endphp
+                    <span class="text-xs px-2.5 py-1 rounded-md font-semibold text-white"
+                          title="Marketing can always be switched off; transactional comms continue during a live sale."
+                          style="background:{{ $commTint }}; border:1px solid rgba(255,255,255,0.35);">
+                        {{ $commMeta['label'] }}
+                    </span>
                 </div>
 
                 <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1.5">

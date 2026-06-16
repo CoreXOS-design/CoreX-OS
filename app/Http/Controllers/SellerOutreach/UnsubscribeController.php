@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\SellerOutreach;
 
 use App\Http\Controllers\Controller;
+use App\Models\Contact;
 use App\Models\MarketingSuppression;
+use App\Services\Communications\ContactIdentifierResolver;
 use App\Services\SellerOutreach\MarketingConsentService;
+use App\Services\SellerOutreach\TransactionStateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -28,6 +31,8 @@ final class UnsubscribeController extends Controller
 {
     public function __construct(
         private readonly MarketingConsentService $consent,
+        private readonly ContactIdentifierResolver $resolver,
+        private readonly TransactionStateService $transactions,
     ) {}
 
     private const UNSUBSCRIBE_REASON = 'Self-service unsubscribe page';
@@ -50,6 +55,8 @@ final class UnsubscribeController extends Controller
             return $this->render($agency, $agencyName, done: false, invalid: true);
         }
 
+        // Marketing is ALWAYS suppressed (matched contact fully opted out;
+        // unmatched identifier still records a suppression row for future imports).
         $this->consent->optOutByIdentifier(
             rawIdentifier: $identifier,
             agencyId:      $agency,
@@ -57,11 +64,16 @@ final class UnsubscribeController extends Controller
             source:        MarketingSuppression::SOURCE_UNSUBSCRIBE_PAGE,
         );
 
-        // Identical success page regardless of match — never reveal whether the
-        // identifier was on file. An unparseable identifier still lands here, but
-        // optOutByIdentifier records nothing for it; that is acceptable — the user
-        // is told their request is processed without leaking record existence.
-        return $this->render($agency, $agencyName, done: true, invalid: false);
+        // AT-50 — same transaction gate as the per-send screen: if the resolved
+        // contact is in a LIVE sale, transactional comms continue (the page says
+        // so). Non-transaction / unmatched identifiers get the full-suppression
+        // message. We never name the sale here (this page is identifier-only, not
+        // token-authenticated).
+        $contact = $this->resolver->resolve($identifier, $agency);
+        $inLiveTransaction = $contact instanceof Contact
+            && $this->transactions->isInLiveTransaction($agency, $contact);
+
+        return $this->render($agency, $agencyName, done: true, invalid: false, inLiveTransaction: $inLiveTransaction);
     }
 
     private function resolveAgencyName(int $agency): string
@@ -74,14 +86,15 @@ final class UnsubscribeController extends Controller
         return (string) $name;
     }
 
-    private function render(int $agency, string $agencyName, bool $done, bool $invalid)
+    private function render(int $agency, string $agencyName, bool $done, bool $invalid, bool $inLiveTransaction = false)
     {
         return response()
             ->view('seller-outreach.unsubscribe', [
-                'agencyId'   => $agency,
-                'agencyName' => $agencyName,
-                'done'       => $done,
-                'invalid'    => $invalid,
+                'agencyId'          => $agency,
+                'agencyName'        => $agencyName,
+                'done'              => $done,
+                'invalid'           => $invalid,
+                'inLiveTransaction' => $inLiveTransaction,
             ])
             ->header('X-Robots-Tag', 'noindex, nofollow');
     }

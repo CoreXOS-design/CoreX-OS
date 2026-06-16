@@ -1,5 +1,7 @@
-{{-- props: $contact, $sends, $clickCounts, $optedOut, $optedIn, $outcomeOptions --}}
+{{-- props: $contact, $sends, $clickCounts, $optedOut, $optedIn, $commMeta, $liveTransactions, $outcomeOptions --}}
 @php($optedIn = $optedIn ?? ($contact->messaging_opted_in_at !== null))
+@php($commMeta = $commMeta ?? $contact->communicationStatusMeta())
+@php($liveTransactions = $liveTransactions ?? [])
 
 <div x-data="{ openSendId: null, optOutFormOpen: false, optInFormOpen: false }" class="space-y-4">
 
@@ -14,6 +16,21 @@
         <div class="rounded-md px-4 py-3 text-sm"
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
             <strong>{{ $errors->first() }}</strong>
+        </div>
+    @endif
+
+    {{-- AT-50 — derived 3-state communication status --}}
+    <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Communication status</span>
+        <span class="ds-badge {{ $commMeta['class'] }}" title="Marketing can always be switched off; transactional comms continue during a live sale.">
+            {{ $commMeta['label'] }}
+        </span>
+    </div>
+    @if($commMeta['key'] === \App\Models\Contact::COMM_TRANSACTION_ONLY && !empty($liveTransactions))
+        <div class="rounded-md p-3 text-xs"
+             style="background: color-mix(in srgb, var(--ds-amber, #d97706) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent); color: var(--text-secondary);">
+            Marketing is off, but business comms continue because
+            @foreach($liveTransactions as $i => $lt){{ $i > 0 ? '; ' : '' }}{{ $lt['label'] }}@endforeach.
         </div>
     @endif
 

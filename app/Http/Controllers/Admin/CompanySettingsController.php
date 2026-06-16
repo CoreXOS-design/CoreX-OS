@@ -100,7 +100,23 @@ class CompanySettingsController extends Controller
             'whatsapp_launch_mode_seller' => ['nullable', 'in:whatsapp_app,whatsapp_web'],
             // 2026-05-14 — pitch-claim integration: agency-tunable temp lock duration.
             'prospecting_pitch_temp_lock_minutes' => ['nullable', 'integer', 'min:5', 'max:240'],
+            // AT-50 — which deals_v2 statuses count as a live transaction (lock transactional opt-out).
+            'outreach_live_deal_statuses_present' => ['nullable', 'boolean'],
+            'outreach_live_deal_statuses'         => ['nullable', 'array'],
+            'outreach_live_deal_statuses.*'       => ['string', 'in:active,completed,cancelled,on_hold'],
         ]);
+
+        // AT-50 — only touch the live-status set when the company form actually
+        // rendered its checkboxes (a hidden marker). Unchecking all => NULL =>
+        // fall back to the config default. Prevents other forms wiping it.
+        if ($request->boolean('outreach_live_deal_statuses_present')) {
+            $selected = array_values(array_intersect(
+                (array) $request->input('outreach_live_deal_statuses', []),
+                ['active', 'completed', 'cancelled', 'on_hold']
+            ));
+            $data['outreach_live_deal_statuses'] = $selected !== [] ? $selected : null;
+        }
+        unset($data['outreach_live_deal_statuses_present']);
 
         // Privacy policy: content saves as draft; publish/unpublish are
         // explicit gestures. Token is generated lazily when first content
