@@ -99,6 +99,19 @@
             @endforeach
         </select>
     </div>
+    @else
+    {{-- Empty state — no template for this channel. Prevents a silent blank
+         composer (the body/subject would otherwise render empty with no cue). --}}
+    <div class="rounded-md p-4 text-sm"
+         style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, var(--border)); color: var(--text-primary);">
+        <div class="font-semibold mb-1" style="color: var(--ds-amber, #b45309);">
+            No {{ $channel === 'whatsapp' ? 'WhatsApp' : 'Email' }} template configured
+        </div>
+        <div style="color: var(--text-secondary);">
+            There's no active {{ $channel === 'whatsapp' ? 'WhatsApp' : 'Email' }} template for this agency yet, so there's nothing to pre-fill.
+            Add one under Settings → Outreach Templates, or write the message below before sending.
+        </div>
+    </div>
     @endif
 
     @if($context)
