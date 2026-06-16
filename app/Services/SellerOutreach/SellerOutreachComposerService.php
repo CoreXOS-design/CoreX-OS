@@ -171,6 +171,10 @@ final class SellerOutreachComposerService
             'agency_name' => $this->agencyName($agencyId),
             'agency_ppra_no' => $this->agencyPpraNo($agencyId),
             'agency_contact' => $this->agencyContact($agencyId),
+            // AT-48 footer fields — company FFC + sending-agent FFC + branch-then-company tel.
+            'agency_ffc' => $this->agencyFfcNo($agencyId),
+            'agent_ffc' => $this->agentFfcNumber($agent),
+            'branch_or_company_tel' => $this->branchOrCompanyTel($agencyId, $agent),
             'buyer_count' => (string) $buyerCount,
             'matching_buyer_count' => (string) $matchingBuyerCount,
             // `tracking_link` is intentionally NOT substituted into the body
@@ -189,7 +193,7 @@ final class SellerOutreachComposerService
 
     private function renderBody(string $template, array $mergeFields): string
     {
-        $result = $template;
+        $result = $this->collapseOptionalSegments($template, $mergeFields);
         foreach ($mergeFields as $key => $value) {
             if (str_starts_with($key, '__')) {
                 continue;
@@ -197,6 +201,31 @@ final class SellerOutreachComposerService
             $result = str_replace('{' . $key . '}', (string) $value, $result);
         }
         return $result;
+    }
+
+    /**
+     * Optional-segment syntax: {?field}...{/field}.
+     *
+     * When the named merge field is blank/empty the WHOLE block — including
+     * the leading separator and label it wraps — is dropped; otherwise the
+     * inner content is kept and the normal token loop fills it in. This is how
+     * the AT-48 footer renders "· Agent FFC {agent_ffc}" only when the sending
+     * agent actually has an FFC number: no dangling label, no stray separator.
+     *
+     * It is a targeted, opt-in construct (a body must explicitly wrap a
+     * segment) — NOT a blanket "drop any empty field" rule, which would mangle
+     * other body text where an empty optional field is legitimately fine.
+     */
+    private function collapseOptionalSegments(string $template, array $mergeFields): string
+    {
+        return (string) preg_replace_callback(
+            '/\{\?([a-z_]+)\}(.*?)\{\/\1\}/is',
+            function (array $m) use ($mergeFields): string {
+                $value = trim((string) ($mergeFields[$m[1]] ?? ''));
+                return $value !== '' ? $m[2] : '';
+            },
+            $template
+        );
     }
 
     private function resolveTemplate(int $agencyId, string $channel, ?int $templateId): ?SellerOutreachTemplate
@@ -329,6 +358,41 @@ final class SellerOutreachComposerService
     {
         $contact = DB::table('agencies')->where('id', $agencyId)->value('public_contact');
         return $contact ? (string) $contact : '';
+    }
+
+    /** Company Fidelity Fund Certificate number for the {agency_ffc} merge field. */
+    private function agencyFfcNo(int $agencyId): string
+    {
+        $ffc = DB::table('agencies')->where('id', $agencyId)->value('ffc_no');
+        return $ffc ? (string) $ffc : '';
+    }
+
+    /**
+     * Sending agent's own FFC number for the {agent_ffc} merge field. Returns
+     * '' when blank/null so the footer's optional {?agent_ffc} segment collapses
+     * (a handful of HFC agents have no FFC number on file).
+     */
+    private function agentFfcNumber(User $agent): string
+    {
+        return trim((string) ($agent->ffc_number ?? ''));
+    }
+
+    /**
+     * Branch-then-company telephone for the {branch_or_company_tel} merge field.
+     *
+     * Mirrors CoreX's standard blank-aware coalesce chain (e.g. the agent
+     * cell→phone fallback used in syndication/signing): the sending agent's
+     * branch landline is preferred, falling back to the agency landline when the
+     * branch phone is blank/NULL — which is the case for all HFC branches today.
+     */
+    private function branchOrCompanyTel(int $agencyId, User $agent): string
+    {
+        $branchPhone = trim((string) ($agent->branch?->phone ?? ''));
+        if ($branchPhone !== '') {
+            return $branchPhone;
+        }
+        $agencyPhone = DB::table('agencies')->where('id', $agencyId)->value('phone');
+        return $agencyPhone ? (string) $agencyPhone : '';
     }
 
     private function assertSameAgency(int $agencyId, Contact $contact, Property $property): void
