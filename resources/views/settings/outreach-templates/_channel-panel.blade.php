@@ -8,20 +8,20 @@
 <div x-data="{
         formOpen: false,
         editingId: null,
-        formState: { name: '', subject: '', body: '', description: '', is_active: true, is_default_for_channel: false },
+        formState: { name: '', subject: '', body: '', description: '', is_active: true, is_default_for_channel: false, include_tracking_link: true },
         resetForm() {
             this.formOpen = false;
             this.editingId = null;
-            this.formState = { name: '', subject: '', body: '', description: '', is_active: true, is_default_for_channel: false };
+            this.formState = { name: '', subject: '', body: '', description: '', is_active: true, is_default_for_channel: false, include_tracking_link: true };
         },
         openNew() {
             this.editingId = null;
-            this.formState = { name: '', subject: '', body: '', description: '', is_active: true, is_default_for_channel: false };
+            this.formState = { name: '', subject: '', body: '', description: '', is_active: true, is_default_for_channel: false, include_tracking_link: true };
             this.formOpen = true;
         },
         openEdit(id, state) {
             this.editingId = id;
-            this.formState = Object.assign({ name: '', subject: '', body: '', description: '', is_active: true, is_default_for_channel: false }, state);
+            this.formState = Object.assign({ name: '', subject: '', body: '', description: '', is_active: true, is_default_for_channel: false, include_tracking_link: true }, state);
             this.formOpen = true;
             this.$nextTick(() => { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); });
         },
@@ -81,7 +81,8 @@
                                         body: @json($template->body),
                                         description: @json($template->description ?? ""),
                                         is_active: {{ $template->is_active ? "true" : "false" }},
-                                        is_default_for_channel: {{ $template->is_default_for_channel ? "true" : "false" }}
+                                        is_default_for_channel: {{ $template->is_default_for_channel ? "true" : "false" }},
+                                        include_tracking_link: {{ $template->include_tracking_link ? "true" : "false" }}
                                     })'
                                     class="text-xs font-semibold px-3 py-1.5 rounded"
                                     style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
@@ -172,7 +173,8 @@
                           class="w-full px-3 py-2 text-sm rounded"
                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, monospace;"></textarea>
                 <div class="text-xs mt-1" style="color: var(--text-muted);">
-                    Required: <code style="color:#00d4aa;">{{ '{tracking_link}' }}</code> and an opt-out clause with the word <code style="color:#00d4aa;">STOP</code>.
+                    Always required: an opt-out clause with the word <code style="color:#00d4aa;">STOP</code>.
+                    <span x-show="formState.include_tracking_link">Also required while <strong>Include tracking link</strong> is on: <code style="color:#00d4aa;">{{ '{tracking_link}' }}</code>.</span>
                 </div>
             </div>
 
@@ -193,6 +195,14 @@
                 <label class="inline-flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
                     <input type="checkbox" name="is_default_for_channel" value="1" x-model="formState.is_default_for_channel">
                     Set as default for {{ $channelLabel }}
+                </label>
+                {{-- AT-46 — hidden+checkbox so an unchecked toggle still submits "0".
+                     Off = a consent-request template with no live-demand link
+                     (the STOP opt-out clause stays mandatory either way). --}}
+                <label class="inline-flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
+                    <input type="hidden" name="include_tracking_link" value="0">
+                    <input type="checkbox" name="include_tracking_link" value="1" x-model="formState.include_tracking_link">
+                    Include tracking link
                 </label>
             </div>
 

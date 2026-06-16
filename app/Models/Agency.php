@@ -56,6 +56,7 @@ class Agency extends Model
         'vat_no',
         'ffc_no',
         'ppra_number',
+        'public_contact',
         'fic_no',
         'sidebar_color',
         'icon_color',

@@ -152,6 +152,14 @@
                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="e.g. Sales:">
                     </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Public Contact (seller outreach)</label>
+                        <input type="text" name="public_contact" value="{{ old('public_contact', $agency->public_contact) }}"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                               placeholder="e.g. 079 495 5994 or info@hfcoastal.co.za">
+                        <p class="text-[10px] mt-1" style="color:var(--text-muted);">The contact shown to sellers in outreach messages via the <code>{agency_contact}</code> merge field — the number or address you want them to reply to or call.</p>
+                    </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Secondary Cell Number</label>
                         <input type="text" name="phone_secondary" value="{{ old('phone_secondary', $agency->phone_secondary) }}"

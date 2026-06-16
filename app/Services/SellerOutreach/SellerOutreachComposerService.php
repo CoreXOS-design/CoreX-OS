@@ -169,6 +169,8 @@ final class SellerOutreachComposerService
             'agent_name' => $this->agentDisplayName($agent),
             'agent_phone' => $this->agentDisplayPhone($agent) ?? '',
             'agency_name' => $this->agencyName($agencyId),
+            'agency_ppra_no' => $this->agencyPpraNo($agencyId),
+            'agency_contact' => $this->agencyContact($agencyId),
             'buyer_count' => (string) $buyerCount,
             'matching_buyer_count' => (string) $matchingBuyerCount,
             // `tracking_link` is intentionally NOT substituted into the body
@@ -313,6 +315,20 @@ final class SellerOutreachComposerService
     {
         $name = DB::table('agencies')->where('id', $agencyId)->value('name');
         return $name ? (string) $name : 'Our agency';
+    }
+
+    /** Agency PPRA registration number for the {agency_ppra_no} merge field. */
+    private function agencyPpraNo(int $agencyId): string
+    {
+        $ppra = DB::table('agencies')->where('id', $agencyId)->value('ppra_number');
+        return $ppra ? (string) $ppra : '';
+    }
+
+    /** Agency public contact (configurable) for the {agency_contact} merge field. */
+    private function agencyContact(int $agencyId): string
+    {
+        $contact = DB::table('agencies')->where('id', $agencyId)->value('public_contact');
+        return $contact ? (string) $contact : '';
     }
 
     private function assertSameAgency(int $agencyId, Contact $contact, Property $property): void

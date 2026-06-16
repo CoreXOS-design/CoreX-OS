@@ -67,7 +67,7 @@ final class TemplatesController extends Controller
         $agencyId = $this->resolveAgencyId($request);
         $data = $this->validateRequest($request);
 
-        $result = $this->validator->validate($data['channel'], $data['subject'] ?? null, $data['body']);
+        $result = $this->validator->validate($data['channel'], $data['subject'] ?? null, $data['body'], (bool) ($data['include_tracking_link'] ?? true));
         if ($result->fails()) {
             return back()
                 ->withErrors($result->errors)
@@ -93,6 +93,7 @@ final class TemplatesController extends Controller
                 'description'            => $data['description'] ?? null,
                 'is_active'              => (bool) ($data['is_active'] ?? true),
                 'is_default_for_channel' => (bool) ($data['is_default_for_channel'] ?? false),
+                'include_tracking_link'  => (bool) ($data['include_tracking_link'] ?? true),
             ]);
         });
 
@@ -115,7 +116,7 @@ final class TemplatesController extends Controller
 
         $data = $this->validateRequest($request, $template->id);
 
-        $result = $this->validator->validate($data['channel'], $data['subject'] ?? null, $data['body']);
+        $result = $this->validator->validate($data['channel'], $data['subject'] ?? null, $data['body'], (bool) ($data['include_tracking_link'] ?? true));
         if ($result->fails()) {
             return back()
                 ->withErrors($result->errors)
@@ -141,6 +142,7 @@ final class TemplatesController extends Controller
                 'description'            => $data['description'] ?? null,
                 'is_active'              => (bool) ($data['is_active'] ?? false),
                 'is_default_for_channel' => (bool) ($data['is_default_for_channel'] ?? false),
+                'include_tracking_link'  => (bool) ($data['include_tracking_link'] ?? true),
             ]);
         });
 
@@ -215,6 +217,7 @@ final class TemplatesController extends Controller
             'description'            => 'nullable|string|max:1000',
             'is_active'              => 'nullable|boolean',
             'is_default_for_channel' => 'nullable|boolean',
+            'include_tracking_link'  => 'nullable|boolean',
         ]);
     }
 
