@@ -14,7 +14,7 @@
             <div class="flex items-center gap-2 flex-wrap">
             @if(auth()->user()->effectiveRole() === 'super_admin')
             <form method="POST" action="{{ route('corex.contacts.destroy-all') }}"
-                  onsubmit="return confirm('DELETE ALL CONTACTS? This will permanently delete every contact in the system. Are you sure?');">
+                  onsubmit="return confirm('DELETE ALL CONTACTS? This permanently purges every contact in this agency — including already-archived (soft-deleted) ones — and all their related records. This cannot be undone. Are you sure?');">
                 @csrf @method('DELETE')
                 <button type="submit" class="corex-btn-outline text-sm" style="color:var(--ds-crimson,#c41e3a); border-color:color-mix(in srgb, var(--ds-crimson,#c41e3a) 35%, transparent);">
                     Delete All
