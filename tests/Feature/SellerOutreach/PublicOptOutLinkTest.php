@@ -33,7 +33,9 @@ final class PublicOptOutLinkTest extends TestCase
         $resp = $this->get(route('seller-outreach.public.opt-out.show', $send->opt_out_token));
 
         $resp->assertStatus(200);
-        $resp->assertSee('Stop receiving marketing messages', false);
+        // AT-50 — the link now renders the two-switch communication-preferences screen.
+        $resp->assertSee('Your communication preferences', false);
+        $resp->assertSee('Marketing &amp; area updates', false);
         // PREVIEW-SAFE: a crawler / WhatsApp link-preview GET must NOT opt anyone out.
         $this->assertNull($contact->fresh()->messaging_opt_out_at);
     }
@@ -44,10 +46,11 @@ final class PublicOptOutLinkTest extends TestCase
         $contact = $this->seedContact($agencyId);
         $send = $this->seedSend($agencyId, $userId, $contact);
 
+        // No `action` param → defaults to stop_marketing (turn marketing off).
         $resp = $this->post(route('seller-outreach.public.opt-out.confirm', $send->opt_out_token));
 
         $resp->assertStatus(200);
-        $resp->assertSee("won't receive further marketing messages", false);
+        $resp->assertSee('Your preferences have been updated', false);
 
         $contact->refresh();
         $this->assertNotNull($contact->messaging_opt_out_at, 'opt-out flag set');
@@ -75,7 +78,7 @@ final class PublicOptOutLinkTest extends TestCase
         $resp = $this->post(route('seller-outreach.public.opt-out.confirm', $send->opt_out_token));
 
         $resp->assertStatus(200);
-        $resp->assertSee("won't receive further marketing messages", false);
+        $resp->assertSee('Your preferences have been updated', false);
 
         $contact->refresh();
         // Idempotent: original record untouched (timestamp, reason, source, recorder).
