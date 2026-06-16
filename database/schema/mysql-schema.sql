@@ -193,6 +193,7 @@ CREATE TABLE `agencies` (
   `logo_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email_disclaimer` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `marketing_unsubscribe_footer` text COLLATE utf8mb4_unicode_ci,
+  `outreach_live_deal_statuses` json DEFAULT NULL,
   `popi_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `privacy_policy_markdown` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `privacy_policy_token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -11860,3 +11861,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (823,'2026_06_16_19
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (824,'2026_06_16_190001_add_messaging_opt_out_source_to_contacts',149);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (825,'2026_06_16_190002_create_marketing_suppressions_table',150);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_16_190003_add_marketing_unsubscribe_footer_to_agencies',150);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (827,'2026_06_16_220000_add_outreach_live_deal_statuses_to_agencies',151);

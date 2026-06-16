@@ -212,6 +212,28 @@
                     </div>
                 </div>
 
+                {{-- AT-50 — which deal statuses count as a LIVE transaction (lock transactional opt-out). --}}
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Marketing &amp; Outreach</div>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Deal statuses that count as a live transaction</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">
+                            When a contact is a party on a deal with one of these statuses (and it isn't registered yet), the self-service opt-out keeps transactional messages on until the deal concludes — only marketing can be switched off. Leave all unticked to use the default (<strong>Active</strong>).
+                        </p>
+                        @php($selectedLive = old('outreach_live_deal_statuses', $agency->liveDealStatuses()))
+                        <input type="hidden" name="outreach_live_deal_statuses_present" value="1">
+                        <div class="flex flex-wrap gap-3">
+                            @foreach(['active'=>'Active','on_hold'=>'On hold','completed'=>'Completed','cancelled'=>'Cancelled'] as $val => $lbl)
+                                <label class="inline-flex items-center gap-1.5 text-sm" style="color:var(--text-primary);">
+                                    <input type="checkbox" name="outreach_live_deal_statuses[]" value="{{ $val }}"
+                                           @checked(in_array($val, (array) $selectedLive, true))>
+                                    {{ $lbl }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+
                 {{-- Phase 9c-3 rebuild — Privacy Policy lives next to Email Disclaimer. --}}
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Privacy Policy</div>
                 <div class="space-y-3">

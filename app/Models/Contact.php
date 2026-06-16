@@ -342,6 +342,65 @@ class Contact extends Model
         return $this->messaging_opted_in_at !== null;
     }
 
+    // ── AT-50 — derived 3-state communication status ─────────────────────
+
+    public const COMM_OPTED_IN            = 'opted_in';
+    public const COMM_MARKETING_OPTED_OUT = 'marketing_opted_out';
+    public const COMM_TRANSACTION_ONLY    = 'transaction_only';
+
+    /**
+     * The contact's communication status, DERIVED (never stored):
+     *   opted_in            — not opted out of marketing (default; receives all).
+     *   transaction_only    — opted out of marketing BUT in a live sale, so
+     *                         business comms about that sale continue.
+     *   marketing_opted_out — opted out of marketing and no live transaction.
+     *
+     * The live-transaction check only runs when the contact IS opted out, so the
+     * common (opted-in) case costs no query.
+     */
+    public function communicationStatus(): string
+    {
+        if ($this->messaging_opt_out_at === null) {
+            return self::COMM_OPTED_IN;
+        }
+
+        $agencyId = (int) $this->agency_id;
+        if ($agencyId > 0
+            && app(\App\Services\SellerOutreach\TransactionStateService::class)
+                ->isInLiveTransaction($agencyId, $this)) {
+            return self::COMM_TRANSACTION_ONLY;
+        }
+
+        return self::COMM_MARKETING_OPTED_OUT;
+    }
+
+    /**
+     * Badge metadata for the derived status — plain-English label + a CoreX
+     * design-system badge class. Safe for list and detail views.
+     *
+     * @return array{key:string, label:string, class:string}
+     */
+    public function communicationStatusMeta(): array
+    {
+        return match ($this->communicationStatus()) {
+            self::COMM_TRANSACTION_ONLY => [
+                'key'   => self::COMM_TRANSACTION_ONLY,
+                'label' => 'Transaction-only',
+                'class' => 'ds-badge-warning',
+            ],
+            self::COMM_MARKETING_OPTED_OUT => [
+                'key'   => self::COMM_MARKETING_OPTED_OUT,
+                'label' => 'Marketing opted out',
+                'class' => 'ds-badge-danger',
+            ],
+            default => [
+                'key'   => self::COMM_OPTED_IN,
+                'label' => 'Opted in',
+                'class' => 'ds-badge-success',
+            ],
+        };
+    }
+
     /** The user who recorded the messaging opt-in (for "by whom" display). */
     public function optInRecordedBy(): BelongsTo
     {

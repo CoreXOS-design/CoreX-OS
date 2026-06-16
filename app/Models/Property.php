@@ -460,6 +460,50 @@ class Property extends Model
         });
     }
 
+    /**
+     * AT-50 — a property is "transaction-live" (its owner/seller is in an active
+     * business relationship that must keep receiving comms) when EITHER:
+     *
+     *   (b) LIVE MANDATE — expiry_date IS NULL OR expiry_date >= today, AND the
+     *       status is not a concluded/dead one. We test expiry_date DIRECTLY
+     *       against today rather than trusting status='expired' (the expiry cron
+     *       flips status only once a day, so it can be stale). Status comparison
+     *       is case-insensitive because the stored values are inconsistent
+     *       (e.g. 'Sold' vs 'sold' — see the AT-50 investigation).
+     *
+     *   (c) CURRENTLY ADVERTISED — any syndication channel is active, including
+     *       the agency's OWN website (property_website_syndication) per Johan's
+     *       call: P24, Private Property, or own-website all count.
+     *
+     * Single source of truth for the live-mandate-OR-advertised predicate; the
+     * caller is responsible for agency isolation (BelongsToAgency when run as the
+     * agency user, or an explicit agency_id filter on public/unauthenticated
+     * routes where the global scope no-ops).
+     */
+    public function scopeTransactionLive($query)
+    {
+        $dead = ['expired', 'sold', 'withdrawn', 'cancelled'];
+
+        return $query->where(function ($outer) use ($dead) {
+            // (b) live mandate
+            $outer->where(function ($m) use ($dead) {
+                $m->where(function ($e) {
+                    $e->whereNull('expiry_date')
+                      ->orWhereDate('expiry_date', '>=', now()->toDateString());
+                })->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(status)'), $dead);
+            })
+            // (c) currently advertised (P24 / PP / own website)
+            ->orWhereRaw('LOWER(p24_syndication_status) = ?', ['active'])
+            ->orWhereRaw('LOWER(pp_syndication_status) = ?', ['active'])
+            ->orWhereExists(function ($sub) {
+                $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                    ->from('property_website_syndication as pws')
+                    ->whereColumn('pws.property_id', 'properties.id')
+                    ->whereRaw('LOWER(pws.status) = ?', ['active']);
+            });
+        });
+    }
+
     public function scopeVisibleTo($query, \App\Models\User $user)
     {
         $scope = \App\Services\PermissionService::getDataScope($user, 'properties');

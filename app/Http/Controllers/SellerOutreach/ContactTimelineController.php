@@ -77,12 +77,21 @@ final class ContactTimelineController extends Controller
             ->get()
             ->keyBy('send_id');
 
+        // AT-50 — derived 3-state communication status + the live transaction(s)
+        // that, when present, keep transactional comms flowing despite an opt-out.
+        $commMeta = $contact->communicationStatusMeta();
+        $liveTransactions = $contact->messaging_opt_out_at !== null
+            ? app(\App\Services\SellerOutreach\TransactionStateService::class)->liveTransactions($agencyId, $contact)
+            : [];
+
         return [
             'contact'        => $contact,
             'sends'          => $sends,
             'clickCounts'    => $clickCounts,
             'optedOut'       => $contact->messaging_opt_out_at !== null,
             'optedIn'        => $contact->messaging_opted_in_at !== null,
+            'commMeta'         => $commMeta,
+            'liveTransactions' => $liveTransactions,
             'outcomeOptions' => $this->outcomeOptions(),
         ];
     }

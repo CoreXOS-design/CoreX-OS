@@ -24,7 +24,8 @@
      style="background: var(--surface, #ffffff); border: 1px solid var(--border, #e5e7eb);">
 
     @if($done)
-        {{-- Success state — intentionally match-agnostic (no record-existence leak). --}}
+        {{-- Success state. Match-agnostic by default; when the resolved contact is
+             in a live sale (AT-50) we add that transactional comms continue. --}}
         <div class="text-center">
             <div class="text-2xl mb-2" aria-hidden="true">✓</div>
             <h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary, #111827);">
@@ -32,9 +33,20 @@
             </h2>
             <p class="text-sm" style="color: var(--text-secondary, #4b5563);">
                 If that email address or number is on file with {{ $agencyName }}, it will no
-                longer receive marketing messages. This does not affect messages about your own
-                transaction.
+                longer receive marketing messages.
             </p>
+            @if($inLiveTransaction)
+                <div class="mt-4 p-3 rounded text-sm text-left"
+                     style="background: color-mix(in srgb, var(--brand-default, #0b2a4a) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-default, #0b2a4a) 25%, transparent); color: var(--text-secondary, #4b5563);">
+                    Because you have an active sale with us, we're required to keep sending you
+                    essential updates about that sale until it concludes. You can opt out of those
+                    once it's finalised. Marketing messages have been stopped.
+                </div>
+            @else
+                <p class="text-sm mt-2" style="color: var(--text-secondary, #4b5563);">
+                    This does not affect messages about your own transaction.
+                </p>
+            @endif
         </div>
     @else
         {{-- Entry state --}}
