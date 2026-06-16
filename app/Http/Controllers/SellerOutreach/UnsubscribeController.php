@@ -88,10 +88,15 @@ final class UnsubscribeController extends Controller
 
     private function render(int $agency, string $agencyName, bool $done, bool $invalid, bool $inLiveTransaction = false)
     {
+        // BUG A — brand as the sending agency (logo + theme), not CoreX.
+        $branding = \App\Models\Agency::publicBrandingFor($agency);
+
         return response()
             ->view('seller-outreach.unsubscribe', [
                 'agencyId'          => $agency,
                 'agencyName'        => $agencyName,
+                'agencyLogoUrl'     => $branding['logoUrl'],
+                'brand'             => $branding['colors'],
                 'done'              => $done,
                 'invalid'           => $invalid,
                 'inLiveTransaction' => $inLiveTransaction,

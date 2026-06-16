@@ -156,7 +156,8 @@ final class PublicOptOutController extends Controller
     private function render(SellerOutreachSend $send, Contact $contact, bool $done)
     {
         $agencyId = (int) $send->agency_id;
-        $agencyName = (string) (DB::table('agencies')->where('id', $agencyId)->value('name') ?: 'our agency');
+        // BUG A — brand the page as the SENDING AGENCY (logo + theme), not CoreX.
+        $branding = \App\Models\Agency::publicBrandingFor($agencyId);
 
         $inLiveTransaction = $this->transactions->isInLiveTransaction($agencyId, $contact);
         $liveTransactions = $inLiveTransaction
@@ -165,7 +166,9 @@ final class PublicOptOutController extends Controller
 
         return response()
             ->view('seller-outreach.opt-out', [
-                'agencyName'        => $agencyName,
+                'agencyName'        => $branding['name'],
+                'agencyLogoUrl'     => $branding['logoUrl'],
+                'brand'             => $branding['colors'],
                 'token'             => $send->opt_out_token,
                 'marketingOptedOut' => $contact->messaging_opt_out_at !== null,
                 'inLiveTransaction' => $inLiveTransaction,

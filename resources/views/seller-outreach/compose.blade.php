@@ -145,7 +145,10 @@ function composerState(init) {
                     alert(data.message || 'Send failed.');
                     return;
                 }
-                window.open(data.client_url, '_blank');
+                // Email is sent server-side (branded HTML) — no client URL to open.
+                if (data.client_url) {
+                    window.open(data.client_url, '_blank');
+                }
                 window.location.href = this.sentUrlBase + '/' + data.send_id;
             } catch (e) {
                 alert('Network error — try again.');

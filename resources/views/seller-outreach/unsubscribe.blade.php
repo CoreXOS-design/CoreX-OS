@@ -14,7 +14,28 @@
 
 @section('public-content')
 
+@php($brand = $brand ?? [])
+@php($agencyLogoUrl = $agencyLogoUrl ?? null)
+
+{{-- BUG A — present as the sending agency, not CoreX (theme + logo + link preview). --}}
+@push('head')
+<meta property="og:title" content="Unsubscribe — {{ $agencyName }}">
+<meta property="og:description" content="Stop receiving marketing messages from {{ $agencyName }}.">
+@if($agencyLogoUrl)<meta property="og:image" content="{{ $agencyLogoUrl }}">@endif
+<style>
+    :root {
+        --brand-sidebar: {{ $brand['sidebar'] ?? '#0b2a4a' }};
+        --brand-icon:    {{ $brand['icon'] ?? '#33c4e0' }};
+        --brand-default: {{ $brand['default'] ?? '#0b2a4a' }};
+        --brand-button:  {{ $brand['button'] ?? '#00b4d8' }};
+    }
+</style>
+@endpush
+
 <div class="text-center mb-6">
+    @if($agencyLogoUrl)
+        <img src="{{ $agencyLogoUrl }}" alt="{{ $agencyName }}" style="max-height:56px;width:auto;margin:0 auto 10px;display:block;">
+    @endif
     <h1 class="text-xl font-semibold mb-1" style="color: var(--text-primary, #111827);">
         {{ $agencyName }}
     </h1>

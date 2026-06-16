@@ -593,6 +593,30 @@ class Agency extends Model
     }
 
     /**
+     * Branding for an UNAUTHENTICATED public page (opt-out / unsubscribe): the
+     * agency's own logo + theme colours, reusing the same fields the public
+     * website page (public/agency-properties) renders — never hardcoded. Safe
+     * on public routes: looked up by id with the global scope off (no auth user).
+     *
+     * @return array{name:string, logoUrl:?string, colors:array{sidebar:string,icon:string,default:string,button:string}}
+     */
+    public static function publicBrandingFor(int $agencyId): array
+    {
+        $a = static::withoutGlobalScopes()->find($agencyId);
+
+        return [
+            'name'    => ($a && $a->name) ? (string) $a->name : 'our agency',
+            'logoUrl' => ($a && $a->logo_path) ? asset('storage/' . $a->logo_path) : null,
+            'colors'  => [
+                'sidebar' => ($a && $a->sidebar_color) ? $a->sidebar_color : '#0b2a4a',
+                'icon'    => ($a && $a->icon_color) ? $a->icon_color : '#33c4e0',
+                'default' => ($a && $a->default_color) ? $a->default_color : '#0b2a4a',
+                'button'  => ($a && $a->button_color) ? $a->button_color : '#00b4d8',
+            ],
+        ];
+    }
+
+    /**
      * AT-50 — which deals_v2 statuses count as a LIVE transaction for this
      * agency. Returns the agency override when set, else the system default
      * from config/corex-outreach.php. Always a non-empty list of strings.

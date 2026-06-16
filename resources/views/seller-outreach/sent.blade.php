@@ -10,15 +10,21 @@
         <p class="text-sm mb-4" style="color: var(--text-secondary);">
             The send was recorded against
             <strong>{{ trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'this contact' }}</strong>.
-            {{ $send->channel === 'whatsapp' ? 'WhatsApp' : 'Your email client' }} should have opened in a new tab.
+            @if($send->channel === 'whatsapp')
+                WhatsApp should have opened in a new tab.
+            @else
+                A branded email has been sent to <strong>{{ $send->recipient_email_snapshot }}</strong>.
+            @endif
         </p>
-        <p class="text-xs mb-6" style="color: var(--text-muted);">
-            If it didn't open automatically:
-            <a href="{{ $clientUrl }}" target="_blank" rel="noopener"
-               style="color: #00d4aa; text-decoration: underline;">
-                Open {{ $send->channel === 'whatsapp' ? 'WhatsApp' : 'Email' }} manually
-            </a>
-        </p>
+        @if($send->channel === 'whatsapp' && $clientUrl)
+            <p class="text-xs mb-6" style="color: var(--text-muted);">
+                If it didn't open automatically:
+                <a href="{{ $clientUrl }}" target="_blank" rel="noopener"
+                   style="color: #00d4aa; text-decoration: underline;">
+                    Open WhatsApp manually
+                </a>
+            </p>
+        @endif
         <div class="text-xs space-y-1" style="color: var(--text-muted);">
             <div>Tracking code: <code style="color: var(--text-secondary);">{{ $send->tracking_short_code }}</code></div>
             <div>
