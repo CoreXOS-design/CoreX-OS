@@ -602,13 +602,78 @@ class ContactController extends Controller
         return back()->with('success', 'Consent revoked.')->with('tab', 'consent');
     }
 
-    public function destroyAll()
+    /**
+     * Permanently purge every contact in the active agency — including
+     * soft-deleted ones — together with all contact-owned related records,
+     * so nothing is left orphaned.
+     *
+     * This is a hard delete and deliberately violates the "no hard deletes"
+     * non-negotiable. It is restricted to super admins and explicitly
+     * authorised as a system-maintenance escape hatch. Scope is the active
+     * agency only — tenant isolation is never crossed.
+     *
+     * Related tables are resolved from the Contact model's own relationship
+     * definitions rather than hard-coded, so the purge cannot silently drift
+     * out of sync when a new relationship is added.
+     */
+    public function destroyAll(Request $request)
     {
-        $count = Contact::withTrashed()->count();
-        // Hard-delete related records, then hard-delete all contacts (including soft-deleted)
-        \DB::table('contact_tag')->delete();
-        \DB::table('contact_notes')->delete();
-        Contact::withTrashed()->forceDelete();
+        abort_unless($request->user()?->effectiveRole() === 'super_admin', 403);
+
+        // Active-agency contact ids, including soft-deleted.
+        $contactIds = Contact::withTrashed()->pluck('id');
+        $count = $contactIds->count();
+
+        if ($count === 0) {
+            return redirect()->route('corex.contacts.index')->with('success', 'No contacts to delete.');
+        }
+
+        $proto = new Contact;
+
+        // HasMany children that belong exclusively to a contact.
+        $childRelations = [
+            $proto->contactNotes(),
+            $proto->testimonials(),
+            $proto->legacyDocuments(),
+            $proto->ficaSubmissions(),
+            $proto->matches(),
+            $proto->consentRecords(),
+            $proto->accessLog(),
+            $proto->buyerActivityLog(),
+            $proto->buyerStateTransitions(),
+            $proto->buyerPropertyViews(),
+        ];
+
+        // BelongsToMany pivots keyed on the contact.
+        $pivotRelations = [
+            $proto->tags(),
+            $proto->documents(),
+            $proto->signedDocuments(),
+            $proto->properties(),
+        ];
+
+        \DB::transaction(function () use ($proto, $childRelations, $pivotRelations, $contactIds) {
+            foreach ($childRelations as $relation) {
+                \DB::table($relation->getRelated()->getTable())
+                    ->whereIn($relation->getForeignKeyName(), $contactIds)
+                    ->delete();
+            }
+
+            foreach ($pivotRelations as $relation) {
+                \DB::table($relation->getTable())
+                    ->whereIn($relation->getForeignPivotKeyName(), $contactIds)
+                    ->delete();
+            }
+
+            // Morph pivot shared across pillars — only remove contact-linked rows.
+            $links = $proto->calendarEventLinks();
+            \DB::table($links->getRelated()->getTable())
+                ->where($links->getMorphType(), $proto->getMorphClass())
+                ->whereIn($links->getForeignKeyName(), $contactIds)
+                ->delete();
+
+            Contact::withTrashed()->whereIn('id', $contactIds)->forceDelete();
+        });
 
         return redirect()->route('corex.contacts.index')->with('success', "{$count} contacts permanently deleted.");
     }
