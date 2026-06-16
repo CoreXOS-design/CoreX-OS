@@ -155,6 +155,12 @@
         'calculators.*'
     )) {
         $activeGroup = 'trust-interest';
+    } elseif (request()->routeIs(
+        'communications.wa-devices.*',
+        'communications.triage.*',
+        'my-portal.comm-capture.*'
+    )) {
+        $activeGroup = 'communication';
     }
 @endphp
 
@@ -339,35 +345,6 @@
             <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
             @endif
         </a>
-        @permission('access_communication')
-        <a href="{{ route('communications.wa-devices.index') }}"
-           class="corex-nav-item {{ request()->routeIs('communications.wa-devices.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
-            </svg>
-            <span>WhatsApp Capture</span>
-        </a>
-        @endpermission
-        @permission('triage_communications')
-        <a href="{{ route('communications.triage.index') }}"
-           class="corex-nav-item {{ request()->routeIs('communications.triage.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 8.25V18a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 18V8.25m-18 0V6a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 6v2.25m-18 0 8.954 5.59a1.5 1.5 0 0 0 1.592 0L21 8.25" />
-            </svg>
-            <span>Message Triage</span>
-        </a>
-        @endpermission
-        @endpermission
-
-        {{-- Communication Capture (AT-39) — user email self-service --}}
-        @permission('access_communication')
-        <a href="{{ route('my-portal.comm-capture.index') }}"
-           class="corex-nav-item {{ request()->routeIs('my-portal.comm-capture.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
-            </svg>
-            <span>Communication Capture</span>
-        </a>
         @endpermission
 
         {{-- ═══════════════════════════════════════════
@@ -532,6 +509,47 @@
                      is reachable from the Market Intelligence tab bar — single entry per spec. --}}
             </div>
         </div>
+
+        {{-- ═══════════════════════════════════════════
+             COMMUNICATION (expandable group)
+             WhatsApp Capture + Message Triage + Communication Capture
+             ═══════════════════════════════════════════ --}}
+        @php
+            $canSeeCommunication = auth()->check() && (
+                auth()->user()->hasPermission('access_communication')
+                || auth()->user()->hasPermission('triage_communications')
+            );
+        @endphp
+        @if($canSeeCommunication)
+        <div>
+            <button type="button" @click="push('communication')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'communication' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+                </svg>
+                <span>Communication</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'communication' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('communication') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Communication</div>
+
+                @permission('triage_communications')
+                <a href="{{ route('communications.triage.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.triage.*') ? 'active' : '' }}">Message Triage</a>
+                @endpermission
+
+                @permission('access_communication')
+                <a href="{{ route('communications.wa-devices.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.wa-devices.*') ? 'active' : '' }}">WhatsApp Capture</a>
+                {{-- Communication Capture (AT-39) — user email self-service --}}
+                <a href="{{ route('my-portal.comm-capture.index') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.comm-capture.*') ? 'active' : '' }}">Communication Capture</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
 
         {{-- ═══════════════════════════════════════════
              MY EARNINGS

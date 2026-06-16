@@ -86,19 +86,15 @@
         <aside x-show="!sbCollapsed"
                class="hidden lg:flex flex-col gap-3 flex-shrink-0" style="width:280px; position:sticky; top:0;">
 
-            {{-- Collapse toggle (above identity strip) --}}
-            <div class="flex justify-end">
+            {{-- Identity strip (compact) — collapse toggle lives in the top-right corner --}}
+            <div class="relative rounded-md p-3 flex items-center gap-3" style="background:var(--surface); border:1px solid var(--border);">
                 <button type="button" @click="sbCollapsed = true"
                         title="Collapse sidebar"
-                        class="w-7 h-7 rounded-md flex items-center justify-center transition-colors"
-                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);"
-                        onmouseover="this.style.color='var(--text-primary)'; this.style.background='var(--surface-2)'" onmouseout="this.style.color='var(--text-muted)'; this.style.background='var(--surface)'">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
+                        class="absolute top-1.5 left-1.5 z-10 w-6 h-6 rounded-md flex items-center justify-center transition-colors"
+                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);"
+                        onmouseover="this.style.color='var(--text-primary)'; this.style.background='var(--surface)'" onmouseout="this.style.color='var(--text-muted)'; this.style.background='var(--surface-2)'">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
                 </button>
-            </div>
-
-            {{-- Identity strip (compact) --}}
-            <div class="rounded-md p-3 flex items-center gap-3" style="background:var(--surface); border:1px solid var(--border);">
                 @if($thumb)
                     <img src="{{ $thumb }}" alt="" class="w-12 h-12 rounded object-cover flex-shrink-0">
                 @else
@@ -591,11 +587,17 @@
                 $readinessBarClass = $readinessPct >= 80 ? 'ds-bar-green' : 'ds-bar-amber';
                 $readinessMissing = array_keys(array_filter($readinessChecks, fn($v) => !$v));
             @endphp
-            <div class="rounded-md p-3 space-y-3" style="background:var(--surface); border:1px solid var(--border);">
-                <div class="flex items-center justify-between">
+            <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ readinessOpen: false }">
+                <button type="button" @click="readinessOpen = !readinessOpen"
+                        class="w-full flex items-center justify-between"
+                        style="background:transparent; border:0; cursor:pointer; padding:0;">
                     <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Readiness</p>
-                    <span class="text-sm font-extrabold" style="color:{{ $readinessColorVar }};">{{ number_format($readinessPct) }}%</span>
-                </div>
+                    <span class="flex items-center gap-2">
+                        <span class="text-sm font-extrabold" style="color:{{ $readinessColorVar }};">{{ number_format($readinessPct) }}%</span>
+                        <svg class="w-3.5 h-3.5 transition-transform" :class="readinessOpen ? 'rotate-180' : ''" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+                    </span>
+                </button>
+                <div x-show="readinessOpen" x-cloak x-collapse class="space-y-3 mt-3">
                 <div class="ds-progress-track">
                     <div class="ds-progress-bar {{ $readinessBarClass }}" style="width:{{ $readinessPct }}%"></div>
                 </div>
@@ -701,6 +703,7 @@
                     </template>
                 </div>
                 @endif
+                </div>{{-- /readiness collapsible body --}}
             </div>
             @endif
 
