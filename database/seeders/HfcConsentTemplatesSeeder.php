@@ -37,7 +37,18 @@ use Illuminate\Support\Facades\DB;
 final class HfcConsentTemplatesSeeder extends Seeder
 {
     private const AGENCY_ID = 1; // Home Finders Coastal
-    private const CHANNEL = SellerOutreachTemplate::CHANNEL_WHATSAPP;
+
+    /**
+     * AT-47c — seed BOTH channels. The email variant carries the SAME consent
+     * copy (with "via WhatsApp" → "via email") plus a Subject, so toggling the
+     * composer to Email pre-fills a populated, branded message. This only adds
+     * the template ROWS — the single email SEND path stays the OutreachEmail
+     * Mailable (this seeder does not touch delivery).
+     */
+    private const CHANNELS = [
+        SellerOutreachTemplate::CHANNEL_WHATSAPP,
+        SellerOutreachTemplate::CHANNEL_EMAIL,
+    ];
 
     public function run(): void
     {
@@ -56,64 +67,73 @@ final class HfcConsentTemplatesSeeder extends Seeder
             ->value('id');
 
         foreach ($this->templates() as $tpl) {
-            // SAME validation the admin UI runs. include_tracking_link = false →
-            // {tracking_link} not required; the STOP opt-out clause is still mandatory.
-            $result = $validator->validate(self::CHANNEL, null, $tpl['body'], includeTrackingLink: false);
-            if ($result->fails()) {
-                throw new \RuntimeException(
-                    "HFC consent template '{$tpl['name']}' failed validation: " . json_encode($result->errors)
+            foreach (self::CHANNELS as $channel) {
+                $isEmail = $channel === SellerOutreachTemplate::CHANNEL_EMAIL;
+
+                // Email keeps the SAME copy with the channel word swapped + a Subject.
+                $body    = $isEmail ? str_replace('via WhatsApp', 'via email', $tpl['body']) : $tpl['body'];
+                $subject = $isEmail ? $tpl['email_subject'] : null;
+
+                // SAME validation the admin UI runs. include_tracking_link = false →
+                // {tracking_link} not required; {opt_out_link} + STOP stay mandatory,
+                // and email additionally requires a non-empty subject.
+                $result = $validator->validate($channel, $subject, $body, includeTrackingLink: false);
+                if ($result->fails()) {
+                    throw new \RuntimeException(
+                        "HFC consent template '{$tpl['name']}' ({$channel}) failed validation: " . json_encode($result->errors)
+                    );
+                }
+
+                // Keep the admin UI's one-default-per-channel invariant (per channel).
+                if ($tpl['is_default_for_channel']) {
+                    SellerOutreachTemplate::withoutGlobalScopes()
+                        ->where('agency_id', self::AGENCY_ID)
+                        ->where('channel', $channel)
+                        ->where('is_default_for_channel', true)
+                        ->where('name', '!=', $tpl['name'])
+                        ->update(['is_default_for_channel' => false]);
+                }
+
+                // withoutGlobalScopes() also drops the SoftDeletes scope, so a prior
+                // soft-deleted row is matched and reactivated rather than duplicated.
+                $template = SellerOutreachTemplate::withoutGlobalScopes()->updateOrCreate(
+                    [
+                        'agency_id' => self::AGENCY_ID,
+                        'channel'   => $channel,
+                        'name'      => $tpl['name'],
+                    ],
+                    [
+                        'subject'                => $subject,
+                        'body'                   => $body,
+                        'description'            => $tpl['description'],
+                        'is_active'              => true,
+                        'is_default_for_channel' => $tpl['is_default_for_channel'],
+                        'include_tracking_link'  => false,
+                    ]
+                );
+
+                if ($template->trashed()) {
+                    $template->restore();
+                }
+
+                // SAME audit event the admin create/update path fires.
+                event(new TemplateConfigured(
+                    template:    $template,
+                    action:      $template->wasRecentlyCreated ? TemplateConfigured::ACTION_CREATED : TemplateConfigured::ACTION_UPDATED,
+                    actorUserId: $actorUserId,
+                    agencyId:    self::AGENCY_ID,
+                ));
+
+                $this->command?->info(
+                    ($template->wasRecentlyCreated ? 'Created' : 'Updated')
+                    . " {$channel} template '{$template->name}' (id {$template->id})."
                 );
             }
-
-            // Keep the admin UI's one-default-per-channel invariant.
-            if ($tpl['is_default_for_channel']) {
-                SellerOutreachTemplate::withoutGlobalScopes()
-                    ->where('agency_id', self::AGENCY_ID)
-                    ->where('channel', self::CHANNEL)
-                    ->where('is_default_for_channel', true)
-                    ->where('name', '!=', $tpl['name'])
-                    ->update(['is_default_for_channel' => false]);
-            }
-
-            // withoutGlobalScopes() also drops the SoftDeletes scope, so a prior
-            // soft-deleted row is matched and reactivated rather than duplicated.
-            $template = SellerOutreachTemplate::withoutGlobalScopes()->updateOrCreate(
-                [
-                    'agency_id' => self::AGENCY_ID,
-                    'channel'   => self::CHANNEL,
-                    'name'      => $tpl['name'],
-                ],
-                [
-                    'subject'                => null,
-                    'body'                   => $tpl['body'],
-                    'description'            => $tpl['description'],
-                    'is_active'              => true,
-                    'is_default_for_channel' => $tpl['is_default_for_channel'],
-                    'include_tracking_link'  => false,
-                ]
-            );
-
-            if ($template->trashed()) {
-                $template->restore();
-            }
-
-            // SAME audit event the admin create/update path fires.
-            event(new TemplateConfigured(
-                template:    $template,
-                action:      $template->wasRecentlyCreated ? TemplateConfigured::ACTION_CREATED : TemplateConfigured::ACTION_UPDATED,
-                actorUserId: $actorUserId,
-                agencyId:    self::AGENCY_ID,
-            ));
-
-            $this->command?->info(
-                ($template->wasRecentlyCreated ? 'Created' : 'Updated')
-                . " WhatsApp template '{$template->name}' (id {$template->id})."
-            );
         }
     }
 
     /**
-     * @return array<int, array{name: string, is_default_for_channel: bool, description: string, body: string}>
+     * @return array<int, array{name: string, is_default_for_channel: bool, description: string, email_subject: string, body: string}>
      */
     private function templates(): array
     {
@@ -122,6 +142,7 @@ final class HfcConsentTemplatesSeeder extends Seeder
                 'name' => 'General Marketing — Area Updates',
                 'is_default_for_channel' => true,
                 'description' => 'Consent request — invite the seller to receive area market + buyer-demand updates.',
+                'email_subject' => '{property_suburb} market & buyer-demand updates from {agency_name}',
                 'body' => <<<'TXT'
 Hi {seller_name}, this is {agent_name} from {agency_name} — a registered estate agency on the KZN South Coast.
 We track live buyer demand, recent sales and property values for {property_suburb}. With your permission, we'd send you these area updates so you always know what your property could be worth and who's looking to buy near you.
@@ -136,6 +157,7 @@ TXT,
                 'name' => 'Buyer Demand Marketing',
                 'is_default_for_channel' => false,
                 'description' => 'Consent request — specific active buyer for the seller\'s property.',
+                'email_subject' => 'A buyer for your {property_suburb} property',
                 'body' => <<<'TXT'
 Hi {seller_name}, I saw your property in {property_suburb} on the market. I'm {agent_name} from {agency_name} — a registered estate agency.
 I have a buyer active in {property_suburb} and your property may suit them. With your permission, I'd like to send you the details and discuss your property with you.

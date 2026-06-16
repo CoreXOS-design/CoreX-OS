@@ -102,7 +102,8 @@
             </form>
         @else
             <p class="text-sm mb-3" style="color: var(--text-secondary, #4b5563);">
-                You're not receiving marketing messages. You can turn them back on below.
+                You've stopped messages from {{ $agencyName }}. Turning communication back on
+                re-enables both marketing and transaction messages — you can switch either off again.
             </p>
             <form method="POST" action="{{ route('seller-outreach.public.opt-out.confirm', $token) }}">
                 @csrf
@@ -110,7 +111,7 @@
                 <button type="submit"
                         class="w-full px-4 py-3 text-sm font-semibold rounded"
                         style="background: var(--brand-default, #0b2a4a); color: #ffffff; border: none; cursor: pointer;">
-                    Turn marketing messages back on
+                    Turn communication back on
                 </button>
             </form>
         @endif

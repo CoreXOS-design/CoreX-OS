@@ -146,8 +146,11 @@ function composerState(init) {
                     return;
                 }
                 // Email is sent server-side (branded HTML) — no client URL to open.
+                // WhatsApp: reuse ONE named tab ('corex_whatsapp_web') so repeated
+                // sends target the agent's existing WhatsApp Web tab instead of
+                // spawning a new tab each time.
                 if (data.client_url) {
-                    window.open(data.client_url, '_blank');
+                    window.open(data.client_url, 'corex_whatsapp_web');
                 }
                 window.location.href = this.sentUrlBase + '/' + data.send_id;
             } catch (e) {
