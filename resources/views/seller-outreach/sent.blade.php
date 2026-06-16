@@ -19,7 +19,7 @@
         @if($send->channel === 'whatsapp' && $clientUrl)
             <p class="text-xs mb-6" style="color: var(--text-muted);">
                 If it didn't open automatically:
-                <a href="{{ $clientUrl }}" target="_blank" rel="noopener"
+                <a href="{{ $clientUrl }}" target="corex_whatsapp_web" rel="noopener"
                    style="color: #00d4aa; text-decoration: underline;">
                     Open WhatsApp manually
                 </a>
