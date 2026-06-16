@@ -417,52 +417,57 @@ class AnalysisDataService
         $upperBaseline  = $this->intOrNull($poolStats['p75']    ?? null);
         $middleBaseline = $this->intOrNull($methodMedian['raw'] ?? null);
 
-        // Build 8 — scale the WHOLE band by the condition factor, not just
-        // the median. Pre-fix only the median was scaled (inside
-        // CmaComputeService::methodResult), so at +20% the Uvongo PDF
-        // produced Middle R864k > Upper R747,500 — broken ordering, and
-        // the recommended-band "R864k — R747,500" pair read backwards.
-        // ConditionAdjustmentService::applyToBand reuses the same bcmath
-        // factor CmaComputeService applies to the median (round(base *
-        // (1 + pct/100))) so all three tiles stay on the same scale.
-        // No-op when pct is null / ~0 — baseline values pass through.
-        $bandPct      = isset($conditionContext['pct']) && is_numeric($conditionContext['pct'])
+        // PRES-CMA-REALFIX (Johan, 2026-06-16) — the recommended band is the
+        // EVALUATED VALUE (middle) ± a tight, agency-configurable %. The middle
+        // is the comp-median (the "indicated value"); the agent's condition %
+        // is applied to it EXACTLY ONCE here, before the band is derived. The
+        // band edges are NO LONGER the raw pool P25/P75 — sourcing them from
+        // percentiles let a type-contaminated pool blow the band out to ±20%+
+        // (band-evidence pass: clean same-type pools cluster ~±6–7%, mixed
+        // pools ~±23%). Deriving lower/upper from the middle keeps the band
+        // tight and symmetric around the value the seller must hear. The raw
+        // P25/median/P75 remain in pool_stats for the "Why This Range?"
+        // evidence rows only ($lowerBaseline/$upperBaseline above).
+        //
+        // Condition is applied ONCE and ONLY here. Every other historical
+        // condition multiplier stays dormant/unread: CmaComputeService's
+        // method_median.condition_adjusted (we read .raw), and
+        // ConditionAdjustmentService::applyToBand / applyToMiddle (not invoked
+        // from this render path). No path applies condition twice.
+        $conditionPct     = isset($conditionContext['pct']) && is_numeric($conditionContext['pct'])
             ? (float) $conditionContext['pct']
             : null;
-        $bandScaled   = app(\App\Services\Presentations\ConditionAdjustmentService::class)
-            ->applyToBand($lowerBaseline, $middleBaseline, $upperBaseline, $bandPct);
-        $lower        = $bandScaled['lower_adjusted'];
-        $upper        = $bandScaled['upper_adjusted'];
-        // Middle still flows through method_median.condition_adjusted so
-        // the existing thin-pool / clean-pool fallbacks in
-        // CmaComputeService stay authoritative; applyToBand's middle
-        // output is a sanity check (must equal method_median.condition_adjusted).
-        $middle       = $this->intOrNull($methodMedian['condition_adjusted'] ?? null) ?? $middleBaseline;
-
-        // middle_from_fallback no longer applies to the tile values —
-        // CmaComputeService handles thin-pool fallback via Build 8b's
-        // min-n ladder. Preserved as a benchmark-only flag for the
-        // CMA Info reference line.
-        $middleFromFallback = false;
-
-        // Build 3 — condition context surfacing. The CMA-computed middle
-        // already has the condition adjustment baked in (CmaComputeService
-        // applies it inside method_median via bcmath). Surface the
-        // metadata for the review-screen condition strip's display.
-        $conditionApplied = false;
-        $conditionPct     = null;
-        $conditionLabel   = null;
+        $conditionLabel   = $conditionContext['label'] ?? null;
         $conditionSource  = $conditionContext['source'] ?? 'none';
-        if (!empty($conditionContext['pct'])) {
-            $conditionPct     = (float) $conditionContext['pct'];
-            $conditionApplied = $middle !== null
-                && $middleBaseline !== null
-                && abs($conditionPct) >= 0.005
-                && $middle !== $middleBaseline;
-            $conditionLabel   = $conditionContext['label'] ?? null;
-        } elseif ($conditionSource === 'none') {
+
+        // Evaluated value = indicated (median) value with condition applied
+        // once. When no condition is resolved (the current state for every
+        // presentation — condition data is unpopulated) the multiplier is 1×,
+        // so the middle stays the indicated value.
+        $conditionApplied = false;
+        $middle = $middleBaseline;
+        if ($middle !== null && $conditionPct !== null && abs($conditionPct) > 0.0001) {
+            $middle = (int) round($middleBaseline * (1 + $conditionPct / 100));
+            $conditionApplied = true;
+        }
+        if ($conditionSource === 'none') {
             \Illuminate\Support\Facades\Log::info('[PRES-INFO] cma_valuation_baseline_only (no condition resolved)');
         }
+
+        // Band half-widths from pool_stats (surfaced by CmaComputeService from
+        // agency settings cma_band_lower_pct / cma_band_upper_pct; default 7%).
+        // lower/upper are derived from the (condition-adjusted) middle.
+        $bandLowerPct = isset($poolStats['band_lower_pct']) && is_numeric($poolStats['band_lower_pct'])
+            ? (float) $poolStats['band_lower_pct']
+            : (float) CompPoolBuilder::DEF_BAND_LOWER_PCT;
+        $bandUpperPct = isset($poolStats['band_upper_pct']) && is_numeric($poolStats['band_upper_pct'])
+            ? (float) $poolStats['band_upper_pct']
+            : (float) CompPoolBuilder::DEF_BAND_UPPER_PCT;
+
+        $lower  = $middle !== null ? (int) round($middle * (1 - $bandLowerPct / 100)) : null;
+        $upper  = $middle !== null ? (int) round($middle * (1 + $bandUpperPct / 100)) : null;
+
+        $middleFromFallback = false;
 
         $vicinityLower  = $this->intOrNull($fields->get('vicinity.lower_range')?->final_value);
         $vicinityMiddle = $this->intOrNull($fields->get('vicinity.middle_range')?->final_value);
@@ -475,9 +480,15 @@ class AnalysisDataService
             default => $middle,
         };
 
+        // PRES-CMA-SELLER-VOICE (Johan, 2026-06-15) — the asking-vs-value
+        // comparison is ALWAYS measured against the EVALUATED VALUE (the
+        // middle), never the selected range. Pre-fix it used $selectedValue;
+        // when the agent had picked 'upper' the seller saw "asking −3.3% vs
+        // (upper) → Ok/green" while the asking was in fact +15% OVER the
+        // evaluated value. The middle is the honest market reference.
         $askingVsCmaPct = null;
-        if ($askingPrice && $selectedValue && $selectedValue > 0) {
-            $askingVsCmaPct = round(($askingPrice - $selectedValue) / $selectedValue * 100, 1);
+        if ($askingPrice && $middle && $middle > 0) {
+            $askingVsCmaPct = round(($askingPrice - $middle) / $middle * 100, 1);
         }
 
         return [
@@ -494,7 +505,10 @@ class AnalysisDataService
             'vicinity_ppm2'             => $vicinityPpm2,
             'asking_price'              => $askingPrice,
             'asking_vs_cma_pct'         => $askingVsCmaPct,
-            'is_overpriced'             => $askingVsCmaPct !== null && $askingVsCmaPct > 10,
+            // PRES-CMA-REALFIX — overpriced ⟺ asking sits ABOVE the upper band
+            // (middle × (1 + band_upper_pct)). No softening: an asking above
+            // the band that comparable homes actually sold within is overpriced.
+            'is_overpriced'             => $askingPrice !== null && $upper !== null && $askingPrice > $upper,
             // Build 3 — condition adjustment surfacing.
             'condition_applied'         => $conditionApplied,
             'condition_pct'             => $conditionPct,
@@ -1054,12 +1068,10 @@ class AnalysisDataService
                 $cmaMiddle = (int) round(($cmaLower + $cmaUpper) / 2);
             }
         }
-        $cmaValue = match($cmaSelectedRange) {
-            'lower' => $cmaLower,
-            'upper' => $cmaUpper,
-            default => $cmaMiddle,
-        };
-
+        // PRES-CMA-SELLER-VOICE — the seller-facing "vs evaluated value"
+        // benchmark is ALWAYS the middle (the evaluated value), never the
+        // agent-selected range. Anchoring on 'upper' let an above-market
+        // asking read as within tolerance.
         $vicinityValue = match($vicinitySelectedRange) {
             'lower'  => $this->intOrNull($fields->get('vicinity.lower_range')?->final_value),
             'upper'  => $this->intOrNull($fields->get('vicinity.upper_range')?->final_value),
@@ -1069,8 +1081,8 @@ class AnalysisDataService
 
         $benchmarks = [
             [
-                'label'     => 'vs CMA Evaluation (' . $cmaSelectedRange . ')',
-                'benchmark' => $cmaValue,
+                'label'     => 'vs evaluated value (middle)',
+                'benchmark' => $cmaMiddle,
                 'thresholds' => ['warning' => 5, 'danger' => 15],
             ],
             [

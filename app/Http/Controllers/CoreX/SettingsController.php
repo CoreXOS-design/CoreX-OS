@@ -381,6 +381,12 @@ class SettingsController extends Controller
             'anchor_divergence_pct'                     => ['nullable', 'numeric', 'min:5', 'max:100'],
             'range_lower_pct'                           => ['nullable', 'integer', 'min:1', 'max:49'],
             'range_upper_pct'                           => ['nullable', 'integer', 'min:51', 'max:99'],
+            // PRES-CMA-REALFIX — recommended-band half-widths (± % around the
+            // indicated value). Asymmetric market norm 10% below / 13% above;
+            // 0–40 spans the full evidenced CMA range without rejecting legit
+            // wider bands.
+            'cma_band_lower_pct'                        => ['nullable', 'numeric', 'min:0', 'max:40'],
+            'cma_band_upper_pct'                        => ['nullable', 'numeric', 'min:0', 'max:40'],
             // AT-22 item 3 — holding-cost Tier-2 agency defaults (were
             // migration-only; now agency-editable so the figures are
             // transparent + tunable, not opaque auto-fill).

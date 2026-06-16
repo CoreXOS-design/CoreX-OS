@@ -233,6 +233,8 @@ CREATE TABLE `agencies` (
   `anchor_divergence_pct` decimal(5,2) DEFAULT '25.00' COMMENT 'AT-22 §1.5 — widen the radius when the cleaned-pool estimate diverges from the vicinity average by more than this %. Null → constant.',
   `range_lower_pct` tinyint unsigned DEFAULT '25' COMMENT 'AT-22 §5 — lower percentile for the recommended range. Default 25 (P25). Null → constant.',
   `range_upper_pct` tinyint unsigned DEFAULT '75' COMMENT 'AT-22 §5 — upper percentile for the recommended range. Default 75 (P75). Null → constant.',
+  `cma_band_lower_pct` decimal(5,2) DEFAULT '10.00' COMMENT 'PRES-CMA-REALFIX — recommended-band LOWER half-width: lower = middle × (1 − pct/100). Null → constant 7.',
+  `cma_band_upper_pct` decimal(5,2) DEFAULT '13.00' COMMENT 'PRES-CMA-REALFIX — recommended-band UPPER half-width: upper = middle × (1 + pct/100). Null → constant 7.',
   `competitor_stock_default_beds_tolerance` tinyint unsigned NOT NULL DEFAULT '1' COMMENT 'Competitor Stock — ± beds window for synthetic ContactMatch (Core Matches scorer).',
   `competitor_stock_default_price_tolerance_pct` tinyint unsigned NOT NULL DEFAULT '20' COMMENT 'Competitor Stock — ± percent price band for synthetic match (e.g. 20 = ±20%).',
   `competitor_stock_min_score` tinyint unsigned NOT NULL DEFAULT '50' COMMENT 'Competitor Stock — minimum match score (Core Matches 0-100) to include in section. 50 = Approximate tier floor.',
@@ -11805,3 +11807,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (811,'2026_06_27_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (812,'2026_06_27_000002_create_communication_flag_alerts_table',143);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (813,'2026_06_27_000003_add_classification_to_communication_pending_table',143);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (814,'2026_06_15_140000_add_communication_ingest_filter_to_agencies',144);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (815,'2026_06_16_140000_add_cma_band_pct_to_agencies',145);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (816,'2026_06_16_160000_set_cma_band_pct_asymmetric_default',146);

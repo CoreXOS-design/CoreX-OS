@@ -2093,6 +2093,11 @@
                     $anchorDiv     = (float)  ($presAgency->anchor_divergence_pct    ?? 25);
                     $rangeLower    = (int)    ($presAgency->range_lower_pct          ?? 25);
                     $rangeUpper    = (int)    ($presAgency->range_upper_pct          ?? 75);
+                    // PRES-CMA-REALFIX — recommended-band half-widths (± % around
+                    // the indicated value). ASYMMETRIC market norm 10% below /
+                    // 13% above. Distinct from the percentile fields above.
+                    $cmaBandLower  = (float)  ($presAgency->cma_band_lower_pct       ?? 10);
+                    $cmaBandUpper  = (float)  ($presAgency->cma_band_upper_pct       ?? 13);
                     // AT-22 item 3 — holding-cost Tier-2 agency defaults.
                     $hcOppPct    = (float) ($presAgency->presentations_default_opportunity_cost_pct      ?? 8);
                     $hcRatesPM   = (int)   ($presAgency->presentations_default_rates_per_million_zar      ?? 800);
@@ -2344,6 +2349,34 @@
                                                class="w-full rounded-md px-3 py-2 text-sm"
                                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         <div class="text-[11px] mt-1" style="color:var(--text-muted);">Upper bound. Default 75 (P75). Asking never widens the band.</div>
+                                    </div>
+                                </div>
+
+                                {{-- PRES-CMA-REALFIX — recommended-band half-widths.
+                                     DISTINCT from the percentile fields above: these
+                                     set how far the seller-facing price range sits
+                                     below / above the indicated value. Asymmetric
+                                     market norm (from 105 evidenced CMA reports):
+                                     10% below, 13% above. --}}
+                                <div class="mt-3 pt-3" style="border-top:1px dashed var(--border);">
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Valuation band (recommended range around the indicated value)</div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Valuation band — below middle (%)</label>
+                                            <input type="number" min="0" max="40" step="0.5" name="cma_band_lower_pct"
+                                                   value="{{ number_format($cmaBandLower, 2, '.', '') }}"
+                                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <div class="text-[11px] mt-1" style="color:var(--text-muted);">How far the recommended price range sits below the indicated value. CMA market norm ≈ 10% below.</div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Valuation band — above middle (%)</label>
+                                            <input type="number" min="0" max="40" step="0.5" name="cma_band_upper_pct"
+                                                   value="{{ number_format($cmaBandUpper, 2, '.', '') }}"
+                                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <div class="text-[11px] mt-1" style="color:var(--text-muted);">How far the recommended price range sits above the indicated value. CMA market norm ≈ 13% above.</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

@@ -175,6 +175,14 @@ The demo environment (`demo1.corexos.co.za`, `/mnt/HC_Volume_103099143/corex-dem
 
 The reason: a stale demo is a dead demo. Walkthroughs that hit empty tables, missing columns, or pre-fix bugs cost trust with every customer interaction. The demo must always be exactly one fetch+migrate behind local — never more.
 
+### 13. NEVER run the full test suite (or any broad suite) without Johan's explicit go-ahead.
+**This is absolute.** The repo carries a large KNOWN-FAILING infra baseline (hundreds of `QueryException` failures from the test-DB schema gotcha) — running broad suites tells you nothing new and burns 20+ minutes you do not have.
+
+- **Default during active work = the SINGLE most relevant test file only** (the one whose assertions cover the change). If that file passes, the change is clean — proceed.
+- **A test command that takes >60s during active work is a rule violation. Kill it and target one file.** Do NOT run `tests/Feature/<Module>` directories, `php artisan test` with no path, or `scripts/dev-check.ps1` mid-task.
+- **The full sweep runs ONLY when Johan explicitly says so, or at final merge.** Never infer permission from "I want to be thorough" — thoroughness here means the right single file, not the whole tree.
+- When you need to know whether a failure is yours vs baseline: reason about it from the diff (does my change touch the asserted value?), do NOT run the suite to find out.
+
 ---
 
 ## How to Build Something New
