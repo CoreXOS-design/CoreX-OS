@@ -25,11 +25,13 @@ class SellerOutreachTemplate extends Model
         'description',
         'is_active',
         'is_default_for_channel',
+        'include_tracking_link',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'is_default_for_channel' => 'boolean',
+        'include_tracking_link' => 'boolean',
     ];
 
     public function scopeActive($query)

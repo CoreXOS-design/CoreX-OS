@@ -23,12 +23,18 @@ final class SellerOutreachTemplateValidator
         'seller_name', 'property_address', 'property_suburb', 'property_town',
         'property_type', 'property_beds',
         'agent_name', 'agent_phone',
-        'agency_name',
+        'agency_name', 'agency_ppra_no', 'agency_contact',
         'buyer_count', 'matching_buyer_count',
         'tracking_link',
     ];
 
-    public function validate(string $channel, ?string $subject, string $body): TemplateValidationResult
+    /**
+     * @param bool $includeTrackingLink When true (the default), the body MUST
+     *   contain {tracking_link}. Consent-request templates that carry no
+     *   live-demand link pass false. The opt-out (STOP) clause and the email
+     *   subject rule are mandatory regardless of this flag.
+     */
+    public function validate(string $channel, ?string $subject, string $body, bool $includeTrackingLink = true): TemplateValidationResult
     {
         $errors = [];
 
@@ -36,8 +42,8 @@ final class SellerOutreachTemplateValidator
             $errors['subject_required'] = 'Email templates must have a subject.';
         }
 
-        if (!str_contains($body, '{tracking_link}')) {
-            $errors['tracking_link_missing'] = 'Body must contain the {tracking_link} merge field (mandatory for click tracking).';
+        if ($includeTrackingLink && !str_contains($body, '{tracking_link}')) {
+            $errors['tracking_link_missing'] = 'Body must contain the {tracking_link} merge field (mandatory for click tracking) — or turn off "Include tracking link" for this template.';
         }
 
         if (!preg_match('/\bSTOP\b/i', $body)) {
