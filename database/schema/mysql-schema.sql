@@ -163,6 +163,7 @@ CREATE TABLE `agencies` (
   `vat_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ffc_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_number` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `public_contact` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_registered_at` date DEFAULT NULL,
   `fic_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_agency_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -3038,6 +3039,9 @@ CREATE TABLE `contacts` (
   `messaging_opt_out_at` timestamp NULL DEFAULT NULL,
   `messaging_opt_out_reason` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `messaging_opt_out_recorded_by_user_id` bigint unsigned DEFAULT NULL,
+  `messaging_opted_in_at` timestamp NULL DEFAULT NULL,
+  `messaging_opt_in_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `messaging_opt_in_recorded_by_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `contacts_contact_type_id_foreign` (`contact_type_id`),
   KEY `contacts_created_by_user_id_foreign` (`created_by_user_id`),
@@ -3049,11 +3053,14 @@ CREATE TABLE `contacts` (
   KEY `contacts_client_user_agency_idx` (`client_user_id`,`agency_id`),
   KEY `contacts_msg_optout_recorded_by_fk` (`messaging_opt_out_recorded_by_user_id`),
   KEY `contacts_messaging_opt_out_at_idx` (`messaging_opt_out_at`),
+  KEY `contacts_msg_optin_recorded_by_fk` (`messaging_opt_in_recorded_by_user_id`),
+  KEY `contacts_messaging_opted_in_at_idx` (`messaging_opted_in_at`),
   CONSTRAINT `contacts_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `contacts_client_user_id_foreign` FOREIGN KEY (`client_user_id`) REFERENCES `client_users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_contact_source_id_foreign` FOREIGN KEY (`contact_source_id`) REFERENCES `contact_sources` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_contact_type_id_foreign` FOREIGN KEY (`contact_type_id`) REFERENCES `contact_types` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contacts_msg_optin_recorded_by_fk` FOREIGN KEY (`messaging_opt_in_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_msg_optout_recorded_by_fk` FOREIGN KEY (`messaging_opt_out_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -9589,6 +9596,7 @@ CREATE TABLE `seller_outreach_templates` (
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `is_default_for_channel` tinyint(1) NOT NULL DEFAULT '0',
+  `include_tracking_link` tinyint(1) NOT NULL DEFAULT '1',
   `deleted_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -11809,3 +11817,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (813,'2026_06_27_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (814,'2026_06_15_140000_add_communication_ingest_filter_to_agencies',144);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (815,'2026_06_16_140000_add_cma_band_pct_to_agencies',145);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (816,'2026_06_16_160000_set_cma_band_pct_asymmetric_default',146);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (818,'2026_06_16_180000_add_messaging_opt_in_to_contacts_table',147);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (821,'2026_06_16_181000_add_include_tracking_link_to_seller_outreach_templates',148);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (822,'2026_06_16_182000_add_public_contact_to_agencies',148);
