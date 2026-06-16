@@ -88,4 +88,24 @@ final class SellerOutreachTemplateValidatorTest extends TestCase
         $this->assertSame([], $this->validator->unknownMergeFields($body),
             'the new fields must not surface as unknown-field warnings');
     }
+
+    public function test_at48_footer_fields_are_registered_and_optional_markers_not_flagged(): void
+    {
+        $this->assertContains('agency_ffc', SellerOutreachTemplateValidator::KNOWN_MERGE_FIELDS);
+        $this->assertContains('agent_ffc', SellerOutreachTemplateValidator::KNOWN_MERGE_FIELDS);
+        $this->assertContains('branch_or_company_tel', SellerOutreachTemplateValidator::KNOWN_MERGE_FIELDS);
+
+        // The literal HFC footer, optional-segment markers and all.
+        $footer = "You can stop anytime by replying STOP. {agency_name} · FFC "
+            . "{agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.";
+
+        // {?agent_ffc} / {/agent_ffc} control markers must NOT register as unknown fields.
+        $this->assertSame([], $this->validator->unknownMergeFields($footer),
+            'optional-segment markers and the new footer fields must be clean');
+
+        // And the footer still satisfies the consent-template rules (no link, STOP present).
+        $this->assertTrue(
+            $this->validator->validate('whatsapp', null, $footer, includeTrackingLink: false)->passes()
+        );
+    }
 }

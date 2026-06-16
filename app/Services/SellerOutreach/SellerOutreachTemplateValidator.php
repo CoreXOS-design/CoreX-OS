@@ -24,6 +24,8 @@ final class SellerOutreachTemplateValidator
         'property_type', 'property_beds',
         'agent_name', 'agent_phone',
         'agency_name', 'agency_ppra_no', 'agency_contact',
+        // AT-48 — company FFC, sending-agent FFC, branch-then-company tel.
+        'agency_ffc', 'agent_ffc', 'branch_or_company_tel',
         'buyer_count', 'matching_buyer_count',
         'tracking_link',
     ];
