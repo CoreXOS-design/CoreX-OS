@@ -88,6 +88,17 @@ function composerState(init) {
     return {
         ...init,
         sending: false,
+        // BUG-1 fix — read-only preview only. The per-send links (opt-out / opt-in /
+        // tracking) get their real URLs minted at send time, so show a friendly
+        // stand-in here instead of raw {tokens}. The editable body keeps the literal
+        // tokens (they round-trip to the saved template and the sender substitutes the
+        // real URLs into body_snapshot).
+        previewBody() {
+            return (this.body || '')
+                .replace(/\{opt_out_link\}/g, '(one-tap opt-out link)')
+                .replace(/\{opt_in_link\}/g, '(one-tap opt-in link)')
+                .replace(/\{tracking_link\}/g, '(tracking link)');
+        },
         switchChannel(newChannel) {
             const url = new URL(window.location.href);
             url.searchParams.set('channel', newChannel);

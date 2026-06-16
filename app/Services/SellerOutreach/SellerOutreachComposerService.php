@@ -61,7 +61,12 @@ final class SellerOutreachComposerService
         $recipientPhone = $this->normalisePhone($contact);
         $recipientEmail = $this->resolveEmail($contact);
 
-        $validationIssues = $this->buildValidationIssues($channel, $recipientPhone, $recipientEmail, $bodyTemplate);
+        // AT-46 — a template flagged include_tracking_link=false (e.g. a consent
+        // request) is allowed to omit {tracking_link}; mirror the rule the
+        // template-save validator already applies. Free-edited bodies with no
+        // template default to requiring it (true).
+        $includeTrackingLink = (bool) ($template?->include_tracking_link ?? true);
+        $validationIssues = $this->buildValidationIssues($channel, $recipientPhone, $recipientEmail, $bodyTemplate, $includeTrackingLink);
 
         // AT-49 — block on the opt-out flag OR an identifier-level suppression
         // (the latter catches a re-imported contact with no flag set yet).
@@ -304,7 +309,7 @@ final class SellerOutreachComposerService
         return $email ? strtolower(trim((string) $email)) : null;
     }
 
-    private function buildValidationIssues(string $channel, ?string $phone, ?string $email, string $bodyTemplate): array
+    private function buildValidationIssues(string $channel, ?string $phone, ?string $email, string $bodyTemplate, bool $includeTrackingLink = true): array
     {
         $issues = [];
         if ($channel === 'whatsapp' && !$phone) {
@@ -313,7 +318,10 @@ final class SellerOutreachComposerService
         if ($channel === 'email' && !$email) {
             $issues['no_email'] = 'Contact has no email address — cannot send email.';
         }
-        if (!str_contains($bodyTemplate, '{tracking_link}')) {
+        // AT-46 — only required when the template opts into click tracking. A
+        // consent-request template (include_tracking_link=false) may omit it.
+        // Mirrors SellerOutreachTemplateValidator::validate().
+        if ($includeTrackingLink && !str_contains($bodyTemplate, '{tracking_link}')) {
             $issues['no_tracking_link'] = 'Body is missing {tracking_link} — cannot record opens.';
         }
         return $issues;
