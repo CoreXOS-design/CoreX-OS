@@ -139,6 +139,20 @@
                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, monospace;"></textarea>
     </div>
 
+    {{-- BUG-1 fix — read-only preview. The per-send links (opt-out / opt-in / tracking)
+         only get their real URLs at send time, so the editable body above keeps the
+         literal {tokens} (they round-trip to the saved template and the sender fills in
+         the real URLs into body_snapshot); this preview shows a friendly stand-in so the
+         agent never sees raw braces. --}}
+    <div>
+        <div class="text-xs font-semibold mb-1" style="color: var(--text-secondary);">
+            Preview — what the recipient sees
+        </div>
+        <div class="w-full px-3 py-2 text-sm rounded whitespace-pre-wrap"
+             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+             x-text="previewBody()"></div>
+    </div>
+
     {{-- Validation issues (no phone / no email / no tracking link) --}}
     @if(!empty($context->validationIssues))
         <div class="rounded-md p-3 text-sm"
