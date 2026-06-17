@@ -552,6 +552,13 @@ class PropertyController extends Controller
         }
         unset($data['publish']);
 
+        // `status` is NOT NULL (DB default 'draft'). An empty status field
+        // arrives as null via ConvertEmptyStringsToNull — strip it so the
+        // column default applies rather than violating the constraint.
+        if (array_key_exists('status', $data) && ($data['status'] === null || $data['status'] === '')) {
+            unset($data['status']);
+        }
+
         // Create to get ID, then attach images
         $property = Property::create($data);
 
@@ -849,6 +856,14 @@ class PropertyController extends Controller
             $data['status']       = 'active';
         }
         unset($data['publish']);
+
+        // `status` is NOT NULL. An empty status field arrives as null via
+        // ConvertEmptyStringsToNull — never let that overwrite the existing
+        // status (this is what broke saving / image uploads when the form's
+        // status field came through empty).
+        if (array_key_exists('status', $data) && ($data['status'] === null || $data['status'] === '')) {
+            unset($data['status']);
+        }
 
         // Append new uploads to existing arrays
         $newDawn    = $this->storeImages($request, 'dawn_images',    $property->id);

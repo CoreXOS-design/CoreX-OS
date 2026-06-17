@@ -1647,10 +1647,15 @@
                         </div>
                     @endif
 
-                    {{-- Phase 3j — SG Documents panel (server-side SG search + save to drive) --}}
-                    <div style="margin-top:14px;">
-                        @include('corex.properties.partials._sg-documents-panel', ['property' => $property])
-                    </div>
+                    {{-- Phase 3j — SG Documents panel (server-side SG search + save to drive).
+                         Only meaningful for a persisted property — the panel's routes
+                         (corex.properties.sg.*) require a real {property} id, so it must
+                         not render on the create / new-property form. --}}
+                    @if($property->exists)
+                        <div style="margin-top:14px;">
+                            @include('corex.properties.partials._sg-documents-panel', ['property' => $property])
+                        </div>
+                    @endif
                 </div>
 
                 {{-- Row 2: Key Dates (cols 1-2) | Linked Contact (col 3) — headings align since rows share top --}}
