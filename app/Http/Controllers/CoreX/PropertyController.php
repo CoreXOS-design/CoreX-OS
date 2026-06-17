@@ -655,6 +655,20 @@ class PropertyController extends Controller
             }
             $ncData['contact_type_id'] = !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null;
             $ncData['created_by_user_id'] = auth()->id();
+
+            // A.2.5 — optional SA ID number, mirroring PropertyContactController::createAndLink.
+            // Normalise whitespace and only persist when it passes the SA-ID rule, so one
+            // malformed entry in a bulk create never blocks the whole property save.
+            $idNumber = !empty($nc['id_number']) ? preg_replace('/\s+/', '', (string) $nc['id_number']) : null;
+            if ($idNumber && \Illuminate\Support\Facades\Validator::make(
+                ['id_number' => $idNumber],
+                ['id_number' => ['string', 'max:20', new \App\Rules\SouthAfricanIdNumber()]]
+            )->passes()) {
+                $ncData['id_number']             = $idNumber;
+                $ncData['id_number_captured_at'] = now();
+                $ncData['id_number_source']      = 'property_inline_create';
+            }
+
             $contact = \App\Models\Contact::create($ncData);
             $property->contacts()->attach($contact->id, ['role' => null]);
             event(new \App\Events\Contact\ContactLinkedToProperty(

@@ -29,6 +29,14 @@ class ContactObserver
     {
         $this->autoLinkClientUser($contact);
 
+        // Every contact "sits under" an agent. Default the primary agent to the
+        // capturer for ALL ingress paths (quick-add, property inline create, etc.)
+        // unless one was set explicitly — mirrors the back-catalogue backfill in
+        // 2026_06_17_120000_add_agent_assignment_to_contacts_table.
+        if (empty($contact->agent_id) && !empty($contact->created_by_user_id)) {
+            $contact->agent_id = $contact->created_by_user_id;
+        }
+
         if (!empty($contact->branch_id)) {
             return;
         }

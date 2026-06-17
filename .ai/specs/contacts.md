@@ -109,7 +109,8 @@ lives in two new nullable columns mirroring `Property.agent_id` /
 `pp_second_agent_id`:
 
 - `contacts.agent_id` — primary agent (reassignable). Defaulted to the creator on
-  capture (`store()`), so every contact always has a primary.
+  capture for **every** ingress path via `ContactObserver::creating()` (quick-add,
+  property inline create, imports), so every contact always has a primary.
 - `contacts.second_agent_id` — optional co-agent. `different:agent_id`; collapses
   to null if the primary is cleared.
 
@@ -143,7 +144,17 @@ unassigned.
 **Tab rename:** Contact show "Properties" tab → **"Properties & Core Matches"**,
 with a "Core Matches" section header above "Add New Match Criteria".
 
-Tests: `tests/Feature/Contacts/ContactAgentAssignmentTest.php` (8 green).
+**Property-upload ID capture:** the property "create new contact & link" inline
+form on a *new* property (the `$isNew` Alpine `newForm` flow) now also captures an
+optional SA **ID number** next to Contact Type — previously only the
+existing-property `createAndLink` form did. `PropertyController` persists it on the
+`pending_new_contacts` loop (normalised, SA-ID-validated, with POPIA audit fields
+`id_number_captured_at` / `id_number_source='property_inline_create'`); one
+malformed entry is dropped, never blocking the property save.
+
+Tests: `tests/Feature/Contacts/ContactAgentAssignmentTest.php` (8 green),
+`tests/Feature/CoreX/PropertyUploadContactTest.php` (2 green — ID persisted +
+primary agent defaulted; malformed ID dropped but contact still saved).
 
 ---
 

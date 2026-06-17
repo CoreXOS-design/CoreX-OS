@@ -458,9 +458,9 @@ class ContactController extends Controller
         // Remove bypass fields before creating
         unset($data['bypass_duplicate_check'], $data['override_reason']);
         $data['created_by_user_id'] = $user->id;
-        // Every contact gets a primary agent on capture; the creator owns it by
-        // default and it can be reassigned from the contact's Info tab.
-        $data['agent_id'] = $user->id;
+        // Primary agent defaults to the creator via ContactObserver::creating()
+        // (centralised so every ingress path behaves the same); reassignable from
+        // the contact's Info tab.
         $data['branch_id'] = $user->branch_id
             ?? \DB::table('branches')->where('agency_id', $agencyId)->min('id')
             ?? 1;
