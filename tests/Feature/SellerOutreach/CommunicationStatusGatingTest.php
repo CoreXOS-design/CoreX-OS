@@ -44,11 +44,13 @@ final class CommunicationStatusGatingTest extends TestCase
         $resp->assertSee('an active sale', false);
         $resp->assertDontSee('Stop all messages', false);
 
-        // Marketing opt-out still works and blocks marketing sends.
+        // Marketing opt-out still works (gated by messaging_opt_out_at); the
+        // transactional channel stays open because there is a live sale.
         $this->post(route('seller-outreach.public.opt-out.confirm', $send->opt_out_token), ['action' => 'stop_marketing'])->assertOk();
         $contact->refresh();
         $this->assertNotNull($contact->messaging_opt_out_at, 'marketing opted out');
-        $this->assertFalse($contact->canSendVia('whatsapp'), 'marketing send blocked');
+        $this->assertFalse((bool) $contact->messaging_all_blocked, 'marketing-only: not a full stop');
+        $this->assertTrue($contact->canSendVia('whatsapp'), 'transactional channel stays open during the live sale');
         $this->assertSame(Contact::COMM_TRANSACTION_ONLY, $contact->communicationStatus(), '(e) transaction_only badge');
     }
 
@@ -81,7 +83,9 @@ final class CommunicationStatusGatingTest extends TestCase
         $this->post(route('seller-outreach.public.opt-out.confirm', $send->opt_out_token), ['action' => 'stop_all'])->assertOk();
         $contact->refresh();
         $this->assertNotNull($contact->messaging_opt_out_at);
-        $this->assertSame(Contact::COMM_MARKETING_OPTED_OUT, $contact->communicationStatus(), '(e) marketing_opted_out badge');
+        $this->assertTrue((bool) $contact->messaging_all_blocked, 'stop-all sets the full-stop latch');
+        $this->assertFalse($contact->canSendVia('whatsapp'), 'stop-all blocks every channel');
+        $this->assertSame(Contact::COMM_ALL_BLOCKED, $contact->communicationStatus(), '(e) all_messages_stopped badge');
     }
 
     // ── (d) deal registered → lock lifts ─────────────────────────────────

@@ -40,6 +40,7 @@ class Contact extends Model
         'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
         'preapproval_amount', 'preapproval_expires_at', 'preapproval_institution',
         'messaging_opt_out_at', 'messaging_opt_out_reason', 'messaging_opt_out_recorded_by_user_id', 'messaging_opt_out_source',
+        'messaging_all_blocked',
         'messaging_opted_in_at', 'messaging_opt_in_reason', 'messaging_opt_in_recorded_by_user_id',
     ];
 
@@ -56,6 +57,7 @@ class Contact extends Model
         'preapproval_amount'        => 'decimal:2',
         'preapproval_expires_at'    => 'date',
         'messaging_opt_out_at'      => 'datetime',
+        'messaging_all_blocked'     => 'boolean',
         'messaging_opted_in_at'     => 'datetime',
     ];
 
@@ -286,10 +288,16 @@ class Contact extends Model
             return false;
         }
 
-        // AT-49 — an identifier-level marketing suppression blocks every channel
-        // even when the per-channel boolean is clear (e.g. a re-imported contact
-        // that carries a previously-suppressed email or number).
-        return !app(\App\Services\SellerOutreach\MarketingConsentService::class)->isContactSuppressed($this);
+        // AT-50 — an identifier-level marketing suppression hard-blocks EVERY
+        // channel only for a contact that stopped ALL messages. A marketing-only
+        // opt-out leaves transactional channels open: marketing is still gated by
+        // messaging_opt_out_at / isContactSuppressed in the outreach sender, but
+        // transactional comms (a live sale) are not silenced here.
+        if ($this->messaging_all_blocked) {
+            return !app(\App\Services\SellerOutreach\MarketingConsentService::class)->isContactSuppressed($this);
+        }
+
+        return true;
     }
 
     /**
@@ -346,17 +354,20 @@ class Contact extends Model
 
     public const COMM_OPTED_IN            = 'opted_in';
     public const COMM_MARKETING_OPTED_OUT = 'marketing_opted_out';
+    public const COMM_ALL_BLOCKED         = 'all_blocked';
     public const COMM_TRANSACTION_ONLY    = 'transaction_only';
 
     /**
      * The contact's communication status, DERIVED (never stored):
      *   opted_in            — not opted out (default; receives all).
      *   transaction_only    — opted out BUT in a live sale, so business comms
-     *                         about that sale continue.
-     *   marketing_opted_out — opted out and NO live transaction. Because the
-     *                         opt-out path (MarketingConsentService::optOutContact)
-     *                         already suppresses every channel, this IS the full
-     *                         "all messages stopped" state (the badge says so).
+     *                         about that sale continue (the transaction lock
+     *                         outranks a stop-all, which is server-side blocked
+     *                         while a sale is live).
+     *   all_blocked         — opted out, NO live sale, AND messaging_all_blocked:
+     *                         every channel stopped ("All messages stopped").
+     *   marketing_opted_out — opted out, NO live sale, marketing-only: marketing
+     *                         silenced but transactional channels remain open.
      *
      * The live-transaction check only runs when the contact IS opted out, so the
      * common (opted-in) case costs no query.
@@ -372,6 +383,10 @@ class Contact extends Model
             && app(\App\Services\SellerOutreach\TransactionStateService::class)
                 ->isInLiveTransaction($agencyId, $this)) {
             return self::COMM_TRANSACTION_ONLY;
+        }
+
+        if ($this->messaging_all_blocked) {
+            return self::COMM_ALL_BLOCKED;
         }
 
         return self::COMM_MARKETING_OPTED_OUT;
@@ -391,10 +406,15 @@ class Contact extends Model
                 'label' => 'Transaction-only',
                 'class' => 'ds-badge-warning',
             ],
-            self::COMM_MARKETING_OPTED_OUT => [
-                'key'   => self::COMM_MARKETING_OPTED_OUT,
+            self::COMM_ALL_BLOCKED => [
+                'key'   => self::COMM_ALL_BLOCKED,
                 'label' => 'All messages stopped',
                 'class' => 'ds-badge-danger',
+            ],
+            self::COMM_MARKETING_OPTED_OUT => [
+                'key'   => self::COMM_MARKETING_OPTED_OUT,
+                'label' => 'Marketing opted out',
+                'class' => 'ds-badge-warning',
             ],
             default => [
                 'key'   => self::COMM_OPTED_IN,

@@ -89,13 +89,16 @@ final class PublicOptOutController extends Controller
                 // ignore the write and re-render with the lock explanation
                 // (No Silent Locks — enforced server-side, not just hidden in UI).
                 if (!$this->transactions->isInLiveTransaction($agencyId, $contact)) {
-                    $this->recordOptOutOnce($send, $contact, self::OPT_OUT_ALL_REASON);
+                    // Stop EVERYTHING (transactional too). blockAll upgrades a
+                    // prior marketing-only opt-out.
+                    $this->recordOptOutOnce($send, $contact, self::OPT_OUT_ALL_REASON, blockAll: true);
                 }
                 break;
 
             case self::ACTION_STOP_MARKETING:
             default:
-                $this->recordOptOutOnce($send, $contact, self::OPT_OUT_REASON);
+                // Marketing-only: transactional channels stay open.
+                $this->recordOptOutOnce($send, $contact, self::OPT_OUT_REASON, blockAll: false);
                 break;
         }
 
@@ -105,11 +108,17 @@ final class PublicOptOutController extends Controller
         return $this->render($send, $contact, done: true);
     }
 
-    /** Idempotent marketing opt-out via the event path (converges on MarketingConsentService). */
-    private function recordOptOutOnce(SellerOutreachSend $send, Contact $contact, string $reason): void
+    /**
+     * Opt-out via the event path (converges on MarketingConsentService). Fires
+     * on the first opt-out, and again ONLY to upgrade a marketing-only opt-out to
+     * a full stop — otherwise idempotent (no event spam on repeat POSTs).
+     */
+    private function recordOptOutOnce(SellerOutreachSend $send, Contact $contact, string $reason, bool $blockAll): void
     {
-        if ($contact->messaging_opt_out_at !== null) {
-            return; // already opted out — preserve the original record
+        $alreadyOut = $contact->messaging_opt_out_at !== null;
+        $isUpgrade  = $blockAll && !$contact->messaging_all_blocked;
+        if ($alreadyOut && !$isUpgrade) {
+            return; // already at (or above) this depth — preserve the original record
         }
 
         $this->optOut->recordOptOut(
@@ -118,6 +127,7 @@ final class PublicOptOutController extends Controller
             reason:   $reason,
             send:     $send,
             source:   OptOutRecorded::SOURCE_SELF_SERVICE_LINK,
+            blockAll: $blockAll,
         );
     }
 
@@ -171,6 +181,7 @@ final class PublicOptOutController extends Controller
                 'brand'             => $branding['colors'],
                 'token'             => $send->opt_out_token,
                 'marketingOptedOut' => $contact->messaging_opt_out_at !== null,
+                'commStatus'        => $contact->communicationStatus(),
                 'inLiveTransaction' => $inLiveTransaction,
                 'liveTransactions'  => $liveTransactions,
                 'done'              => $done,

@@ -56,7 +56,8 @@
                         $commMeta = $contact->communicationStatusMeta();
                         $commTint = match ($commMeta['key']) {
                             \App\Models\Contact::COMM_TRANSACTION_ONLY     => 'rgba(217,119,6,0.85)',
-                            \App\Models\Contact::COMM_MARKETING_OPTED_OUT  => 'rgba(220,38,38,0.85)',
+                            \App\Models\Contact::COMM_ALL_BLOCKED          => 'rgba(220,38,38,0.85)',
+                            \App\Models\Contact::COMM_MARKETING_OPTED_OUT  => 'rgba(234,88,12,0.85)',
                             default                                        => 'rgba(22,163,74,0.85)',
                         };
                     @endphp

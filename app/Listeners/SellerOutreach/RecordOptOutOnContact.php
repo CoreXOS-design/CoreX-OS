@@ -43,6 +43,7 @@ final class RecordOptOutOnContact
                 source:      $event->source,
                 actorUserId: $event->actorUserId,
                 send:        $event->send,
+                blockAll:    $event->blockAll,
             );
         } catch (Throwable $e) {
             Log::error('RecordOptOutOnContact failed', [

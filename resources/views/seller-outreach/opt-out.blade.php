@@ -22,6 +22,11 @@
 @php
     $lockReason = $liveTransactions[0]['label'] ?? 'you have an active transaction with us';
     $extraSales = max(0, count($liveTransactions) - 1);
+    // AT-50 — derived 4-state communication status. marketingOn is the ONLY
+    // state with marketing live; allBlocked is the full "all messages stopped".
+    $commStatus  = $commStatus ?? ($marketingOptedOut ? \App\Models\Contact::COMM_MARKETING_OPTED_OUT : \App\Models\Contact::COMM_OPTED_IN);
+    $marketingOn = $commStatus === \App\Models\Contact::COMM_OPTED_IN;
+    $allBlocked  = $commStatus === \App\Models\Contact::COMM_ALL_BLOCKED;
     // AT-? branding — agency theme/logo (reuses the per-agency fields the agency
     // public-website page uses; never hardcoded). Defaults to CoreX tokens only
     // when the agency has not set its own.
@@ -76,7 +81,7 @@
             </p>
         </div>
         {{-- Visual switch reflecting current state (server-rendered; not interactive) --}}
-        @if(!$marketingOptedOut)
+        @if($marketingOn)
             <span aria-label="On" title="On" class="inline-flex items-center shrink-0 rounded-full"
                   style="width:46px;height:26px;padding:3px;background:var(--ds-green, #16a34a);justify-content:flex-end;">
                 <span style="width:20px;height:20px;border-radius:9999px;background:#ffffff;display:block;"></span>
@@ -90,7 +95,7 @@
     </div>
 
     <div class="mt-4">
-        @if(!$marketingOptedOut)
+        @if($marketingOn)
             <form method="POST" action="{{ route('seller-outreach.public.opt-out.confirm', $token) }}">
                 @csrf
                 <input type="hidden" name="action" value="stop_marketing">
@@ -102,8 +107,13 @@
             </form>
         @else
             <p class="text-sm mb-3" style="color: var(--text-secondary, #4b5563);">
-                You've stopped messages from {{ $agencyName }}. Turning communication back on
-                re-enables both marketing and transaction messages — you can switch either off again.
+                @if($allBlocked)
+                    You've stopped all messages from {{ $agencyName }}. Turning communication back on
+                    re-enables both marketing and transaction messages — you can switch either off again.
+                @else
+                    You've turned off marketing &amp; area updates from {{ $agencyName }}. You'll still
+                    receive messages about any active sale. Turn marketing back on anytime.
+                @endif
             </p>
             <form method="POST" action="{{ route('seller-outreach.public.opt-out.confirm', $token) }}">
                 @csrf
@@ -137,8 +147,8 @@
                   style="width:46px;height:26px;padding:3px;background:color-mix(in srgb, var(--brand-default, #0b2a4a) 55%, var(--border, #cbd5e1));justify-content:flex-end;opacity:0.85;">
                 <span style="width:20px;height:20px;border-radius:9999px;background:#ffffff;display:flex;align-items:center;justify-content:center;font-size:11px;line-height:1;">🔒</span>
             </span>
-        @elseif($marketingOptedOut)
-            {{-- BUG B — already fully stopped: show OFF, not a re-offer of the button. --}}
+        @elseif($allBlocked)
+            {{-- Full stop in effect: show OFF, not a re-offer of the button. --}}
             <span aria-label="Off" title="Off" class="inline-flex items-center shrink-0 rounded-full"
                   style="width:46px;height:26px;padding:3px;background:var(--border, #cbd5e1);justify-content:flex-start;">
                 <span style="width:20px;height:20px;border-radius:9999px;background:#ffffff;display:block;"></span>
@@ -160,8 +170,8 @@
                 we're required to keep you updated about it until it concludes. You can opt out of
                 these messages once it's finalised. Marketing can still be switched off above.
             </div>
-        @elseif($marketingOptedOut)
-            {{-- BUG B — full stop already in effect; reflect it instead of re-offering "Stop all". --}}
+        @elseif($allBlocked)
+            {{-- Full stop already in effect; reflect it instead of re-offering "Stop all". --}}
             <div class="p-3 rounded text-sm"
                  style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent); color: var(--text-primary, #111827);">
                 ✓ All messages stopped. You won't receive marketing or any other messages from

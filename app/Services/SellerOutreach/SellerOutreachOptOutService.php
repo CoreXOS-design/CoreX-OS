@@ -30,6 +30,7 @@ final class SellerOutreachOptOutService
         string $reason,
         ?SellerOutreachSend $send = null,
         ?string $source = null,
+        bool $blockAll = true,
     ): void {
         if ((int) $contact->agency_id !== $agencyId) {
             throw new \InvalidArgumentException("Contact {$contact->id} is not in agency {$agencyId}.");
@@ -45,6 +46,7 @@ final class SellerOutreachOptOutService
             actorUserId: Auth::id(),
             agencyId: $agencyId,
             source: $source,
+            blockAll: $blockAll,
         ));
     }
 }
