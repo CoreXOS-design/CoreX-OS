@@ -4,7 +4,9 @@ namespace Tests\Feature\Presentation;
 
 use App\Models\Presentation;
 use App\Models\PresentationSoldComp;
+use App\Models\PresentationVersion;
 use App\Services\Presentations\AnalysisDataService;
+use App\Services\Presentations\PresentationPdfService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -123,7 +125,100 @@ class SsComplexSalesAndIdentityTest extends TestCase
         $this->assertSame('17 Marine Drive, Margate', $subject['display_address']);
     }
 
+    // ── C. PDF render gate — empty vicinity surface suppression ───────────
+
+    /**
+     * (b) Vicinity EMPTY + complex populated → the top-level "Recent Sales Near
+     * Your Property" header + empty vicinity table + empty-state callout are all
+     * suppressed; the complex section ("Recent sales in {complex}") stands alone
+     * as the sales section. Render-layer gate keyed on row counts, not title_type.
+     */
+    public function test_pdf_hides_empty_vicinity_surface_when_only_complex_sales_exist(): void
+    {
+        $agencyId   = $this->seedAgency(); // ss_show_complex_section defaults on
+        $propertyId = $this->seedProperty($agencyId, [
+            'complex_name' => 'Brock Manor', 'unit_number' => '17',
+            'suburb' => 'Margate', 'address' => '17 Marine Drive',
+        ]);
+        $presentation = $this->seedPresentation($agencyId, $propertyId, '17 Marine Drive, Margate');
+
+        // ONLY sectional comps → vicinity group empty, complex group populated.
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01');
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 8)', 1_650_000, 85, '2025-04-01');
+
+        $html = $this->renderPdfFor($presentation);
+
+        $this->assertStringNotContainsString('Recent Sales Near Your Property', $html,
+            'orphan top-level vicinity header must be suppressed for a pure sectional subject');
+        $this->assertStringNotContainsString('No vicinity sales data available', $html,
+            'empty-state callout must NOT appear when the complex section carries the sales');
+        $this->assertStringContainsString('Recent sales in Brock Manor', $html,
+            'complex section stands alone as the sales section');
+    }
+
+    /**
+     * (a) Vicinity populated + complex populated → both sections render (unchanged).
+     */
+    public function test_pdf_shows_both_sections_when_vicinity_and_complex_populated(): void
+    {
+        $agencyId   = $this->seedAgency();
+        $propertyId = $this->seedProperty($agencyId, [
+            'complex_name' => 'Brock Manor', 'unit_number' => '17',
+            'suburb' => 'Margate', 'address' => '17 Marine Drive',
+        ]);
+        $presentation = $this->seedPresentation($agencyId, $propertyId, '17 Marine Drive, Margate');
+
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales', '10 Beach Road', 2_000_000, 100, '2025-06-01');
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01');
+
+        $html = $this->renderPdfFor($presentation);
+
+        $this->assertStringContainsString('Recent Sales Near Your Property', $html, 'vicinity header shows when vicinity populated');
+        $this->assertStringContainsString('Recent sales in Brock Manor', $html, 'complex section shows when complex populated');
+        $this->assertStringNotContainsString('No vicinity sales data available', $html);
+    }
+
+    /**
+     * (c) Vicinity populated + complex empty → only the vicinity section renders
+     * (unchanged); no complex block.
+     */
+    public function test_pdf_shows_only_vicinity_when_complex_empty(): void
+    {
+        $agencyId     = $this->seedAgency();
+        $presentation = $this->seedPresentation($agencyId);
+
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales', '10 Beach Road', 2_000_000, 100, '2025-06-01');
+
+        $html = $this->renderPdfFor($presentation);
+
+        $this->assertStringContainsString('Recent Sales Near Your Property', $html, 'vicinity header shows when vicinity populated');
+        $this->assertStringNotContainsString('Recent sales in the complex', $html, 'no complex block when complex group empty');
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * Compile the presentation into the frozen blob and render the PDF HTML the
+     * same way buildHtml() does in production (reads $version->snapshot_payload).
+     */
+    private function renderPdfFor(Presentation $presentation): string
+    {
+        $data    = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']));
+        $version = PresentationVersion::create([
+            'agency_id'          => $presentation->agency_id,
+            'presentation_id'    => $presentation->id,
+            'compiled_by'        => $presentation->created_by_user_id,
+            'blueprint_version'  => 'v1',
+            'data_snapshot_json' => json_encode(['sections' => []]),
+            'compiled_at'        => now(),
+            'review_status'      => PresentationVersion::REVIEW_PUBLISHED,
+            'published_at'       => now(),
+            'snapshot_payload'   => $data,
+            'snapshot_taken_at'  => now(),
+        ]);
+
+        return (new PresentationPdfService())->buildHtml($version->fresh());
+    }
 
     private function seedAgency(): int
     {

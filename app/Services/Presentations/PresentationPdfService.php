@@ -1674,12 +1674,6 @@ a:hover { text-decoration: underline; }
       // context strip ($beat2MarketOverviewHtml) emits after this block.
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php if ($sectionEnabled('recent_sales')): ?>
-<div class="page-break"></div>
-<div class="section-header">
-    <span class="section-number">__SECNO__</span>
-    <h2>Recent Sales Near Your Property</h2>
-</div>
-
 <?php
     // Combine vicinity + street sales, dedup, exclude subject property, sort by date desc
     $allSales = array_merge($vicinitySales, $streetSales);
@@ -1714,9 +1708,27 @@ a:hover { text-decoration: underline; }
         return strcmp($b['sale_date'] ?? '', $a['sale_date'] ?? '');
     });
     $topSales = array_slice($allSales, 0, 15);
+
+    // SS — render-layer gate (reads row counts, never title_type). A pure
+    // sectional subject has no vicinity sales (its comps live in the complex
+    // group). When vicinity is empty AND the complex section will render,
+    // suppress the whole vicinity surface — page-break + "Recent Sales Near
+    // Your Property" header + empty-state — so the complex section stands alone
+    // as the sales section, with no orphan header over an empty table. When
+    // BOTH groups are empty the header + empty-state still show (unchanged).
+    $hasVicinitySales      = !empty($topSales);
+    $renderVicinitySurface = $hasVicinitySales || !$showComplexSales;
 ?>
 
-<?php if (!empty($topSales)): ?>
+<?php if ($renderVicinitySurface): ?>
+<div class="page-break"></div>
+<div class="section-header">
+    <span class="section-number">__SECNO__</span>
+    <h2>Recent Sales Near Your Property</h2>
+</div>
+<?php endif ?>
+
+<?php if ($hasVicinitySales): ?>
 <div class="section-intro avoid-break">
     These are the actual homes near you that have sold — real transactions, not asking
     prices. They're the single most reliable guide to what a buyer will pay for a property
@@ -1768,14 +1780,19 @@ a:hover { text-decoration: underline; }
     Your asking price is <strong><?= $pct($askVsVicPct) ?></strong> <?= $askVsVicPct > 0 ? 'above' : 'below' ?> this average.
 </div>
 <?php endif ?>
+<?php endif // $hasVicinitySales — vicinity intro + table + callout ?>
 
 <?php // ── SS — RECENT SALES IN THE COMPLEX ──────────────────────────────
       // Sectional / same-scheme sales shown as their own block (data-presence
       // driven; agency-suppressible via ss_show_complex_section). Heading uses
       // the subject's complex name when known. These are the strongest comps
       // for a sectional unit — same building, same body corporate, same levies.
+      // Rendered as a SIBLING of the vicinity block (no longer nested inside the
+      // vicinity gate) so a pure sectional subject still shows its strongest
+      // comps when the vicinity group is empty.
 ?>
 <?php if ($showComplexSales): ?>
+<?php if (!$renderVicinitySurface): ?><div class="page-break"></div><?php endif // standalone complex starts a fresh page when the vicinity surface was suppressed ?>
 <?php
     // Sort by date desc, top 15 — same shape as the vicinity table.
     $complexTop = $complexSales;
@@ -1960,7 +1977,7 @@ a:hover { text-decoration: underline; }
 </div>
 <?php endif ?>
 
-<?php else: ?>
+<?php if (!$hasVicinitySales && !$showComplexSales): ?>
 <div class="callout callout-info">No vicinity sales data available for this property.</div>
 <?php endif ?>
 <?php endif // /recent_sales ?>
