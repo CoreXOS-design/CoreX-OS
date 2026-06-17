@@ -2078,6 +2078,7 @@
                     $presPeriod   = (int) ($presAgency->presentations_default_period_months       ?? 12);
                     $presScope    = (string) ($presAgency->presentations_default_comp_scope        ?? 'radius_all');
                     $presRadius   = (int) ($presAgency->presentations_default_radius_m             ?? 1000);
+                    $presSsComplex = (bool) ($presAgency->ss_show_complex_section ?? true);
                     $presFreshness = (int) ($presAgency->presentations_freshness_days              ?? 90);
                     $cmaRecency    = (int) ($presAgency->cma_compute_recency_months                ?? 36);
                     $cmaIqr        = (float) ($presAgency->cma_compute_iqr_multiplier              ?? 1.5);
@@ -2193,6 +2194,29 @@
                                     <div class="text-[11px] mt-1" style="color:var(--text-muted);">Used when scope is "Radius". Range 50–5000m. Default 1000m. Suburb-only ignores this.</div>
                                 </div>
                             </div>
+                        </div>
+
+                        {{-- SS presentations — dedicated complex/sectional sales section.
+                             When a CMA carries sectional ("sales within the scheme") comps,
+                             they render as their own "Recent sales in {complex}" section
+                             instead of being folded into the vicinity table. Data-presence
+                             driven — no sectional comps means no section. This toggle lets
+                             an agency suppress it entirely. --}}
+                        <div class="pt-4 mt-4" style="border-top:1px solid var(--border);">
+                            <label class="flex items-start gap-3 cursor-pointer">
+                                <input type="checkbox" name="ss_show_complex_section" value="1"
+                                       {{ $presSsComplex ? 'checked' : '' }}
+                                       class="mt-0.5">
+                                <div>
+                                    <div class="text-sm font-semibold" style="color:var(--text-primary);">Show "Complex sales" section for sectional title</div>
+                                    <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                                        When on, presentations show a separate section listing other recent sales
+                                        within the same complex / scheme (alongside the wider vicinity sales),
+                                        whenever the CMA includes sectional-title sales. When off, those sales
+                                        fold into the vicinity table. Default on.
+                                    </div>
+                                </div>
+                            </label>
                         </div>
 
                         {{-- Build 5 — snapshot freshness window. When a seller opens a

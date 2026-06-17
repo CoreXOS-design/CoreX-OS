@@ -101,7 +101,9 @@ class PresentationPdfService
         $rawType    = $subject['property_type'] ?? null;
         $type       = $rawType ? \Illuminate\Support\Str::humanType($rawType) : 'property';
         $suburb     = $subject['suburb'] ?? $presentation->suburb ?? '';
-        $address    = $subject['address'] ?? $presentation->property_address ?? '';
+        // Exec-summary bullet shows the subject IDENTITY — complex + unit when
+        // available, else street. Display-only (not a comp-matching key here).
+        $address    = $subject['display_address'] ?? $subject['address'] ?? $presentation->property_address ?? '';
 
         // ── §3 Bullet 2 tokens — cleaned, size-matched sold pool (§4a) ──
         // Bind to cma_computed.pool_stats min/max (post recency + IQR
@@ -278,7 +280,15 @@ class PresentationPdfService
      */
     private function resolveClosestComp(array $comparable, ?int $subjectExtent): array
     {
-        $rows = $comparable['vicinity']['rows'] ?? [];
+        // Closest-match reads ALL near-you sold evidence — vicinity AND complex
+        // (sectional / same-scheme). The display split into two tables is
+        // cosmetic; the valuation narrative must still see the complex comps,
+        // otherwise a sectional subject (whose comps live in 'complex') would
+        // lose its closest-match line entirely.
+        $rows = array_merge(
+            $comparable['vicinity']['rows'] ?? [],
+            $comparable['complex']['rows']  ?? [],
+        );
         if ($rows === []) return [null, null];
 
         $candidates = array_values(array_filter($rows, static function (array $r): bool {
@@ -570,16 +580,29 @@ class PresentationPdfService
             }
         }
 
-        // Compile analysis data from AnalysisDataService (real extracted data).
-        // Build 3 — pass the LATEST PUBLISHED version so the condition snapshot
-        // travels with the PDF. If there's no published version yet (rare; the
-        // public/show flow uses the same path before publish), the live
-        // resolution falls back to property condition.
-        $latestPublished = $presentation->versions()
-            ->where('review_status', \App\Models\PresentationVersion::REVIEW_PUBLISHED)
-            ->orderByDesc('published_at')
-            ->first();
-        $data = (new AnalysisDataService())->compile($presentation, $latestPublished);
+        // Build 5 immutability parity — render from the version's FROZEN
+        // snapshot_payload (the SAME blob the public seller HTML reads at
+        // public/show.blade.php) so a published PDF can never drift from the
+        // seller link as comps / suburb stats / settings shift later. The
+        // freeze is the legal record; the PDF is part of it. Live compile is a
+        // logged fallback ONLY — legacy pre-freeze versions, or pre-publish
+        // preview where no snapshot has been taken yet.
+        $data = (is_array($version->snapshot_payload) && !empty($version->snapshot_payload))
+            ? $version->snapshot_payload
+            : null;
+        if ($data === null) {
+            \Illuminate\Support\Facades\Log::warning('[PRES-WARN] PDF buildHtml used live fallback — snapshot_payload missing', [
+                'version_id'      => $version->id,
+                'presentation_id' => $presentation->id,
+            ]);
+            // Build 3 — pass the LATEST PUBLISHED version so the condition
+            // snapshot travels with the PDF; null falls back to property condition.
+            $latestPublished = $presentation->versions()
+                ->where('review_status', \App\Models\PresentationVersion::REVIEW_PUBLISHED)
+                ->orderByDesc('published_at')
+                ->first();
+            $data = (new AnalysisDataService())->compile($presentation, $latestPublished);
+        }
 
         // Build 4 — section toggles. Each PAGE block is wrapped with
         // a $sectionEnabled('key') guard below; floor sections always
@@ -638,7 +661,14 @@ class PresentationPdfService
         };
 
         // ── Build data for each page ────────────────────────────────────────
+        // $address stays the RAW street address — it is the key the recent-sales
+        // page uses to exclude the subject from the comp table (str_contains match).
         $address     = $esc($subject['address'] ?? $presentation->property_address ?? '');
+        // Subject IDENTITY surfaces (cover, title, subject card, map pin) show the
+        // complex + unit when available — "Unit 17, Brock Manor, Margate" — computed
+        // and frozen in compileSubjectProperty. Falls back to the street address.
+        $subjectDisplayRaw = $subject['display_address'] ?? $subject['address'] ?? $presentation->property_address ?? '';
+        $subjectDisplay    = $esc($subjectDisplayRaw);
         $suburbName  = $esc($subject['suburb'] ?? $presentation->suburb ?? '');
         $sellerName  = $esc($presentation->seller_name ?? '');
         $propType    = $esc(\Illuminate\Support\Str::humanType($presentation->property_type ?? ''));
@@ -712,6 +742,15 @@ class PresentationPdfService
         $vicAvgPpm2    = $comps['vicinity']['avg_price_per_m2'] ?? null;
         $cmaComps      = $comps['cma_comps']['rows'] ?? [];
         $streetSales   = $comps['street_sales']['rows'] ?? [];
+        // SS — sectional / same-complex sales. The agency toggle is baked into
+        // the compiled groups (suppressed → folded into vicinity), so the
+        // dedicated section shows purely on presence. Heading uses the subject's
+        // complex_name when known.
+        $complexSales      = $comps['complex']['rows'] ?? [];
+        $complexAvgPrice   = $comps['complex']['avg_price'] ?? null;
+        $complexAvgPpm2    = $comps['complex']['avg_price_per_m2'] ?? null;
+        $complexName       = $subject['complex_name'] ?? null;
+        $showComplexSales  = !empty($complexSales);
 
         // Active listings
         $activeRows    = $competition['rows'] ?? [];
@@ -760,7 +799,7 @@ class PresentationPdfService
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Market Analysis — <?= $address ?></title>
+<title>Market Analysis — <?= $subjectDisplay ?></title>
 <style>
 /* ── RESET & BASE ────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1333,7 +1372,7 @@ a:hover { text-decoration: underline; }
     <?php endif ?>
     <h1>Market Analysis<br>&amp; Pricing Strategy</h1>
     <div style="height:24px"></div>
-    <div class="cover-address"><?= $address ?></div>
+    <div class="cover-address"><?= $subjectDisplay ?></div>
     <div class="cover-details">
         <?= $suburbName ?>
         <?php if ($erfSize): ?>&nbsp;&middot;&nbsp;<?= number_format((int) $erfSize) ?> m²<?php endif ?>
@@ -1424,7 +1463,7 @@ a:hover { text-decoration: underline; }
         <div class="accent"></div>
         <h3>Subject Property</h3>
         <?php if (!empty($subject['address'])): ?>
-            <span class="subject-card-sub"><?= $esc($subject['address']) ?></span>
+            <span class="subject-card-sub"><?= $subjectDisplay ?></span>
         <?php endif ?>
     </div>
     <div class="subject-card-body">
@@ -1442,7 +1481,7 @@ a:hover { text-decoration: underline; }
                     if ($value === null || $value === '' || $value === '—') return;
                     $_facts[] = ['label' => $label, 'value' => $value, 'price' => $isPrice];
                 };
-                $_addFact('Address', $subject['address'] ?? $presentation->property_address ?? null);
+                $_addFact('Address', $subjectDisplayRaw !== '' ? $subjectDisplayRaw : ($presentation->property_address ?? null));
                 $_addFact('Suburb',  $subject['suburb']  ?? $presentation->suburb ?? null);
                 $_typeRaw = $presentation->property?->property_type ?? $presentation->property_type ?? null;
                 if ($_typeRaw) {
@@ -1730,6 +1769,68 @@ a:hover { text-decoration: underline; }
 </div>
 <?php endif ?>
 
+<?php // ── SS — RECENT SALES IN THE COMPLEX ──────────────────────────────
+      // Sectional / same-scheme sales shown as their own block (data-presence
+      // driven; agency-suppressible via ss_show_complex_section). Heading uses
+      // the subject's complex name when known. These are the strongest comps
+      // for a sectional unit — same building, same body corporate, same levies.
+?>
+<?php if ($showComplexSales): ?>
+<?php
+    // Sort by date desc, top 15 — same shape as the vicinity table.
+    $complexTop = $complexSales;
+    usort($complexTop, fn($a, $b) => strcmp($b['sale_date'] ?? '', $a['sale_date'] ?? ''));
+    $complexTop = array_slice($complexTop, 0, 15);
+    $complexHeading = ($complexName !== null && trim((string) $complexName) !== '')
+        ? 'Recent sales in ' . $esc($complexName)
+        : 'Recent sales in the complex';
+?>
+<div class="section-intro avoid-break" style="margin-top:18px;">
+    <h3 style="margin-bottom:8px;"><?= $complexHeading ?> (<?= count($complexTop) ?>)</h3>
+    These are recent sales <strong>within the same complex / scheme</strong> as your unit.
+    Because they share the building, body corporate, levies and position, they're the closest
+    possible guide to what a buyer will pay for your property.
+</div>
+<table>
+    <thead>
+        <tr>
+            <th>Unit / Section</th>
+            <th class="num"><?= $esc($sizeLabel) ?></th>
+            <th>Sale Date</th>
+            <th class="num">Sale Price</th>
+            <th class="num">Per m²</th>
+        </tr>
+    </thead>
+    <tbody>
+        <?php foreach ($complexTop as $sale): ?>
+        <tr>
+            <td><?= $esc($sale['address'] ?? '—') ?></td>
+            <td class="num"><?= $sale['extent_m2'] ? number_format((int) $sale['extent_m2']) : '—' ?></td>
+            <td><?= $esc($sale['sale_date'] ?? '—') ?></td>
+            <td class="num"><?= $zar($sale['sale_price'] ?? null) ?></td>
+            <td class="num"><?= $sale['price_per_m2'] ? 'R ' . number_format((int) $sale['price_per_m2']) : '—' ?></td>
+        </tr>
+        <?php endforeach ?>
+    </tbody>
+    <?php if ($complexAvgPrice || $complexAvgPpm2): ?>
+    <tfoot>
+        <tr class="table-summary">
+            <td colspan="3"><strong>Average</strong></td>
+            <td class="num"><?= $zar($complexAvgPrice) ?></td>
+            <td class="num"><?= $complexAvgPpm2 ? 'R ' . number_format($complexAvgPpm2) : '—' ?></td>
+        </tr>
+    </tfoot>
+    <?php endif ?>
+</table>
+<?php if ($complexAvgPrice && $askingPrice && $complexAvgPrice > 0): ?>
+<?php $askVsComplexPct = round(($askingPrice - $complexAvgPrice) / $complexAvgPrice * 100, 1); ?>
+<div class="callout <?= $askVsComplexPct > 30 ? 'callout-danger' : ($askVsComplexPct > 10 ? 'callout-warning' : 'callout-info') ?>" style="margin-top:12px;">
+    The average sale price in the complex is <strong><?= $zar($complexAvgPrice) ?></strong> (R <?= $complexAvgPpm2 ? number_format($complexAvgPpm2) . '/m²' : '—' ?>).
+    Your asking price is <strong><?= $pct($askVsComplexPct) ?></strong> <?= $askVsComplexPct > 0 ? 'above' : 'below' ?> this average.
+</div>
+<?php endif ?>
+<?php endif // $showComplexSales ?>
+
 <?php // CHART 3: Sale Prices Over Time — Build 8 rebuild as a real
       // time-series. Pre-fix this was a dot cloud with two date labels
       // and no trend; now an SVG plot with a least-squares regression
@@ -1961,7 +2062,7 @@ a:hover { text-decoration: underline; }
     $_mapProvider = $_mapsKeyConfigured ? 'static_image' : 'svg_radial';
     $_staticMapDataUri = null;
     if ($_mapProvider === 'static_image' && $_subjLat !== null && $_subjLng !== null) {
-        $_subjForStatic = ['lat' => (float) $_subjLat, 'lng' => (float) $_subjLng, 'title' => $address];
+        $_subjForStatic = ['lat' => (float) $_subjLat, 'lng' => (float) $_subjLng, 'title' => $subjectDisplay];
         // Re-bucket _svgComps into sold-comp + competition lists for the
         // static service, which needs them separately to colour-tag.
         $_staticSold = [];
@@ -2055,7 +2156,7 @@ a:hover { text-decoration: underline; }
         // map face has numbered pins only; the legend (below) carries the
         // detail. No more overprinting address labels on the map.
         $_svgResult = (new \App\Services\Presentations\Pdf\SpatialViewSvgRenderer())->render(
-            ['lat' => (float) $_subjLat, 'lng' => (float) $_subjLng, 'title' => $address],
+            ['lat' => (float) $_subjLat, 'lng' => (float) $_subjLng, 'title' => $subjectDisplay],
             $_svgComps,
             540, 360,
         );
@@ -2202,6 +2303,9 @@ a:hover { text-decoration: underline; }
 <?php
     $allCompPrices = array_merge(
         array_filter(array_column($vicinitySales, 'sale_price'), fn($v) => $v > 0),
+        // Include complex (sectional / same-scheme) sales — the price
+        // distribution reflects ALL sold evidence, matching the valuation basis.
+        array_filter(array_column($complexSales, 'sale_price'), fn($v) => $v > 0),
         array_filter(array_column($cmaComps, 'sale_price'), fn($v) => $v > 0)
     );
     if (count($allCompPrices) >= 3):

@@ -34,7 +34,11 @@
     if (!is_array($analysisData)) $analysisData = [];
 
     $property = $presentation->property;
-    $propertyAddress = $presentation->property_address ?: ($property?->address ?? 'Property');
+    // SS identity — prefer the frozen complex+unit display address
+    // ("Unit 17, Brock Manor, Margate") computed in compileSubjectProperty.
+    // Falls back to the flat street address.
+    $propertyAddress = ($analysisData['subject_property']['display_address'] ?? null)
+        ?: ($presentation->property_address ?: ($property?->address ?? 'Property'));
     $suburb = $presentation->suburb ?? '';
     $askingPrice = $presentation->asking_price_inc;
     $isTeaser = $link->mode === 'teaser';
@@ -103,6 +107,21 @@
 
     $soldStats = $analysisData['comparable_sales']['vicinity'] ?? [];
     $vicinityRows = $soldStats['rows'] ?? [];
+
+    // SS — sectional / same-complex sales as their own group. The agency
+    // toggle is baked into the compiled groups (suppressed → folded into
+    // vicinity), so the dedicated section shows purely on presence. Heading
+    // uses the subject complex name when known.
+    $complexStats   = $analysisData['comparable_sales']['complex'] ?? [];
+    $complexRows    = $complexStats['rows'] ?? [];
+    $subjectComplexName = $analysisData['subject_property']['complex_name'] ?? null;
+    $showComplexSales = !empty($complexRows);
+
+    // Aggregate market-activity (monthly bars chart) reflects ALL sold evidence
+    // — vicinity + complex — so a sectional subject (whose comps live in the
+    // complex group) still gets a populated activity chart, not an empty one.
+    $marketActivityRows  = array_merge($vicinityRows, $complexRows);
+    $marketActivityCount = ($soldStats['count'] ?? count($vicinityRows)) + ($complexStats['count'] ?? count($complexRows));
 
     $active = $analysisData['active_competition'] ?? [];
     // Build 8 — seller-facing competition count reads the canonical
@@ -890,7 +909,7 @@
 
         {{-- Suburb market overview chart — Chart.js renders client-side.
              Build 6 — replaces the old kpi-grid for stock-absorption. --}}
-        @if($secOn('market_overview') && !empty($soldStats['count']))
+        @if($secOn('market_overview') && !empty($marketActivityCount))
         <section class="block" data-section-id="market-overview">
             <div class="block-eyebrow">Market Overview</div>
             <h2>{{ $suburb ?: 'Suburb' }} — recent sales activity</h2>
@@ -898,7 +917,7 @@
                 <canvas id="suburb-trend-chart" aria-label="Recent sales over time"></canvas>
             </div>
             <p class="block-caption">
-                Each bar shows the number of recorded sales per month in the vicinity. Sample of the {{ $soldStats['count'] }} most recent.
+                Each bar shows the number of recorded sales per month in the vicinity. Sample of the {{ $marketActivityCount }} most recent.
             </p>
         </section>
         @endif
@@ -930,6 +949,38 @@
                 </tbody>
             </table>
             <p class="block-caption">Top {{ min(10, count($vicinityRows)) }} of {{ $soldStats['count'] ?? count($vicinityRows) }} comparable sales in the vicinity.</p>
+        </section>
+        @endif
+
+        {{-- SS — Recent sales in the complex. Sectional / same-scheme sales as
+             their own section: same building, body corporate, levies and
+             position make these the strongest comps for a sectional unit.
+             Shown when present AND the agency hasn't suppressed it. --}}
+        @if($secOn('recent_sales') && $showComplexSales)
+        <section class="block" data-section-id="complex-sales">
+            <div class="block-eyebrow">Comparable Sales</div>
+            <h2>{{ ($subjectComplexName !== null && trim((string) $subjectComplexName) !== '') ? 'Recent sales in ' . $subjectComplexName : 'Recent sales in the complex' }}</h2>
+            <table>
+                <thead><tr><th>Unit / Section</th><th>Sale date</th><th class="num">Sale price</th><th class="num">m²</th></tr></thead>
+                <tbody>
+                @foreach(array_slice($complexRows, 0, 10) as $row)
+                    <tr>
+                        <td>
+                            {{ $row['address'] ?? '—' }}
+                            @if(!empty($row['hfc_sold']))
+                                <span style="display:inline-block;margin-left:6px;padding:2px 8px;background:color-mix(in srgb, var(--hfc-teal) 14%, transparent);color:var(--hfc-teal);border-radius:6px;font-size:0.625rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;">
+                                    HFC sold this
+                                </span>
+                            @endif
+                        </td>
+                        <td>{{ $row['sale_date'] ?? '—' }}</td>
+                        <td class="num">{{ isset($row['sale_price']) ? 'R ' . number_format((int) $row['sale_price'], 0, '.', ' ') : '—' }}</td>
+                        <td class="num">{{ $row['extent_m2'] ?? '—' }}</td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
+            <p class="block-caption">Top {{ min(10, count($complexRows)) }} of {{ $complexStats['count'] ?? count($complexRows) }} sales within the complex.</p>
         </section>
         @endif
 
@@ -1169,7 +1220,7 @@
      because the public seller view has no Vite bundle. Defer-loaded so
      it doesn't block paint. SSOT-token-styled (navy primary, teal
      highlight, no decorative colours). --}}
-@if(!empty($vicinityRows ?? []) && (!isset($version) || !$version || $version->isSectionEnabled('market_overview')))
+@if(!empty($marketActivityRows ?? []) && (!isset($version) || !$version || $version->isSectionEnabled('market_overview')))
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" defer></script>
 <script>
 window.addEventListener('DOMContentLoaded', () => {
@@ -1178,7 +1229,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // Build month buckets from vicinity rows. We bucket by YYYY-MM and
     // count occurrences — a small histogram of suburb activity over time.
-    const rows = @json($vicinityRows ?? []);
+    const rows = @json($marketActivityRows ?? []);
     const buckets = {};
     rows.forEach(r => {
         const d = (r.sale_date || '').toString().substring(0, 7);

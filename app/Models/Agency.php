@@ -121,6 +121,8 @@ class Agency extends Model
         // Presentations V2 Phase 3b — comp scope + radius defaults.
         'presentations_default_comp_scope',
         'presentations_default_radius_m',
+        // SS presentations — dedicated complex/sectional sales section toggle.
+        'ss_show_complex_section',
         // Presentations V2 Phase 3e — holding-cost defaults.
         'presentations_default_rates_per_million_zar',
         'presentations_default_levies_sectional_per_m2_zar',
@@ -207,6 +209,7 @@ class Agency extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
+        'ss_show_complex_section' => 'boolean',
         'ai_voice_enabled' => 'boolean',
         'ai_image_recognition_enabled' => 'boolean',
         'privacy_policy_published_at' => 'datetime',

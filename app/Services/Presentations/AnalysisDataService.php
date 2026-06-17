@@ -105,7 +105,11 @@ class AnalysisDataService
             // distribution (PresentationPdfService reads comparable_sales.*.rows)
             // must honour the agent's comp whitelist — pass $inPoolComps, not the
             // unfiltered $soldComps. The CMA path (above) already uses $inPoolComps.
-            'comparable_sales'   => $this->compileComparableSales($inPoolComps, $presentation->property_address),
+            'comparable_sales'   => $this->compileComparableSales(
+                $inPoolComps,
+                $presentation->property_address,
+                (bool) ($presentation->agency?->ss_show_complex_section ?? true),
+            ),
             'cma_valuation'      => $cmaValuation,
             'cma_computed'       => $cmaComputed,
             'competitor_stock'   => $this->compileCompetitorStock($presentation, $version),
@@ -145,8 +149,26 @@ class AnalysisDataService
             ]);
         }
 
+        // SS identity — show complex + unit instead of the street name when
+        // BOTH structured columns are populated (data-presence trigger, not a
+        // title_type gate: title_type is heuristic and can misclassify; filled
+        // columns are the stronger signal, and this also covers full-title
+        // cluster homes inside a named complex). Reuse Property::buildDisplayAddress()
+        // so the format ("Unit 17, Brock Manor, Margate") is one source of truth.
+        // Computed here so it freezes into snapshot_payload at publish, never
+        // recomputed at render. Falls back to the flat street address otherwise.
+        $address        = $fields->get('subject.address')?->final_value ?? $p->property_address;
+        $property       = $p->property;
+        $displayAddress = $address;
+        if ($property && filled($property->complex_name) && filled($property->unit_number)) {
+            $displayAddress = $property->buildDisplayAddress();
+        }
+
         return [
-            'address'        => $fields->get('subject.address')?->final_value ?? $p->property_address,
+            'address'        => $address,
+            'display_address' => $displayAddress,
+            'complex_name'   => $property?->complex_name,
+            'unit_number'    => $property?->unit_number,
             'suburb'         => $fields->get('subject.suburb')?->final_value ?? $p->suburb,
             'erf'            => $fields->get('subject.erf')?->final_value,
             'extent_m2'      => $extent,
@@ -180,10 +202,17 @@ class AnalysisDataService
 
     // ── 3. COMPARABLE SALES ──────────────────────────────────────────────
 
-    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null): array
+    /**
+     * @param  bool  $separateComplex  When true, sectional ("complex") sales get
+     *   their own group; when false (agency suppressed the section) they fold
+     *   back into the vicinity group so they are never lost. Baked in at
+     *   compile so it freezes into snapshot_payload at publish.
+     */
+    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null, bool $separateComplex = true): array
     {
         $groups = [
             'vicinity'     => [],
+            'complex'      => [],
             'cma_comps'    => [],
             'street_sales' => [],
         ];
@@ -241,11 +270,18 @@ class AnalysisDataService
                 continue;
             }
 
+            // Sectional ("complex") sales get their own group so the
+            // presentation can show "Recent sales in {complex}" separately
+            // from the wider area/suburb vicinity sales. Full-title vicinity
+            // stays in 'vicinity'. When the agency suppresses the dedicated
+            // section ($separateComplex=false) sectional sales fold back into
+            // 'vicinity' — never dropped.
             $key = match ($source) {
-                'vicinity_sales', 'vicinity_sales_sectional' => 'vicinity',
-                'cma_comps'      => 'cma_comps',
-                'street_sales'   => 'street_sales',
-                default          => 'vicinity',
+                'vicinity_sales_sectional' => $separateComplex ? 'complex' : 'vicinity',
+                'vicinity_sales'           => 'vicinity',
+                'cma_comps'                => 'cma_comps',
+                'street_sales'             => 'street_sales',
+                default                    => 'vicinity',
             };
 
             $groups[$key][] = $row;
@@ -261,7 +297,7 @@ class AnalysisDataService
         $allRows = $this->deduplicateComps($allRows);
 
         // Re-split into groups after dedup
-        $groups = ['vicinity' => [], 'cma_comps' => [], 'street_sales' => []];
+        $groups = ['vicinity' => [], 'complex' => [], 'cma_comps' => [], 'street_sales' => []];
         foreach ($allRows as $row) {
             $src = $row['_source'];
             unset($row['_source']);

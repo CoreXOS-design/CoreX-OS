@@ -243,6 +243,7 @@ CREATE TABLE `agencies` (
   `competitor_stock_min_score` tinyint unsigned NOT NULL DEFAULT '50' COMMENT 'Competitor Stock — minimum match score (Core Matches 0-100) to include in section. 50 = Approximate tier floor.',
   `presentations_default_comp_scope` enum('radius_all','suburb_only') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'radius_all',
   `presentations_default_radius_m` smallint unsigned NOT NULL DEFAULT '1000',
+  `ss_show_complex_section` tinyint(1) NOT NULL DEFAULT '1' COMMENT 'Show the dedicated sectional/complex sales section on presentations when such comps exist.',
   `presentations_default_rates_per_million_zar` int unsigned NOT NULL DEFAULT '800' COMMENT 'Monthly municipal rates per R1M of property value.',
   `presentations_default_levies_sectional_per_m2_zar` smallint unsigned NOT NULL DEFAULT '25' COMMENT 'Monthly body-corporate levies per m² for sectional title only.',
   `presentations_default_insurance_per_million_zar` smallint unsigned NOT NULL DEFAULT '200' COMMENT 'Monthly building insurance per R1M of property value.',
@@ -11864,3 +11865,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (825,'2026_06_16_19
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_16_190003_add_marketing_unsubscribe_footer_to_agencies',150);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (827,'2026_06_16_220000_add_outreach_live_deal_statuses_to_agencies',151);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (828,'2026_06_17_090000_add_messaging_all_blocked_to_contacts',152);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (829,'2026_06_17_160000_add_ss_show_complex_section_to_agencies',153);
