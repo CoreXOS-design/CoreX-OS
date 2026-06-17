@@ -134,6 +134,57 @@
          class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
         <div class="text-lg font-semibold mb-4" style="color:var(--text-primary);">New Contact</div>
 
+        {{-- Live duplicate warning — fires on phone/email blur (checkDuplicate()).
+             Mirrors the server-side block so the agent sees WHO the existing
+             contact sits under before they try to save. --}}
+        <div x-show="dupFound" x-cloak
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+             class="mb-4 rounded-md p-4"
+             style="background: color-mix(in srgb, var(--ds-amber) 12%, var(--surface-2)); border:1px solid color-mix(in srgb, var(--ds-amber) 45%, transparent);">
+            <div class="flex items-start gap-3">
+                <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color:var(--ds-amber);" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold" style="color:var(--text-primary);">Possible duplicate contact</p>
+                    <p class="text-xs mt-0.5" style="color:var(--text-secondary);">A contact with this phone or email already exists. Saving is blocked to prevent a duplicate — open the existing record instead.</p>
+                    <div class="mt-3 rounded-md p-3 text-xs space-y-1.5" style="background:var(--surface); border:1px solid var(--border);">
+                        <div class="flex justify-between gap-3">
+                            <span style="color:var(--text-muted);">Name</span>
+                            <span class="font-semibold text-right truncate" style="color:var(--text-primary);" x-text="dupData.name"></span>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                            <span style="color:var(--text-muted);">Agent</span>
+                            <span class="font-semibold text-right truncate" style="color:var(--text-primary);" x-text="dupData.agent"></span>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                            <span style="color:var(--text-muted);">Phone</span>
+                            <span class="text-right truncate" style="color:var(--text-secondary);" x-text="dupData.phone"></span>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                            <span style="color:var(--text-muted);">Email</span>
+                            <span class="text-right truncate" style="color:var(--text-secondary);" x-text="dupData.email"></span>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                            <span style="color:var(--text-muted);">Type</span>
+                            <span class="text-right truncate" style="color:var(--text-secondary);" x-text="dupData.type"></span>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                            <span style="color:var(--text-muted);">Last contacted</span>
+                            <span class="text-right truncate" style="color:var(--text-secondary);" x-text="dupData.last_contacted"></span>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <a :href="dupData.url" target="_blank"
+                           class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
+                           style="color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 30%, transparent);">
+                            Open existing contact
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         {{-- Duplicate detection modal (server-driven, 4-mode) --}}
         @include('components.duplicate-detection-modal')
 

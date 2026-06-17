@@ -330,7 +330,7 @@ class ContactController extends Controller
         // check (ContactDuplicateService::findDuplicates). Without this the agent
         // gets a green light here and a hard block on submit.
         $duplicate = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
-            ->with('createdBy')
+            ->with(['createdBy', 'agent'])
             ->whereNull('purged_at')
             ->where(function ($q) use ($phone, $email) {
                 if ($phone) {
@@ -352,7 +352,9 @@ class ContactController extends Controller
             'phone'          => $duplicate->phone,
             'email'          => $duplicate->email ?? '—',
             'type'           => optional($duplicate->type)->name ?? '—',
-            'agent'          => optional($duplicate->createdBy)->name ?? 'Unknown',
+            // The agent this contact sits under — primary agent, falling back to
+            // the original capturer for contacts predating agent assignment.
+            'agent'          => optional($duplicate->agent ?? $duplicate->createdBy)->name ?? 'Unknown',
             'last_contacted' => $duplicate->last_contacted_at
                 ? \Carbon\Carbon::parse($duplicate->last_contacted_at)->format('d M Y')
                 : 'Never',

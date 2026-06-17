@@ -123,16 +123,27 @@ back to creator) and a "Co-Agent:" line when set. Validation constrains both
 selects to active members of the contact's agency (tamper-proof). Gated by the
 existing `access_contacts` + contact-edit middleware.
 
-**Duplicate-detection box fix (all roles):** `checkDuplicate()` now drops only the
-role-based `ContactScope` (keeping `AgencyScope`), so an agent with `own` data
-scope sees agency-wide duplicates — matching the server-side
-`ContactDuplicateService::findDuplicates`. Previously agents got a green light on
-the client check, then a hard block on submit.
+**Duplicate-detection box fix (all roles):** two bugs.
+1. *No box rendered.* The quick-add form's Alpine `checkDuplicate()` set `dupFound`
+   (which greyed the Save button) but **nothing was bound to `dupData`** — so a
+   duplicate silently disabled Save with no explanation. Added a live amber
+   warning box (`resources/views/corex/contacts/index.blade.php`) showing the
+   existing contact's name, **the agent it sits under**, phone, email, type, last
+   contacted, and an "Open existing contact" link.
+2. *Scope.* `checkDuplicate()` now drops only the role-based `ContactScope`
+   (keeping `AgencyScope`), so an agent with `own` data scope sees agency-wide
+   duplicates — matching `ContactDuplicateService::findDuplicates`. The endpoint
+   returns the **primary agent** (`agent` → fallback `createdBy`).
+
+**Back-catalogue backfill:** the migration seeds `agent_id = created_by_user_id`
+for every existing contact that has a capturer, so the whole back-catalogue is
+assigned, not just contacts created from here on. Creator-less imports stay
+unassigned.
 
 **Tab rename:** Contact show "Properties" tab → **"Properties & Core Matches"**,
 with a "Core Matches" section header above "Add New Match Criteria".
 
-Tests: `tests/Feature/Contacts/ContactAgentAssignmentTest.php` (7 green).
+Tests: `tests/Feature/Contacts/ContactAgentAssignmentTest.php` (8 green).
 
 ---
 

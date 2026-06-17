@@ -42,7 +42,8 @@ final class ContactAgentAssignmentTest extends TestCase
         ]);
 
         $resp->assertOk();
-        $resp->assertJson(['found' => true, 'name' => 'Andre Roets']);
+        // The box surfaces the primary agent the contact sits under.
+        $resp->assertJson(['found' => true, 'name' => 'Andre Roets', 'agent' => $other->name]);
     }
 
     public function test_duplicate_check_excludes_other_agency_contact(): void
@@ -139,6 +140,39 @@ final class ContactAgentAssignmentTest extends TestCase
 
         $contact = Contact::withoutGlobalScopes()->where('phone', '0825559999')->firstOrFail();
         $this->assertSame($agent->id, $contact->agent_id);
+    }
+
+    /**
+     * Back-catalogue backfill: an existing contact with no agent_id but a known
+     * capturer must inherit that creator as primary agent; a creator-less import
+     * stays unassigned. Replicates the migration's backfill statement against
+     * rows that simulate the pre-migration state (RefreshDatabase runs the
+     * migration on an empty table, so the data path is exercised here).
+     */
+    public function test_backfill_sets_primary_agent_from_creator(): void
+    {
+        [$agencyId, $agent] = $this->seedFixture();
+
+        $withCreator = (int) DB::table('contacts')->insertGetId([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId,
+            'created_by_user_id' => $agent->id, 'agent_id' => null,
+            'first_name' => 'Legacy', 'last_name' => 'Owned', 'phone' => '0825552222',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $orphan = (int) DB::table('contacts')->insertGetId([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId,
+            'created_by_user_id' => null, 'agent_id' => null,
+            'first_name' => 'Legacy', 'last_name' => 'Import', 'phone' => '0825553333',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        DB::table('contacts')
+            ->whereNull('agent_id')
+            ->whereNotNull('created_by_user_id')
+            ->update(['agent_id' => DB::raw('created_by_user_id')]);
+
+        $this->assertSame($agent->id, (int) DB::table('contacts')->where('id', $withCreator)->value('agent_id'));
+        $this->assertNull(DB::table('contacts')->where('id', $orphan)->value('agent_id'));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

@@ -22,6 +22,16 @@ return new class extends Migration
             $table->foreignId('second_agent_id')->nullable()->after('agent_id')
                 ->constrained('users')->nullOnDelete();
         });
+
+        // Backfill: every existing contact already "sits under" the agent who
+        // captured it — seed that as the primary agent so the new assignment is
+        // populated for the whole back-catalogue, not just contacts created from
+        // here on. Only where a creator exists (imports with no creator stay
+        // unassigned rather than pointing at a phantom user).
+        \DB::table('contacts')
+            ->whereNull('agent_id')
+            ->whereNotNull('created_by_user_id')
+            ->update(['agent_id' => \DB::raw('created_by_user_id')]);
     }
 
     public function down(): void
