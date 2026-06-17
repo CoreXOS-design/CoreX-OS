@@ -27,6 +27,7 @@ class Contact extends Model
         'agency_id',
         'branch_id',
         'contact_type_id', 'contact_source_id', 'created_by_user_id',
+        'agent_id', 'second_agent_id',
         'client_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
         'birthday', 'birthday_reminder', 'id_number', 'id_number_captured_at', 'id_number_source', 'address',
@@ -97,6 +98,18 @@ class Contact extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /** Operational primary agent on this contact (reassignable). */
+    public function agent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'agent_id');
+    }
+
+    /** Optional co-agent on this contact. */
+    public function secondAgent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'second_agent_id');
     }
 
     public function clientUser(): BelongsTo

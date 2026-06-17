@@ -100,6 +100,42 @@ CoreX re-assigns every contact to the same agent.
 
 ---
 
+## Agent Assignment on a Contact (2026-06-17)
+
+**Pillar:** Contact ↔ Agent (`User`).
+
+`created_by_user_id` stays the immutable capture audit. Operational ownership now
+lives in two new nullable columns mirroring `Property.agent_id` /
+`pp_second_agent_id`:
+
+- `contacts.agent_id` — primary agent (reassignable). Defaulted to the creator on
+  capture (`store()`), so every contact always has a primary.
+- `contacts.second_agent_id` — optional co-agent. `different:agent_id`; collapses
+  to null if the primary is cleared.
+
+Both `nullOnDelete` (non-negotiable #1 — deactivating a user never deletes a
+contact). Migration: `2026_06_17_120000_add_agent_assignment_to_contacts_table.php`.
+Relationships: `Contact::agent()`, `Contact::secondAgent()`.
+
+**UI:** Contact show → **Info** tab, "Assigned Agents" section (two agency-scoped
+selects) above Save. The header "Agent:" line now shows the primary agent (falls
+back to creator) and a "Co-Agent:" line when set. Validation constrains both
+selects to active members of the contact's agency (tamper-proof). Gated by the
+existing `access_contacts` + contact-edit middleware.
+
+**Duplicate-detection box fix (all roles):** `checkDuplicate()` now drops only the
+role-based `ContactScope` (keeping `AgencyScope`), so an agent with `own` data
+scope sees agency-wide duplicates — matching the server-side
+`ContactDuplicateService::findDuplicates`. Previously agents got a green light on
+the client check, then a hard block on submit.
+
+**Tab rename:** Contact show "Properties" tab → **"Properties & Core Matches"**,
+with a "Core Matches" section header above "Add New Match Criteria".
+
+Tests: `tests/Feature/Contacts/ContactAgentAssignmentTest.php` (7 green).
+
+---
+
 ## Pending Spec Items
 
 - Full contact record design (all fields, all relationships to pillars)

@@ -82,14 +82,21 @@
                 </div>
 
                 {{-- Linked agent + timestamps --}}
+                @php $primaryAgent = $contact->agent ?? $contact->createdBy; @endphp
                 <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1">
-                    @if($contact->createdBy)
+                    @if($primaryAgent)
                     <span class="text-xs flex items-center gap-1.5" style="color:rgba(255,255,255,0.4);">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
-                        Agent: <strong class="text-white/60">{{ $contact->createdBy->name }}</strong>
-                        @if($contact->createdBy->email)
-                            <span style="color:rgba(255,255,255,0.3);">· {{ $contact->createdBy->email }}</span>
+                        Agent: <strong class="text-white/60">{{ $primaryAgent->name }}</strong>
+                        @if($primaryAgent->email)
+                            <span style="color:rgba(255,255,255,0.3);">· {{ $primaryAgent->email }}</span>
                         @endif
+                    </span>
+                    @endif
+                    @if($contact->secondAgent)
+                    <span class="text-xs flex items-center gap-1.5" style="color:rgba(255,255,255,0.4);">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                        Co-Agent: <strong class="text-white/60">{{ $contact->secondAgent->name }}</strong>
                     </span>
                     @endif
                     <span class="text-xs" style="color:rgba(255,255,255,0.3);">
@@ -184,7 +191,7 @@
             @endphp
             @foreach([
                 ['key'=>'info','label'=>'Info'],
-                ['key'=>'properties','label'=>'Properties <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->properties->count() .'</span>'],
+                ['key'=>'properties','label'=>'Properties &amp; Core Matches <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->properties->count() .'</span>'],
                 ['key'=>'viewings','label'=>'Viewings &amp; Feedback <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($viewingsCount ?? 0) .'</span>'],
                 ['key'=>'notes','label'=>'Notes &amp; Testimonials <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contact->contactNotes->count() + $contact->testimonials->count()) .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
@@ -627,6 +634,41 @@
                             </div>
                         </div>
                     </div>
+                </div>
+
+                {{-- Assigned Agents — primary (reassignable) + optional co-agent.
+                     created_by stays the immutable capture audit; this drives the
+                     "Agent" shown in the header and is the operational owner. --}}
+                <div class="pt-2 border-t" style="border-color:var(--border);">
+                    <h3 class="text-xs font-bold uppercase tracking-widest pt-4 mb-1" style="color:var(--text-muted);">Assigned Agents</h3>
+                    <p class="text-[11px] mb-3" style="color:var(--text-muted);">Reassign the primary agent on this contact, or add a co-agent. Captured by {{ $contact->createdBy?->name ?? 'Unknown' }}.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Agent</label>
+                            <select name="agent_id"
+                                    class="w-full rounded-md px-3 py-2 text-sm"
+                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <option value="">— Unassigned —</option>
+                                @foreach($agencyAgents as $agent)
+                                    <option value="{{ $agent->id }}" @selected((int) old('agent_id', $contact->agent_id) === $agent->id)>{{ $agent->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Co-Agent <span class="font-normal normal-case">(optional)</span></label>
+                            <select name="second_agent_id"
+                                    class="w-full rounded-md px-3 py-2 text-sm"
+                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <option value="">— None —</option>
+                                @foreach($agencyAgents as $agent)
+                                    <option value="{{ $agent->id }}" @selected((int) old('second_agent_id', $contact->second_agent_id) === $agent->id)>{{ $agent->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+                    @error('second_agent_id')
+                        <p class="text-[11px] mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <div class="flex items-center gap-3 pt-2">
@@ -1283,6 +1325,12 @@
              ════════════════════════════ --}}
         @if(\App\Models\PerformanceSetting::get('matches_enabled', 1) && auth()->user()->hasPermission('access_core_matches'))
         <div x-show="activeTab === 'properties'" x-cloak class="p-6 pt-0 space-y-6" id="tab-matches">
+
+            {{-- Core Matches section header --}}
+            <div class="pt-2 border-t" style="border-color:var(--border);">
+                <h3 class="text-sm font-bold uppercase tracking-wide pt-4" style="color:var(--text-primary);">Core Matches</h3>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">Buyer/tenant requirements matched against tracked property intelligence.</p>
+            </div>
 
             {{-- Add new match form --}}
             <div class="rounded-md p-5 space-y-5" style="background:var(--surface-2); border:1px solid var(--border);">
