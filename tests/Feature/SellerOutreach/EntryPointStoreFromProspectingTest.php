@@ -169,6 +169,71 @@ final class EntryPointStoreFromProspectingTest extends TestCase
         $this->assertSame(0, Contact::where('first_name', 'NoContact')->count());
     }
 
+    public function test_post_links_an_existing_contact_by_id_without_creating_a_new_one(): void
+    {
+        // "Search existing" path — the agent already knows the owner and picks
+        // them; contact_id short-circuits the new-contact capture/validation.
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedProspectingListing($agencyId, [
+            'address' => '5 Existing Owner Way',
+            'suburb'  => 'Margate',
+        ]);
+
+        $existing = Contact::create([
+            'agency_id'  => $agencyId, 'branch_id' => $agencyId,
+            'first_name' => 'Known', 'last_name' => 'Owner',
+            'phone'      => '0825550000', 'email' => 'known@test.example',
+        ]);
+        $countBefore = Contact::count();
+
+        $resp = $this->actingAs(User::find($userId))
+            ->post(
+                route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]),
+                [
+                    'contact_id' => $existing->id,
+                    // No first_name / phone / email — the existing-contact path
+                    // skips the new-contact validation entirely.
+                ],
+            );
+
+        $resp->assertStatus(302);
+        $resp->assertRedirectContains('/outreach/compose');
+
+        // No new contact row — the existing one was reused.
+        $this->assertSame($countBefore, Contact::count(), 'linking an existing contact must not create a new one');
+
+        // Listing promoted + pivot links the EXISTING contact as seller.
+        $matchedPropertyId = DB::table('prospecting_listings')
+            ->where('id', $listingId)->value('matched_property_id');
+        $this->assertNotNull($matchedPropertyId, 'Listing must be matched to a promoted Property');
+        $this->assertDatabaseHas('contact_property', [
+            'contact_id'  => $existing->id,
+            'property_id' => $matchedPropertyId,
+            'role'        => 'seller',
+        ]);
+    }
+
+    public function test_post_rejects_a_contact_id_from_another_agency(): void
+    {
+        // Tenancy guard — a forged/stale contact_id from another agency 404s
+        // rather than silently linking the wrong tenant's contact.
+        [$agencyId, $userId] = $this->seedAgency();
+        [$otherAgencyId]     = $this->seedAgency();
+        $listingId = $this->seedProspectingListing($agencyId, ['address' => '6 Cross Tenant Road']);
+
+        $foreign = Contact::create([
+            'agency_id'  => $otherAgencyId, 'branch_id' => $otherAgencyId,
+            'first_name' => 'Foreign', 'last_name' => 'Contact', 'phone' => '0825551111',
+        ]);
+
+        $this->actingAs(User::find($userId))
+            ->post(
+                route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]),
+                ['contact_id' => $foreign->id],
+            )
+            ->assertNotFound();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:int} */
