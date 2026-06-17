@@ -182,10 +182,16 @@ final class PresentationReviewController extends Controller
         }
         $pageEstimate = $version->estimatedPageCount();
 
+        // Import-confirmation summary — the honest "did my upload work?"
+        // answer: real hydrated counts, not a badge. Spec: data-lineage §2.3.
+        $importSummary = app(\App\Services\Presentations\PresentationImportSummaryService::class)
+            ->build($presentation);
+
         return view('presentations.review', [
             'version'              => $version,
             'presentation'         => $presentation,
             'compRows'             => $compRows,
+            'importSummary'        => $importSummary,
             'subjectTitleType'     => $subjectTitleType,
             'isLockedByOther'      => $isLockedByOther,
             'currentReviewer'      => $currentReviewer,

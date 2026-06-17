@@ -491,6 +491,12 @@
                                         this.generating = false;
                                         return;
                                     }
+                                    // Re-fetch coverage now that any in-modal CMA upload has
+                                    // been ingested + hydrated server-side, so the badge on
+                                    // the property page reflects the new evidence instead of
+                                    // the stale pre-upload count. Fire-and-forget — the real
+                                    // hydrated count also lives on the review screen.
+                                    this.loadCoverage();
                                     // Open the review screen in a NEW TAB so the agent
                                     // never loses their place on the property page.
                                     //

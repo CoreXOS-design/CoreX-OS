@@ -45,6 +45,7 @@ class PresentationGeneratorService
         private SimilarActiveListingsResolver $linkSuggestions = new SimilarActiveListingsResolver(),
         private \App\Services\Geocoding\PropertyGeoBackfillService $geoBackfill = new \App\Services\Geocoding\PropertyGeoBackfillService(),
         private AiSummaryService $aiSummary = new AiSummaryService(),
+        private CompRowGeocoder $compRowGeocoder = new CompRowGeocoder(),
     ) {}
 
     /**
@@ -208,6 +209,35 @@ class PresentationGeneratorService
                         'err'         => $e->getMessage(),
                     ]);
                 }
+            }
+
+            // ── 3.4b. Comp-row GPS — resolve SYNCHRONOUSLY before hydration ─
+            // CMA comp tables carry no per-comp GPS; comps only become
+            // mappable once their address geocodes. The hydrator's lazy
+            // geocode fired AFTER the radius filter had already dropped
+            // NULL-geo rows — so a freshly-imported report mapped 0 comps on
+            // its first generate. Resolving here, against the rows the
+            // hydrator will consider, means the radius gate sees real coords
+            // on the first run. Best-effort: a row that won't resolve stays
+            // NULL and is surfaced honestly by the "N of M plotted" caption.
+            // Spec: cma-comp-gps-axis-investigation-2026-06-17.md §7.
+            try {
+                $subjectReportIds = \App\Support\Presentations\SubjectReportResolver::resolveReportIds(
+                    (int) $property->agency_id,
+                    (string) ($property->address ?? ''),
+                    (string) ($property->suburb ?? ''),
+                );
+                $this->compRowGeocoder->backfillForSubject(
+                    agencyId:         (int) $property->agency_id,
+                    subjectReportIds: $subjectReportIds,
+                    suburb:           (string) ($property->suburb ?? ''),
+                    isDemo:           (bool) ($property->is_demo ?? false),
+                );
+            } catch (\Throwable $e) {
+                \Log::warning('Pre-hydration comp-row GPS backfill failed', [
+                    'property_id' => $property->id,
+                    'err'         => $e->getMessage(),
+                ]);
             }
 
             // ── 3.5. Phase 3d — MIC snapshot hydration ─────────────────────

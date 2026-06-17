@@ -7,6 +7,7 @@ use App\Models\Property;
 use App\Models\Prospecting\TrackedProperty;
 use App\Support\MarketAnalytics\HaversineDistance;
 use App\Support\Presentations\CompFingerprint;
+use App\Support\Presentations\SubjectReportResolver;
 use App\Support\Presentations\SuburbMatcher;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +52,7 @@ class CmaCoverageService
             subjectLng:   $lng,
             periodMonths: $periodMonths,
             subjectIsDemo: (bool) ($property->is_demo ?? false),
+            subjectAddress: (string) ($property->address ?? ''),
         );
     }
 
@@ -58,6 +60,12 @@ class CmaCoverageService
     {
         $lat = $property->latitude !== null && $property->latitude !== '' ? (float) $property->latitude : null;
         $lng = $property->longitude !== null && $property->longitude !== '' ? (float) $property->longitude : null;
+
+        // Compose the street-shaped address the SubjectReportResolver needs.
+        $trackedAddress = trim(implode(' ', array_filter([
+            $property->street_number ?? null,
+            $property->street_name ?? null,
+        ])));
 
         return $this->score(
             agencyId:     (int) $property->agency_id,
@@ -67,6 +75,7 @@ class CmaCoverageService
             subjectLng:   $lng,
             periodMonths: $periodMonths,
             subjectIsDemo: (bool) ($property->is_demo ?? false),
+            subjectAddress: $trackedAddress,
         );
     }
 
@@ -78,11 +87,19 @@ class CmaCoverageService
         ?float $subjectLng,
         ?int $periodMonths,
         bool $subjectIsDemo = false,
+        string $subjectAddress = '',
     ): array {
         $thresholds = $this->thresholdsForAgency($agencyId);
         $window     = $periodMonths ?? $thresholds['period_months'];
 
-        $compCount = $this->countComps($suburb, $window, $thresholds['scope'], $thresholds['radius_m'], $subjectLat, $subjectLng, $subjectIsDemo, $agencyId);
+        // Same-subject reports — the analyst-vetted CMAs built FOR this
+        // property. Their comps are date-exempt in the hydrator (Branch 1);
+        // the badge MUST mirror that or it tells the agent "0 strong comps"
+        // while the engine silently hydrates 15. One selection rule, hydrator
+        // is the source of truth. Spec: data-lineage §2.3/§2.6.
+        $subjectReportIds = SubjectReportResolver::resolveReportIds($agencyId, $subjectAddress, $suburb);
+
+        $compCount = $this->countComps($suburb, $window, $thresholds['scope'], $thresholds['radius_m'], $subjectLat, $subjectLng, $subjectIsDemo, $agencyId, $subjectReportIds);
 
         $state = match (true) {
             $compCount === 0                       => self::STATE_NONE,
@@ -148,8 +165,12 @@ class CmaCoverageService
         ?float $subjectLng,
         bool $subjectIsDemo = false,
         int $agencyId = 0,
+        array $subjectReportIds = [],
     ): int {
-        if ($suburb === '') {
+        // Empty suburb is only a dead-end when there are also no same-subject
+        // reports to fall back on. A subject with analyst-vetted reports still
+        // has countable comps even when its suburb string is blank.
+        if ($suburb === '' && empty($subjectReportIds)) {
             return 0;
         }
 
@@ -163,86 +184,114 @@ class CmaCoverageService
         $coreLike    = $subjectCore !== '' ? '%' . $subjectCore . '%' : '%';
 
         $fingerprints = [];
+        $subjectReportIds = array_values(array_filter(array_map('intval', $subjectReportIds)));
 
         // 1. Deals — prefer FK suburb match (Phase 3i), fall back to legacy
         //    LOWER(property_address) LIKE for unlinked deals.
         // Phase 3h Step 9 — demo/real isolation.
         // Build 8d — agency_id filter (was missing — multi-tenancy gap).
-        $dealsQuery = DB::table('deals')
-            ->leftJoin('properties', 'properties.id', '=', 'deals.property_id')
-            ->whereNotNull('deals.registration_date')
-            ->where(function ($q) {
-                $q->whereNull('deals.accepted_status')->orWhere('deals.accepted_status', '!=', 'D');
-            })
-            ->where('deals.is_demo', $subjectIsDemo)
-            ->whereBetween('deals.registration_date', [$dateFrom, $dateTo])
-            ->where(function ($q) use ($coreLike) {
-                $q->whereRaw('LOWER(properties.suburb) LIKE ?', [$coreLike])
-                  ->orWhere(function ($qq) use ($coreLike) {
-                      $qq->whereNull('deals.property_id')
-                         ->whereRaw('LOWER(deals.property_address) LIKE ?', [$coreLike]);
-                  });
-            });
-        if ($agencyId > 0) {
-            $dealsQuery->where('deals.agency_id', $agencyId);
-        }
-        $dealRows = $dealsQuery
-            ->select([
-                'deals.property_address',
-                'deals.registration_date',
-                'deals.property_value',
-                'deals.sale_price',
-                'deals.property_id',
-                'properties.suburb as prop_suburb',
-            ])
-            ->get();
-        foreach ($dealRows as $r) {
-            // Narrow linked deals via SuburbMatcher; unlinked already
-            // passed the SQL core-token LIKE on property_address.
-            if (!empty($r->prop_suburb)
-                && !SuburbMatcher::matches($r->prop_suburb, $suburb)) {
-                continue;
+        // Suburb-scoped only: with a blank suburb the LIKE collapses to '%'
+        // and would count every agency deal in the window. The blank-suburb
+        // path only exists to surface same-subject MIC comps (block 2).
+        if ($suburb !== '') {
+            $dealsQuery = DB::table('deals')
+                ->leftJoin('properties', 'properties.id', '=', 'deals.property_id')
+                ->whereNotNull('deals.registration_date')
+                ->where(function ($q) {
+                    $q->whereNull('deals.accepted_status')->orWhere('deals.accepted_status', '!=', 'D');
+                })
+                ->where('deals.is_demo', $subjectIsDemo)
+                ->whereBetween('deals.registration_date', [$dateFrom, $dateTo])
+                ->where(function ($q) use ($coreLike) {
+                    $q->whereRaw('LOWER(properties.suburb) LIKE ?', [$coreLike])
+                      ->orWhere(function ($qq) use ($coreLike) {
+                          $qq->whereNull('deals.property_id')
+                             ->whereRaw('LOWER(deals.property_address) LIKE ?', [$coreLike]);
+                      });
+                });
+            if ($agencyId > 0) {
+                $dealsQuery->where('deals.agency_id', $agencyId);
             }
-            $fingerprints[$this->fingerprintDeal($r)] = true;
+            $dealRows = $dealsQuery
+                ->select([
+                    'deals.property_address',
+                    'deals.registration_date',
+                    'deals.property_value',
+                    'deals.sale_price',
+                    'deals.property_id',
+                    'properties.suburb as prop_suburb',
+                ])
+                ->get();
+            foreach ($dealRows as $r) {
+                // Narrow linked deals via SuburbMatcher; unlinked already
+                // passed the SQL core-token LIKE on property_address.
+                if (!empty($r->prop_suburb)
+                    && !SuburbMatcher::matches($r->prop_suburb, $suburb)) {
+                    continue;
+                }
+                $fingerprints[$this->fingerprintDeal($r)] = true;
+            }
         }
 
         // 2. MIC market_report_comp_rows — scope-branched read.
         // Phase 3h Step 9 — demo/real isolation.
+        //
+        // Same-subject exemption (badge/hydrator parity): rows from the
+        // subject's own analyst-vetted reports are counted REGARDLESS of the
+        // period window AND regardless of suburb/radius scope — mirroring the
+        // hydrator's collectMatchedRows Branch 1. Everything else must fall in
+        // the date window AND the comp scope. The two branches are OR'd in SQL;
+        // the scope/window narrowing for non-subject rows happens in PHP below.
         $micQuery = DB::table('market_report_comp_rows')
             ->whereNull('deleted_at')
             ->where('row_type', 'comp')
             ->whereNotNull('sale_date')
             ->whereNotNull('sale_price')
             ->where('is_demo', $subjectIsDemo)
-            ->whereBetween('sale_date', [$dateFrom, $dateTo])
-            ->select(['scheme_name', 'section_number', 'address', 'sale_date', 'sale_price', 'suburb_normalised', 'latitude', 'longitude']);
+            ->where(function ($q) use ($subjectReportIds, $dateFrom, $dateTo) {
+                $q->whereBetween('sale_date', [$dateFrom, $dateTo]);
+                if (!empty($subjectReportIds)) {
+                    $q->orWhereIn('market_report_id', $subjectReportIds);
+                }
+            })
+            ->select(['market_report_id', 'scheme_name', 'section_number', 'address', 'sale_date', 'sale_price', 'suburb_normalised', 'latitude', 'longitude']);
 
         $micRows = $micQuery->get();
         foreach ($micRows as $r) {
-            if (!$this->compInScope($r, $scope, $suburb, $radiusM, $subjectLat, $subjectLng)) continue;
+            $isSubjectReport = !empty($subjectReportIds)
+                && in_array((int) $r->market_report_id, $subjectReportIds, true);
+            // Subject-report comps are analyst-vetted for this property: skip
+            // the scope gate entirely (the hydrator does the same).
+            if (!$isSubjectReport
+                && !$this->compInScope($r, $scope, $suburb, $radiusM, $subjectLat, $subjectLng)) {
+                continue;
+            }
             $fingerprints[$this->fingerprintMic($r)] = true;
         }
 
         // 3. Legacy presentation_sold_comps fallback.
         // Phase 3h Step 9 — demo/real isolation.
         // SuburbMatcher: SQL pre-filter on core token, PHP narrow to
-        // locality match. Mirrors the deal/MIC fix.
-        $psRows = DB::table('presentation_sold_comps')
-            ->whereNull('deleted_at')
-            ->whereNotNull('sold_date')
-            ->whereNotNull('sold_price_inc')
-            ->where('is_demo', $subjectIsDemo)
-            ->whereBetween('sold_date', [$dateFrom, $dateTo])
-            ->where(function ($q) use ($coreLike) {
-                $q->whereNull('suburb')->orWhereRaw('LOWER(suburb) LIKE ?', [$coreLike]);
-            })
-            ->select(['suburb', 'sold_date', 'sold_price_inc', 'raw_row_json'])
-            ->get();
-        foreach ($psRows as $r) {
-            if (!empty($r->suburb) && !SuburbMatcher::matches($r->suburb, $suburb)) {
-                continue;
+        // locality match. Mirrors the deal/MIC fix. Suburb-scoped only —
+        // same blank-suburb guard as the deals block above.
+        if ($suburb !== '') {
+            $psRows = DB::table('presentation_sold_comps')
+                ->whereNull('deleted_at')
+                ->whereNotNull('sold_date')
+                ->whereNotNull('sold_price_inc')
+                ->where('is_demo', $subjectIsDemo)
+                ->whereBetween('sold_date', [$dateFrom, $dateTo])
+                ->where(function ($q) use ($coreLike) {
+                    $q->whereNull('suburb')->orWhereRaw('LOWER(suburb) LIKE ?', [$coreLike]);
+                })
+                ->select(['suburb', 'sold_date', 'sold_price_inc', 'raw_row_json'])
+                ->get();
+            foreach ($psRows as $r) {
+                if (!empty($r->suburb) && !SuburbMatcher::matches($r->suburb, $suburb)) {
+                    continue;
+                }
+                $fingerprints[$this->fingerprintPs($r)] = true;
             }
-            $fingerprints[$this->fingerprintPs($r)] = true;
         }
 
         return count($fingerprints);
