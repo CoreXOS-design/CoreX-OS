@@ -41,11 +41,12 @@ final class MarketingConsentConvergenceTest extends TestCase
         $contact = $this->seedContact($agencyId);
         $send = $this->seedSend($agencyId, $userId, $contact);
 
-        // First opt the contact out via the link — sets the flag, channel
-        // booleans, and an identifier-level suppression row.
-        $this->post(route('seller-outreach.public.opt-out.confirm', $send->opt_out_token))->assertOk();
+        // First opt the contact fully out via the link (Stop ALL) — sets the
+        // flag, the channel booleans, and an identifier-level suppression row.
+        $this->post(route('seller-outreach.public.opt-out.confirm', $send->opt_out_token), ['action' => 'stop_all'])->assertOk();
         $contact->refresh();
         $this->assertNotNull($contact->messaging_opt_out_at, 'pre-condition: opted out');
+        $this->assertTrue((bool) $contact->messaging_all_blocked, 'pre-condition: full stop latch set');
         $this->assertTrue((bool) $contact->opt_out_whatsapp, 'pre-condition: channel off');
         $this->assertTrue($this->suppressionActive($agencyId, self::PHONE_CORE), 'pre-condition: phone suppressed');
 
@@ -61,9 +62,10 @@ final class MarketingConsentConvergenceTest extends TestCase
             ->assertSee('receive marketing updates', false);
 
         $contact->refresh();
-        // (2) opt-out triplet cleared; opt-in marker stamped.
+        // (2) opt-out triplet + full-stop latch cleared; opt-in marker stamped.
         $this->assertNull($contact->messaging_opt_out_at);
         $this->assertNull($contact->messaging_opt_out_source);
+        $this->assertFalse((bool) $contact->messaging_all_blocked, 'opt-in lowers the full-stop latch');
         $this->assertNotNull($contact->messaging_opted_in_at);
         // (3) channel booleans back on.
         $this->assertFalse((bool) $contact->opt_out_whatsapp);
@@ -130,11 +132,12 @@ final class MarketingConsentConvergenceTest extends TestCase
         $contact = $this->seedContact($agencyId);
         $send = $this->seedSend($agencyId, $userId, $contact);
 
-        // Opt out the original contact (creates the identifier suppression).
-        $this->post(route('seller-outreach.public.opt-out.confirm', $send->opt_out_token))->assertOk();
+        // Opt the original contact out of MARKETING (the common case) — this
+        // writes the identifier-level marketing suppression.
+        $this->post(route('seller-outreach.public.opt-out.confirm', $send->opt_out_token), ['action' => 'stop_marketing'])->assertOk();
 
         // A NEW contact is imported carrying the SAME phone number, with NO
-        // opt-out flag of its own — it must still be blocked agency-wide.
+        // opt-out flag of its own — it must still be MARKETING-blocked agency-wide.
         $reimported = Contact::create([
             'agency_id'  => $agencyId,
             'branch_id'  => $agencyId,
@@ -145,11 +148,17 @@ final class MarketingConsentConvergenceTest extends TestCase
         ]);
 
         $this->assertNull($reimported->messaging_opt_out_at, 'no flag on the fresh contact');
+        // The marketing send gate (messaging_opt_out_at || isContactSuppressed,
+        // used by the outreach sender) blocks the re-import via the shared
+        // identifier suppression — marketing stays off.
         $this->assertTrue(
             app(MarketingConsentService::class)->isContactSuppressed($reimported),
-            'fresh contact is suppressed by shared identifier'
+            'fresh contact is marketing-suppressed by shared identifier'
         );
-        $this->assertFalse($reimported->canSendVia('whatsapp'), 'send gate blocks the re-import');
+        // AT-50 — the original opt-out was marketing-only, so transactional
+        // channels are NOT hard-blocked on the re-import (it never asked to stop
+        // everything). A full stop (messaging_all_blocked) is what gates canSendVia.
+        $this->assertTrue($reimported->canSendVia('whatsapp'), 'transactional channel open (marketing-only suppression)');
     }
 
     // ── Both opt-out sources converge through MarketingConsentService ────

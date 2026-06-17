@@ -47,8 +47,17 @@ class MarketingConsentService
     // ── Opt-out ──────────────────────────────────────────────────────────
 
     /**
-     * Full marketing opt-out for a known contact. Idempotent: re-running keeps
-     * the original opt-out record and does not duplicate suppression rows.
+     * Opt a known contact out of MARKETING, and — when $blockAll is true — out of
+     * ALL messaging (transactional too). Idempotent: re-running keeps the original
+     * opt-out record and does not duplicate suppression rows. A later $blockAll
+     * call UPGRADES a marketing-only opt-out to a full stop (the flag is a latch,
+     * raised here, lowered only by optInContact).
+     *
+     * @param bool $blockAll false = marketing-only (transactional channels stay
+     *   sendable); true (default) = stop everything. The public opt-out page
+     *   passes false for "Turn off marketing" and true for "Stop all messages";
+     *   the agent-marked opt-out and the generic /unsubscribe page default to a
+     *   full stop.
      */
     public function optOutContact(
         Contact $contact,
@@ -56,8 +65,9 @@ class MarketingConsentService
         ?string $source = null,
         ?int $actorUserId = null,
         ?SellerOutreachSend $send = null,
+        bool $blockAll = true,
     ): void {
-        DB::transaction(function () use ($contact, $reason, $source, $actorUserId, $send) {
+        DB::transaction(function () use ($contact, $reason, $source, $actorUserId, $send, $blockAll) {
             // (2) messaging opt-out triplet — set once, preserve the original.
             if ($contact->messaging_opt_out_at === null) {
                 $contact->forceFill([
@@ -68,17 +78,28 @@ class MarketingConsentService
                 ])->save();
             }
 
-            // (1) consent spine — revoke marketing + every channel consent.
-            // revoked_by_user_id is nullable: a self-service opt-out has no user.
-            $contact->revokeConsent(self::CONSENT_MARKETING, $actorUserId, $reason);
-            foreach (array_keys(self::CHANNEL_CONSENTS) as $consentType) {
-                $contact->revokeConsent($consentType, $actorUserId, $reason);
+            // AT-50 — the all-blocked latch. Raised by a stop-all (even when
+            // marketing was already off); never lowered here (optInContact does).
+            if ($blockAll && !$contact->messaging_all_blocked) {
+                $contact->forceFill(['messaging_all_blocked' => true])->save();
             }
 
-            // (3) denormalised channel booleans — all four hard off.
-            $contact->forceFill(array_fill_keys(array_values(self::CHANNEL_CONSENTS), true))->save();
+            // (1) consent spine — always revoke marketing consent. Channel
+            // consents are revoked ONLY on a full stop, so a marketing-only
+            // opt-out leaves the transactional channels granted.
+            // revoked_by_user_id is nullable: a self-service opt-out has no user.
+            $contact->revokeConsent(self::CONSENT_MARKETING, $actorUserId, $reason);
+            if ($blockAll) {
+                foreach (array_keys(self::CHANNEL_CONSENTS) as $consentType) {
+                    $contact->revokeConsent($consentType, $actorUserId, $reason);
+                }
+                // (3) denormalised channel booleans — all four hard off.
+                $contact->forceFill(array_fill_keys(array_values(self::CHANNEL_CONSENTS), true))->save();
+            }
 
-            // (4) identifier-level suppression for every identifier this contact has.
+            // (4) identifier-level MARKETING suppression for every identifier this
+            // contact has — written in BOTH modes so a re-import of the same
+            // email/number stays marketing-blocked agency-wide (AT-49).
             $suppSource = $source ?: MarketingSuppression::SOURCE_AGENT;
             foreach ($this->contactIdentifiers($contact) as [$type, $value]) {
                 $this->writeSuppression(
@@ -159,12 +180,14 @@ class MarketingConsentService
             // (3) denormalised channel booleans — all four back on.
             $contact->forceFill(array_fill_keys(array_values(self::CHANNEL_CONSENTS), false))->save();
 
-            // (2) clear the opt-out triplet AND stamp the opt-in marker (AT-45).
+            // (2) clear the opt-out triplet + the all-blocked latch AND stamp the
+            // opt-in marker (AT-45/AT-50).
             $contact->forceFill([
                 'messaging_opt_out_at'                  => null,
                 'messaging_opt_out_reason'              => null,
                 'messaging_opt_out_recorded_by_user_id' => null,
                 'messaging_opt_out_source'              => null,
+                'messaging_all_blocked'                 => false,
             ])->save();
             $contact->recordOptIn($reason, $actor);
 

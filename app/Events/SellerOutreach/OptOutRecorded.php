@@ -30,6 +30,13 @@ final class OptOutRecorded extends AbstractDomainEvent
         public readonly ?int $actorUserId,
         public readonly int $agencyId,
         public readonly ?string $source = null,
+        /**
+         * AT-50 — depth of the opt-out. false = marketing-only (transactional
+         * channels stay open); true (default) = stop ALL messaging. Agent-marked
+         * opt-outs default to a full stop; the public link passes false/true
+         * explicitly per the switch the recipient used.
+         */
+        public readonly bool $blockAll = true,
         ?string $traceId = null,
     ) {
         parent::__construct($traceId);

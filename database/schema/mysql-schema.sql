@@ -3042,6 +3042,7 @@ CREATE TABLE `contacts` (
   `messaging_opt_out_reason` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `messaging_opt_out_recorded_by_user_id` bigint unsigned DEFAULT NULL,
   `messaging_opt_out_source` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `messaging_all_blocked` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'AT-50: true = all messages stopped; false = marketing-only opt-out (transactional still allowed).',
   `messaging_opted_in_at` timestamp NULL DEFAULT NULL,
   `messaging_opt_in_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `messaging_opt_in_recorded_by_user_id` bigint unsigned DEFAULT NULL,
@@ -11862,3 +11863,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (824,'2026_06_16_19
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (825,'2026_06_16_190002_create_marketing_suppressions_table',150);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_16_190003_add_marketing_unsubscribe_footer_to_agencies',150);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (827,'2026_06_16_220000_add_outreach_live_deal_statuses_to_agencies',151);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (828,'2026_06_17_090000_add_messaging_all_blocked_to_contacts',152);
