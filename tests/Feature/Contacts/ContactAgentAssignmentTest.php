@@ -142,6 +142,37 @@ final class ContactAgentAssignmentTest extends TestCase
         $this->assertSame($agent->id, $contact->agent_id);
     }
 
+    public function test_quick_add_persists_id_number_with_audit_fields(): void
+    {
+        [$agencyId, $agent] = $this->seedFixture();
+
+        $this->actingAs($agent)->post(route('corex.contacts.store'), [
+            'first_name' => 'Ida',
+            'last_name'  => 'Number',
+            'phone'      => '0825554444',
+            'id_number'  => '7610025020081',
+        ])->assertSessionHasNoErrors();
+
+        $contact = Contact::withoutGlobalScopes()->where('phone', '0825554444')->firstOrFail();
+        $this->assertSame('7610025020081', $contact->id_number);
+        $this->assertSame('contact_quick_add', $contact->id_number_source);
+        $this->assertNotNull($contact->id_number_captured_at);
+    }
+
+    public function test_quick_add_rejects_invalid_id_number(): void
+    {
+        [$agencyId, $agent] = $this->seedFixture();
+
+        $this->actingAs($agent)->post(route('corex.contacts.store'), [
+            'first_name' => 'Bad',
+            'last_name'  => 'Id',
+            'phone'      => '0825555555',
+            'id_number'  => '123',
+        ])->assertSessionHasErrors('id_number');
+
+        $this->assertDatabaseMissing('contacts', ['phone' => '0825555555']);
+    }
+
     /**
      * Back-catalogue backfill: an existing contact with no agent_id but a known
      * capturer must inherit that creator as primary agent; a creator-less import

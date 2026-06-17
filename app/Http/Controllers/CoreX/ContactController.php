@@ -371,10 +371,17 @@ class ContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'notes'           => 'nullable|string|max:1000',
+            // Optional SA ID number, captured with a POPIA audit trail.
+            'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
             // Duplicate bypass fields
             'bypass_duplicate_check' => 'nullable|boolean',
             'override_reason'        => 'nullable|string|max:500',
         ]);
+
+        // Pull the ID out before the duplicate check (matches on phone/email/name)
+        // and re-attach it with audit fields once we're past the dupe guard.
+        $idNumber = !empty($data['id_number']) ? preg_replace('/\s+/', '', (string) $data['id_number']) : null;
+        unset($data['id_number']);
 
         $user = auth()->user();
         $agencyId = $user->effectiveAgencyId() ?? 1;
@@ -461,6 +468,13 @@ class ContactController extends Controller
         // Primary agent defaults to the creator via ContactObserver::creating()
         // (centralised so every ingress path behaves the same); reassignable from
         // the contact's Info tab.
+
+        // Re-attach the SA ID with its POPIA audit fields.
+        if ($idNumber) {
+            $data['id_number']             = $idNumber;
+            $data['id_number_captured_at'] = now();
+            $data['id_number_source']      = 'contact_quick_add';
+        }
         $data['branch_id'] = $user->branch_id
             ?? \DB::table('branches')->where('agency_id', $agencyId)->min('id')
             ?? 1;

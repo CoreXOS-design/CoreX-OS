@@ -239,6 +239,15 @@
                         <p class="text-xs mt-1" style="color:var(--text-muted);">No types yet — add them in <a href="{{ route('corex.settings', ['tab'=>'feature','fsec'=>'contacts']) }}" class="underline" style="color:var(--brand-icon,#0ea5e9);">Settings → Feature Settings → Contacts</a>.</p>
                     @endif
                 </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
+                    <input type="text" name="id_number" value="{{ old('id_number') }}"
+                           inputmode="numeric" maxlength="13" pattern="\d{13}"
+                           placeholder="e.g. 7610025020081" title="13 digits — empty is fine"
+                           class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                    <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                </div>
             </div>
             <div class="flex items-center gap-3 pt-2">
                 <button type="submit" class="corex-btn-primary text-sm" :disabled="dupFound"
