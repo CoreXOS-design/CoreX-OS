@@ -55,7 +55,7 @@
         </div>
     @endif
 
-    {{-- Opt-in banner (AT-45) — recorded consent fact; does not lift opt-out --}}
+    {{-- Opt-in banner (AT-45) — recorded consent fact (who / when / how). --}}
     @if($optedIn)
         <div class="rounded-md p-4"
              style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border: 1px solid var(--ds-green);">
@@ -98,12 +98,14 @@
                     Record opt-out
                 </button>
             @endif
-            @if(!$optedIn)
-                {{-- AT-45 — available even when opted out (the re-consent / "YES reply" path) --}}
+            @if($optedOut || !$optedIn)
+                {{-- AT-45/AT-50 — opted-out contacts get the RE-ENABLE path (lifts
+                     the opt-out via optInContact); otherwise the "YES reply"
+                     consent-fact path. Both converge on the same consent spine. --}}
                 <button type="button" @click="optInFormOpen = !optInFormOpen"
                         class="px-3 py-1.5 text-sm rounded"
                         style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green); border: 1px solid var(--ds-green);">
-                    Record opt-in (YES reply)
+                    {{ $optedOut ? 'Re-enable marketing' : 'Record opt-in (YES reply)' }}
                 </button>
             @endif
         </div>
@@ -137,24 +139,32 @@
         </form>
     </div>
 
-    {{-- Opt-in form (AT-45) --}}
+    {{-- Opt-in / re-enable form (AT-45/AT-50) --}}
     <div x-show="optInFormOpen" x-cloak class="rounded-md p-4"
          style="background: var(--surface); border: 1px solid var(--ds-green);">
         <form method="POST" action="{{ route('seller-outreach.composer.opt-in', $contact) }}">
             @csrf
+            @if($optedOut)
+                <p class="text-xs mb-2" style="color: var(--text-secondary);">
+                    This contact opted out. Only record this with the seller's explicit consent —
+                    it lifts the opt-out, clears the suppression, and reopens marketing sends.
+                </p>
+            @endif
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
-                How the opt-in was given
+                How the consent was given
             </label>
             <input type="text" name="reason" required maxlength="500"
-                   placeholder="e.g. Seller replied YES via WhatsApp"
+                   placeholder="e.g. Seller gave verbal consent by phone on 17 Jun"
                    class="w-full px-3 py-2 text-sm rounded mb-3"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             <div class="flex items-center gap-2">
                 <button type="submit"
-                        onclick="return confirm('Record opt-in? This logs that the seller has confirmed consent. It does not lift any existing opt-out.');"
+                        onclick="return confirm('{{ $optedOut
+                            ? 'Re-enable marketing for this contact? This lifts the opt-out + suppression and reopens marketing sends. Only do this with the seller\'s explicit consent.'
+                            : 'Record opt-in? This logs the seller\'s confirmed consent.' }}');"
                         class="px-4 py-2 text-sm font-semibold rounded"
                         style="background: var(--ds-green); color: #fff;">
-                    Confirm opt-in
+                    {{ $optedOut ? 'Re-enable marketing' : 'Confirm opt-in' }}
                 </button>
                 <button type="button" @click="optInFormOpen = false"
                         class="px-4 py-2 text-sm rounded"
