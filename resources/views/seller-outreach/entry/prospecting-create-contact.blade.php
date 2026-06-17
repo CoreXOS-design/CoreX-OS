@@ -57,22 +57,109 @@
         </div>
     @endif
 
-    {{-- Contact form — posts to the store route matching the source. --}}
+    {{-- Contact form — SEARCH & link an existing contact, OR capture a new one.
+         Both modes post to the store route matching the source; the controller
+         branches on contact_id. --}}
+    <style>[x-cloak]{display:none!important;}</style>
     <form method="POST"
+          x-data="{
+              mode: 'create',
+              q: '',
+              results: [],
+              loading: false,
+              selected: null,
+              searchUrl: '{{ route('corex.properties.contacts.search-global') }}',
+              label(c) { return ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || '(no name)'; },
+              async search() {
+                  const term = this.q.trim();
+                  if (term.length < 2) { this.results = []; this.loading = false; return; }
+                  this.loading = true;
+                  try {
+                      const res = await fetch(this.searchUrl + '?q=' + encodeURIComponent(term), {
+                          headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                      });
+                      this.results = res.ok ? await res.json() : [];
+                  } catch (e) { this.results = []; }
+                  this.loading = false;
+              },
+              choose(c) { this.selected = c; this.results = []; this.q = ''; },
+          }"
           action="{{ !empty($trackedProperty)
               ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
               : route('seller-outreach.entry.store-from-prospecting', $listing->id) }}">
         @csrf
 
         <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-            <h2 class="text-base font-semibold" style="color: var(--text-primary);">Seller contact</h2>
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <h2 class="text-base font-semibold" style="color: var(--text-primary);">Seller contact</h2>
+                {{-- Mode toggle: pick a known owner, or capture a new one. --}}
+                <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    <button type="button" @click="mode = 'search'"
+                            class="px-3 py-1.5 text-xs font-semibold border-0"
+                            :style="mode === 'search'
+                                ? 'background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;'
+                                : 'background: var(--surface-2); color: var(--text-secondary); cursor:pointer;'">
+                        Search existing
+                    </button>
+                    <button type="button" @click="mode = 'create'; selected = null"
+                            class="px-3 py-1.5 text-xs font-semibold border-0"
+                            :style="mode === 'create'
+                                ? 'background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;'
+                                : 'background: var(--surface-2); color: var(--text-secondary); cursor:pointer;'">
+                        Create new
+                    </button>
+                </div>
+            </div>
 
+            {{-- ── Search existing contact ── --}}
+            <div x-show="mode === 'search'" x-cloak class="space-y-2">
+                {{-- Chosen contact — its id is what the controller links. --}}
+                <template x-if="selected">
+                    <div class="flex items-center justify-between gap-3 rounded p-3"
+                         style="background: var(--surface-2); border:1px solid var(--border);">
+                        <div class="min-w-0">
+                            <div class="text-sm font-semibold truncate" style="color: var(--text-primary);" x-text="label(selected)"></div>
+                            <div class="text-xs truncate" style="color: var(--text-muted);">
+                                <span x-text="selected.phone || ''"></span><span x-show="selected.phone && selected.email"> · </span><span x-text="selected.email || ''"></span>
+                            </div>
+                        </div>
+                        <button type="button" @click="selected = null" class="text-xs shrink-0" style="color: var(--ds-crimson); background:none; border:0; cursor:pointer;">Change</button>
+                        <input type="hidden" name="contact_id" :value="selected.id">
+                    </div>
+                </template>
+
+                {{-- Search box + live results (hidden once a contact is chosen). --}}
+                <div x-show="!selected">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Search your contacts</label>
+                    <input type="text" x-model="q" @input.debounce.300ms="search()"
+                           placeholder="Name, phone or email…" autocomplete="off"
+                           class="w-full px-3 py-2 text-sm rounded"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <div class="mt-1 text-xs" style="color: var(--text-muted);" x-show="loading">Searching…</div>
+                    <div class="mt-1 text-xs" style="color: var(--text-muted);" x-show="!loading && q.trim().length >= 2 && results.length === 0">
+                        No matches — switch to “Create new”.
+                    </div>
+                    <div class="mt-2 rounded overflow-hidden" style="border:1px solid var(--border);" x-show="results.length > 0">
+                        <template x-for="c in results" :key="c.id">
+                            <button type="button" @click="choose(c)"
+                                    class="w-full text-left px-3 py-2 text-sm block"
+                                    style="background: var(--surface); color: var(--text-primary); border:0; border-bottom:1px solid var(--border); cursor:pointer;">
+                                <span class="font-semibold" x-text="label(c)"></span>
+                                <span class="text-xs" style="color: var(--text-muted);">— <span x-text="c.phone || c.email || ''"></span></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            {{-- ── Create new contact ── --}}
+            <div x-show="mode === 'create'" class="space-y-3">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
                         First name <span style="color: var(--ds-crimson);">*</span>
                     </label>
-                    <input type="text" name="first_name" value="{{ old('first_name') }}" required maxlength="100"
+                    <input type="text" name="first_name" value="{{ old('first_name') }}" :required="mode === 'create'" maxlength="100"
                            class="w-full px-3 py-2 text-sm rounded"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
@@ -113,13 +200,17 @@
             <div class="text-xs" style="color: var(--text-muted);">
                 Provide at least a phone or email. We'll check if this person already exists in your contacts.
             </div>
+            </div>{{-- /create-new --}}
         </div>
 
-        <div class="flex items-center gap-2 flex-wrap">
+        <div class="flex items-center gap-2 flex-wrap mt-4">
             <button type="submit"
-                    class="px-6 py-2.5 text-sm font-semibold rounded"
-                    style="background: #00d4aa; color: #003a2f;">
-                Create / link &amp; continue →
+                    :disabled="mode === 'search' && !selected"
+                    class="px-6 py-2.5 text-sm font-semibold rounded border-0"
+                    :style="(mode === 'search' && !selected)
+                        ? 'background:#9ca3af; color:#fff; cursor:not-allowed;'
+                        : 'background:#00d4aa; color:#003a2f; cursor:pointer;'">
+                <span x-text="mode === 'search' ? 'Link &amp; continue →' : 'Create / link &amp; continue →'"></span>
             </button>
             <a href="{{ url()->previous() }}" class="text-sm" style="color: var(--text-muted);">Cancel</a>
         </div>

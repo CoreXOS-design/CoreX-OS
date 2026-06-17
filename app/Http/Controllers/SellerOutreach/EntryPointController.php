@@ -121,25 +121,35 @@ final class EntryPointController extends Controller
             ->whereNull('deleted_at')
             ->firstOrFail();
 
-        $validated = $request->validate([
-            'first_name' => 'required|string|max:100',
-            'last_name'  => 'nullable|string|max:100',
-            'phone'      => 'nullable|string|max:30',
-            'email'      => 'nullable|email|max:255',
-            // A.2.5 — optional SA ID number with format + checksum validation.
-            'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-        ]);
+        // The agent may either PICK an existing contact (search) or CAPTURE a new
+        // one. A chosen contact_id short-circuits the new-contact validation.
+        $linked = $this->resolveLinkedExistingContact($request, $agencyId);
+        if ($linked !== null) {
+            $validated = [];
+            $idNumber  = null;
+            $existing  = $linked;
+            $isNew     = false;
+        } else {
+            $validated = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name'  => 'nullable|string|max:100',
+                'phone'      => 'nullable|string|max:30',
+                'email'      => 'nullable|email|max:255',
+                // A.2.5 — optional SA ID number with format + checksum validation.
+                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            ]);
 
-        $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
+            $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
-        if (empty($validated['phone']) && empty($validated['email'])) {
-            return back()
-                ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
-                ->withInput();
+            if (empty($validated['phone']) && empty($validated['email'])) {
+                return back()
+                    ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
+                    ->withInput();
+            }
+
+            $existing = $this->findExistingContact($agencyId, $validated);
+            $isNew = $existing === null;
         }
-
-        $existing = $this->findExistingContact($agencyId, $validated);
-        $isNew = $existing === null;
 
         $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber) {
             // Branch context is mandatory on Contact rows in CoreX schema.
@@ -339,24 +349,34 @@ final class EntryPointController extends Controller
             abort(404);
         }
 
-        $validated = $request->validate([
-            'first_name' => 'required|string|max:100',
-            'last_name'  => 'nullable|string|max:100',
-            'phone'      => 'nullable|string|max:30',
-            'email'      => 'nullable|email|max:255',
-            'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-        ]);
+        // Pick an existing contact (search) or capture a new one — same rule as
+        // storeFromProspecting.
+        $linked = $this->resolveLinkedExistingContact($request, $agencyId);
+        if ($linked !== null) {
+            $validated = [];
+            $idNumber  = null;
+            $existing  = $linked;
+            $isNew     = false;
+        } else {
+            $validated = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name'  => 'nullable|string|max:100',
+                'phone'      => 'nullable|string|max:30',
+                'email'      => 'nullable|email|max:255',
+                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            ]);
 
-        $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
+            $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
-        if (empty($validated['phone']) && empty($validated['email'])) {
-            return back()
-                ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
-                ->withInput();
+            if (empty($validated['phone']) && empty($validated['email'])) {
+                return back()
+                    ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
+                    ->withInput();
+            }
+
+            $existing = $this->findExistingContact($agencyId, $validated);
+            $isNew = $existing === null;
         }
-
-        $existing = $this->findExistingContact($agencyId, $validated);
-        $isNew = $existing === null;
 
         $contact = DB::transaction(function () use ($request, $agencyId, $trackedProperty, $validated, $existing, $idNumber) {
             $branchId = $request->user()->branch_id;
@@ -410,6 +430,31 @@ final class EntryPointController extends Controller
             ->with('status', $isNew
                 ? "Created new contact: {$name}"
                 : "Linked to existing contact: {$name}");
+    }
+
+    /**
+     * Resolve an EXISTING contact the agent picked via the "search existing"
+     * option. Returns null when no contact_id was posted (the new-contact path).
+     * The contact must belong to the acting agency — a stale/forged id 404s
+     * rather than silently linking the wrong tenant's contact. Agency-scoped
+     * (AgencyScope applies); the ContactScope read filter is intentionally not
+     * applied here, mirroring PropertyContactController::searchGlobal so a seller
+     * captured by another agent can still be linked (Non-Negotiable #10).
+     */
+    private function resolveLinkedExistingContact(Request $request, int $agencyId): ?Contact
+    {
+        if (!$request->filled('contact_id')) {
+            return null;
+        }
+
+        $contact = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+            ->where('agency_id', $agencyId)
+            ->whereKey((int) $request->input('contact_id'))
+            ->first();
+
+        abort_if($contact === null, 404, 'Selected contact not found in this agency.');
+
+        return $contact;
     }
 
     /**
