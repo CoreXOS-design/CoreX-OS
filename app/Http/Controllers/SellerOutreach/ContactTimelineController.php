@@ -8,6 +8,7 @@ use App\Events\SellerOutreach\OutreachOutcomeUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\SellerOutreach\SellerOutreachSend;
+use App\Services\SellerOutreach\MarketingConsentService;
 use App\Services\SellerOutreach\SellerOutreachOptOutService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -25,6 +26,7 @@ final class ContactTimelineController extends Controller
 {
     public function __construct(
         private readonly SellerOutreachOptOutService $optOutService,
+        private readonly MarketingConsentService $consent,
     ) {}
 
     /**
@@ -164,12 +166,19 @@ final class ContactTimelineController extends Controller
     }
 
     /**
-     * Record an explicit messaging opt-in (e.g. the seller replied YES to a
-     * consent request). Mirrors recordOptOut: same agency assertion, same
-     * `reason` validation, same permission gate (outreach.compose).
+     * Record an agent-captured messaging opt-in / re-consent (e.g. the seller
+     * gave verbal consent on a call or replied YES on WhatsApp). Same agency
+     * assertion, `reason` validation, and permission gate (outreach.compose) as
+     * recordOptOut. The required `reason` captures HOW consent was obtained.
      *
-     * Opt-in is a recorded FACT — it does NOT lift an opt-out and does NOT
-     * change the send gate.
+     * Converges on the SAME spine the public opt-in link uses:
+     * MarketingConsentService::optInContact re-grants the marketing + channel
+     * consents (writing the canonical contact_consent_records entry stamped with
+     * this agent), clears the opt-out triplet + the messaging_all_blocked latch,
+     * lifts the identifier-level marketing_suppressions, reopens the send gate,
+     * AND stamps the opt-in marker (who / when / reason). One consent record —
+     * not a parallel agent-only fact. This is the verbal-consent re-enable path:
+     * an agent with lawful consent can lift a prior opt-out.
      */
     public function recordOptIn(Request $request, Contact $contact)
     {
@@ -179,9 +188,18 @@ final class ContactTimelineController extends Controller
             'reason' => 'required|string|max:500',
         ]);
 
-        $contact->recordOptIn($validated['reason'], (int) Auth::id());
+        // Capture pre-state so the confirmation message reflects what happened.
+        $wasOptedOut = $contact->messaging_opt_out_at !== null;
 
-        return back()->with('status', 'Opt-in recorded. The seller has confirmed consent to receive messages.');
+        $this->consent->optInContact(
+            contact:     $contact,
+            reason:      $validated['reason'],
+            actorUserId: (int) Auth::id(),
+        );
+
+        return back()->with('status', $wasOptedOut
+            ? 'Marketing re-enabled — the opt-out was lifted, the suppression cleared, and the send gate reopened. Consent recorded.'
+            : 'Opt-in recorded. The seller has confirmed consent to receive messages.');
     }
 
     public function outcomeOptions(): array

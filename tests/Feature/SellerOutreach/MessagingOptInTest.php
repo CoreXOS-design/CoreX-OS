@@ -6,6 +6,7 @@ namespace Tests\Feature\SellerOutreach;
 
 use App\Models\Contact;
 use App\Models\User;
+use App\Services\SellerOutreach\MarketingConsentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -91,6 +92,55 @@ final class MessagingOptInTest extends TestCase
         $this->assertTrue($contact->isOptedIn(), 'opt-in recorded');
         $this->assertNotNull($contact->messaging_opt_out_at, 'opt-out untouched by opt-in');
         $this->assertSame('STOP via WhatsApp', $contact->messaging_opt_out_reason);
+    }
+
+    public function test_agent_opt_in_re_enables_a_marketing_opted_out_contact_via_the_consent_spine(): void
+    {
+        // The verbal-consent gap: a contact previously opted out, then later
+        // gives explicit consent on a call. The agent's opt-in must fully
+        // re-enable (not just record a fact) through MarketingConsentService.
+        [$agencyId, $userId] = $this->seedAgency();
+        $contact = $this->actingAs(User::find($userId))->seedContact($agencyId);
+        $svc = app(MarketingConsentService::class);
+
+        // Fully opt the contact out (opt-out triplet + all-blocked latch +
+        // channel booleans + identifier marketing suppression).
+        $svc->optOutContact(
+            contact: $contact, reason: 'STOP via WhatsApp', source: 'agent',
+            actorUserId: $userId, blockAll: true,
+        );
+        $contact->refresh();
+        $this->assertNotNull($contact->messaging_opt_out_at, 'pre: opted out');
+        $this->assertTrue((bool) $contact->messaging_all_blocked, 'pre: all blocked');
+        $this->assertFalse($contact->canSendVia('whatsapp'), 'pre: send gate closed');
+        $this->assertTrue($svc->isContactSuppressed($contact), 'pre: identifier suppressed');
+
+        // Agent records the verbal consent via the timeline opt-in route.
+        $this->actingAs(User::find($userId))
+            ->from(route('seller-outreach.composer.timeline', $contact))
+            ->post(route('seller-outreach.composer.opt-in', $contact), [
+                'reason' => 'Seller gave verbal consent by phone on 17 Jun',
+            ])
+            ->assertStatus(302)
+            ->assertSessionHas('status');
+
+        $contact->refresh();
+        // Opt-out fully lifted + gate reopened.
+        $this->assertNull($contact->messaging_opt_out_at, 'opt-out lifted');
+        $this->assertFalse((bool) $contact->messaging_all_blocked, 'all-blocked latch cleared');
+        $this->assertFalse($svc->isContactSuppressed($contact), 'suppression lifted');
+        $this->assertTrue($contact->canSendVia('whatsapp'), 'send gate reopened');
+        // Consent landed on the spine, stamped with the agent + the reason/method.
+        $this->assertTrue($contact->isOptedIn());
+        $this->assertSame('Seller gave verbal consent by phone on 17 Jun', $contact->messaging_opt_in_reason);
+        $this->assertSame($userId, (int) $contact->messaging_opt_in_recorded_by_user_id);
+        $this->assertTrue(
+            $contact->consentRecords()
+                ->where('consent_type', MarketingConsentService::CONSENT_MARKETING)
+                ->whereNull('revoked_at')
+                ->exists(),
+            'an active marketing consent record was written to the spine'
+        );
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
