@@ -51,6 +51,21 @@ return Application::configure(basePath: dirname(__DIR__))
             'communications/wa/ingest',
             'communications/wa/contact-check',
             'communications/wa/ping',
+            // ── Public, unauthenticated seller-outreach recipient actions (AT-49/AT-50).
+            // The per-send 48-char opt_out_token (≈2^286 entropy) IS the credential;
+            // these anonymous pages have NO authenticated session to protect, so CSRF
+            // adds no security here. It DOES, however, break the confirm POST: a
+            // WhatsApp/email in-app webview that drops the session cookie — or the
+            // 120-min SESSION_LIFETIME lapsing between page render and submit — raises
+            // TokenMismatchException, which the handler below turns into a "session
+            // expired — please sign in" redirect to /dashboard. To a public recipient
+            // that reads as "this link has expired". Excepting these token-gated,
+            // idempotent endpoints makes the links genuinely long-lived / stateless
+            // (valid indefinitely, no cookie required) without weakening anything —
+            // a forger would already need the victim's unique unguessable token.
+            'outreach/opt-out/*',
+            'outreach/opt-in/*',
+            'unsubscribe/*',
         ]);
 
     })
