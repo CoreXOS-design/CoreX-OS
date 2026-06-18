@@ -220,7 +220,7 @@
                         <p class="text-xs mb-2" style="color:var(--text-muted);">
                             When a contact is a party on a deal with one of these statuses (and it isn't registered yet), the self-service opt-out keeps transactional messages on until the deal concludes — only marketing can be switched off. Leave all unticked to use the default (<strong>Active</strong>).
                         </p>
-                        @php($selectedLive = old('outreach_live_deal_statuses', $agency->liveDealStatuses()))
+                        @php $selectedLive = old('outreach_live_deal_statuses', $agency->liveDealStatuses()); @endphp
                         <input type="hidden" name="outreach_live_deal_statuses_present" value="1">
                         <div class="flex flex-wrap gap-3">
                             @foreach(['active'=>'Active','on_hold'=>'On hold','completed'=>'Completed','cancelled'=>'Cancelled'] as $val => $lbl)

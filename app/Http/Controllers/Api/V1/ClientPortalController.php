@@ -442,6 +442,64 @@ class ClientPortalController extends Controller
         return response()->json(['testimonial' => $this->shapeTestimonial($testimonial)], 201);
     }
 
+    /**
+     * GET /api/v1/client/consent
+     * The signed-in client's own consent decisions for every type, so the app
+     * can show what they've agreed to and what they've refused.
+     * Spec: .ai/specs/contact-consent.md §6.
+     */
+    public function consentIndex(Request $request): JsonResponse
+    {
+        $contact = $this->resolveContact($request);
+        if (!$contact instanceof Contact) {
+            return $contact;
+        }
+
+        return response()->json([
+            'agency_id' => $contact->agency_id,
+            'consents'  => $contact->consentStates(),
+        ]);
+    }
+
+    /**
+     * POST /api/v1/client/consent
+     * The client sets their own decision for one consent type.
+     * Body: { type: <one of the 7>, decision: given|declined|clear }
+     *
+     * A channel decline immediately flips the matching opt_out_* flag (via the
+     * ContactConsentRecord observer), so the agency stops contacting them that
+     * way the moment they tap "No". Written with source=client_app and no User
+     * actor — the honest record that the client set it themselves.
+     */
+    public function consentUpdate(Request $request): JsonResponse
+    {
+        $contact = $this->resolveContact($request);
+        if (!$contact instanceof Contact) {
+            return $contact;
+        }
+
+        $data = $request->validate([
+            'type'     => ['required', 'in:' . implode(',', array_keys(Contact::CONSENT_TYPES))],
+            'decision' => ['required', 'in:given,declined,clear'],
+        ]);
+
+        if ($data['decision'] === 'clear') {
+            $contact->clearConsent($data['type'], null, 'Cleared by client');
+        } else {
+            $contact->setConsent($data['type'], $data['decision'], 'electronic', null, 'client_app');
+        }
+
+        $this->service->log($request->user(), $contact->agency_id, $contact->id, 'consent_updated', $request, [
+            'consent_type' => $data['type'],
+            'decision'     => $data['decision'],
+        ]);
+
+        return response()->json([
+            'agency_id' => $contact->agency_id,
+            'consents'  => $contact->consentStates(),
+        ]);
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────
