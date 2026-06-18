@@ -109,6 +109,7 @@ class AnalysisDataService
                 $inPoolComps,
                 $presentation->property_address,
                 (bool) ($presentation->agency?->ss_show_complex_section ?? true),
+                $presentation->property?->complex_name,
             ),
             'cma_valuation'      => $cmaValuation,
             'cma_computed'       => $cmaComputed,
@@ -203,12 +204,16 @@ class AnalysisDataService
     // ── 3. COMPARABLE SALES ──────────────────────────────────────────────
 
     /**
-     * @param  bool  $separateComplex  When true, sectional ("complex") sales get
+     * @param  bool  $separateComplex  When true, same-scheme ("complex") sales get
      *   their own group; when false (agency suppressed the section) they fold
      *   back into the vicinity group so they are never lost. Baked in at
      *   compile so it freezes into snapshot_payload at publish.
+     * @param  ?string  $subjectScheme  The subject's scheme name (Property.complex_name).
+     *   Complex membership is SAME-SCHEME ONLY: a comp lands in the complex group
+     *   iff its scheme_name matches this (case-insensitive, trimmed). A sectional
+     *   comp from a DIFFERENT scheme is a vicinity sale, never a complex sale.
      */
-    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null, bool $separateComplex = true): array
+    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null, bool $separateComplex = true, ?string $subjectScheme = null): array
     {
         $groups = [
             'vicinity'     => [],
@@ -270,33 +275,32 @@ class AnalysisDataService
                 continue;
             }
 
-            // Sectional ("complex") sales get their own group so the
-            // presentation can show "Recent sales in {complex}" separately
-            // from the wider area/suburb vicinity sales. Full-title vicinity
-            // stays in 'vicinity'. When the agency suppresses the dedicated
-            // section ($separateComplex=false) sectional sales fold back into
-            // 'vicinity' — never dropped.
+            // Base group by source. cma_comps / street_sales keep their own
+            // distinct groups. EVERY other source — full-title 'vicinity_sales',
+            // the legacy 'vicinity_sales_sectional', the source-agnostic
+            // MicSnapshotHydrator 'mic_snapshot', and anything unknown — starts
+            // in 'vicinity'. The complex promotion below is the ONLY path into
+            // the dedicated section, and it is gated on a scheme match, so the
+            // comp's source no longer decides complex membership.
             $key = match ($source) {
-                'vicinity_sales_sectional' => $separateComplex ? 'complex' : 'vicinity',
-                'vicinity_sales'           => 'vicinity',
-                'cma_comps'                => 'cma_comps',
-                'street_sales'             => 'street_sales',
-                default                    => 'vicinity',
+                'cma_comps'    => 'cma_comps',
+                'street_sales' => 'street_sales',
+                default        => 'vicinity',
             };
 
-            // Source-agnostic sectional routing. Sectional comps now arrive
-            // via MicSnapshotHydrator tagged source='mic_snapshot' (→ 'vicinity'
-            // above) rather than the legacy 'vicinity_sales_sectional', so the
-            // source switch alone leaves them in vicinity and the dedicated
-            // complex section never populates. Detect a sectional comp by the
-            // same data-presence signal CompLabel Fix A and the type-gate use —
-            // BOTH scheme_name AND a section token present — and route it to
-            // 'complex'. Applied ONLY when the comp would otherwise land in
-            // 'vicinity', so the distinct cma_comps / street_sales groups are
-            // never disturbed, and only when the agency hasn't suppressed the
-            // section ($separateComplex). Freehold comps (no scheme/section)
-            // are untouched and stay in 'vicinity'.
-            if ($key === 'vicinity' && $separateComplex && $this->isSectionalComp($raw)) {
+            // SS complex routing — SAME-SCHEME ONLY. The dedicated "Recent sales
+            // in {scheme}" section is for sales in the SUBJECT'S OWN scheme, not
+            // for sectional sales in general. A comp is promoted to 'complex' iff
+            // its scheme_name matches the subject's scheme (case-insensitive,
+            // trimmed). A sectional comp from a DIFFERENT scheme (e.g. Loscona or
+            // Suntide Cabanas when the subject is Pumula) stays in 'vicinity' —
+            // it is an area sale, not a same-building comp. Freehold comps (no
+            // scheme) and schemeless subjects never match, so the complex group
+            // is empty for them and the section does not render. Gated by the
+            // agency toggle; when suppressed ($separateComplex=false), even
+            // same-scheme comps stay in 'vicinity' so they are never dropped.
+            if ($key === 'vicinity' && $separateComplex
+                && $this->compMatchesSubjectScheme($raw, $subjectScheme)) {
                 $key = 'complex';
             }
 
@@ -338,28 +342,36 @@ class AnalysisDataService
     }
 
     /**
-     * A comp is sectional when it carries BOTH a scheme name AND a section
-     * token — the same data-presence signal CompLabel::build() uses to render
-     * "Unit {section}, {scheme}" and the type-gate uses at L163. Section number
-     * may appear under either spelling depending on the parser (section_number
-     * for MicSnapshotHydrator / CMA-Info; section_no for the doc_extract family).
+     * True when a comp belongs in the SUBJECT'S complex group: the comp's
+     * scheme_name matches the subject's scheme (case-insensitive, trimmed).
+     *
+     * This is the SAME-SCHEME rule — the dedicated complex section shows only
+     * sales in the subject's own scheme. A sectional comp from a different
+     * scheme is a vicinity sale, not a complex sale. Returns false when EITHER
+     * side has no scheme, so freehold comps and schemeless subjects never
+     * populate the complex group (the section then does not render).
+     *
+     * The subject's scheme comes from Property.complex_name; the comp's from
+     * raw_row_json['scheme_name'] (sourced from market_report_comp_rows.
+     * scheme_name). Comps whose scheme was lost at capture (scheme_name NULL —
+     * the known parser gap) will not match until re-imported with the scheme
+     * populated; they remain honest vicinity sales in the meantime.
      *
      * @param  array<string, mixed>  $raw  decoded raw_row_json
      */
-    private function isSectionalComp(array $raw): bool
+    private function compMatchesSubjectScheme(array $raw, ?string $subjectScheme): bool
     {
-        $scheme = isset($raw['scheme_name']) ? trim((string) $raw['scheme_name']) : '';
-        if ($scheme === '') {
+        $subject = $subjectScheme !== null ? trim($subjectScheme) : '';
+        if ($subject === '') {
             return false;
         }
 
-        foreach (['section_number', 'section_no'] as $k) {
-            if (isset($raw[$k]) && trim((string) $raw[$k]) !== '') {
-                return true;
-            }
+        $compScheme = isset($raw['scheme_name']) ? trim((string) $raw['scheme_name']) : '';
+        if ($compScheme === '') {
+            return false;
         }
 
-        return false;
+        return mb_strtolower($compScheme) === mb_strtolower($subject);
     }
 
     /**

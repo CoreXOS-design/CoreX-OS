@@ -171,39 +171,114 @@
                 </div>
             </div>
 
-            {{-- Address --}}
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="sm:col-span-1">
-                    <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Street number</label>
-                    <input type="text" x-model="s1.street_number" placeholder="e.g. 42"
-                           class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                           style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                </div>
-                <div class="sm:col-span-2">
-                    <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Street name</label>
-                    <input type="text" x-model="s1.street_name" placeholder="e.g. Beach Road"
-                           class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                           style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                </div>
-            </div>
+            {{-- Internal Address — same structured field set as the property
+                 show-page Internal Address modal, rendered inline here. Bound to
+                 s1.* so submitStep1 ships every part. The p24 picker still gates
+                 saving: no save unless Property24 recognises the suburb. --}}
+            <div class="space-y-5">
 
-            {{-- Property24-backed cascading Province → City → Suburb.
-                 Type to filter; can only save if all three are picked from
-                 the list. See _partials/p24-location-picker.blade.php. --}}
-            <div x-ref="p24Picker">
-                @include('corex._partials.p24-location-picker', [
-                    'fieldPrefix'        => 'p24',
-                    'initialProvinceId'  => 0,
-                    'initialCityId'      => 0,
-                    'initialSuburbId'    => 0,
-                    'initialProvinceName'=> '',
-                    'initialCityName'    => '',
-                    'initialSuburbName'  => '',
-                    'denormaliseNames'   => false,
-                ])
-            </div>
-            <div class="text-[11px]" style="color:var(--text-muted);">
-                Start typing a province, city, or suburb — pick from the list. You can't save unless Property24 recognises the suburb.
+                {{-- Complex or Estate --}}
+                <div>
+                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Complex or Estate</div>
+                    <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Unit Number</label>
+                                <input type="text" x-model="s1.unit_number" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Floor Number</label>
+                                <input type="text" x-model="s1.floor_number" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Unit, Section or Block</label>
+                            <input type="text" x-model="s1.unit_section_block" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Complex or Estate</label>
+                            <input type="text" x-model="s1.complex_name" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Street --}}
+                <div>
+                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Street</div>
+                    <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Number</label>
+                            <input type="text" x-model="s1.street_number" placeholder="e.g. 1046-2" autocomplete="off" class="w-40 rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Name</label>
+                            <input type="text" x-model="s1.street_name" placeholder="e.g. Clarendon Road" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Province / City / Suburb — Property24-backed typeahead.
+                     User must pick a suburb P24 recognises; can't save free-text.
+                     See _partials/p24-location-picker.blade.php. --}}
+                <div x-ref="p24Picker">
+                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Province / City / Suburb</div>
+                    <div class="p-4 rounded-b-md" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                        @include('corex._partials.p24-location-picker', [
+                            'fieldPrefix'        => 'p24',
+                            'initialProvinceId'  => 0,
+                            'initialCityId'      => 0,
+                            'initialSuburbId'    => 0,
+                            'initialProvinceName'=> '',
+                            'initialCityName'    => '',
+                            'initialSuburbName'  => '',
+                            'denormaliseNames'   => false,
+                        ])
+                        <div class="text-[11px] mt-2" style="color:var(--text-muted);">
+                            Start typing a province, city, or suburb — pick from the list. You can't save unless Property24 recognises the suburb.
+                        </div>
+                    </div>
+                </div>
+
+                {{-- More Info --}}
+                <div>
+                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">More Info</div>
+                    <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Property / Erf Number</label>
+                                <input type="text" x-model="s1.property_number" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Stand Number</label>
+                                <input type="text" x-model="s1.stand_number" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Zone Type</label>
+                                <select x-model="s1.zone_type" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="">-- None --</option>
+                                    @foreach(['Residential','Commercial','Industrial','Agricultural','Mixed Use'] as $zt)
+                                    <option value="{{ $zt }}">{{ $zt }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
+                                <input type="text" x-model="s1.district" placeholder="e.g. Ray Nkonyeni" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
+                            <input type="text" x-model="s1.region" placeholder="KZN South Coast" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Internal Note</label>
+                            <textarea x-model="s1.address_internal_note" rows="2" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             {{-- Beds / Baths / Garages as steppers --}}
@@ -539,7 +614,10 @@ function propertyWizard(config) {
         // Step data — agent_id defaults to current user; the server enforces who can change it.
         s1: { listing_type: 'sale', title: '', property_type: '', suburb: '', city: '', province: '',
               p24_province_id: 0, p24_city_id: 0, p24_suburb_id: 0,
-              street_number: '', street_name: '', price: null, beds: 0, baths: 0, garages: 0 },
+              street_number: '', street_name: '', price: null, beds: 0, baths: 0, garages: 0,
+              unit_number: '', floor_number: '', unit_section_block: '', complex_name: '',
+              property_number: '', stand_number: '', zone_type: '', district: '', region: '',
+              address_internal_note: '' },
         s3: { description: '', mandate_type: '', branch_id: '{{ auth()->user()->effectiveBranchId() ?? '' }}', agent_id: '{{ auth()->id() }}', size_m2: null, erf_size_m2: null, deposit_amount: null, lease_start_date: '', lease_end_date: '', rental_amount: null },
 
         init() {

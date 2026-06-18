@@ -344,8 +344,11 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
 
             $scheme  = null;
             $address = null;
-            // Find the LAST scheme-style line in the lookback context.
-            if (preg_match_all('/([A-Z][A-Z0-9 \']{2,30}),\s+(\d{1,4}\s+[A-Z][A-Z0-9 \']{2,40})/', $context, $am, PREG_SET_ORDER)) {
+            // Find the LAST scheme-style line in the lookback context. Street
+            // number is OPTIONAL — a scheme on a numberless road ("PUMULA, DUKE
+            // ROAD") must bind its scheme too; the old mandatory-\d pattern left
+            // such out-of-scheme comps scheme-less.
+            if (preg_match_all('/([A-Z][A-Z0-9 \']{2,30}),\s+((?:\d{1,4}\s+)?[A-Z][A-Z0-9 \']{2,40})/', $context, $am, PREG_SET_ORDER)) {
                 $last = end($am);
                 $scheme  = trim($last[1]);
                 $address = trim($last[2]);
@@ -419,8 +422,10 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
             )) {
                 $listPrice = $this->parsePriceBounded($m['lp'], 'sold.list_price', $m[0]);
                 $salePrice = $this->parsePriceBounded($m['sp'], 'sold.sale_price', $m[0]);
+                [$scheme, $street] = $this->resolveDistanceRowScheme($body, $anchors[0][$i][1], $start);
                 $rows[] = [
-                    'address'               => isset($m['addr']) ? trim($m['addr']) : null,
+                    'scheme_name'           => $scheme,
+                    'address'               => $street ?? (isset($m['addr']) ? trim($m['addr']) : null),
                     'section_number'        => $m['sec'],
                     'property_type'         => 'Residence',
                     'extent_m2'             => (int) $m['ext'],
@@ -468,8 +473,10 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
                 $m
             )) {
                 $listPrice = $this->parsePriceBounded($m['lp'], 'active.list_price', $m[0]);
+                [$scheme, $street] = $this->resolveDistanceRowScheme($body, $anchors[0][$i][1], $start);
                 $rows[] = [
-                    'address'               => isset($m['addr']) ? trim($m['addr']) : null,
+                    'scheme_name'           => $scheme,
+                    'address'               => $street ?? (isset($m['addr']) ? trim($m['addr']) : null),
                     'section_number'        => $m['sec'],
                     'property_type'         => 'Residence',
                     'extent_m2'             => (int) $m['ext'],
@@ -483,6 +490,45 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
         }
 
         return $rows;
+    }
+
+    /**
+     * Resolve [scheme_name, street] for a distance-anchored SOLD / FOR SALE row.
+     *
+     * Each row's identity is "SCHEME, <opt number> STREET, SUBURB", printed
+     * EITHER inline right after the "<dist> m" anchor ("327 m  COLONIAL SANDS,
+     * 21 LAGOON DRIVE…") OR — when the scheme wraps — on the line(s) immediately
+     * BEFORE the anchor ("ITHACA, 2 WILKIE ROAD\n 565 m  7  Residence…"). The
+     * old row regex stuffed only whatever its inline `addr` group caught into
+     * `address` (lossy — it dropped leading letters, "GOLDEN"→"OLDEN", and
+     * missed wrapped schemes entirely, "ITHACA"→"") and never set scheme_name.
+     *
+     * We read the scheme off the FULL body text around the anchor (where the
+     * spelling is intact): first the slice immediately AFTER the anchor (inline),
+     * then a short window BEFORE it (wrapped). Street number stays OPTIONAL so a
+     * numberless road ("DUKE ROAD") still binds.
+     *
+     * @return array{0: ?string, 1: ?string}  [scheme, street]  (both null when nothing parseable)
+     */
+    private function resolveDistanceRowScheme(string $body, int $anchorStart, int $anchorEnd): array
+    {
+        $line = '([A-Z][A-Z0-9 \'\-]{2,40}?),\s+((?:\d{1,4}\s+)?[A-Z][A-Z0-9 \']{2,40})';
+
+        // (a) Inline — the scheme begins right where the segment does.
+        $after = substr($body, $anchorEnd, 120);
+        if (preg_match('/^\s*' . $line . '/u', $after, $m)) {
+            return [trim($m[1]), trim($m[2])];
+        }
+
+        // (b) Wrapped — the scheme sits just before the anchor.
+        $from   = max(0, $anchorStart - 160);
+        $before = substr($body, $from, $anchorStart - $from);
+        if (preg_match_all('/' . $line . '/u', $before, $am, PREG_SET_ORDER)) {
+            $last = end($am);
+            return [trim($last[1]), trim($last[2])];
+        }
+
+        return [null, null];
     }
 
     /**

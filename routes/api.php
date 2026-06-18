@@ -152,6 +152,11 @@ Route::prefix('v1/client')->middleware(['auth:sanctum', 'client.ability'])->grou
 
     Route::get('/properties/{property}',  [ClientPortalController::class, 'propertyShow'])->name('client.properties.show');
 
+    // Consent self-service — the client views + sets their own POPIA/CPA consent
+    // (the same ledger the agent sees on the Contact page). Spec: .ai/specs/contact-consent.md §6.
+    Route::get('/consent',  [ClientPortalController::class, 'consentIndex'])->name('client.consent.index');
+    Route::post('/consent', [ClientPortalController::class, 'consentUpdate'])->name('client.consent.update');
+
     // Testimonials — the client leaves feedback about their agent from the app.
     // Captured unpublished; syncs to the agent's Contact tab + notifies them.
     // Spec: .ai/specs/testimonials.md §13.

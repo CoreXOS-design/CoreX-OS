@@ -15,13 +15,16 @@ class ContactConsentRecordObserver
     {
         $this->recompute($record->contact_id);
 
-        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md.
+        // `channel` carries the consent_type; `granted` is true only for an
+        // active 'given' decision (a 'declined' or revoked record is not granted).
         $contact = Contact::withoutGlobalScopes()->find($record->contact_id);
         if ($contact) {
             event(new \App\Events\Contact\ContactConsentChanged(
                 contact: $contact,
-                channel: (string) ($record->channel ?? 'unknown'),
-                granted: (bool) ($record->granted ?? false),
+                channel: (string) $record->consent_type,
+                granted: $record->revoked_at === null
+                    && $record->decision === ContactConsentRecord::DECISION_GIVEN,
                 actorUserId: \Illuminate\Support\Facades\Auth::id(),
             ));
         }
