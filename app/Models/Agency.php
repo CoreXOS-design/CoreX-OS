@@ -106,6 +106,9 @@ class Agency extends Model
         // Communication Archive ingestion filter (AT-43).
         'communication_ingest_drop_noreply',
         'communication_ingest_blocklist_domains',
+        // Provisional outbound reconciliation knobs (AT-59).
+        'communication_reconcile_window_minutes',
+        'communication_provisional_prune_hours',
         // MIC Phase B2 — per-agency AI monthly budget cap.
         'ai_monthly_budget_zar',
         'ai_budget_warning_pct',
@@ -231,6 +234,8 @@ class Agency extends Model
         // Communication Archive ingestion filter (AT-43) — null = inherit config default.
         'communication_ingest_drop_noreply'      => 'boolean',
         'communication_ingest_blocklist_domains' => 'array',
+        'communication_reconcile_window_minutes' => 'integer',
+        'communication_provisional_prune_hours'  => 'integer',
         // MIC Phase B2 — AI budget casts.
         'ai_monthly_budget_zar'          => 'decimal:2',
         'ai_budget_warning_pct'          => 'integer',
@@ -635,6 +640,32 @@ class Agency extends Model
         $statuses = array_values(array_filter(array_map('strval', $statuses), fn ($s) => $s !== ''));
 
         return $statuses !== [] ? $statuses : ['active'];
+    }
+
+    /**
+     * AT-59 — ± window (minutes) for the time-based fallback match between an
+     * ingested outbound message and a provisional click. Agency override, else
+     * the config default. Always a positive integer.
+     */
+    public function reconcileWindowMinutes(): int
+    {
+        $minutes = (int) ($this->communication_reconcile_window_minutes
+            ?? config('communications.reconcile_window_minutes', 2880));
+
+        return max(1, $minutes);
+    }
+
+    /**
+     * AT-59 — age (hours) after which an unreconciled provisional comm row is
+     * soft-purged by communications:prune-provisional. Agency override, else the
+     * config default. Always a positive integer.
+     */
+    public function provisionalPruneHours(): int
+    {
+        $hours = (int) ($this->communication_provisional_prune_hours
+            ?? config('communications.provisional_prune_hours', 168));
+
+        return max(1, $hours);
     }
 
     // ── Payroll ──

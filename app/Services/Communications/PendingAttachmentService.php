@@ -57,6 +57,9 @@ class PendingAttachmentService
                 'confidence'       => 100,
                 'confirmed_at'     => now(),
             ]);
+
+            // AT-59: an ingested comm for the contact advances last_contacted_at.
+            $contact->touchLastContacted($comm->occurred_at);
         }
 
         $pending->update(['purged_at' => now(), 'purged_reason' => 'attached_to_archive']);

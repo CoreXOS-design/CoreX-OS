@@ -111,7 +111,7 @@ class ContactController extends Controller
             ]);
         }
 
-        $contact->load(['type', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags']);
+        $contact->load(['type', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications']);
 
         // Agents in this contact's agency — for the "agent this testimonial is
         // about" selector on the Notes & Testimonials tab.
@@ -306,7 +306,13 @@ class ContactController extends Controller
                 ->get();
         }
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms'));
+        // AT-59 — tile counts DERIVE from the communications archive (outbound,
+        // provisional + confirmed), not the legacy scalar columns. The relation
+        // is eager-loaded above so these are computed in memory (no N+1).
+        $waSent    = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP);
+        $emailSent = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_EMAIL);
+
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'waSent', 'emailSent'));
     }
 
     public function checkDuplicate(Request $request)
@@ -594,20 +600,37 @@ class ContactController extends Controller
         return back()->with('success', $message);
     }
 
-    public function incrementChannel(Request $request, Contact $contact)
+    /**
+     * Record an outbound send from the contact comms tile (AT-59).
+     *
+     * Instead of a blind scalar bump, this creates a PROVISIONAL outbound
+     * communication in the archive — instant tile feedback that the later
+     * mailbox/WA ingestion reconciles in place (no double count). The returned
+     * count is DERIVED from the archive, so the tile always reflects real sends.
+     */
+    public function incrementChannel(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger)
     {
         $data = $request->validate([
             'channel' => 'required|in:whatsapp,email',
+            'subject' => 'nullable|string|max:1000',
+            'body'    => 'nullable|string|max:20000',
         ]);
 
-        $field = $data['channel'] . '_count';
-        $contact->increment($field);
-        $contact->update(['last_contacted_at' => now()]);
+        $logger->log(
+            $contact,
+            $data['channel'],
+            $data['subject'] ?? null,
+            $data['body'] ?? null,
+            auth()->id()
+        );
+
+        // The logger advanced last_contacted_at on this same instance.
+        $last = $contact->last_contacted_at ?? now();
 
         return response()->json([
-            'count'            => $contact->fresh()->$field,
-            'last_contacted'   => now()->format('d M Y H:i'),
-            'last_contacted_relative' => now()->diffForHumans(),
+            'count'                   => $contact->outboundCommCount($data['channel']),
+            'last_contacted'          => $last->format('d M Y H:i'),
+            'last_contacted_relative' => $last->diffForHumans(),
         ]);
     }
 

@@ -21,6 +21,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Provisional outbound reconciliation (AT-59)
+    |--------------------------------------------------------------------------
+    | DEFAULTS only — agencies override via the
+    | communication_reconcile_window_minutes and
+    | communication_provisional_prune_hours columns (Agency::reconcileWindowMinutes()
+    | / Agency::provisionalPruneHours() merge the override over these).
+    |
+    | reconcile_window_minutes — ± window for the time-based fallback match
+    |   between an ingested outbound message and a provisional click when their
+    |   text hashes differ (the agent edited the message before sending). Exact
+    |   text-hash matches ignore the window. Default 48h.
+    | provisional_prune_hours  — age after which an unreconciled provisional row
+    |   is soft-purged by communications:prune-provisional (orphan from an
+    |   edited-before-send message that never matched). MUST exceed the reconcile
+    |   window. Default 7 days.
+    */
+    'reconcile_window_minutes' => (int) env('COMMUNICATIONS_RECONCILE_WINDOW_MINUTES', 2880),
+    'provisional_prune_hours'  => (int) env('COMMUNICATIONS_PROVISIONAL_PRUNE_HOURS', 168),
+
+    /*
+    |--------------------------------------------------------------------------
     | IMAP polling timeouts (AT-40)
     |--------------------------------------------------------------------------
     | imap_timeout_seconds      — connect + per-read socket timeout. Applied to

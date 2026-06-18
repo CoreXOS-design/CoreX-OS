@@ -302,6 +302,8 @@ CREATE TABLE `agencies` (
   `website_branch_order_mode` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'alphabetical',
   `communication_ingest_drop_noreply` tinyint(1) DEFAULT NULL,
   `communication_ingest_blocklist_domains` json DEFAULT NULL,
+  `communication_reconcile_window_minutes` int unsigned DEFAULT NULL,
+  `communication_provisional_prune_hours` int unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `agencies_slug_unique` (`slug`),
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
@@ -2537,12 +2539,14 @@ CREATE TABLE `communications` (
   `participant_identifiers` json DEFAULT NULL,
   `occurred_at` datetime NOT NULL,
   `captured_at` datetime NOT NULL,
+  `provisional_at` datetime DEFAULT NULL,
   `subject` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `body_text` mediumtext COLLATE utf8mb4_unicode_ci,
   `body_preview` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `raw_path` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `has_attachments` tinyint(1) NOT NULL DEFAULT '0',
   `content_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `text_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -2555,6 +2559,8 @@ CREATE TABLE `communications` (
   KEY `comm_occurred_idx` (`occurred_at`),
   KEY `comm_agency_channel_idx` (`agency_id`,`channel`),
   KEY `comm_hash_idx` (`content_hash`),
+  KEY `comm_provisional_idx` (`agency_id`,`channel`,`provisional_at`),
+  KEY `comm_texthash_idx` (`text_hash`),
   CONSTRAINT `comm_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -2996,6 +3002,8 @@ CREATE TABLE `contacts` (
   `contact_type_id` bigint unsigned DEFAULT NULL,
   `contact_source_id` bigint unsigned DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `agent_id` bigint unsigned DEFAULT NULL,
+  `second_agent_id` bigint unsigned DEFAULT NULL,
   `client_user_id` bigint unsigned DEFAULT NULL,
   `first_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -3060,13 +3068,17 @@ CREATE TABLE `contacts` (
   KEY `contacts_messaging_opt_out_at_idx` (`messaging_opt_out_at`),
   KEY `contacts_msg_optin_recorded_by_fk` (`messaging_opt_in_recorded_by_user_id`),
   KEY `contacts_messaging_opted_in_at_idx` (`messaging_opted_in_at`),
+  KEY `contacts_agent_id_foreign` (`agent_id`),
+  KEY `contacts_second_agent_id_foreign` (`second_agent_id`),
+  CONSTRAINT `contacts_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `contacts_client_user_id_foreign` FOREIGN KEY (`client_user_id`) REFERENCES `client_users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_contact_source_id_foreign` FOREIGN KEY (`contact_source_id`) REFERENCES `contact_sources` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_contact_type_id_foreign` FOREIGN KEY (`contact_type_id`) REFERENCES `contact_types` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_msg_optin_recorded_by_fk` FOREIGN KEY (`messaging_opt_in_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `contacts_msg_optout_recorded_by_fk` FOREIGN KEY (`messaging_opt_out_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `contacts_msg_optout_recorded_by_fk` FOREIGN KEY (`messaging_opt_out_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contacts_second_agent_id_foreign` FOREIGN KEY (`second_agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `daily_activities`;
@@ -6173,7 +6185,7 @@ CREATE TABLE `oversight_nudges` (
   `from_user_id` bigint unsigned NOT NULL,
   `to_user_id` bigint unsigned NOT NULL,
   `subject_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `subject_id` bigint unsigned DEFAULT NULL,
+  `subject_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `category` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `message` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `sent_at` timestamp NULL DEFAULT NULL,
@@ -11866,3 +11878,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_16_19
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (827,'2026_06_16_220000_add_outreach_live_deal_statuses_to_agencies',151);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (828,'2026_06_17_090000_add_messaging_all_blocked_to_contacts',152);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (829,'2026_06_17_160000_add_ss_show_complex_section_to_agencies',153);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (830,'2026_06_17_000001_change_oversight_nudges_subject_id_to_string',154);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (831,'2026_06_17_120000_add_agent_assignment_to_contacts_table',154);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (832,'2026_06_29_000001_add_provisional_to_communications_table',154);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (833,'2026_06_29_000002_add_comms_reconcile_settings_to_agencies',154);

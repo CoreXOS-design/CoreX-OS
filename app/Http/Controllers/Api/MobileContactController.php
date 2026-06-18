@@ -38,6 +38,13 @@ class MobileContactController extends Controller
         );
 
         $query = Contact::with(['type'])
+            // AT-59: derive the WhatsApp send count from the archive (eager
+            // count alias, no N+1) instead of the legacy scalar column.
+            ->withCount(['communications as wa_outbound_count' => function ($q) {
+                $q->where('channel', \App\Models\Communications\Communication::CHANNEL_WHATSAPP)
+                  ->where('direction', \App\Models\Communications\Communication::DIRECTION_OUTBOUND)
+                  ->whereNull('communications.purged_at');
+            }])
             ->when($agentFilter !== null, fn ($q) => $q->where('created_by_user_id', $agentFilter))
             ->orderBy('last_name')->orderBy('first_name');
 
@@ -140,12 +147,20 @@ class MobileContactController extends Controller
 
     // POST /api/mobile/contacts/{contact}/whatsapp
     // Records the touch and returns a wa.me link the app can launch.
-    public function whatsapp(Request $request, Contact $contact): JsonResponse
+    public function whatsapp(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger): JsonResponse
     {
         $this->authorize($request->user(), $contact);
 
-        $contact->increment('whatsapp_count');
-        $contact->update(['last_contacted_at' => now()]);
+        // AT-59: record a PROVISIONAL outbound WhatsApp communication in the
+        // archive (reconciled by WA capture later), not a blind scalar bump.
+        // The logger advances last_contacted_at on this same instance.
+        $logger->log(
+            $contact,
+            \App\Models\Communications\Communication::CHANNEL_WHATSAPP,
+            null,
+            null,
+            $request->user()->id
+        );
 
         $digits = preg_replace('/\D+/', '', (string) $contact->phone);
         // SA local 0xx -> 27xx
@@ -155,7 +170,7 @@ class MobileContactController extends Controller
 
         return response()->json([
             'wa_link'        => $digits ? "https://wa.me/{$digits}" : null,
-            'whatsapp_count' => $contact->whatsapp_count,
+            'whatsapp_count' => $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP),
             'last_contacted_at' => $contact->last_contacted_at?->toIso8601String(),
         ]);
     }
@@ -220,7 +235,10 @@ class MobileContactController extends Controller
             'email'      => $c->email,
             'id_number'  => $c->id_number,
             'type'       => $c->type?->name,
-            'whatsapp_count' => (int) ($c->whatsapp_count ?? 0),
+            // AT-59: archive-derived. Uses the eager count alias from index();
+            // falls back to a single scoped count for single-contact responses.
+            'whatsapp_count' => (int) ($c->wa_outbound_count
+                ?? $c->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP)),
             'last_contacted_at' => $c->last_contacted_at?->toIso8601String(),
         ];
 

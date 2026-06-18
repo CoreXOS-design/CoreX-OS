@@ -497,4 +497,64 @@ class Contact extends Model
     {
         return $this->morphToMany(CalendarEvent::class, 'linkable', 'calendar_event_links', null, 'calendar_event_id');
     }
+
+    // ── Communication archive (AT-59) ──
+
+    /**
+     * Communications linked to this contact through communication_links (the
+     * Intelligence layer). Soft-deleted links are excluded; soft-deleted /
+     * pruned communications are excluded by the Communication model's own
+     * SoftDeletes scope. Eager-load this on the show page to avoid N+1.
+     */
+    public function communications()
+    {
+        return $this->morphToMany(
+            \App\Models\Communications\Communication::class,
+            'linkable',
+            'communication_links',
+            null,
+            'communication_id'
+        )->withPivot(['link_method', 'confirmed_at'])
+         ->wherePivotNull('deleted_at');
+    }
+
+    /**
+     * Count of OUTBOUND communications for a channel — the authoritative source
+     * for the contact comms tiles (AT-59). Provisional and confirmed rows both
+     * count: reconciliation PROMOTES a provisional row in place, so a click and
+     * its eventual real send are always exactly one row. Purged rows excluded.
+     *
+     * Uses the eager-loaded relation when present (no extra query), otherwise a
+     * single scoped count.
+     */
+    public function outboundCommCount(string $channel): int
+    {
+        if ($this->relationLoaded('communications')) {
+            return $this->communications
+                ->where('channel', $channel)
+                ->where('direction', \App\Models\Communications\Communication::DIRECTION_OUTBOUND)
+                ->whereNull('purged_at')
+                ->count();
+        }
+
+        return $this->communications()
+            ->where('channel', $channel)
+            ->where('direction', \App\Models\Communications\Communication::DIRECTION_OUTBOUND)
+            ->whereNull('communications.purged_at')
+            ->count();
+    }
+
+    /**
+     * Move last_contacted_at FORWARD to the given time (defaults to now). Never
+     * moves it backwards, so an out-of-order ingested message cannot rewind the
+     * "last contacted" marker. Used by every comm create/ingest path (AT-59).
+     */
+    public function touchLastContacted($at = null): void
+    {
+        $at = $at ? \Illuminate\Support\Carbon::parse($at) : now();
+
+        if (! $this->last_contacted_at || $at->gt($this->last_contacted_at)) {
+            $this->forceFill(['last_contacted_at' => $at])->save();
+        }
+    }
 }

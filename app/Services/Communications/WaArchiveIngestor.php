@@ -9,6 +9,7 @@ use App\Models\Communications\CommunicationPending;
 use App\Models\Communications\CommunicationWaDevice;
 use App\Models\Contact;
 use App\Models\Scopes\AgencyScope;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -19,14 +20,16 @@ use Illuminate\Support\Str;
  */
 class WaArchiveIngestor
 {
-    public const RESULT_ARCHIVED  = 'archived';
-    public const RESULT_PENDING   = 'pending';
-    public const RESULT_DUPLICATE = 'duplicate';
-    public const RESULT_INVALID   = 'invalid';
+    public const RESULT_ARCHIVED    = 'archived';
+    public const RESULT_RECONCILED  = 'reconciled';
+    public const RESULT_PENDING     = 'pending';
+    public const RESULT_DUPLICATE   = 'duplicate';
+    public const RESULT_INVALID     = 'invalid';
 
     public function __construct(
         private CommunicationStorageService $storage,
         private ContactIdentifierResolver $resolver,
+        private ProvisionalReconciler $reconciler,
     ) {
     }
 
@@ -76,6 +79,11 @@ class WaArchiveIngestor
             'body_preview'           => isset($msg['text']) ? Str::limit((string) $msg['text'], 160) : null,
             'raw_path'               => $stored['path'],
             'content_hash'           => $stored['content_hash'],
+            'text_hash'              => MessageTextHasher::hash(
+                Communication::CHANNEL_WHATSAPP,
+                null,
+                $msg['text'] ?? null
+            ),
             'has_attachments'        => $hasMedia,
             'source_ref'             => 'wa_device:' . $device->id,
         ];
@@ -90,20 +98,41 @@ class WaArchiveIngestor
             return self::RESULT_PENDING;
         }
 
-        $communication = Communication::create($common);
-        $this->storeMedia($communication, $agencyId, $media);
+        return DB::transaction(function () use ($contact, $direction, $common, $media, $agencyId, $device) {
+            // AT-59: promote a matching provisional outbound row in place rather
+            // than inserting a duplicate of the agent's click.
+            if ($direction === Communication::DIRECTION_OUTBOUND) {
+                $promoted = $this->reconciler->reconcileOutbound(
+                    $contact,
+                    Communication::CHANNEL_WHATSAPP,
+                    $common,
+                    $device->agency
+                );
 
-        CommunicationLink::create([
-            'agency_id'        => $agencyId,
-            'communication_id' => $communication->id,
-            'linkable_type'    => Contact::class,
-            'linkable_id'      => $contact->id,
-            'link_method'      => CommunicationLink::METHOD_DETERMINISTIC,
-            'confidence'       => 100,
-            'confirmed_at'     => now(),
-        ]);
+                if ($promoted) {
+                    $this->storeMedia($promoted, $agencyId, $media);
 
-        return self::RESULT_ARCHIVED;
+                    return self::RESULT_RECONCILED;
+                }
+            }
+
+            $communication = Communication::create($common);
+            $this->storeMedia($communication, $agencyId, $media);
+
+            CommunicationLink::create([
+                'agency_id'        => $agencyId,
+                'communication_id' => $communication->id,
+                'linkable_type'    => Contact::class,
+                'linkable_id'      => $contact->id,
+                'link_method'      => CommunicationLink::METHOD_DETERMINISTIC,
+                'confidence'       => 100,
+                'confirmed_at'     => now(),
+            ]);
+
+            $contact->touchLastContacted($communication->occurred_at);
+
+            return self::RESULT_ARCHIVED;
+        });
     }
 
     private function alreadySeen(int $agencyId, string $externalId): bool
