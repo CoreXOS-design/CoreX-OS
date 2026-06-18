@@ -37,6 +37,10 @@ final class TrackedProperty extends Model
     public const STATUS_PROMOTED = 'promoted';
 
     protected $fillable = [
+        // agency_id is the tenant key. Fillable so the match-or-create service can
+        // stamp it in job/import contexts (no auth user); an authenticated request
+        // cannot spoof it — BelongsToAgency::creating() force-overrides it to the
+        // user's effective agency. See that trait.
         'agency_id', 'external_id',
         'street_number', 'street_name', 'unit_number', 'complex_name',
         'suburb', 'suburb_normalised', 'town', 'province', 'postal_code',

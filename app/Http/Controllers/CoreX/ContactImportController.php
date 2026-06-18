@@ -9,6 +9,7 @@ use App\Models\ContactNote;
 use App\Models\ContactSource;
 use App\Models\ContactTag;
 use App\Models\ContactType;
+use App\Models\Scopes\ContactScope;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -120,6 +121,17 @@ class ContactImportController extends Controller
 
         $markFicaApproved = $request->boolean('mark_fica_approved');
 
+        // Auto-stamping APPROVED FICA submissions is a compliance action — it must
+        // not be reachable by anyone who merely holds access_contacts. Require the
+        // dedicated FICA-approve permission; reject (not silently drop) if missing.
+        if ($markFicaApproved) {
+            abort_unless(
+                $request->user()?->hasPermission('compliance.fica.approve'),
+                403,
+                'You do not have permission to mark imported contacts as FICA-approved.'
+            );
+        }
+
         $file     = $request->file('file');
         $fullPath = $file->getRealPath();
         $ext      = strtolower($file->getClientOriginalExtension() ?: 'xlsx');
@@ -228,8 +240,12 @@ class ContactImportController extends Controller
                     continue;
                 }
 
-                // Duplicate check by phone or email
-                $dup = Contact::query()
+                // Duplicate check by phone or email. Bypass ContactScope (the
+                // role-based 'own'/'branch' read filter) so dedupe sees EVERY
+                // contact in the agency — otherwise an 'own'-scope importer can't
+                // see colleagues' contacts and creates agency-wide duplicates.
+                // AgencyScope still bounds this to the current agency.
+                $dup = Contact::withoutGlobalScope(ContactScope::class)
                     ->where(function ($q) use ($phone, $email) {
                         $q->where('phone', $phone);
                         if ($email !== '') $q->orWhere('email', $email);
@@ -435,12 +451,33 @@ class ContactImportController extends Controller
         $result = [];
         foreach ($mapping as $colIdx => $field) {
             $val = $row[$colIdx] ?? null;
-            if (is_string($val)) $val = trim($val);
+            if (is_string($val)) {
+                $val = trim($val);
+                $val = $this->stripFormulaGuard($val);
+            }
             // If field already exists (e.g. phone from 'cell'), don't overwrite with empty
             if (isset($result[$field]) && ($val === null || $val === '')) continue;
             $result[$field] = $val;
         }
         return $result;
+    }
+
+    /**
+     * Reverse the spreadsheet formula-injection guard applied on export.
+     *
+     * ContactExportController prefixes a single quote to values that begin with
+     * =, +, -, @, or a leading tab/CR so spreadsheets render them as text. On
+     * re-import we strip that leading quote ONLY when it precedes a formula
+     * trigger char, so a round-tripped phone like '+27… lands back as +27…
+     * without mangling legitimately apostrophe-prefixed values.
+     */
+    private function stripFormulaGuard(string $value): string
+    {
+        if (strlen($value) >= 2 && $value[0] === "'" && in_array($value[1], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return substr($value, 1);
+        }
+
+        return $value;
     }
 
     private function resolveAgent(mixed $agentCell, array $byEmail, array $byName): ?User
@@ -543,11 +580,13 @@ class ContactImportController extends Controller
         $key = strtolower($s);
         if (isset($cache[$key])) return $cache[$key];
 
-        // Auto-create the type
+        // Auto-create the type. Set is_active explicitly so it always appears in
+        // the type filter/dropdowns (ContactType::where('is_active', true)).
         $type = ContactType::create([
             'name'       => $s,
             'color'      => '#6366f1',
             'sort_order' => 0,
+            'is_active'  => true,
         ]);
         $cache[$key] = $type->id;
         return $type->id;

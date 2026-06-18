@@ -399,9 +399,12 @@
         <div class="rounded-2xl border border-slate-200 bg-white px-6 py-4">
             <div class="flex items-start gap-3">
                 <input type="hidden" name="publish" value="0">
+                {{-- NOT disabled: a disabled checkbox never submits, so the hidden
+                     publish=0 would always win and the control couldn't reflect its
+                     real state. Keeping it enabled means a published listing re-submits
+                     publish=1 on save. Unpublishing is done via the publish-toggle. --}}
                 <input type="checkbox" name="publish" value="1" id="publish_toggle"
                        {{ ($property && $property->isPublished()) ? 'checked' : '' }}
-                       {{ ($property && $property->isPublished()) ? 'disabled' : '' }}
                        class="w-4 h-4 mt-0.5 rounded border-slate-300 cursor-pointer"
                        style="accent-color:var(--brand-icon,#0ea5e9);">
                 <div>

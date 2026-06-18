@@ -51,17 +51,20 @@ class ListingResource extends JsonResource
             ],
 
             // Rental block — only populated for rental/to-let listings.
+            // Money fields are coerced to (float) so the public JSON stays
+            // numeric regardless of the model's cast — a defensive guarantee for
+            // external website consumers doing JS arithmetic / numeric type checks.
             'rental' => $isRental ? [
-                'rental_amount'    => $this->rental_amount,
-                'deposit_amount'   => $this->deposit_amount,
+                'rental_amount'    => $this->rental_amount !== null ? (float) $this->rental_amount : null,
+                'deposit_amount'   => $this->deposit_amount !== null ? (float) $this->deposit_amount : null,
                 'has_deposit'      => (bool) $this->has_deposit,
                 'lease_period'     => $this->lease_period,
                 'lease_start_date' => optional($this->lease_start_date)->toDateString(),
                 'lease_end_date'   => optional($this->lease_end_date)->toDateString(),
                 'rental_price_type' => $this->rental_price_type,
-                'price_per_day'    => $this->price_per_day,
-                'price_per_week'   => $this->price_per_week,
-                'price_per_year'   => $this->price_per_year,
+                'price_per_day'    => $this->price_per_day !== null ? (float) $this->price_per_day : null,
+                'price_per_week'   => $this->price_per_week !== null ? (float) $this->price_per_week : null,
+                'price_per_year'   => $this->price_per_year !== null ? (float) $this->price_per_year : null,
             ] : null,
 
             // Dimensions / rooms.

@@ -24,6 +24,10 @@ class Contact extends Model
     }
 
     protected $fillable = [
+        // agency_id is the tenant key. Fillable so trusted non-auth ingress
+        // (webhooks, imports) can stamp it, but an AUTHENTICATED user can never
+        // spoof it — BelongsToAgency::creating() force-overrides it to the user's
+        // effective agency. See that trait.
         'agency_id',
         'branch_id',
         'contact_type_id', 'contact_source_id', 'created_by_user_id',

@@ -132,7 +132,7 @@
                     @csrf
                     @method('DELETE')
                     <button type="submit" class="text-sm"
-                            style="color:#dc2626;"
+                            style="color:var(--ds-crimson);"
                             onclick="return confirm('Remove client app access? Activity logs are preserved.')">
                         Remove Client Access
                     </button>
@@ -214,12 +214,12 @@
 </div>
 
 @if(session('client_login_success'))
-    <div class="rounded-md p-3 text-sm" style="background:#dcfce7; color:#166534;">
+    <div class="rounded-md p-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 15%, transparent); color: var(--ds-green);">
         {{ session('client_login_success') }}
     </div>
 @endif
 @if($errors->any())
-    <div class="rounded-md p-3 text-sm" style="background:#fee2e2; color:#991b1b;">
+    <div class="rounded-md p-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 15%, transparent); color: var(--ds-crimson);">
         @foreach($errors->all() as $err)<div>{{ $err }}</div>@endforeach
     </div>
 @endif

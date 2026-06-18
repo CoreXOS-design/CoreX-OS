@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\Deal;
+use App\Models\Property;
 use App\Models\User;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\Request;
@@ -208,6 +209,11 @@ class ContactMatchController extends Controller
     {
         abort_if($match->contact_id !== $contact->id, 403);
 
+        // Resolve through the scoped model so only an in-agency property id can be
+        // hidden/stored — the raw {property} route int otherwise lets any id through.
+        $property = (int) Property::query()->whereKey($property)->value('id');
+        abort_if($property === 0, 404);
+
         if ($match->isPropertyHidden($property)) {
             $match->unhideProperty($property);
         } else {
@@ -237,9 +243,15 @@ class ContactMatchController extends Controller
     {
         abort_if($match->contact_id !== $contact->id, 403);
 
-        $deal = DB::transaction(function () use ($contact, $match, $property) {
+        // Resolve through the scoped Property model. The {property} route segment
+        // is a raw int; without this an attacker could write another agency's
+        // property id straight into a new Deal (cross-tenant FK injection).
+        $propertyModel = Property::query()->whereKey($property)->first();
+        abort_if($propertyModel === null, 404);
+
+        $deal = DB::transaction(function () use ($contact, $match, $propertyModel) {
             $deal = new Deal();
-            $deal->property_id = $property;
+            $deal->property_id = $propertyModel->id;
             $deal->agency_id   = $match->agency_id;
             $deal->branch_id   = $contact->branch_id ?? null;
 

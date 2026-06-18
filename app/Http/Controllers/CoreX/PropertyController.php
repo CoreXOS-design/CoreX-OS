@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Storage;
 class PropertyController extends Controller
 {
     use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+    use \App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
     use \App\Http\Concerns\AppliesP24Location;
 
     public function index(Request $request)
@@ -110,13 +111,21 @@ class PropertyController extends Controller
 
         // Stats for the header KPIs — computed across the full filtered set
         // (not just the current page), before sorting/pagination is applied.
-        $statsQuery = clone $query;
+        // Single aggregate query (conditional SUMs) instead of 5 separate COUNT
+        // round-trips for the same filtered set.
+        $agg = (clone $query)->selectRaw(
+            "COUNT(*) as total,"
+            . " SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,"
+            . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
+            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
+            . " SUM(CASE WHEN published_at IS NOT NULL THEN 1 ELSE 0 END) as synced"
+        )->first();
         $stats = [
-            'total'  => (clone $statsQuery)->count(),
-            'active' => (clone $statsQuery)->where('status', 'active')->count(),
-            'draft'  => (clone $statsQuery)->where('status', 'draft')->count(),
-            'sold'   => (clone $statsQuery)->where('status', 'sold')->count(),
-            'synced' => (clone $statsQuery)->whereNotNull('published_at')->count(),
+            'total'  => (int) ($agg->total ?? 0),
+            'active' => (int) ($agg->active ?? 0),
+            'draft'  => (int) ($agg->draft ?? 0),
+            'sold'   => (int) ($agg->sold ?? 0),
+            'synced' => (int) ($agg->synced ?? 0),
         ];
 
         // Sorting — whitelisted columns only
@@ -559,7 +568,12 @@ class PropertyController extends Controller
             unset($data['status']);
         }
 
-        // Create to get ID, then attach images
+        // Create to get ID, then attach images. The whole multi-write sequence
+        // (property + images + notes + drive files + contact links) runs in a
+        // transaction so a mid-sequence failure cannot leave a half-built property
+        // — e.g. created but with no linked contact, breaking the must-have-contact
+        // invariant enforced above.
+        $property = \DB::transaction(function () use ($request, $data) {
         $property = Property::create($data);
 
         if ($property->p24_suburb_id) {
@@ -685,6 +699,9 @@ class PropertyController extends Controller
                 actorUserId: auth()->id(),
             ));
         }
+
+            return $property;
+        });
 
         // The create form falls back to an AJAX submit when it carries more
         // gallery images than PHP's max_file_uploads cap (default 20): the
@@ -1384,12 +1401,24 @@ class PropertyController extends Controller
             $suburb  = $payload['suburb'] ?? $property->suburb;
             $town    = $payload['town']   ?? $property->town;
 
-            $result = $resolver->resolve(
-                $address,
-                $suburb,
-                $town,
-                context: 'property:' . $property->id . ':inflight',
-            );
+            try {
+                $result = $resolver->resolve(
+                    $address,
+                    $suburb,
+                    $town,
+                    context: 'property:' . $property->id . ':inflight',
+                );
+            } catch (\Throwable $e) {
+                // External geocoder (Google → Nominatim) failed/timed out — return a
+                // structured error instead of a 500 so the form can degrade gracefully.
+                \Illuminate\Support\Facades\Log::warning('Geocode resolve failed', [
+                    'property_id' => $property->id, 'error' => $e->getMessage(),
+                ]);
+                return response()->json([
+                    'ok'      => false,
+                    'message' => 'Could not resolve the address right now. Please try again.',
+                ], 502);
+            }
 
             $source = $result->source;
             $isApprox = in_array((string) $source, [
@@ -1412,7 +1441,17 @@ class PropertyController extends Controller
         $force = (bool) ($payload['force'] ?? false);
         $service = new \App\Services\Geocoding\PropertyGeoBackfillService();
         $property->refresh();
-        $result = $service->backfillProperty($property, batchId: null, force: $force);
+        try {
+            $result = $service->backfillProperty($property, batchId: null, force: $force);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Geocode backfill failed', [
+                'property_id' => $property->id, 'error' => $e->getMessage(),
+            ]);
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Could not resolve the address right now. Please try again.',
+            ], 502);
+        }
         $property->refresh();
 
         $isApproximate = in_array((string) $property->geo_source, [
@@ -1431,18 +1470,7 @@ class PropertyController extends Controller
         ]);
     }
 
-    private function authorizeProperty(Property $property): void
-    {
-        /** @var User $user */
-        $user = auth()->user();
-        $scope = PermissionService::getDataScope($user, 'properties');
-
-        if ($scope === 'all') return;
-        if ($scope === 'branch' && (int) $property->branch_id === (int) $user->effectiveBranchId()) return;
-        if ($scope === 'own' && (int) $property->agent_id === (int) $user->id) return;
-
-        abort(403);
-    }
+    // authorizeProperty() now lives in the AuthorizesPropertyAccess trait.
 
     // ── Restore soft-deleted ──
 

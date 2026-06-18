@@ -92,29 +92,50 @@ class ContactExportController extends Controller
     {
         return [
             '',                                                        // Category
-            (string) $contact->first_name,                             // Name
-            (string) $contact->last_name,                              // Surname
-            (string) $contact->email,                                  // Email
-            (string) $contact->phone,                                  // Cell
+            $this->safeText($contact->first_name),                     // Name
+            $this->safeText($contact->last_name),                      // Surname
+            $this->safeText($contact->email),                          // Email
+            $this->safeText($contact->phone),                          // Cell
             '',                                                        // Phone (no secondary field stored)
-            (string) ($contact->type?->name ?? ''),                    // Type
-            (string) $contact->id_number,                              // *ID Number
+            $this->safeText($contact->type?->name ?? ''),             // Type
+            $this->safeText($contact->id_number),                      // *ID Number
             optional($contact->birthday)->format('Y-m-d') ?? '',       // BirthDay
-            $contact->tags->pluck('name')->implode(', '),              // Tags
-            (string) ($contact->source?->name ?? ''),                  // Source
-            (string) $contact->address,                                // Address
+            $this->safeText($contact->tags->pluck('name')->implode(', ')), // Tags
+            $this->safeText($contact->source?->name ?? ''),           // Source
+            $this->safeText($contact->address),                        // Address
             '',                                                        // Wish Lists
             (int) ($contact->matches_count ?? 0),                      // Matches
             '',                                                        // SMS
             (int) $contact->email_count,                               // Emails
             (int) $contact->whatsapp_count,                            // WhatsApp
             '',                                                        // Opt-In
-            (string) ($contact->createdBy?->name ?? ''),               // Agents
+            $this->safeText($contact->createdBy?->name ?? ''),        // Agents
             optional($contact->loaded_at ?? $contact->created_at)->format('Y-m-d H:i') ?? '',     // Loaded
             optional($contact->modified_at ?? $contact->updated_at)->format('Y-m-d H:i') ?? '',   // Modified
             optional($contact->last_contacted_at)->format('Y-m-d H:i') ?? '',                     // Last Contacted
-            (string) $contact->notes,                                  // Additional Info
+            $this->safeText($contact->notes),                          // Additional Info
         ];
+    }
+
+    /**
+     * Neutralise spreadsheet formula injection (CSV injection).
+     *
+     * Contact fields are user/import supplied. A value beginning with =, +, -, @,
+     * or a leading tab/CR is interpreted as a live formula when the .xlsx is
+     * opened in Excel / Google Sheets (e.g. =HYPERLINK(), =cmd|'/c …'). Prefixing
+     * such values with a single quote forces them to render as literal text.
+     * The leading quote is stripped by the importer's text handling on re-import,
+     * preserving the round-trip.
+     */
+    private function safeText(?string $value): string
+    {
+        $value = (string) $value;
+
+        if ($value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return "'" . $value;
+        }
+
+        return $value;
     }
 
     /**

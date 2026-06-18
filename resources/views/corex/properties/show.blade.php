@@ -3780,7 +3780,7 @@
             </div>
 
             {{-- Lightbox with prev/next navigation --}}
-            @php $galleryJsonForJs = json_encode(array_values($galleryImages)); @endphp
+            @php $galleryJsonForJs = array_values($galleryImages); @endphp
             <div id="lightbox" class="hidden fixed inset-0 z-[9999] flex items-center justify-center"
                  style="background:rgba(0,0,0,0.93);">
 
@@ -5624,7 +5624,7 @@ const _FEAT_CAT_SVG = {
 // AI photo suggestions (features/spaces the vision model detected), already
 // mapped to the web vocabulary by PropertyAiSuggestionService. Empty when the
 // feature is off or there's nothing new to review.
-var _aiSuggestions = {!! json_encode($aiImageSuggestions ?? ['hasSuggestions' => false, 'spaces' => [], 'features' => []]) !!};
+var _aiSuggestions = @js($aiImageSuggestions ?? ['hasSuggestions' => false, 'spaces' => [], 'features' => []]);
 
 function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths, initGarages) {
     return {
@@ -5851,7 +5851,7 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths,
 }
 
 // Gallery lightbox with prev/next navigation
-var _lbImages = {!! $galleryJsonForJs ?? '[]' !!};
+var _lbImages = @js($galleryJsonForJs ?? []);
 var _lbIndex  = 0;
 
 function openLightbox(idx) {

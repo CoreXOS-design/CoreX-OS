@@ -86,6 +86,10 @@ class Property extends Model
         'gallery_custom_tags',
         'agent_id',
         'branch_id',
+        // agency_id is the tenant key. It stays fillable so trusted non-auth ingress
+        // (promoteToStock, sold-import, P24 jobs) can stamp it — but a request from
+        // an AUTHENTICATED user can never spoof it: BelongsToAgency::creating()
+        // force-overrides agency_id to the user's effective agency. See that trait.
         'agency_id',
         'is_demo',
         'published_at',
@@ -174,6 +178,12 @@ class Property extends Model
         'price'               => 'integer',
         'price_on_application' => 'boolean',
         'has_deposit'         => 'boolean',
+        // Money columns are decimal(12,2) in the schema (storage precision is
+        // preserved there regardless of cast). They are cast to float — NOT
+        // decimal:2 — on purpose: the decimal cast returns STRINGS, and every
+        // consumer in this codebase (P24/PP mappers, website + mobile JSON APIs,
+        // document merge fields) treats these as numbers. A string cast silently
+        // changes API/serialization contracts ("8500.00" vs 8500). Keep float.
         'price_per_day'       => 'float',
         'price_per_week'      => 'float',
         'price_per_year'      => 'float',
@@ -490,7 +500,12 @@ class Property extends Model
                 $m->where(function ($e) {
                     $e->whereNull('expiry_date')
                       ->orWhereDate('expiry_date', '>=', now()->toDateString());
-                })->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(status)'), $dead);
+                })
+                  // whereNotIn() with a DB::raw() first arg binds the expression as
+                  // a VALUE, not a column — it never lowercases `status`, so dead
+                  // listings (e.g. 'Sold') leaked into transaction-live. Use a
+                  // parameterised raw NOT IN so the LOWER(status) is a real column expr.
+                  ->whereRaw('LOWER(status) NOT IN (?, ?, ?, ?)', $dead);
             })
             // (c) currently advertised (P24 / PP / own website)
             ->orWhereRaw('LOWER(p24_syndication_status) = ?', ['active'])
@@ -949,13 +964,18 @@ class Property extends Model
             'garages'           => (string) ($garages ?? ''),
             'size_m2'           => $size,
             'reference'         => $this->external_id ?: ('REF ' . $this->id),
-            'address'           => $this->street_address ?: $this->address ?: null,
+            'address'           => $this->address ?: null,
             'status_badge'      => $statusBadge,
             'agent_name'        => strtoupper((string) ($agent?->name ?? '')),
             'agent_email'       => $agent?->email ?? '',
-            'agent_phone'       => $agent?->mobile ?: $agent?->phone ?: '',
+            // User has no `mobile` column — the mobile number lives in `cell`,
+            // with `phone` as the landline fallback. (Was `$agent?->mobile` which
+            // was always null, so the cell number never reached the ad.)
+            'agent_phone'       => $agent?->cell ?: $agent?->phone ?: '',
             'agent_designation' => $agent?->designation ?? 'Property Practitioner',
-            'agent_avatar'      => $agent?->avatar_url ?? null,
+            // User has no `avatar_url` column — the photo URL comes from
+            // profilePhotoUrl() (user_documents → legacy agent_photo_path).
+            'agent_avatar'      => $agent?->profilePhotoUrl(),
             'agency_name'       => $agency?->name ?? '',
             'website'           => $agency?->website_url ?: '',
             'logo'              => $logoUrl,

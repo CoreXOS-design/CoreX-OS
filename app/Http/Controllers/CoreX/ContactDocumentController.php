@@ -2,20 +2,27 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\ValidatesDocumentUploads;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Document;
+use App\Models\Property;
+use App\Rules\ExistsInScope;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class ContactDocumentController extends Controller
 {
+    use ValidatesDocumentUploads;
+
     public function store(Request $request, Contact $contact)
     {
         $request->validate([
-            'file' => 'required|file|max:20480',
+            'file' => $this->documentUploadRule(20480),
             'document_type_id' => 'nullable|exists:document_types,id',
-            'property_id' => 'nullable|exists:properties,id',
+            // ExistsInScope keeps a cross-agency property from being attached.
+            'property_id' => ['nullable', new ExistsInScope(Property::class)],
         ]);
 
         $file = $request->file('file');
@@ -26,24 +33,28 @@ class ContactDocumentController extends Controller
             'local'
         );
 
-        $doc = Document::create([
-            'original_name'    => $file->getClientOriginalName(),
-            'storage_path'     => $path,
-            'disk'             => 'local',
-            'mime_type'        => $file->getMimeType(),
-            'size'             => $file->getSize(),
-            'document_type_id' => $request->input('document_type_id') ?: null,
-            'source_type'      => 'upload',
-            'uploaded_by'      => auth()->id(),
-        ]);
+        $doc = DB::transaction(function () use ($request, $contact, $file, $path) {
+            $doc = Document::create([
+                'original_name'    => $file->getClientOriginalName(),
+                'storage_path'     => $path,
+                'disk'             => 'local',
+                'mime_type'        => $file->getMimeType(),
+                'size'             => $file->getSize(),
+                'document_type_id' => $request->input('document_type_id') ?: null,
+                'source_type'      => 'upload',
+                'uploaded_by'      => auth()->id(),
+            ]);
 
-        // Attach to contact
-        $doc->contacts()->attach($contact->id);
+            // Attach to contact
+            $doc->contacts()->attach($contact->id);
 
-        // Attach to property if selected
-        if ($request->filled('property_id')) {
-            $doc->properties()->attach($request->input('property_id'));
-        }
+            // Attach to property if selected
+            if ($request->filled('property_id')) {
+                $doc->properties()->attach($request->input('property_id'));
+            }
+
+            return $doc;
+        });
 
         // Domain event — spec .ai/specs/corex-domain-events-spec.md
         event(new \App\Events\Document\DocumentUploaded(
@@ -93,7 +104,7 @@ class ContactDocumentController extends Controller
 
         $request->validate([
             'document_type_id' => 'nullable|exists:document_types,id',
-            'property_id' => 'nullable|exists:properties,id',
+            'property_id' => ['nullable', new ExistsInScope(Property::class)],
         ]);
 
         $document->update([

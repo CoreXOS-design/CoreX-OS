@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Storage;
 class PropertyWizardController extends Controller
 {
     use \App\Http\Concerns\AppliesP24Location;
+    use \App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
 
     public function start(Request $request)
     {
@@ -282,15 +283,5 @@ class PropertyWizardController extends Controller
         return $query->get(['id', 'name', 'email']);
     }
 
-    private function authorizeProperty(Property $property): void
-    {
-        /** @var User $user */
-        $user  = auth()->user();
-        $scope = PermissionService::getDataScope($user, 'properties');
-
-        if ($scope === 'all') return;
-        if ($scope === 'branch' && (int) $property->branch_id === (int) $user->effectiveBranchId()) return;
-        if ($scope === 'own'    && (int) $property->agent_id  === (int) $user->id)                   return;
-        abort(403);
-    }
+    // authorizeProperty() now lives in the AuthorizesPropertyAccess trait.
 }
