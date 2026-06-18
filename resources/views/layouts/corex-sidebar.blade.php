@@ -265,8 +265,55 @@
             pop() { this.stack.pop() },
             inStack(g) { return this.stack.includes(g) },
             openGroup: @js($activeGroup),
-            toggle(g) { this.openGroup = (this.openGroup === g) ? null : g }
+            toggle(g) { this.openGroup = (this.openGroup === g) ? null : g },
+            searchQ: '',
+            searchResults: [],
+            searchSel: 0,
+            runSearch() { this.searchResults = window.CorexNavSearch.search(this.searchQ); this.searchSel = 0 },
+            clearSearch() { this.searchQ = ''; this.searchResults = []; this.searchSel = 0 },
+            moveSel(d) { if (this.searchResults.length) this.searchSel = (this.searchSel + d + this.searchResults.length) % this.searchResults.length },
+            goResult(e, r) { if (r && r.group) { e.preventDefault(); this.stack = [r.group]; this.clearSearch() } },
+            goSel() {
+                const r = this.searchResults[this.searchSel];
+                if (!r) return;
+                if (r.group) { this.stack = [r.group]; this.clearSearch() }
+                else if (r.href) { window.location.href = r.href }
+            }
          }">
+
+        {{-- ═══════════════════════════════════════════
+             SIDEBAR SEARCH — indexes the rendered nav (respects per-user
+             permissions automatically) and jumps to any heading or sub-section.
+             ═══════════════════════════════════════════ --}}
+        <div class="corex-nav-search" @keydown.escape="clearSearch()">
+            <div class="corex-nav-search-field">
+                <svg class="corex-nav-search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                </svg>
+                <input type="text" x-model="searchQ" @input="runSearch()"
+                       @keydown.down.prevent="moveSel(1)" @keydown.up.prevent="moveSel(-1)"
+                       @keydown.enter.prevent="goSel()"
+                       placeholder="Search menu…" autocomplete="off" spellcheck="false"
+                       class="corex-nav-search-input" aria-label="Search sidebar">
+                <button type="button" x-show="searchQ.length" x-cloak @click="clearSearch()"
+                        class="corex-nav-search-clear" aria-label="Clear search">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div x-show="searchQ.length > 0" x-cloak @click.outside="clearSearch()" class="corex-nav-search-results">
+                <template x-if="searchResults.length === 0">
+                    <div class="corex-nav-search-empty">No matches for “<span x-text="searchQ"></span>”</div>
+                </template>
+                <template x-for="(r, i) in searchResults" :key="r.key">
+                    <a :href="r.href || '#'" @click="goResult($event, r)" @mouseenter="searchSel = i"
+                       class="corex-nav-search-result" :class="{ 'is-active': i === searchSel }">
+                        <span class="corex-nav-search-result-label" x-text="r.label"></span>
+                        <span x-show="r.parent" class="corex-nav-search-result-parent" x-text="r.parent"></span>
+                    </a>
+                </template>
+            </div>
+        </div>
+
         <div class="corex-nav-root"
              x-init="$el.scrollTop = sessionStorage.getItem('sidebarScroll') || 0"
              @scroll.debounce.100ms="sessionStorage.setItem('sidebarScroll', $el.scrollTop)">
@@ -1713,6 +1760,94 @@
     } else {
         sortPanels();
     }
+})();
+
+// ── Sidebar search index ──────────────────────────────────────────────
+// Builds a searchable index straight from the rendered nav so it always
+// mirrors exactly what THIS user can see (permissions, feature flags, route
+// availability are all already baked into the DOM). Headings (group toggles)
+// open their slide-panel; every link jumps to its page.
+window.CorexNavSearch = (function () {
+    let cache = null;
+
+    function firstText(el) {
+        for (const node of el.childNodes) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const t = node.textContent.trim();
+                if (t) return t;
+            }
+        }
+        return (el.textContent || '').trim();
+    }
+
+    function build() {
+        const root = document.querySelector('.corex-sidebar .corex-nav-root');
+        if (!root) return [];
+        const items = [];
+        const seen = new Set();
+        const add = (label, href, parent, group) => {
+            label = (label || '').trim();
+            if (!label) return;
+            const key = (group ? 'g:' + group : 'h:' + (href || '')) + '|' + label + '|' + (parent || '');
+            if (seen.has(key)) return;
+            seen.add(key);
+            items.push({ label: label, href: href || null, parent: parent || '', group: group || null });
+        };
+
+        // Top-level page links (My Portal, My Earnings, Training, …)
+        root.querySelectorAll('a.corex-nav-item').forEach(function (a) {
+            add(firstText(a), a.getAttribute('href'), '', null);
+        });
+
+        // Group headings — buttons that slide open a panel (Real Estate, Agency
+        // Tracker, …). The group key lives in the Alpine @click="push('key')".
+        root.querySelectorAll('button.corex-nav-group-toggle').forEach(function (btn) {
+            const click = btn.getAttribute('@click') || btn.getAttribute('x-on:click') || '';
+            const m = click.match(/push\(\s*'([^']+)'\s*\)/);
+            if (m) add(firstText(btn), null, '', m[1]);
+        });
+
+        // Sub-section links inside every panel, tagged with their heading.
+        root.querySelectorAll('.corex-nav-panel').forEach(function (panel) {
+            const titleEl = panel.querySelector('.corex-nav-panel-title');
+            const parent = titleEl ? firstText(titleEl) : '';
+            panel.querySelectorAll('a.corex-nav-subitem').forEach(function (a) {
+                add(firstText(a), a.getAttribute('href'), parent, null);
+            });
+        });
+
+        return items;
+    }
+
+    function search(q) {
+        q = (q || '').trim().toLowerCase();
+        if (!q) return [];
+        if (!cache) cache = build();
+        const scored = [];
+        for (const it of cache) {
+            const label = it.label.toLowerCase();
+            const parent = (it.parent || '').toLowerCase();
+            let score = -1;
+            if (label === q) score = 0;
+            else if (label.startsWith(q)) score = 1;
+            else if (label.indexOf(q) >= 0) score = 2;
+            else if (parent.startsWith(q)) score = 3;
+            else if (parent.indexOf(q) >= 0) score = 4;
+            if (score >= 0) scored.push({ it: it, score: score });
+        }
+        scored.sort(function (a, b) { return a.score - b.score || a.it.label.localeCompare(b.it.label); });
+        return scored.slice(0, 10).map(function (s, i) {
+            return {
+                label: s.it.label,
+                href: s.it.href,
+                parent: s.it.parent,
+                group: s.it.group,
+                key: (s.it.href || s.it.group || s.it.label) + '#' + i,
+            };
+        });
+    }
+
+    return { build: build, search: search, refresh: function () { cache = null; } };
 })();
 </script>
 
