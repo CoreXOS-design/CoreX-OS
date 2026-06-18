@@ -126,7 +126,7 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
 
         // ── Comp rows from the CMA Comparative Market Analysis table (page 5) ──
         $rowIndex = 1;
-        foreach ($this->extractCmaCompRows($text) as $row) {
+        foreach ($this->extractCmaCompRows($text, $subject['scheme_name'] ?? null) as $row) {
             $compRows[] = $this->buildCompRow($row, MarketReportCompRow::ROW_COMP, $rowIndex++, $suburb);
             if (!empty($row['address'])) {
                 $addresses[] = $this->makeAddress([
@@ -302,9 +302,21 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
      * Pattern: section, ss_number, ss_year, "Residence", extent, optional date,
      * optional last_sale, optional estimated_value, optional r_per_m².
      *
+     * @param  ?string  $subjectScheme  the report subject's scheme name
+     *                  (sectional reports only). In-scheme units — rows the
+     *                  PDF lists under the scheme's section header with no
+     *                  per-row street — carry neither a per-row scheme nor a
+     *                  street, so the lookback below finds nothing and they
+     *                  would otherwise lose their scheme entirely. When the
+     *                  subject is sectional we attribute those rows to the
+     *                  subject scheme (mirrors CmaInfoSectionalTitleSalesParser
+     *                  L299). Out-of-scheme comps DO carry a per-row
+     *                  "SCHEME, <num> STREET" line → the lookback fills both
+     *                  $scheme and $address, so they never hit the fallback
+     *                  and are never re-stamped.
      * @return array<int, array<string, mixed>>
      */
-    private function extractCmaCompRows(string $text): array
+    private function extractCmaCompRows(string $text, ?string $subjectScheme = null): array
     {
         $rows = [];
         if (!preg_match('/CMA\s+-\s+Comparative\s+Market\s+Analysis(?<body>.*?)Comparative\s+Market\s+Analysis\s+Value/su', $text, $blockMatch)) {
@@ -337,6 +349,15 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
                 $last = end($am);
                 $scheme  = trim($last[1]);
                 $address = trim($last[2]);
+            }
+
+            // In-scheme unit: no per-row scheme AND no per-row street means
+            // this row sits under the subject scheme's section header. Attribute
+            // it to the subject scheme so the unit isn't left scheme-less.
+            // (address null is the clean separator — out-of-scheme comps set
+            // both fields above and so skip this branch.)
+            if ($scheme === null && $address === null && is_string($subjectScheme) && trim($subjectScheme) !== '') {
+                $scheme = trim($subjectScheme);
             }
 
             $rows[] = [

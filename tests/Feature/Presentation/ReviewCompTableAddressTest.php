@@ -134,10 +134,11 @@ final class ReviewCompTableAddressTest extends TestCase
         $this->assertStringContainsString('63 GARDEN AVENUE UVONGO', $html,
             'Street-address comp still renders its address.');
 
-        // Bug pin 1: scheme + section produces "Seeskulp, Section 8"
-        // — pre-fix this would have been a blank cell ("—").
-        $this->assertStringContainsString('Seeskulp, Section 8', $html,
-            'Sectional comp with no street address now shows CompLabel Step 2 output.');
+        // Bug pin 1: scheme + section produces "Unit 8, Seeskulp"
+        // (Unit-first, matching the subject identity) — pre-fix this
+        // would have been a blank cell ("—").
+        $this->assertStringContainsString('Unit 8, Seeskulp', $html,
+            'Sectional comp with no street address now shows CompLabel Unit+scheme output.');
 
         // Bug pin 2: bare section + suburb produces "Section 10, Uvongo".
         $this->assertStringContainsString('Section 10, Uvongo', $html,
