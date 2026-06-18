@@ -1740,7 +1740,7 @@ a:hover { text-decoration: underline; }
 </p>
 
 <table>
-    <thead>
+    <thead style="display:table-header-group;">
         <tr>
             <th>Address</th>
             <th>Dist.</th>
@@ -1752,7 +1752,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody>
         <?php foreach ($topSales as $sale): ?>
-        <tr>
+        <tr style="page-break-inside:avoid;">
             <td><?= $esc($sale['address'] ?? '—') ?></td>
             <td><?= $sale['distance_m'] ? $sale['distance_m'] . 'm' : '—' ?></td>
             <td class="num"><?= $sale['extent_m2'] ? number_format((int) $sale['extent_m2']) : '—' ?></td>
@@ -1809,7 +1809,7 @@ a:hover { text-decoration: underline; }
     possible guide to what a buyer will pay for your property.
 </div>
 <table>
-    <thead>
+    <thead style="display:table-header-group;">
         <tr>
             <th>Unit / Section</th>
             <th class="num"><?= $esc($sizeLabel) ?></th>
@@ -1820,7 +1820,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody>
         <?php foreach ($complexTop as $sale): ?>
-        <tr>
+        <tr style="page-break-inside:avoid;">
             <td><?= $esc($sale['address'] ?? '—') ?></td>
             <td class="num"><?= $sale['extent_m2'] ? number_format((int) $sale['extent_m2']) : '—' ?></td>
             <td><?= $esc($sale['sale_date'] ?? '—') ?></td>
@@ -3056,6 +3056,10 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
     </div>
 </div>
 
+<?php /* PDF-PAGINATION — keep the 3/6/12-month tiles and the cost-of-waiting
+         callout together as one unit so chromium never splits the grid or
+         orphans the callout across a page boundary. */ ?>
+<div class="avoid-break">
 <div class="metric-grid" style="grid-template-columns: 1fr 1fr 1fr; margin-top:16px;">
     <div class="metric-card warning">
         <div class="label">At 3 Months</div>
@@ -3079,6 +3083,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
     That's <strong><?= number_format($projected12m / $askingPrice * 100, 1) ?>%</strong> of the asking price.
     <?php endif ?>
 </div>
+</div><?php // /avoid-break — holding-cost tiles + callout group ?>
 
 <?php else: ?>
 <div class="callout callout-info">
@@ -3168,28 +3173,28 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         <tr>
             <td>Lower end of recent comparable sales</td>
             <td class="num"><?= $zar($rawP25) ?></td>
-            <td><span class="cmp-badge cmp-success">Comp evidence</span></td>
+            <td><span class="cmp-badge cmp-success">Recent sale</span></td>
         </tr>
         <?php endif ?>
         <?php if ($rawMed): ?>
         <tr>
             <td>What homes like yours typically sold for</td>
             <td class="num"><?= $zar($rawMed) ?></td>
-            <td><span class="cmp-badge cmp-success">Comp evidence</span></td>
+            <td><span class="cmp-badge cmp-success">Recent sale</span></td>
         </tr>
         <?php endif ?>
         <?php if ($rawP75): ?>
         <tr>
             <td>Upper end of recent comparable sales</td>
             <td class="num"><?= $zar($rawP75) ?></td>
-            <td><span class="cmp-badge cmp-success">Comp evidence</span></td>
+            <td><span class="cmp-badge cmp-success">Recent sale</span></td>
         </tr>
         <?php endif ?>
         <?php if ($vicAvgPrice): ?>
         <tr>
             <td>Vicinity Sales Average</td>
             <td class="num"><?= $zar($vicAvgPrice) ?></td>
-            <td><span class="cmp-badge cmp-success">Supporting</span></td>
+            <td><span class="cmp-badge cmp-success">Area average</span></td>
         </tr>
         <?php endif ?>
         <?php if ($suburbMedian): ?>
