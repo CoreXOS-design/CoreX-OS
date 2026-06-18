@@ -552,6 +552,13 @@ class PropertyController extends Controller
         }
         unset($data['publish']);
 
+        // `status` is NOT NULL (DB default 'draft'). An empty status field
+        // arrives as null via ConvertEmptyStringsToNull — strip it so the
+        // column default applies rather than violating the constraint.
+        if (array_key_exists('status', $data) && ($data['status'] === null || $data['status'] === '')) {
+            unset($data['status']);
+        }
+
         // Create to get ID, then attach images
         $property = Property::create($data);
 
@@ -655,6 +662,20 @@ class PropertyController extends Controller
             }
             $ncData['contact_type_id'] = !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null;
             $ncData['created_by_user_id'] = auth()->id();
+
+            // A.2.5 — optional SA ID number, mirroring PropertyContactController::createAndLink.
+            // Normalise whitespace and only persist when it passes the SA-ID rule, so one
+            // malformed entry in a bulk create never blocks the whole property save.
+            $idNumber = !empty($nc['id_number']) ? preg_replace('/\s+/', '', (string) $nc['id_number']) : null;
+            if ($idNumber && \Illuminate\Support\Facades\Validator::make(
+                ['id_number' => $idNumber],
+                ['id_number' => ['string', 'max:20', new \App\Rules\SouthAfricanIdNumber()]]
+            )->passes()) {
+                $ncData['id_number']             = $idNumber;
+                $ncData['id_number_captured_at'] = now();
+                $ncData['id_number_source']      = 'property_inline_create';
+            }
+
             $contact = \App\Models\Contact::create($ncData);
             $property->contacts()->attach($contact->id, ['role' => null]);
             event(new \App\Events\Contact\ContactLinkedToProperty(
@@ -835,6 +856,14 @@ class PropertyController extends Controller
             $data['status']       = 'active';
         }
         unset($data['publish']);
+
+        // `status` is NOT NULL. An empty status field arrives as null via
+        // ConvertEmptyStringsToNull — never let that overwrite the existing
+        // status (this is what broke saving / image uploads when the form's
+        // status field came through empty).
+        if (array_key_exists('status', $data) && ($data['status'] === null || $data['status'] === '')) {
+            unset($data['status']);
+        }
 
         // Append new uploads to existing arrays
         $newDawn    = $this->storeImages($request, 'dawn_images',    $property->id);

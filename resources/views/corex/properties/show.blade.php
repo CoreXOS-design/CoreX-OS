@@ -1653,10 +1653,15 @@
                         </div>
                     @endif
 
-                    {{-- Phase 3j — SG Documents panel (server-side SG search + save to drive) --}}
-                    <div style="margin-top:14px;">
-                        @include('corex.properties.partials._sg-documents-panel', ['property' => $property])
-                    </div>
+                    {{-- Phase 3j — SG Documents panel (server-side SG search + save to drive).
+                         Only meaningful for a persisted property — the panel's routes
+                         (corex.properties.sg.*) require a real {property} id, so it must
+                         not render on the create / new-property form. --}}
+                    @if($property->exists)
+                        <div style="margin-top:14px;">
+                            @include('corex.properties.partials._sg-documents-panel', ['property' => $property])
+                        </div>
+                    @endif
                 </div>
 
                 {{-- Row 2: Key Dates (cols 1-2) | Linked Contact (col 3) — headings align since rows share top --}}
@@ -3864,6 +3869,7 @@
                         <input type="hidden" :name="'pending_new_contacts['+idx+'][phone]'"      :value="nc.phone"      form="prop-update-form">
                         <input type="hidden" :name="'pending_new_contacts['+idx+'][email]'"      :value="nc.email"      form="prop-update-form">
                         <input type="hidden" :name="'pending_new_contacts['+idx+'][contact_type_id]'" :value="nc.contact_type_id" form="prop-update-form">
+                        <input type="hidden" :name="'pending_new_contacts['+idx+'][id_number]'" :value="nc.id_number" form="prop-update-form">
                         <button type="button" @click="removeNew(idx)"
                                 class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Remove</button>
                     </div>
@@ -3945,6 +3951,16 @@
                                 <option value="{{ $ct->id }}">{{ $ct->name }}</option>
                                 @endforeach
                             </select>
+                        </div>
+                        {{-- A.2.5 — optional SA ID number, mirrors the existing-property create form. --}}
+                        <div class="sm:col-span-2">
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
+                            <input type="text" x-model="newForm.id_number" inputmode="numeric" maxlength="13"
+                                   pattern="\d{13}" placeholder="e.g. 7610025020081"
+                                   title="13 digits — empty is fine"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
                         </div>
                     </div>
                     <button type="button" @click="addNew()"
@@ -5221,7 +5237,7 @@ function pendingContactsManager(searchUrl) {
         searched: false,
         pending: [],    // existing contacts to link: { id, name, phone, email }
         pendingNew: [], // new contacts to create+link: { first_name, last_name, phone, email, contact_type_id }
-        newForm: { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '' },
+        newForm: { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' },
         showNewForm: false,
 
         async search() {
@@ -5261,7 +5277,7 @@ function pendingContactsManager(searchUrl) {
                 return;
             }
             this.pendingNew.push({ ...this.newForm });
-            this.newForm      = { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '' };
+            this.newForm      = { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' };
             this.showNewForm  = false;
         },
     };

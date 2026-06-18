@@ -111,7 +111,7 @@ class ContactController extends Controller
             ]);
         }
 
-        $contact->load(['type', 'createdBy', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags']);
+        $contact->load(['type', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags']);
 
         // Agents in this contact's agency — for the "agent this testimonial is
         // about" selector on the Notes & Testimonials tab.
@@ -323,7 +323,15 @@ class ContactController extends Controller
             return response()->json(['found' => false]);
         }
 
-        $duplicate = Contact::with('createdBy')
+        // Drop ONLY the role-based ContactScope — an agent with 'own' data scope
+        // can't see contacts captured by other agents, but a duplicate is still a
+        // duplicate. AgencyScope stays on (non-negotiable #7), so the match is
+        // agency-wide yet agency-isolated, mirroring the server-side store()
+        // check (ContactDuplicateService::findDuplicates). Without this the agent
+        // gets a green light here and a hard block on submit.
+        $duplicate = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+            ->with(['createdBy', 'agent'])
+            ->whereNull('purged_at')
             ->where(function ($q) use ($phone, $email) {
                 if ($phone) {
                     $q->where('phone', $phone);
@@ -344,7 +352,9 @@ class ContactController extends Controller
             'phone'          => $duplicate->phone,
             'email'          => $duplicate->email ?? '—',
             'type'           => optional($duplicate->type)->name ?? '—',
-            'agent'          => optional($duplicate->createdBy)->name ?? 'Unknown',
+            // The agent this contact sits under — primary agent, falling back to
+            // the original capturer for contacts predating agent assignment.
+            'agent'          => optional($duplicate->agent ?? $duplicate->createdBy)->name ?? 'Unknown',
             'last_contacted' => $duplicate->last_contacted_at
                 ? \Carbon\Carbon::parse($duplicate->last_contacted_at)->format('d M Y')
                 : 'Never',
@@ -361,10 +371,17 @@ class ContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'notes'           => 'nullable|string|max:1000',
+            // Optional SA ID number, captured with a POPIA audit trail.
+            'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
             // Duplicate bypass fields
             'bypass_duplicate_check' => 'nullable|boolean',
             'override_reason'        => 'nullable|string|max:500',
         ]);
+
+        // Pull the ID out before the duplicate check (matches on phone/email/name)
+        // and re-attach it with audit fields once we're past the dupe guard.
+        $idNumber = !empty($data['id_number']) ? preg_replace('/\s+/', '', (string) $data['id_number']) : null;
+        unset($data['id_number']);
 
         $user = auth()->user();
         $agencyId = $user->effectiveAgencyId() ?? 1;
@@ -448,6 +465,16 @@ class ContactController extends Controller
         // Remove bypass fields before creating
         unset($data['bypass_duplicate_check'], $data['override_reason']);
         $data['created_by_user_id'] = $user->id;
+        // Primary agent defaults to the creator via ContactObserver::creating()
+        // (centralised so every ingress path behaves the same); reassignable from
+        // the contact's Info tab.
+
+        // Re-attach the SA ID with its POPIA audit fields.
+        if ($idNumber) {
+            $data['id_number']             = $idNumber;
+            $data['id_number_captured_at'] = now();
+            $data['id_number_source']      = 'contact_quick_add';
+        }
         $data['branch_id'] = $user->branch_id
             ?? \DB::table('branches')->where('agency_id', $agencyId)->min('id')
             ?? 1;
@@ -466,6 +493,22 @@ class ContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'notes'           => 'nullable|string|max:1000',
+            // Agent assignment — primary (reassignable) + optional co-agent.
+            // Constrained to active members of this contact's agency so a
+            // tampered POST can't assign an out-of-agency user.
+            'agent_id'        => [
+                'nullable',
+                \Illuminate\Validation\Rule::exists('users', 'id')
+                    ->where('agency_id', $contact->agency_id)
+                    ->where('is_active', true),
+            ],
+            'second_agent_id' => [
+                'nullable',
+                'different:agent_id',
+                \Illuminate\Validation\Rule::exists('users', 'id')
+                    ->where('agency_id', $contact->agency_id)
+                    ->where('is_active', true),
+            ],
             'birthday'        => 'nullable|date',
             'id_number'       => 'nullable|string|max:20',
             'address'         => 'nullable|string|max:500',
@@ -487,6 +530,11 @@ class ContactController extends Controller
 
         $tagIds = $data['tag_ids'] ?? [];
         unset($data['tag_ids']);
+
+        // A co-agent without a primary is meaningless — collapse it.
+        if (array_key_exists('agent_id', $data) && empty($data['agent_id'])) {
+            $data['second_agent_id'] = null;
+        }
 
         $contact->update($data);
         $previousTagIds = $contact->tags()->pluck('contact_tags.id')->all();

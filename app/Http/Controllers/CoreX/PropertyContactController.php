@@ -118,22 +118,33 @@ class PropertyContactController extends Controller
     public function link(Request $request, Property $property)
     {
         $data = $request->validate([
-            'contact_id' => 'required|exists:contacts,id',
+            'contact_id' => 'required|integer',
             'role'       => 'nullable|string|max:50',
         ]);
 
+        // Resolve through the scoped model so the contact must be a live,
+        // in-agency record. `exists:contacts,id` matched soft-deleted or
+        // cross-agency rows (the rule ignores the SoftDeletes + AgencyScope
+        // global scopes), which let an invalid contact get linked and then
+        // crashed contactPayload() with a null contact.
+        $contact = Contact::with('type')->find($data['contact_id']);
+        if (! $contact) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => 'Contact not found.'], 422)
+                : back()->withErrors(['contact_id' => 'Contact not found.'])->with('tab', 'contacts');
+        }
+
         $role = $data['role'] ?? null;
         $property->contacts()->syncWithoutDetaching([
-            $data['contact_id'] => ['role' => $role],
+            $contact->id => ['role' => $role],
         ]);
 
         // Auto-create seller live link if seller role
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
-            \App\Models\PropertySellerLink::ensureExists($property->id, (int) $data['contact_id']);
+            \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
         }
 
         if ($request->expectsJson() || $request->wantsJson()) {
-            $contact = Contact::with('type')->find($data['contact_id']);
             return response()->json([
                 'ok'      => true,
                 'count'   => $property->contacts()->count(),
