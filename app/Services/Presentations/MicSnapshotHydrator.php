@@ -643,14 +643,20 @@ final class MicSnapshotHydrator
                 }
 
                 if (!$subjectReportHit && !$trustedInternal) {
-                    // Preserve Build 1's strict-drop semantic: a comp
-                    // with no usable property_type was classified as
-                    // TITLE_OTHER and dropped (OTHER never matches the
-                    // subject's actual type). The new service returns
-                    // null on blank to keep forProperty's fallback chain
-                    // clean — coerce at the call site.
-                    $compTitleType = app(\App\Services\TitleTypeClassifier::class)
-                            ->fromPropertyType($row->property_type ?? null)
+                    // SS-SECTIONAL-GATE-FIX — classify the comp with the
+                    // SAME signal-aware derivation the candidate build uses
+                    // at L120 (deriveCompTitleType), NOT the bare
+                    // fromPropertyType. CMA-Info sectional comp rows are
+                    // stamped property_type='Residence' (the PDF "usage"
+                    // word), which the bare classifier buckets as full_title
+                    // — silently dropping every vicinity sectional sale
+                    // against a sectional subject even though the row carries
+                    // scheme_name/section_number. deriveCompTitleType reads
+                    // those signals first and only falls back to
+                    // fromPropertyType (→ null on blank) when no signal is
+                    // present. Coerce null → TITLE_OTHER to preserve Build 1's
+                    // strict-drop semantic on a genuinely typeless comp.
+                    $compTitleType = $this->deriveCompTitleType($row)
                         ?? \App\Services\TitleTypeClassifier::TITLE_OTHER;
                     if ($compTitleType !== $titleType) {
                         return false;
