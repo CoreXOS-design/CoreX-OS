@@ -284,6 +284,22 @@ class AnalysisDataService
                 default                    => 'vicinity',
             };
 
+            // Source-agnostic sectional routing. Sectional comps now arrive
+            // via MicSnapshotHydrator tagged source='mic_snapshot' (→ 'vicinity'
+            // above) rather than the legacy 'vicinity_sales_sectional', so the
+            // source switch alone leaves them in vicinity and the dedicated
+            // complex section never populates. Detect a sectional comp by the
+            // same data-presence signal CompLabel Fix A and the type-gate use —
+            // BOTH scheme_name AND a section token present — and route it to
+            // 'complex'. Applied ONLY when the comp would otherwise land in
+            // 'vicinity', so the distinct cma_comps / street_sales groups are
+            // never disturbed, and only when the agency hasn't suppressed the
+            // section ($separateComplex). Freehold comps (no scheme/section)
+            // are untouched and stay in 'vicinity'.
+            if ($key === 'vicinity' && $separateComplex && $this->isSectionalComp($raw)) {
+                $key = 'complex';
+            }
+
             $groups[$key][] = $row;
         }
 
@@ -319,6 +335,31 @@ class AnalysisDataService
         }
 
         return $result;
+    }
+
+    /**
+     * A comp is sectional when it carries BOTH a scheme name AND a section
+     * token — the same data-presence signal CompLabel::build() uses to render
+     * "Unit {section}, {scheme}" and the type-gate uses at L163. Section number
+     * may appear under either spelling depending on the parser (section_number
+     * for MicSnapshotHydrator / CMA-Info; section_no for the doc_extract family).
+     *
+     * @param  array<string, mixed>  $raw  decoded raw_row_json
+     */
+    private function isSectionalComp(array $raw): bool
+    {
+        $scheme = isset($raw['scheme_name']) ? trim((string) $raw['scheme_name']) : '';
+        if ($scheme === '') {
+            return false;
+        }
+
+        foreach (['section_number', 'section_no'] as $k) {
+            if (isset($raw[$k]) && trim((string) $raw[$k]) !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

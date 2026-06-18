@@ -959,7 +959,8 @@
         @if($secOn('recent_sales') && $showComplexSales)
         <section class="block" data-section-id="complex-sales">
             <div class="block-eyebrow">Comparable Sales</div>
-            <h2>{{ ($subjectComplexName !== null && trim((string) $subjectComplexName) !== '') ? 'Recent sales in ' . $subjectComplexName : 'Recent sales in the complex' }}</h2>
+            {{-- Title-case the scheme name for display only ("PUMULA" → "Pumula"); underlying data unchanged. --}}
+            <h2>{{ ($subjectComplexName !== null && trim((string) $subjectComplexName) !== '') ? 'Recent sales in ' . \Illuminate\Support\Str::title(trim((string) $subjectComplexName)) : 'Recent sales in the complex' }}</h2>
             <table>
                 <thead><tr><th>Unit / Section</th><th>Sale date</th><th class="num">Sale price</th><th class="num">m²</th></tr></thead>
                 <tbody>

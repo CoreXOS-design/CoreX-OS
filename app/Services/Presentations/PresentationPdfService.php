@@ -1798,8 +1798,10 @@ a:hover { text-decoration: underline; }
     $complexTop = $complexSales;
     usort($complexTop, fn($a, $b) => strcmp($b['sale_date'] ?? '', $a['sale_date'] ?? ''));
     $complexTop = array_slice($complexTop, 0, 15);
+    // Title-case the scheme name for display only ("PUMULA" → "Pumula");
+    // the underlying complex_name is left as captured.
     $complexHeading = ($complexName !== null && trim((string) $complexName) !== '')
-        ? 'Recent sales in ' . $esc($complexName)
+        ? 'Recent sales in ' . $esc(\Illuminate\Support\Str::title(trim((string) $complexName)))
         : 'Recent sales in the complex';
 ?>
 <div class="section-intro avoid-break" style="margin-top:18px;">

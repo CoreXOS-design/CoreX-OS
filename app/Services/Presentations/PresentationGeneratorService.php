@@ -241,6 +241,26 @@ class PresentationGeneratorService
                 ]);
             }
 
+            // ── 3.4c. Subject sectional identity backfill ──────────────────
+            // A sectional subject created by hand (or before its CMA landed)
+            // often has complex_name / unit_number NULL — so the dedicated
+            // "Recent sales in {complex}" heading falls back to the generic
+            // "the complex" and the subject can't render "Unit 12, Pumula".
+            // The subject's own CMA captured both (market_reports.
+            // subject_scheme_name / subject_section_number). Backfill them onto
+            // the Property when empty — never clobbering an agent-supplied
+            // value. Best-effort: failure must not abort generation.
+            try {
+                if ($this->backfillSubjectSectionalIdentity($property)) {
+                    $property->refresh();
+                }
+            } catch (\Throwable $e) {
+                \Log::warning('Subject sectional-identity backfill failed', [
+                    'property_id' => $property->id,
+                    'err'         => $e->getMessage(),
+                ]);
+            }
+
             // ── 3.5. Phase 3d — MIC snapshot hydration ─────────────────────
             // Before AnalysisDataService runs, copy any matching MIC evidence
             // (market_report_comp_rows + suburb/CMA market_data_points) into
@@ -327,6 +347,62 @@ class PresentationGeneratorService
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    /**
+     * Backfill a sectional subject's complex_name + unit_number from its own
+     * CMA report when the Property left them blank. The subject IS sectional
+     * precisely when its CMA captured BOTH a scheme name AND a section number
+     * (market_reports.subject_scheme_name / subject_section_number) — the same
+     * data-presence signal CompLabel and the comp grouping use; a freehold
+     * subject's report carries neither, so this no-ops. Only ever FILLS empty
+     * columns — an agent-supplied complex_name / unit_number is never clobbered.
+     *
+     * @return bool  true when a column was written (caller should refresh()).
+     */
+    private function backfillSubjectSectionalIdentity(Property $property): bool
+    {
+        $needsComplex = blank($property->complex_name);
+        $needsUnit    = blank($property->unit_number);
+        if (!$needsComplex && !$needsUnit) {
+            return false;
+        }
+
+        $reportIds = \App\Support\Presentations\SubjectReportResolver::resolveReportIds(
+            (int) $property->agency_id,
+            (string) ($property->address ?? ''),
+            (string) ($property->suburb ?? ''),
+        );
+        if (empty($reportIds)) {
+            return false;
+        }
+
+        // Most recent report that carries a full sectional identity.
+        $report = \App\Models\MarketReports\MarketReport::whereIn('id', $reportIds)
+            ->whereNotNull('subject_scheme_name')
+            ->whereNotNull('subject_section_number')
+            ->where('subject_scheme_name', '!=', '')
+            ->where('subject_section_number', '!=', '')
+            ->orderByDesc('id')
+            ->first();
+        if (!$report) {
+            return false;
+        }
+
+        $dirty = false;
+        if ($needsComplex) {
+            $property->complex_name = trim((string) $report->subject_scheme_name);
+            $dirty = true;
+        }
+        if ($needsUnit) {
+            $property->unit_number = trim((string) $report->subject_section_number);
+            $dirty = true;
+        }
+        if ($dirty) {
+            $property->save();
+        }
+
+        return $dirty;
+    }
 
     /**
      * Build the Presentation row payload from a Property record.

@@ -69,6 +69,49 @@ class SsComplexSalesAndIdentityTest extends TestCase
         $this->assertContains('Brock Manor (Unit 5)', $addresses);
     }
 
+    public function test_mic_snapshot_comp_with_scheme_and_section_routes_to_complex(): void
+    {
+        // Regression: sectional comps now arrive via MicSnapshotHydrator tagged
+        // source='mic_snapshot' (NOT the legacy 'vicinity_sales_sectional'), so
+        // the source switch alone left them all in vicinity and the complex
+        // section never populated. FIX 1: route on the scheme+section signal.
+        $agencyId     = $this->seedAgency(); // toggle defaults on
+        $presentation = $this->seedPresentation($agencyId);
+
+        // mic_snapshot comp WITH scheme + section → complex.
+        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Pumula, Section 9', 1_500_000, 80, '2025-05-01', [
+            'scheme_name'    => 'Pumula',
+            'section_number' => '9',
+        ]);
+        // mic_snapshot comp WITHOUT scheme/section (freehold) → vicinity.
+        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', '10 Beach Road', 2_000_000, 100, '2025-06-01');
+
+        $comps = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']))['comparable_sales'];
+
+        $this->assertCount(1, $comps['complex']['rows'], 'mic_snapshot comp with scheme+section lands in complex');
+        $this->assertSame('Unit 9, Pumula', $comps['complex']['rows'][0]['address'],
+            'complex row carries the CompLabel Unit-first identity');
+        $this->assertCount(1, $comps['vicinity']['rows'], 'freehold mic_snapshot comp stays in vicinity');
+        $this->assertSame('10 Beach Road', $comps['vicinity']['rows'][0]['address']);
+    }
+
+    public function test_mic_snapshot_sectional_comp_folds_into_vicinity_when_toggle_off(): void
+    {
+        $agencyId = $this->seedAgency();
+        DB::table('agencies')->where('id', $agencyId)->update(['ss_show_complex_section' => false]);
+        $presentation = $this->seedPresentation($agencyId);
+
+        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Pumula, Section 9', 1_500_000, 80, '2025-05-01', [
+            'scheme_name'    => 'Pumula',
+            'section_number' => '9',
+        ]);
+
+        $comps = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']))['comparable_sales'];
+
+        $this->assertEmpty($comps['complex']['rows'], 'no separate complex group when suppressed');
+        $this->assertCount(1, $comps['vicinity']['rows'], 'sectional mic_snapshot comp folds back into vicinity when suppressed');
+    }
+
     public function test_subject_display_address_uses_complex_and_unit_when_both_present(): void
     {
         $agencyId   = $this->seedAgency();
@@ -275,7 +318,8 @@ class SsComplexSalesAndIdentityTest extends TestCase
         ]);
     }
 
-    private function seedComp(int $agencyId, int $presentationId, string $source, string $address, int $price, int $sizeM2, string $date): void
+    /** @param  array<string,mixed>  $rawExtra  extra raw_row_json keys (e.g. scheme_name/section_number) */
+    private function seedComp(int $agencyId, int $presentationId, string $source, string $address, int $price, int $sizeM2, string $date, array $rawExtra = []): void
     {
         PresentationSoldComp::create([
             'agency_id'       => $agencyId,
@@ -286,13 +330,13 @@ class SsComplexSalesAndIdentityTest extends TestCase
             'property_type'   => $source === 'vicinity_sales_sectional' ? 'Sectional' : 'House',
             'size_m2'         => $sizeM2,
             'parser_version'  => 'test_v1',
-            'raw_row_json'    => json_encode([
+            'raw_row_json'    => json_encode(array_merge([
                 'source'       => $source,
                 'address'      => $address,
                 'extent_m2'    => $sizeM2,
                 'sale_price'   => $price,
                 'price_per_m2' => (int) round($price / max(1, $sizeM2)),
-            ]),
+            ], $rawExtra)),
             'is_demo'         => false,
         ]);
     }
