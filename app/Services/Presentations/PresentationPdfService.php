@@ -839,12 +839,18 @@ body {
 }
 
 /* ── PAGE BREAK HELPERS ──────────────────────────────────────────────── */
+/* Always pair the legacy `page-break-inside` with the modern `break-inside`.
+   The headless-Chrome render host (server-bundled puppeteer Chromium) can
+   differ in version from a developer's local Chromium, and the LayoutNG
+   fragmentation engine honours the modern property; the legacy alias alone
+   is not reliable across versions. Carrying both keeps a wrapped block whole
+   regardless of which Chromium prints it. */
 .page-break { page-break-before: always; }
-.avoid-break { page-break-inside: avoid; }
+.avoid-break { page-break-inside: avoid; break-inside: avoid; }
 /* AT-22 item 4 — the closing CTA + footer travel together and carry NO
    trailing margin, so the document's last box never spills a hair past the
    page content-box and triggers chromium to emit an empty final page. */
-.report-tail { page-break-inside: avoid; }
+.report-tail { page-break-inside: avoid; break-inside: avoid; }
 .report-tail > :last-child { margin-bottom: 0; }
 
 /* ── TYPOGRAPHY ──────────────────────────────────────────────────────── */
@@ -860,6 +866,7 @@ h3 { font-size: 14px; font-weight: 600; }
     padding-bottom: 10px;
     border-bottom: 2px solid var(--brand);
     page-break-inside: avoid;
+    break-inside: avoid;
     page-break-after: avoid;
 }
 /* B2 — beat eyebrow above section headers so the seller can match
@@ -901,6 +908,7 @@ h3 { font-size: 14px; font-weight: 600; }
     border-radius: 6px;
     background: var(--bg);
     page-break-inside: avoid;
+    break-inside: avoid;
     overflow: hidden;
 }
 .subject-card-header {
@@ -1752,7 +1760,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody>
         <?php foreach ($topSales as $sale): ?>
-        <tr style="page-break-inside:avoid;">
+        <tr style="page-break-inside:avoid;break-inside:avoid;">
             <td><?= $esc($sale['address'] ?? '—') ?></td>
             <td><?= $sale['distance_m'] ? $sale['distance_m'] . 'm' : '—' ?></td>
             <td class="num"><?= $sale['extent_m2'] ? number_format((int) $sale['extent_m2']) : '—' ?></td>
@@ -1822,7 +1830,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody>
         <?php foreach ($complexTop as $sale): ?>
-        <tr style="page-break-inside:avoid;">
+        <tr style="page-break-inside:avoid;break-inside:avoid;">
             <td><?= $esc($sale['address'] ?? '—') ?></td>
             <td class="num"><?= $sale['extent_m2'] ? number_format((int) $sale['extent_m2']) : '—' ?></td>
             <td><?= $esc($sale['sale_date'] ?? '—') ?></td>
@@ -1933,7 +1941,7 @@ a:hover { text-decoration: underline; }
 ?>
 <div class="avoid-break" style="margin-top:16px;">
     <p style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Sale Prices Over Time</p>
-    <svg viewBox="0 0 <?= $stW ?> <?= $stH ?>" style="width:100%;max-width:<?= $stW ?>px;height:auto;background:var(--bg);border:1px solid var(--border);border-radius:4px;">
+    <svg viewBox="0 0 <?= $stW ?> <?= $stH ?>" style="display:block;width:100%;max-width:<?= $stW ?>px;height:auto;aspect-ratio:<?= $stW ?> / <?= $stH ?>;background:var(--bg);border:1px solid var(--border);border-radius:4px;">
         <?php // Plot frame ?>
         <line x1="<?= $stPadL ?>" y1="<?= $stPadT ?>" x2="<?= $stPadL ?>" y2="<?= $stH - $stPadB ?>" stroke="#cbd5e1" stroke-width="0.75"/>
         <line x1="<?= $stPadL ?>" y1="<?= $stH - $stPadB ?>" x2="<?= $stW - $stPadR ?>" y2="<?= $stH - $stPadB ?>" stroke="#cbd5e1" stroke-width="0.75"/>
@@ -2133,7 +2141,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody>
         <?php foreach ($legend as $_lg): ?>
-        <tr style="border-bottom:1px solid #f1f5f9;page-break-inside:avoid;">
+        <tr style="border-bottom:1px solid #f1f5f9;page-break-inside:avoid;break-inside:avoid;">
             <td style="padding:3px 6px;">
                 <span style="display:inline-block;width:16px;height:16px;line-height:16px;border-radius:50%;text-align:center;color:#fff;font-weight:700;background:<?= htmlspecialchars((string) ($_lg['colour'] ?? '#64748b'), ENT_QUOTES) ?>;"><?= htmlspecialchars((string) ($_lg['label_glyph'] ?? $_lg['index'] ?? ''), ENT_QUOTES) ?></span>
             </td>
@@ -2463,7 +2471,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody>
         <?php foreach ($compVisible as $c): ?>
-        <tr style="page-break-inside:avoid;">
+        <tr style="page-break-inside:avoid;break-inside:avoid;">
             <td><?= $esc($c['address'] ?? ('Listing #' . ($c['listing_id'] ?? '—'))) ?></td>
             <td><?= $esc($c['property_type'] ?? '—') ?></td>
             <td class="num"><?php
@@ -3018,7 +3026,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 <?php /* AT-22 R2 item 4 — keep the holding-cost grid whole. The two tables
          are short; protecting the grid container (not just the children) stops
          Chromium splitting the grid track across pages 10–11. */ ?>
-<div class="two-col" style="page-break-inside:avoid;">
+<div class="two-col" style="page-break-inside:avoid;break-inside:avoid;">
     <div class="avoid-break">
         <h3 style="margin-bottom:8px;">Monthly Breakdown</h3>
         <table>

@@ -32,13 +32,19 @@ class SsComplexSalesAndIdentityTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_sectional_comps_split_into_own_complex_group_when_toggle_on(): void
+    public function test_same_scheme_comps_split_into_own_complex_group_when_toggle_on(): void
     {
-        $agencyId = $this->seedAgency(); // ss_show_complex_section defaults to true
-        $presentation = $this->seedPresentation($agencyId);
+        // Complex membership is SAME-SCHEME ONLY: the comp's scheme_name must
+        // match the subject's scheme (Property.complex_name). A sectional comp
+        // is NOT enough — it must be the SUBJECT'S scheme.
+        $agencyId   = $this->seedAgency(); // ss_show_complex_section defaults to true
+        $propertyId = $this->seedProperty($agencyId, ['complex_name' => 'Brock Manor', 'unit_number' => '17']);
+        $presentation = $this->seedPresentation($agencyId, $propertyId);
 
         $this->seedComp($agencyId, $presentation->id, 'vicinity_sales', '10 Beach Road', 2_000_000, 100, '2025-06-01');
-        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01');
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01', [
+            'scheme_name' => 'Brock Manor',
+        ]);
 
         $data  = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']));
         $comps = $data['comparable_sales'];
@@ -46,70 +52,121 @@ class SsComplexSalesAndIdentityTest extends TestCase
         $this->assertCount(1, $comps['vicinity']['rows'], 'full-title sale stays in vicinity');
         $this->assertSame('10 Beach Road', $comps['vicinity']['rows'][0]['address']);
 
-        $this->assertCount(1, $comps['complex']['rows'], 'sectional sale lands in its own complex group');
+        $this->assertCount(1, $comps['complex']['rows'], 'same-scheme sale lands in its own complex group');
         $this->assertSame('Brock Manor (Unit 5)', $comps['complex']['rows'][0]['address']);
         $this->assertSame(1_500_000, $comps['complex']['avg_price']);
     }
 
-    public function test_sectional_comps_fold_into_vicinity_when_toggle_off(): void
+    public function test_different_scheme_sectional_comp_stays_in_vicinity(): void
     {
-        $agencyId = $this->seedAgency();
+        // The pres-98 bug: a sectional comp from a DIFFERENT scheme (Loscona)
+        // must NOT appear in the subject's (Pumula) complex section. Only the
+        // same-scheme comp belongs there; everything else is vicinity.
+        $agencyId   = $this->seedAgency();
+        $propertyId = $this->seedProperty($agencyId, ['complex_name' => 'Pumula', 'unit_number' => '12']);
+        $presentation = $this->seedPresentation($agencyId, $propertyId);
+
+        // Same scheme as the subject → complex.
+        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Pumula, Section 9', 1_500_000, 80, '2025-05-01', [
+            'scheme_name' => 'Pumula', 'section_number' => '9',
+        ]);
+        // DIFFERENT sectional schemes → vicinity, NOT complex.
+        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Loscona, Section 12', 1_200_000, 70, '2025-04-01', [
+            'scheme_name' => 'Loscona', 'section_number' => '12',
+        ]);
+        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Suntide Cabanas, Section 13', 1_300_000, 75, '2025-03-01', [
+            'scheme_name' => 'Suntide Cabanas', 'section_number' => '13',
+        ]);
+        // Freehold area sale → vicinity.
+        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', '10 Beach Road', 2_000_000, 100, '2025-06-01');
+
+        $comps = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']))['comparable_sales'];
+
+        $this->assertCount(1, $comps['complex']['rows'], 'ONLY the Pumula-scheme comp is in the complex group');
+        $this->assertSame('Unit 9, Pumula', $comps['complex']['rows'][0]['address']);
+
+        $this->assertCount(3, $comps['vicinity']['rows'], 'Loscona + Suntide + freehold are all vicinity');
+        $vicAddresses = array_column($comps['vicinity']['rows'], 'address');
+        $this->assertContains('Unit 12, Loscona', $vicAddresses);
+        $this->assertContains('Unit 13, Suntide Cabanas', $vicAddresses);
+        $this->assertContains('10 Beach Road', $vicAddresses);
+    }
+
+    public function test_scheme_match_is_case_insensitive_and_trimmed(): void
+    {
+        // Subject scheme "PUMULA" must match a comp scheme " pumula " regardless
+        // of case / surrounding whitespace.
+        $agencyId   = $this->seedAgency();
+        $propertyId = $this->seedProperty($agencyId, ['complex_name' => 'PUMULA', 'unit_number' => '12']);
+        $presentation = $this->seedPresentation($agencyId, $propertyId);
+
+        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Pumula, Section 9', 1_500_000, 80, '2025-05-01', [
+            'scheme_name' => '  pumula  ', 'section_number' => '9',
+        ]);
+
+        $comps = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']))['comparable_sales'];
+
+        $this->assertCount(1, $comps['complex']['rows'], 'case/whitespace-insensitive scheme match → complex');
+        $this->assertEmpty($comps['vicinity']['rows']);
+    }
+
+    public function test_same_scheme_comps_fold_into_vicinity_when_toggle_off(): void
+    {
+        $agencyId   = $this->seedAgency();
         DB::table('agencies')->where('id', $agencyId)->update(['ss_show_complex_section' => false]);
-        $presentation = $this->seedPresentation($agencyId);
+        $propertyId = $this->seedProperty($agencyId, ['complex_name' => 'Brock Manor', 'unit_number' => '17']);
+        $presentation = $this->seedPresentation($agencyId, $propertyId);
 
         $this->seedComp($agencyId, $presentation->id, 'vicinity_sales', '10 Beach Road', 2_000_000, 100, '2025-06-01');
-        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01');
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01', [
+            'scheme_name' => 'Brock Manor',
+        ]);
 
         $data  = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']));
         $comps = $data['comparable_sales'];
 
-        $this->assertCount(2, $comps['vicinity']['rows'], 'sectional folds back into vicinity when suppressed');
+        $this->assertCount(2, $comps['vicinity']['rows'], 'same-scheme folds back into vicinity when suppressed');
         $this->assertEmpty($comps['complex']['rows'], 'no separate complex group when suppressed');
         $addresses = array_column($comps['vicinity']['rows'], 'address');
         $this->assertContains('Brock Manor (Unit 5)', $addresses);
     }
 
-    public function test_mic_snapshot_comp_with_scheme_and_section_routes_to_complex(): void
+    public function test_schemeless_comp_stays_in_vicinity_even_when_subject_has_scheme(): void
     {
-        // Regression: sectional comps now arrive via MicSnapshotHydrator tagged
-        // source='mic_snapshot' (NOT the legacy 'vicinity_sales_sectional'), so
-        // the source switch alone left them all in vicinity and the complex
-        // section never populated. FIX 1: route on the scheme+section signal.
-        $agencyId     = $this->seedAgency(); // toggle defaults on
-        $presentation = $this->seedPresentation($agencyId);
+        // The known parser gap: a real same-complex sale whose scheme_name was
+        // lost at capture (NULL) can NOT match — it stays an honest vicinity
+        // sale until re-imported with the scheme populated. Proves the complex
+        // group never guesses membership from anything but a real scheme match.
+        $agencyId   = $this->seedAgency();
+        $propertyId = $this->seedProperty($agencyId, ['complex_name' => 'Pumula', 'unit_number' => '12']);
+        $presentation = $this->seedPresentation($agencyId, $propertyId);
 
-        // mic_snapshot comp WITH scheme + section → complex.
-        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Pumula, Section 9', 1_500_000, 80, '2025-05-01', [
-            'scheme_name'    => 'Pumula',
-            'section_number' => '9',
+        // Section present but scheme_name NULL (the capture gap) → vicinity.
+        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Section 976, Margate', 1_400_000, 78, '2025-05-01', [
+            'section_number' => '976',
         ]);
-        // mic_snapshot comp WITHOUT scheme/section (freehold) → vicinity.
-        $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', '10 Beach Road', 2_000_000, 100, '2025-06-01');
 
         $comps = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']))['comparable_sales'];
 
-        $this->assertCount(1, $comps['complex']['rows'], 'mic_snapshot comp with scheme+section lands in complex');
-        $this->assertSame('Unit 9, Pumula', $comps['complex']['rows'][0]['address'],
-            'complex row carries the CompLabel Unit-first identity');
-        $this->assertCount(1, $comps['vicinity']['rows'], 'freehold mic_snapshot comp stays in vicinity');
-        $this->assertSame('10 Beach Road', $comps['vicinity']['rows'][0]['address']);
+        $this->assertEmpty($comps['complex']['rows'], 'schemeless comp can NOT enter the complex group');
+        $this->assertCount(1, $comps['vicinity']['rows'], 'it remains an honest vicinity sale');
     }
 
-    public function test_mic_snapshot_sectional_comp_folds_into_vicinity_when_toggle_off(): void
+    public function test_subject_without_scheme_yields_no_complex_group(): void
     {
-        $agencyId = $this->seedAgency();
-        DB::table('agencies')->where('id', $agencyId)->update(['ss_show_complex_section' => false]);
-        $presentation = $this->seedPresentation($agencyId);
+        // Freehold subject (no complex_name) → nothing can match → complex empty.
+        $agencyId   = $this->seedAgency();
+        $propertyId = $this->seedProperty($agencyId, ['complex_name' => null, 'unit_number' => null]);
+        $presentation = $this->seedPresentation($agencyId, $propertyId);
 
         $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Pumula, Section 9', 1_500_000, 80, '2025-05-01', [
-            'scheme_name'    => 'Pumula',
-            'section_number' => '9',
+            'scheme_name' => 'Pumula', 'section_number' => '9',
         ]);
 
         $comps = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']))['comparable_sales'];
 
-        $this->assertEmpty($comps['complex']['rows'], 'no separate complex group when suppressed');
-        $this->assertCount(1, $comps['vicinity']['rows'], 'sectional mic_snapshot comp folds back into vicinity when suppressed');
+        $this->assertEmpty($comps['complex']['rows'], 'schemeless subject → no complex group');
+        $this->assertCount(1, $comps['vicinity']['rows']);
     }
 
     public function test_subject_display_address_uses_complex_and_unit_when_both_present(): void
@@ -185,9 +242,9 @@ class SsComplexSalesAndIdentityTest extends TestCase
         ]);
         $presentation = $this->seedPresentation($agencyId, $propertyId, '17 Marine Drive, Margate');
 
-        // ONLY sectional comps → vicinity group empty, complex group populated.
-        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01');
-        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 8)', 1_650_000, 85, '2025-04-01');
+        // ONLY same-scheme comps → vicinity group empty, complex group populated.
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01', ['scheme_name' => 'Brock Manor']);
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 8)', 1_650_000, 85, '2025-04-01', ['scheme_name' => 'Brock Manor']);
 
         $html = $this->renderPdfFor($presentation);
 
@@ -212,7 +269,7 @@ class SsComplexSalesAndIdentityTest extends TestCase
         $presentation = $this->seedPresentation($agencyId, $propertyId, '17 Marine Drive, Margate');
 
         $this->seedComp($agencyId, $presentation->id, 'vicinity_sales', '10 Beach Road', 2_000_000, 100, '2025-06-01');
-        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01');
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01', ['scheme_name' => 'Brock Manor']);
 
         $html = $this->renderPdfFor($presentation);
 
