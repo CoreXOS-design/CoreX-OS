@@ -75,9 +75,13 @@ final class CmaInfoSectionalTitleSalesParser extends AbstractCmaInfoParser
         // ── Subject + radius detection ─────────────────────────────────────
         $subjectMeta = [];
 
-        // Page-1 first line — "MADEIRA GARDENS, 4 TUCKER AVENUE, UVONGO"
+        // Page-1 first line — "MADEIRA GARDENS, 4 TUCKER AVENUE, UVONGO" OR a
+        // scheme on a numberless road — "PUMULA, DUKE ROAD, MARGATE NORTH BEACH".
+        // The street number is OPTIONAL: some schemes sit on a named road with no
+        // number, and the old mandatory-\d pattern left subject_scheme_name NULL
+        // for them (then every in-scheme comp lost its scheme — pres 98 / PUMULA).
         $subjectAddrSuburb = null;
-        if (preg_match('/^([A-Z][A-Z \']{2,40}),\s+(\d{1,4}\s+[A-Z][A-Z \']{2,40}),\s+([A-Z][A-Z \']{2,40})$/m', $text, $m)) {
+        if (preg_match('/^([A-Z][A-Z \']{2,40}),\s+((?:\d{1,4}\s+)?[A-Z][A-Z \']{2,40}),\s+([A-Z][A-Z \']{2,40})$/m', $text, $m)) {
             $subjectMeta['subject_scheme_name'] = trim($m[1]);
             $subjectMeta['subject_address']     = trim($m[2]) . ', ' . trim($m[3]);
             $subjectAddrSuburb                  = trim($m[3]);
@@ -268,17 +272,42 @@ final class CmaInfoSectionalTitleSalesParser extends AbstractCmaInfoParser
             $matchStart = $m[0][1];
             $lookback   = max(0, $matchStart - 200);
             $context    = mb_substr($text, $lookback, $matchStart - $lookback);
-            if (preg_match_all('/([A-Z][A-Z \']{2,40}),\s+([0-9]{1,4}\s+[A-Z][A-Z \']{2,40})(?:,\s+([A-Z][A-Z \']{2,40}))?/u', $context, $am, PREG_SET_ORDER)) {
+            // Street number OPTIONAL — "PUMULA, DUKE ROAD" (no number) must bind
+            // its scheme exactly like "LOSCONA, 1 SAINT ANDREWS AVENUE" does. The
+            // old mandatory-number pattern silently dropped the scheme on every
+            // numberless-road scheme, so those comps fell to vicinity instead of
+            // their own complex group.
+            if (preg_match_all('/([A-Z][A-Z \']{2,40}),\s+((?:[0-9]{1,4}\s+)?[A-Z][A-Z \']{2,40})(?:,\s+([A-Z][A-Z \']{2,40}))?/u', $context, $am, PREG_SET_ORDER)) {
                 $last = end($am);
                 $sName   = trim($last[1]);
                 $sAddress = trim($last[2]);
             }
         }
 
+        // Year-tail guard. Pattern B matches "(?<sec>\d{1,3})\s+(date)..."; on a
+        // row whose section column wrapped to another line the token before the
+        // date is the 4-digit "SS Year" (e.g. "1976"), so \d{1,3} captures its
+        // last 3 digits ("976") as a phantom section. If the captured section is
+        // immediately preceded by another digit it is a year-tail, not a real
+        // section number — drop it rather than emit "Unit 976, PUMULA".
+        $section    = $m['sec'][0] ?? null;
+        $secOffset  = $m['sec'][1] ?? -1;
+        if ($section !== null && $secOffset > 0 && ctype_digit((string) ($text[$secOffset - 1] ?? ''))) {
+            $section = null;
+            // The street we looked back to is the scheme's SHARED road (e.g.
+            // "DUKE ROAD" for every PUMULA unit) — not unit-identifying. With no
+            // section to pair it with, that street would become the comp's label
+            // ("DUKE ROAD") instead of the complex name. Drop it so the comp
+            // identifies by its scheme ("PUMULA").
+            if ($sName !== null) {
+                $sAddress = null;
+            }
+        }
+
         return [
             'scheme_name'    => $sName,
             'address'        => $sAddress,
-            'section_number' => $m['sec'][0] ?? null,
+            'section_number' => $section,
             'ss_number'      => $hasFull && !empty($m['ss'][0])  ? $m['ss'][0] : null,
             'ss_year'        => $hasFull && !empty($m['yr'][0])  ? (int) $m['yr'][0] : null,
             'property_type'  => 'Residence',
