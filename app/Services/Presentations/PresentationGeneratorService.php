@@ -199,7 +199,8 @@ class PresentationGeneratorService
             // the subject. Resolve it now synchronously (fast for cache hits;
             // typically completes in <100ms when the address has been seen
             // before via a prior CMA import).
-            if ($property->latitude === null || $property->longitude === null) {
+            if ($property->latitude === null || $property->longitude === null
+                || $this->geoBackfill->pinIsSuspect($property)) {
                 try {
                     $this->geoBackfill->backfillProperty($property);
                     $property->refresh();

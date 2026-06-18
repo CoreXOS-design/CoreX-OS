@@ -53,10 +53,12 @@ final class PropertyGeoBackfillService
         $latLngBefore = $this->hasGps($property);
         $munBefore    = !empty($property->municipal_valuation);
 
-        // Force re-resolve overrides the !hasGps guard. Used by the
-        // geocode endpoint when address fields change AND by the
-        // suburb_centroid cleanup pass.
-        $shouldResolve = !$latLngBefore || $force;
+        // Resolve when there is no pin yet, on an explicit force (geocode
+        // endpoint / suburb_centroid cleanup), OR when the existing pin is
+        // suspect (suburb-centroid / unresolved / low confidence). The last
+        // clause is the GPS-BORROW-FIX: a wrong pin self-heals on the next
+        // backfill instead of being permanent.
+        $shouldResolve = !$latLngBefore || $force || $this->pinIsSuspect($property);
 
         $result = null;
         if ($shouldResolve) {
@@ -66,13 +68,26 @@ final class PropertyGeoBackfillService
                 $property->suburb,
                 $property->town,
                 context: 'property:' . $property->id . ($force ? ':force' : ''),
+                // A re-resolve (we already had coords) bypasses the geocode
+                // cache so a poisoned/stale entry can't re-serve the wrong pin.
+                bypassCache: $latLngBefore,
             );
             if ($result->hasGps()) {
-                $property->latitude        = $result->latitude;
-                $property->longitude       = $result->longitude;
-                $property->geo_source      = $result->source;
-                $property->geo_confidence  = $result->confidence;
-                $property->geo_resolved_at = now();
+                // CONFIDENCE GUARD — never DOWNGRADE a pin. Overwrite only when
+                // there was no pin, or the new fix is at least as trustworthy
+                // (exact > street > suburb > town). A higher-confidence source
+                // always wins over a lower one. "Overwrite only if null" was
+                // itself a bug-class: it made any wrongly-populated coord
+                // permanent (e.g. property 771's borrowed Acacia Road pin).
+                $existingRank = $latLngBefore ? $this->confidenceRank($property->geo_confidence) : -1;
+                $newRank      = $this->confidenceRank($result->confidence);
+                if (!$latLngBefore || $newRank >= $existingRank) {
+                    $property->latitude        = $result->latitude;
+                    $property->longitude       = $result->longitude;
+                    $property->geo_source      = $result->source;
+                    $property->geo_confidence  = $result->confidence;
+                    $property->geo_resolved_at = now();
+                }
             } else {
                 // Preserve existing coords on force-resolve failure —
                 // a transient Google quota error shouldn't blank out
@@ -304,6 +319,26 @@ final class PropertyGeoBackfillService
             return true;
         }
         return false;
+    }
+
+    /**
+     * Trust ordering for a GeocodingResult confidence tier, used by the
+     * overwrite guard so a higher-confidence source always wins and a
+     * re-resolve can never downgrade a good pin. Mirrors the ladder in
+     * GeocodingResult's docblock: exact > street > suburb > town > failed.
+     * Unknown/null sits below town but above failed so a labelled coarse
+     * pin still outranks an outright failure.
+     */
+    private function confidenceRank(?string $confidence): int
+    {
+        return match ($confidence) {
+            'exact'  => 5,
+            'street' => 4,
+            'suburb' => 3,
+            'town'   => 2,
+            'failed' => 0,
+            default  => 1,
+        };
     }
 
     private function addressNeedles(string $address): array

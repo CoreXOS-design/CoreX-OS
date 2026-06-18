@@ -69,6 +69,7 @@ final class AddressResolverService
         ?string $suburb = null,
         ?string $town = null,
         ?string $context = null,
+        bool $bypassCache = false,
     ): GeocodingResult {
         $normalised = AddressNormaliser::normalise($address, $suburb, $town);
         $suburbNorm = $suburb !== null ? mb_strtolower(trim($suburb)) : null;
@@ -78,7 +79,11 @@ final class AddressResolverService
         }
 
         // ── 1. Cache hit ────────────────────────────────────────────────────
-        $cached = GeocodingCache::where('address_normalised', $normalised)->first();
+        // A re-resolve ($bypassCache) skips the READ but still write-throughs
+        // via cacheAndReturn (updateOrCreate) so a previously-poisoned entry
+        // — e.g. a suburb-borrowed pin cached as 'exact' — is overwritten
+        // with the corrected value rather than re-served forever.
+        $cached = $bypassCache ? null : GeocodingCache::where('address_normalised', $normalised)->first();
         if ($cached !== null) {
             return new GeocodingResult(
                 latitude:        $cached->latitude !== null ? (float) $cached->latitude : null,
@@ -184,25 +189,44 @@ final class AddressResolverService
      *
      * Same address-needle extraction as MicSnapshotHydrator: strip leading
      * unit numbers, split on commas, LIKE-match against subject_address.
+     *
+     * GPS-BORROW-FIX (2026-06-18) — borrowing one property's pin for another
+     * is NEVER correct. The pre-fix query OR-ed an address-needle match with a
+     * `source_suburb = ?` clause, so ANY report in the same suburb matched and
+     * `orderByDesc('id')` returned the most-recent sibling's subject GPS. That
+     * is how property 771 (Duke Road, Margate) inherited Acacia Road's coords
+     * and rendered ~1.2 km off with a falsely-'exact' confidence. The rule is
+     * now: an address-needle match is REQUIRED; suburb may only CONFIRM /
+     * disambiguate an address match (same street name in two suburbs), never
+     * stand alone. No needles → no borrow (fall through to the real geocoder).
      */
     private function resolveFromMarketReports(string $address, ?string $suburbNorm): ?GeocodingResult
     {
         $needles = $this->addressNeedles($address);
-        if (empty($needles) && $suburbNorm === null) return null;
+        if (empty($needles)) return null; // suburb alone is never enough to borrow a pin
 
         $query = MarketReport::query()
             ->withoutGlobalScopes()
             ->whereNotNull('subject_latitude')
             ->whereNotNull('subject_longitude');
 
-        $query->where(function ($q) use ($needles, $suburbNorm) {
+        // REQUIRED: the subject_address must contain one of our street needles.
+        $query->where(function ($q) use ($needles) {
             foreach ($needles as $n) {
                 $q->orWhereRaw('LOWER(subject_address) LIKE ?', ['%' . $n . '%']);
             }
-            if ($suburbNorm !== null && $suburbNorm !== '') {
-                $q->orWhereRaw('LOWER(source_suburb) = ?', [$suburbNorm]);
-            }
         });
+
+        // OPTIONAL CONFIRM: when we know the suburb, require the report's
+        // suburb to match it (or be blank) so a same-street-name report from
+        // a different suburb can't be borrowed. This narrows, never widens.
+        if ($suburbNorm !== null && $suburbNorm !== '') {
+            $query->where(function ($q) use ($suburbNorm) {
+                $q->whereRaw('LOWER(source_suburb) = ?', [$suburbNorm])
+                  ->orWhereNull('source_suburb')
+                  ->orWhere('source_suburb', '');
+            });
+        }
 
         $report = $query->orderByDesc('id')->first();
         if (!$report) return null;
