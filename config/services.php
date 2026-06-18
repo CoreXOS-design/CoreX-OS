@@ -94,6 +94,24 @@ return [
         'base_url'            => env('HF_AI_BASE_URL', 'http://127.0.0.1:3100'),
         'transcribe_timeout'  => env('HF_AI_TRANSCRIBE_TIMEOUT', 15),
         'voice_max_seconds'   => env('AI_VOICE_MAX_SECONDS', 30),
+
+        // --- Transcription sensitivity ("how hard Whisper listens") ---
+        // These are forwarded to the /transcribe endpoint as form fields and
+        // tune faster-whisper. Agents record in the field — moving cars, wind,
+        // soft/SA-accented speech — so the defaults below are deliberately MORE
+        // sensitive than faster-whisper's stock values to stop the VAD throwing
+        // away whole clips ("I didn't catch that"). See .ai/specs/ellie-voice.md.
+        //
+        // vad_filter: false = do NOT pre-discard "silence" before transcription.
+        //   This is the single biggest cause of empty transcripts on quiet/field
+        //   audio. Leave false unless hallucination-on-silence becomes a problem.
+        // no_speech_threshold: lower = more sensitive (whisper default 0.6).
+        // log_prob_threshold: more negative = keeps lower-confidence speech.
+        // initial_prompt: biases the decoder toward the words agents actually say.
+        'vad_filter'           => env('AI_VOICE_VAD_FILTER', false),
+        'no_speech_threshold'  => env('AI_VOICE_NO_SPEECH_THRESHOLD', 0.3),
+        'log_prob_threshold'   => env('AI_VOICE_LOGPROB_THRESHOLD', -1.0),
+        'initial_prompt'       => env('AI_VOICE_INITIAL_PROMPT', 'Schedule a viewing, valuation or meeting with a contact at a property address on the KZN South Coast.'),
     ],
 
     'property24_syndication' => [

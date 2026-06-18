@@ -185,6 +185,30 @@ on the parsed datetime, and the extraction prompt is hardened to always emit a
 (`transcript`, `model_raw`, `slot_datetime`, `event_date`) are logged from
 `MobileEllieVoiceController` for future incidents.
 
+### Listening sensitivity — empty transcripts (FIXED 2026-06-18)
+Incident: agents reported Ellie frequently replying *"I didn't catch that — please
+try again"* even when they spoke clearly. Root cause: that message fires in
+`MobileEllieVoiceController` only when Whisper returns an **empty transcript**, and
+faster-whisper's stock VAD (`vad_filter=True`) plus the default `no_speech_threshold`
+(0.6) were discarding entire clips of soft / SA-accented / in-car field audio before
+transcription. The Laravel side was a pure pass-through and sent no tuning.
+
+Fix (this repo): `config/services.php` → `hf_ai` now carries sensitivity knobs
+(`vad_filter` default **false**, `no_speech_threshold` default **0.3**,
+`log_prob_threshold`, `initial_prompt`), env-overridable via `AI_VOICE_*`.
+`SpeechToTextService` forwards them as multipart form fields to `/transcribe`.
+
+Fix (server, NOT in this repo): `/opt/hf-ai/app.py`'s `/transcribe` route must read
+those form fields and pass them into `model.transcribe(...)`, defaulting to the
+sensitive values if absent. Deploy = edit app.py + `systemctl restart hf-ai`.
+
+Fix (mobile, NOT in this repo): the PWA recorder should drop `noiseSuppression`/
+`autoGainControl`, enforce a ~400ms minimum hold, and add a short stop-delay so the
+tail of speech isn't clipped. Tracked for the mobile repo owner.
+
+Tuning is now a config dial — if hallucination-on-silence appears, raise
+`AI_VOICE_NO_SPEECH_THRESHOLD` back toward 0.5 and/or set `AI_VOICE_VAD_FILTER=true`.
+
 ### Timezone — mobile display (OPEN — not in this repo)
 Even with the backend storing 11:00 correctly, the agent reported seeing 07:00.
 The API returns `event_date` as `2026-06-11T09:00:00+02:00` (`toIso8601String()`);
