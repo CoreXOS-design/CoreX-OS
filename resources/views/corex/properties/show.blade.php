@@ -86,15 +86,8 @@
         <aside x-show="!sbCollapsed"
                class="hidden lg:flex flex-col gap-3 flex-shrink-0" style="width:280px; position:sticky; top:0;">
 
-            {{-- Identity strip (compact) — collapse toggle lives in the top-right corner --}}
+            {{-- Identity strip (compact) --}}
             <div class="relative rounded-md p-3 flex items-center gap-3" style="background:var(--surface); border:1px solid var(--border);">
-                <button type="button" @click="sbCollapsed = true"
-                        title="Collapse sidebar"
-                        class="absolute top-1.5 left-1.5 z-10 w-6 h-6 rounded-md flex items-center justify-center transition-colors"
-                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);"
-                        onmouseover="this.style.color='var(--text-primary)'; this.style.background='var(--surface)'" onmouseout="this.style.color='var(--text-muted)'; this.style.background='var(--surface-2)'">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
-                </button>
                 @if($thumb)
                     <img src="{{ $thumb }}" alt="" class="w-12 h-12 rounded object-cover flex-shrink-0">
                 @else
@@ -1464,7 +1457,16 @@
                             <div class="min-w-0">
                                 <div class="text-lg font-bold leading-tight" style="color:var(--text-primary);">{{ $property->title ?: 'Untitled property' }}</div>
                                 <div class="text-sm mt-0.5" style="color:var(--text-secondary);">
-                                    {{ trim(($property->suburb ?? '') . ($property->city ? ', ' . $property->city : '')) ?: 'No address yet' }}
+                                    @php
+                                        // Use the model's full address builder so the street number/name,
+                                        // unit and complex all show — not just suburb/city. buildDisplayAddress()
+                                        // falls back to the title when no address parts exist, so only call it
+                                        // when at least one address field is populated; otherwise show the empty state.
+                                        $hasAddress = $property->unit_number || $property->complex_name
+                                            || $property->street_number || $property->street_name
+                                            || $property->address || $property->suburb || $property->city;
+                                    @endphp
+                                    {{ $hasAddress ? $property->buildDisplayAddress() : 'No address yet' }}
                                 </div>
                             </div>
                             <div class="text-right flex-shrink-0">
@@ -1541,9 +1543,9 @@
 
                 {{-- Row 1: Recent Activity (cols 1-2) | Listing Agent (col 3) --}}
                 @if(isset($activityTimeline) && $activityTimeline->count())
-                    <div class="lg:col-span-2">
+                    <div class="lg:col-span-2 flex flex-col">
                         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Recent Activity</h3>
-                        <div class="rounded-md overflow-hidden" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="rounded-md overflow-hidden flex-1 flex flex-col justify-center" style="background:var(--surface-2); border:1px solid var(--border);">
                             @foreach($activityTimeline as $i => $event)
                                 <div class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
                                     <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $event['color'] }};"></div>
@@ -1563,9 +1565,9 @@
                 @endif
 
                 @if($property->agent)
-                    <div class="lg:col-start-3">
+                    <div class="lg:col-start-3 flex flex-col">
                         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Listing Agent</h3>
-                        <div class="rounded-md p-4 flex items-center gap-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="rounded-md p-4 flex items-center gap-3 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
                             @if(!empty($property->agent->profile_photo_url))
                                 <img src="{{ $property->agent->profile_photo_url }}" class="w-10 h-10 rounded-full object-cover" alt="">
                             @else
@@ -1666,9 +1668,9 @@
 
                 {{-- Row 2: Key Dates (cols 1-2) | Linked Contact (col 3) — headings align since rows share top --}}
                 @if(count($keyDates))
-                    <div class="lg:col-span-2 lg:col-start-1">
+                    <div class="lg:col-span-2 lg:col-start-1 flex flex-col">
                         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Key Dates</h3>
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-md p-4 flex-1 content-center" style="background:var(--surface-2); border:1px solid var(--border);">
                             @foreach($keyDates as $d)
                                 <div>
                                     <div class="text-xs font-medium" style="color:var(--text-muted);">{{ $d[0] }}</div>
@@ -1679,10 +1681,10 @@
                     </div>
                 @endif
 
-                <div class="lg:col-start-3">
+                <div class="lg:col-start-3 flex flex-col">
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">{{ $ownerLabel }}</h3>
                     @if($owner)
-                        <a href="{{ route('corex.contacts.show', $owner) }}" class="block rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <a href="{{ route('corex.contacts.show', $owner) }}" class="block rounded-md p-4 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
                             <div class="text-sm font-semibold truncate" style="color:var(--text-primary);">{{ $ownerName }}</div>
                             @if($owner->phone)
                                 <div class="text-xs mt-0.5" style="color:var(--text-muted);">{{ $owner->phone }}</div>
@@ -1692,7 +1694,7 @@
                             @endif
                         </a>
                     @else
-                        <button type="button" @click="activeTab='contacts'" class="w-full rounded-md p-4 text-left text-xs" style="background:var(--surface-2); border:1px dashed var(--border); color:var(--text-muted);">
+                        <button type="button" @click="activeTab='contacts'" class="w-full flex-1 rounded-md p-4 text-left text-xs" style="background:var(--surface-2); border:1px dashed var(--border); color:var(--text-muted);">
                             No owner linked yet — click to add a seller / landlord
                         </button>
                     @endif
@@ -1771,19 +1773,31 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div>
                                 <label class="prop-label">Property Type <span class="prop-required">*</span></label>
+                                @php $ptCurrent = old('property_type', $property->property_type); @endphp
                                 <select name="property_type" required class="prop-select prop-field-enum">
                                     <option value="">— None —</option>
+                                    {{-- Surface a stored value that no longer matches the options (e.g. a
+                                         legacy/imported "VacantLand") so the field is not misleadingly blank. --}}
+                                    @if($ptCurrent && !$settingItems['types']->contains('name', $ptCurrent))
+                                        <option value="{{ $ptCurrent }}" selected>{{ $ptCurrent }} (legacy — re-select)</option>
+                                    @endif
                                     @foreach($settingItems['types'] as $item)
-                                        <option value="{{ $item->name }}" {{ old('property_type', $property->property_type) === $item->name ? 'selected' : '' }}>{{ $item->name }}</option>
+                                        <option value="{{ $item->name }}" {{ $ptCurrent === $item->name ? 'selected' : '' }}>{{ $item->name }}</option>
                                     @endforeach
                                 </select>
                             </div>
                             <div>
                                 <label class="prop-label">Category</label>
+                                @php $catCurrent = old('category', $property->category); @endphp
                                 <select name="category" class="prop-select prop-field-enum">
                                     <option value="">— None —</option>
+                                    {{-- Surface a stored value that no longer matches the options so the
+                                         field is not misleadingly blank. --}}
+                                    @if($catCurrent && !$settingItems['categories']->contains('name', $catCurrent))
+                                        <option value="{{ $catCurrent }}" selected>{{ $catCurrent }} (legacy — re-select)</option>
+                                    @endif
                                     @foreach($settingItems['categories'] as $item)
-                                        <option value="{{ $item->name }}" {{ old('category', $property->category) === $item->name ? 'selected' : '' }}>{{ $item->name }}</option>
+                                        <option value="{{ $item->name }}" {{ $catCurrent === $item->name ? 'selected' : '' }}>{{ $item->name }}</option>
                                     @endforeach
                                 </select>
                             </div>
@@ -5295,6 +5309,9 @@ function updateDriveCreateList(input) {
 }
 
 // Property contacts search manager
+// Only defined for existing properties — the inline route() calls below need a
+// saved $property id, and on create the contacts tab uses pendingContactsManager.
+@if(!$isNew)
 function propertyContactsManager(searchUrl) {
     return {
         query: '',
@@ -5435,6 +5452,7 @@ function propertyContactsManager(searchUrl) {
         },
     };
 }
+@endif
 
 // DOM helpers — keep the linked-contacts list in sync with AJAX results,
 // update the data-contact-count on the main form, and toggle empty state.

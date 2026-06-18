@@ -620,18 +620,21 @@ class ContactController extends Controller
 
     public function recordConsent(Request $request, Contact $contact)
     {
-        $request->validate([
+        $data = $request->validate([
             'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
-            'method' => 'nullable|in:verbal,written,electronic,signed_document',
+            'decision'     => 'nullable|in:given,declined',
+            'method'       => 'nullable|in:verbal,written,electronic,signed_document',
         ]);
 
-        $contact->recordConsent(
-            $request->input('consent_type'),
-            $request->input('method', 'electronic'),
-            auth()->id()
+        $contact->setConsent(
+            $data['consent_type'],
+            $data['decision'] ?? \App\Models\ContactConsentRecord::DECISION_GIVEN,
+            $data['method'] ?? 'electronic',
+            auth()->id(),
+            'agent_web',
         );
 
-        return back()->with('success', 'Consent recorded.')->with('tab', 'consent');
+        return back()->with('success', 'Consent updated.')->with('tab', 'consent');
     }
 
     public function revokeConsent(Request $request, Contact $contact)
@@ -641,13 +644,13 @@ class ContactController extends Controller
             'reason' => 'nullable|string|max:500',
         ]);
 
-        $contact->revokeConsent(
+        $contact->clearConsent(
             $request->input('consent_type'),
             auth()->id(),
             $request->input('reason')
         );
 
-        return back()->with('success', 'Consent revoked.')->with('tab', 'consent');
+        return back()->with('success', 'Consent cleared.')->with('tab', 'consent');
     }
 
     /**

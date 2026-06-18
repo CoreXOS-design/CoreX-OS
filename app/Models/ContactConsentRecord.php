@@ -10,9 +10,13 @@ class ContactConsentRecord extends Model
 {
     use BelongsToAgency;
 
+    /** Tri-state decision (spec: .ai/specs/contact-consent.md §3). */
+    public const DECISION_GIVEN    = 'given';
+    public const DECISION_DECLINED = 'declined';
+
     protected $fillable = [
-        'contact_id', 'agency_id', 'consent_type', 'given_at',
-        'given_by_user_id', 'method', 'evidence_document_id',
+        'contact_id', 'agency_id', 'consent_type', 'decision', 'given_at',
+        'given_by_user_id', 'method', 'source', 'evidence_document_id',
         'revoked_at', 'revoked_by_user_id', 'revoked_reason', 'notes',
     ];
 

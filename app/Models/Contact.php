@@ -243,6 +243,21 @@ class Contact extends Model
 
     // ── Consent & Compliance (M3.4) ──
 
+    /**
+     * The 7 consent types and their display labels — the single source shared by
+     * the agent web tab, agent-mobile API, and client-mobile API. Spec:
+     * .ai/specs/contact-consent.md §3.
+     */
+    public const CONSENT_TYPES = [
+        'fica_processing'          => 'FICA Processing',
+        'marketing_communications' => 'Marketing Communications',
+        'data_sharing'             => 'Data Sharing',
+        'channel_email'            => 'Email',
+        'channel_sms'              => 'SMS',
+        'channel_whatsapp'         => 'WhatsApp',
+        'channel_call'             => 'Phone Call',
+    ];
+
     public function consentRecords(): HasMany
     {
         return $this->hasMany(ContactConsentRecord::class)->latest('given_at');
@@ -256,17 +271,105 @@ class Contact extends Model
             ->exists();
     }
 
-    public function recordConsent(string $type, string $method, int $userId, ?int $documentId = null): ContactConsentRecord
+    /**
+     * The contact's current decision for a consent type:
+     *   'given'    — agreed
+     *   'declined' — explicitly refused ("do not contact me this way")
+     *   null       — never recorded
+     * Reads the single non-revoked record (setConsent keeps exactly one active).
+     */
+    public function consentDecision(string $type): ?string
     {
+        return $this->consentRecords()
+            ->where('consent_type', $type)
+            ->whereNull('revoked_at')
+            ->value('decision');
+    }
+
+    /**
+     * Every consent type with its current decision + meta — the payload the
+     * agent and client UIs render from.
+     */
+    public function consentStates(): array
+    {
+        $active = $this->consentRecords()
+            ->whereNull('revoked_at')
+            ->get()
+            ->keyBy('consent_type');
+
+        $states = [];
+        foreach (self::CONSENT_TYPES as $type => $label) {
+            $rec = $active->get($type);
+            $states[] = [
+                'type'        => $type,
+                'label'       => $label,
+                'group'       => str_starts_with($type, 'channel_') ? 'channel'
+                                  : ($type === 'marketing_communications' ? 'marketing' : 'compliance'),
+                'decision'    => $rec?->decision,
+                'recorded_at' => $rec?->given_at,
+            ];
+        }
+
+        return $states;
+    }
+
+    /**
+     * Record a tri-state consent decision (given|declined) for a type.
+     * Supersedes any prior active record of the same type so there is exactly
+     * one active record per type, preserving the full history as the audit
+     * chain. The ContactConsentRecord observer recomputes channel opt-out flags
+     * on the create. Spec: .ai/specs/contact-consent.md §4.
+     */
+    public function setConsent(
+        string $type,
+        string $decision = ContactConsentRecord::DECISION_GIVEN,
+        string $method = 'electronic',
+        ?int $userId = null,
+        string $source = 'agent_web',
+        ?int $documentId = null,
+    ): ContactConsentRecord {
+        $this->supersedeActiveConsent($type, $userId);
+
         return ContactConsentRecord::create([
-            'contact_id' => $this->id,
-            'agency_id' => $this->agency_id,
-            'consent_type' => $type,
-            'given_at' => now(),
-            'given_by_user_id' => $userId,
-            'method' => $method,
+            'contact_id'           => $this->id,
+            'agency_id'            => $this->agency_id,
+            'consent_type'         => $type,
+            'decision'             => $decision,
+            'given_at'             => now(),
+            'given_by_user_id'     => $userId,
+            'method'               => $method,
+            'source'               => $source,
             'evidence_document_id' => $documentId,
         ]);
+    }
+
+    /** Return a consent type to the "not recorded" state. */
+    public function clearConsent(string $type, ?int $userId = null, ?string $reason = null): void
+    {
+        $this->revokeConsent($type, $userId, $reason ?? 'Cleared');
+        $this->recomputeChannelConsent();
+    }
+
+    /**
+     * Retained for existing callers (e.g. MarketingConsentService::optInContact).
+     * Records an affirmative ("given") decision via the unified setConsent path.
+     */
+    public function recordConsent(string $type, string $method, int $userId, ?int $documentId = null): ContactConsentRecord
+    {
+        return $this->setConsent($type, ContactConsentRecord::DECISION_GIVEN, $method, $userId, 'system', $documentId);
+    }
+
+    /** Stamp the current active record of a type as superseded (no new row). */
+    private function supersedeActiveConsent(string $type, ?int $userId): void
+    {
+        $this->consentRecords()
+            ->where('consent_type', $type)
+            ->whereNull('revoked_at')
+            ->update([
+                'revoked_at'         => now(),
+                'revoked_by_user_id' => $userId,
+                'revoked_reason'     => 'Superseded by new decision',
+            ]);
     }
 
     public function revokeConsent(string $type, ?int $userId = null, ?string $reason = null): void
@@ -332,11 +435,10 @@ class Contact extends Model
 
         $updates = ['last_consent_check_at' => now()];
         foreach ($channelMap as $consentType => $column) {
-            $hasActive = $this->consentRecords()
-                ->where('consent_type', $consentType)
-                ->whereNull('revoked_at')
-                ->exists();
-            $updates[$column] = !$hasActive;
+            // Opted out unless the latest active record explicitly GRANTS the
+            // channel. A 'declined' decision or no record at all = opted out.
+            $decision = $this->consentDecision($consentType);
+            $updates[$column] = $decision !== ContactConsentRecord::DECISION_GIVEN;
         }
 
         $this->updateQuietly($updates);
