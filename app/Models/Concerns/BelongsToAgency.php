@@ -30,20 +30,31 @@ trait BelongsToAgency
         static::addGlobalScope(new AgencyScope());
 
         static::creating(function ($model) {
-            if (!empty($model->agency_id)) {
-                return;
-            }
-
             $user = Auth::user();
-            if ($user) {
+            if ($user && !static::isUnscopedOwner($user)) {
                 $agencyId = method_exists($user, 'effectiveAgencyId')
                     ? $user->effectiveAgencyId()
                     : ($user->agency_id ?? null);
 
                 if ($agencyId) {
+                    // AUTHORITATIVE for ordinary authenticated users: force agency_id
+                    // to the user's effective agency, OVERRIDING any value that arrived
+                    // via mass-assignment. A scoped user must never create a record in
+                    // another agency, so a request-supplied agency_id cannot spoof the
+                    // tenant. (Trusted non-auth ingress — jobs, webhooks, imports,
+                    // console — has no Auth::user() and keeps its explicit value below.)
                     $model->agency_id = $agencyId;
                     return;
                 }
+            }
+
+            // Reached when: no auth user (job/webhook/import/console), OR an
+            // owner-role account with no active agency switcher override (they are
+            // intentionally cross-agency and may create records in a CHOSEN agency
+            // — e.g. the P24 admin importer — mirroring AgencyScope's read bypass).
+            // In all these cases an explicitly-provided agency_id is trusted.
+            if (!empty($model->agency_id)) {
+                return;
             }
 
             // Console/seeder/test fallback: if exactly one agency exists in the
@@ -63,6 +74,34 @@ trait BelongsToAgency
                 $model->agency_id = $singleAgencyId;
             }
         });
+    }
+
+    /**
+     * Mirror of AgencyScope's read-side bypass: an owner-role account is
+     * intentionally cross-agency UNTIL it switches into a specific agency via
+     * the switcher (session active_agency_id). Keeping the write-side stamping
+     * symmetric with the read-side scoping is what preserves legitimate
+     * cross-agency admin flows (e.g. the P24 importer, where an owner picks the
+     * target agency from a dropdown) while still force-scoping ordinary agents.
+     */
+    protected static function isUnscopedOwner($user): bool
+    {
+        if (!method_exists($user, 'isOwnerRole') || !$user->isOwnerRole()) {
+            return false;
+        }
+
+        // Only consult the session when one is actually bound and started —
+        // bearer-token API requests have no session (see AgencyScope for the
+        // row-lock rationale).
+        $request = request();
+        $hasSession = $request && $request->hasSession() && $request->session()->isStarted();
+        $hasOverride = $hasSession
+            && session('active_agency_id') !== null
+            && session('active_agency_id') !== '';
+
+        // Owner WITH an active switcher override is scoped to that agency (so we
+        // force-stamp it); owner WITHOUT an override is unscoped (honour explicit).
+        return !$hasOverride;
     }
 
     public function agency(): BelongsTo

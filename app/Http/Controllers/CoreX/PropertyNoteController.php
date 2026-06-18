@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\PropertyNote;
@@ -9,8 +10,12 @@ use Illuminate\Http\Request;
 
 class PropertyNoteController extends Controller
 {
+    use AuthorizesPropertyAccess;
+
     public function store(Request $request, Property $property)
     {
+        $this->authorizeProperty($property);
+
         $request->validate(['content' => 'required|string|max:5000']);
 
         $property->notes()->create([

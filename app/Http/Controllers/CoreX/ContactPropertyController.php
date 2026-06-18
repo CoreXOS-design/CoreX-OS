@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Property;
+use App\Rules\ExistsInScope;
 use Illuminate\Http\Request;
 
 class ContactPropertyController extends Controller
@@ -37,7 +38,9 @@ class ContactPropertyController extends Controller
     public function link(Request $request, Contact $contact)
     {
         $data = $request->validate([
-            'property_id' => 'required|exists:properties,id',
+            // ExistsInScope (not `exists:`) so AgencyScope is enforced — a property
+            // id from another agency must NOT be linkable to this contact.
+            'property_id' => ['required', new ExistsInScope(Property::class)],
             'role'        => 'nullable|string|max:50',
         ]);
 

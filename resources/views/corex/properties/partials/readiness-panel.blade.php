@@ -12,19 +12,20 @@
         default => 'background:rgba(245,158,11,.15); color:#b45309;',
     };
 
-    // Resolve FICA-failing seller contacts for per-seller action buttons
+    // Resolve FICA-failing seller contacts for per-seller action buttons.
+    // One query for all approved FICA submissions across the sellers (was an
+    // N+1: a separate fica_submissions query per seller inside filter()).
     $ficaFailingSellers = collect();
     if (!($report->checklist['fica_sellers']['passed'] ?? true)) {
-        $ficaFailingSellers = $property->contacts()
+        $sellers = $property->contacts()
             ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
-            ->get()
-            ->filter(function ($c) {
-                $fica = \DB::table('fica_submissions')
-                    ->where('contact_id', $c->id)
-                    ->where('status', 'approved')
-                    ->first();
-                return !$fica;
-            });
+            ->get();
+        $approvedContactIds = \DB::table('fica_submissions')
+            ->whereIn('contact_id', $sellers->pluck('id'))
+            ->where('status', 'approved')
+            ->pluck('contact_id')
+            ->all();
+        $ficaFailingSellers = $sellers->reject(fn ($c) => in_array($c->id, $approvedContactIds));
     }
 @endphp
 <div class="mx-6 mt-4 mb-2 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);"

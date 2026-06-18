@@ -1119,16 +1119,18 @@ class MobilePropertyController extends Controller
             'mandate_type'    => $property->mandate_type,
 
             // Rental block (always present so the mobile edit form can
-            // bind even if the property is currently a sale listing)
-            'rental_amount'    => $property->rental_amount,
-            'deposit_amount'   => $property->deposit_amount,
+            // bind even if the property is currently a sale listing).
+            // (float) is a defensive guarantee that the JSON stays numeric for
+            // the mobile client regardless of the model's money cast.
+            'rental_amount'    => $property->rental_amount !== null ? (float) $property->rental_amount : null,
+            'deposit_amount'   => $property->deposit_amount !== null ? (float) $property->deposit_amount : null,
             'lease_start_date' => $property->lease_start_date?->toDateString(),
             'lease_end_date'   => $property->lease_end_date?->toDateString(),
 
             // Commission / fees
             'commission_percent' => $property->commission_percent,
-            'admin_fee'          => $property->admin_fee,
-            'marketing_fee'      => $property->marketing_fee,
+            'admin_fee'          => $property->admin_fee !== null ? (float) $property->admin_fee : null,
+            'marketing_fee'      => $property->marketing_fee !== null ? (float) $property->marketing_fee : null,
 
             // Features, spaces, gallery
             'features'        => $property->features_json ?? [],

@@ -254,7 +254,7 @@
                         this.showWa = false;
                     },
                     sendEmail() {
-                        window.location.href = 'mailto:{{ $contact->email }}?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
+                        window.location.href = 'mailto:' + encodeURIComponent({{ Illuminate\Support\Js::from($contact->email) }}) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
                         this.increment('email');
                         this.showEmail = false;
                     }
@@ -780,8 +780,8 @@
                                     <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="(r.address || '') + ' · ' + r.price"></div>
                                 </div>
                                 <span class="text-xs font-semibold flex-shrink-0 px-2 py-1 rounded-md"
-                                      :style="`background:${statusColor(r.status)}22; color:${statusColor(r.status)}; border:1px solid ${statusColor(r.status)}44;`"
-                                      x-text="r.status.charAt(0).toUpperCase() + r.status.slice(1)"></span>
+                                      :style="`background:${statusColor(r.status || '')}22; color:${statusColor(r.status || '')}; border:1px solid ${statusColor(r.status || '')}44;`"
+                                      x-text="(r.status || '').charAt(0).toUpperCase() + (r.status || '').slice(1)"></span>
                                 <span class="text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon, #0ea5e9);">+ Link</span>
                             </button>
                         </form>

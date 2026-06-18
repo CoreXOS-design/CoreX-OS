@@ -723,6 +723,17 @@ class ContactController extends Controller
             Contact::withTrashed()->whereIn('id', $contactIds)->forceDelete();
         });
 
+        // Audit the purge — this is the single most destructive action in the
+        // module (a hard delete). The contact access log is per-record, so a bulk
+        // purge is recorded to the application log with full actor/agency context.
+        \Illuminate\Support\Facades\Log::warning('Contacts bulk-purged (destroyAll)', [
+            'actor_user_id' => $request->user()?->id,
+            'actor_role'    => $request->user()?->effectiveRole(),
+            'agency_id'     => $request->user()?->effectiveAgencyId(),
+            'contact_count' => $count,
+            'ip'            => $request->ip(),
+        ]);
+
         return redirect()->route('corex.contacts.index')->with('success', "{$count} contacts permanently deleted.");
     }
 

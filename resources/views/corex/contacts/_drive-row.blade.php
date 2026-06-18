@@ -52,13 +52,13 @@
 <div x-show="editing" x-cloak class="px-4 py-2" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
     <form method="POST" action="{{ route('corex.contacts.documents.tag', [$contact, $doc]) }}" class="flex items-center gap-3">
         @csrf @method('PUT')
-        <select name="document_type_id" class="text-xs rounded border px-2 py-1" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+        <select name="document_type_id" class="text-xs rounded border px-2 py-1" style="border-color:var(--border); background:var(--surface-2); color:var(--text-primary);">
             <option value="">No Type</option>
             @foreach($documentTypes as $dt)
             <option value="{{ $dt->id }}" {{ $doc->document_type_id == $dt->id ? 'selected' : '' }}>{{ $dt->label }}</option>
             @endforeach
         </select>
-        <select name="property_id" class="text-xs rounded border px-2 py-1" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+        <select name="property_id" class="text-xs rounded border px-2 py-1" style="border-color:var(--border); background:var(--surface-2); color:var(--text-primary);">
             <option value="">No Property</option>
             @foreach($contact->properties as $prop)
             @php $propLabel = trim(($prop->unit_number ? 'Unit '.$prop->unit_number.', ' : '').($prop->complex_name ? $prop->complex_name.', ' : '').($prop->address ? $prop->address.', ' : '').($prop->suburb ?? ''), ', ') ?: 'Property #'.$prop->id; @endphp

@@ -299,7 +299,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // building-level lookup. ?force=1 triggers re-resolve even when the
         // property already has coords (used after street_number / street_name
         // edits to overwrite stale suburb-centroid pins).
-        Route::post('/properties/{property}/geocode',        [\App\Http\Controllers\CoreX\PropertyController::class, 'geocode'])->name('v1.properties.geocode');
+        Route::post('/properties/{property}/geocode',        [\App\Http\Controllers\CoreX\PropertyController::class, 'geocode'])->middleware('permission:access_properties')->name('v1.properties.geocode');
 
         // ── Mobile P24 location tree (token-authed) ──────────────────
         Route::prefix('mobile/p24')->group(function () {

@@ -2,16 +2,20 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactType;
 use App\Models\Property;
 use App\Models\Scopes\ContactScope;
+use App\Rules\ExistsInScope;
 use App\Services\ContactDuplicateService;
 use Illuminate\Http\Request;
 
 class PropertyContactController extends Controller
 {
+    use AuthorizesPropertyAccess;
+
     /** Search contacts globally — used for the property create form (no property ID yet). */
     public function searchGlobal(Request $request)
     {
@@ -117,6 +121,8 @@ class PropertyContactController extends Controller
     /** Link an existing contact to the property. */
     public function link(Request $request, Property $property)
     {
+        $this->authorizeProperty($property);
+
         $data = $request->validate([
             'contact_id' => 'required|integer',
             'role'       => 'nullable|string|max:50',
@@ -158,6 +164,8 @@ class PropertyContactController extends Controller
     /** Create a new contact AND link it to the property. */
     public function createAndLink(Request $request, Property $property)
     {
+        $this->authorizeProperty($property);
+
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
             'last_name'       => 'required|string|max:100',
@@ -271,6 +279,8 @@ class PropertyContactController extends Controller
     /** Unlink a contact from the property. */
     public function unlink(Request $request, Property $property, Contact $contact)
     {
+        $this->authorizeProperty($property);
+
         $property->contacts()->detach($contact->id);
 
         if ($request->expectsJson() || $request->wantsJson()) {

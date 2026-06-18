@@ -323,7 +323,7 @@
     <div x-data="{
             agentPicker: false,
             agentSearch: '',
-            agents: {{ $agentList->toJson() }},
+            agents: {{ Illuminate\Support\Js::from($agentList) }},
             get filtered() {
                 if (!this.agentSearch) return this.agents;
                 const q = this.agentSearch.toLowerCase();

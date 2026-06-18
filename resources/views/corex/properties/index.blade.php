@@ -117,7 +117,7 @@
             agentPicker: false,
             agentSearch: '',
             advancedOpen: {{ $advancedActive ? 'true' : 'false' }},
-            agents: {{ $agentList->toJson() }},
+            agents: {{ Illuminate\Support\Js::from($agentList) }},
             get filtered() {
                 if (!this.agentSearch) return this.agents;
                 const q = this.agentSearch.toLowerCase();
