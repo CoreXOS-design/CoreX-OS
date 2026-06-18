@@ -150,6 +150,39 @@
         </div>
     </div>
 
+    {{-- ─────────── Import-confirmation summary ───────────
+         The honest "did my upload work?" answer: real hydrated counts, not a
+         badge. Spec: data-lineage §2.3 / cma-comp-gps-axis-investigation §7. --}}
+    @isset($importSummary)
+    @php
+        $_s = $importSummary;
+        $_totalHydrated = ($_s['sold_hydrated'] ?? 0) + ($_s['active_hydrated'] ?? 0);
+    @endphp
+    <div class="import-summary-banner" role="status" aria-label="Import summary"
+         style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:10px 14px; margin-bottom:14px;
+                border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 28%, transparent);
+                background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent);
+                border-radius:8px; font-size:12.5px; color:var(--ds-text, #0b2a4a);">
+        <span style="font-weight:700;">Imported &amp; hydrated:</span>
+        <span>{{ $_s['reports_imported'] ?? 0 }} {{ \Illuminate\Support\Str::plural('report', $_s['reports_imported'] ?? 0) }} imported</span>
+        <span aria-hidden="true" style="opacity:.4;">·</span>
+        <span>{{ $_s['comps_parsed'] ?? 0 }} {{ \Illuminate\Support\Str::plural('comp', $_s['comps_parsed'] ?? 0) }} parsed</span>
+        <span aria-hidden="true" style="opacity:.4;">·</span>
+        <span>{{ $_s['sold_hydrated'] ?? 0 }} sold + {{ $_s['active_hydrated'] ?? 0 }} active hydrated</span>
+        <span aria-hidden="true" style="opacity:.4;">·</span>
+        <span>{{ $_s['mapped'] ?? 0 }} of {{ $_totalHydrated }} mapped</span>
+        @if(($_s['unmapped'] ?? 0) > 0)
+            <span style="flex-basis:100%; font-size:11px; color:var(--ds-text-muted, #64748b);">
+                {{ $_s['unmapped'] }} could not be placed on the map (no location resolved) — they are still counted in the analysis.
+            </span>
+        @elseif($_totalHydrated === 0)
+            <span style="flex-basis:100%; font-size:11px; color:var(--ds-amber, #f59e0b);">
+                No comparable sales hydrated yet — upload a CMA report or widen the comp scope, then regenerate.
+            </span>
+        @endif
+    </div>
+    @endisset
+
     {{-- ─────────── SECTION 1 — Subject snapshot ─────────── --}}
     <div class="review-card">
         <div class="review-section-header">

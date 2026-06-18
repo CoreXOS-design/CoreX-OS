@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Presentations;
 
 use App\Models\Agency;
-use App\Models\MarketReports\MarketReport;
 use App\Models\MarketReports\MarketReportCompRow;
 use App\Models\Presentation;
 use App\Models\PresentationActiveListing;
@@ -497,31 +496,19 @@ final class MicSnapshotHydrator
         // reports whose subject_address contains ANY of the fragments OR
         // whose subject suburb contains the presentation suburb.
         $subjectAddr = (string) ($presentation->property_address ?? '');
-        $needles = $this->extractAddressNeedles($subjectAddr);
 
         $dateFrom = Carbon::today()->subMonths($period)->toDateString();
         $dateTo   = Carbon::today()->toDateString();
 
-        $subjectReportIds = [];
-        $reportsQuery = MarketReport::query()
-            ->withoutGlobalScopes()
-            ->where('agency_id', $presentation->agency_id);
-
-        if (!empty($needles) || $suburb !== '') {
-            $subjectReportIds = $reportsQuery
-                ->where(function ($q) use ($needles, $suburb) {
-                    foreach ($needles as $n) {
-                        $q->orWhereRaw('LOWER(subject_address) LIKE ?', ['%' . $n . '%']);
-                    }
-                    if ($suburb !== '') {
-                        // Match by subject suburb OR by the suburb appearing inside subject_address.
-                        $q->orWhereRaw('LOWER(source_suburb) = ?', [mb_strtolower($suburb)]);
-                        $q->orWhereRaw('LOWER(subject_address) LIKE ?', ['%' . mb_strtolower($suburb) . '%']);
-                    }
-                })
-                ->pluck('id')
-                ->all();
-        }
+        // Same-subject reports — the analyst-vetted CMAs built FOR this
+        // property. Resolved via the shared SubjectReportResolver so the
+        // Generate-modal coverage badge (CmaCoverageService::countComps) and
+        // this hydrator use ONE selection rule. Spec: data-lineage §2.3/§2.6.
+        $subjectReportIds = \App\Support\Presentations\SubjectReportResolver::resolveReportIds(
+            (int) $presentation->agency_id,
+            $subjectAddr,
+            $suburb,
+        );
 
         // Keystone — title_type now lives on properties.title_type,
         // derived from property_type by TitleTypeClassifier on every save.
@@ -558,37 +545,9 @@ final class MicSnapshotHydrator
     // classification reads properties.title_type directly above; comp
     // classification calls the service inline at the filter site.
 
-    /**
-     * Extract street-shaped fragments from an address.
-     *
-     * "4 Ss Madeira Gardens, 4 Tucker Avenue" →
-     *   ["4 ss madeira gardens", "4 tucker avenue", "madeira gardens", "tucker avenue"]
-     *
-     * We strip down to lowercased street fragments and drop anything shorter
-     * than 8 chars so we don't match noise.
-     */
-    private function extractAddressNeedles(string $address): array
-    {
-        $address = trim($address);
-        if ($address === '') return [];
-
-        $needles = [];
-
-        // Split on commas → each comma-separated piece is a candidate fragment.
-        foreach (explode(',', $address) as $piece) {
-            $piece = mb_strtolower(trim($piece));
-            if (mb_strlen($piece) >= 8) {
-                $needles[] = $piece;
-            }
-            // Strip the leading number (e.g. "4 Tucker Avenue" → "tucker avenue").
-            $stripped = preg_replace('/^\d+\s+/', '', $piece);
-            if ($stripped && $stripped !== $piece && mb_strlen($stripped) >= 8) {
-                $needles[] = $stripped;
-            }
-        }
-
-        return array_values(array_unique($needles));
-    }
+    // extractAddressNeedles + same-subject report resolution moved to the
+    // shared App\Support\Presentations\SubjectReportResolver so the coverage
+    // badge and this hydrator cannot drift apart. Spec: data-lineage §2.3.
 
     // Build 1 — classifyType(string) RETIRED. It returned 'sectional' /
     // 'full' / 'unknown' but was never consumed downstream (the only
@@ -684,14 +643,20 @@ final class MicSnapshotHydrator
                 }
 
                 if (!$subjectReportHit && !$trustedInternal) {
-                    // Preserve Build 1's strict-drop semantic: a comp
-                    // with no usable property_type was classified as
-                    // TITLE_OTHER and dropped (OTHER never matches the
-                    // subject's actual type). The new service returns
-                    // null on blank to keep forProperty's fallback chain
-                    // clean — coerce at the call site.
-                    $compTitleType = app(\App\Services\TitleTypeClassifier::class)
-                            ->fromPropertyType($row->property_type ?? null)
+                    // SS-SECTIONAL-GATE-FIX — classify the comp with the
+                    // SAME signal-aware derivation the candidate build uses
+                    // at L120 (deriveCompTitleType), NOT the bare
+                    // fromPropertyType. CMA-Info sectional comp rows are
+                    // stamped property_type='Residence' (the PDF "usage"
+                    // word), which the bare classifier buckets as full_title
+                    // — silently dropping every vicinity sectional sale
+                    // against a sectional subject even though the row carries
+                    // scheme_name/section_number. deriveCompTitleType reads
+                    // those signals first and only falls back to
+                    // fromPropertyType (→ null on blank) when no signal is
+                    // present. Coerce null → TITLE_OTHER to preserve Build 1's
+                    // strict-drop semantic on a genuinely typeless comp.
+                    $compTitleType = $this->deriveCompTitleType($row)
                         ?? \App\Services\TitleTypeClassifier::TITLE_OTHER;
                     if ($compTitleType !== $titleType) {
                         return false;

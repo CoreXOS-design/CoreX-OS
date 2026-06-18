@@ -15,19 +15,25 @@ use PHPUnit\Framework\TestCase;
  */
 final class CompLabelTest extends TestCase
 {
-    // ── Step 1: address wins ────────────────────────────────────────────
+    // ── Step 1: sectional identity (Unit + scheme) wins over street ─────
 
-    public function test_uses_street_address_when_present(): void
+    public function test_sectional_unit_and_scheme_wins_over_street_address(): void
     {
+        // The street on a sectional row is the scheme's shared street
+        // ("18 Duke Road" for every Suntide Cabanas unit). Unit+scheme
+        // identifies the comp; the street does not. Unit-first to match
+        // the subject identity (Property::buildDisplayAddress()).
         $label = CompLabel::build(
-            ['address' => '4 Tucker Avenue', 'scheme_name' => 'Madeira Gardens', 'section_number' => '8'],
-            suburb: 'Uvongo',
+            ['address' => '18 Duke Road', 'scheme_name' => 'Pumula', 'section_number' => '7'],
+            suburb: 'Margate',
         );
-        $this->assertSame('4 Tucker Avenue', $label);
+        $this->assertSame('Unit 7, Pumula', $label);
     }
 
-    public function test_address_takes_priority_over_scheme(): void
+    public function test_address_takes_priority_over_scheme_when_no_section(): void
     {
+        // Scheme present but no section → can't form "Unit N, Scheme",
+        // so the street remains the better identifier. Nothing regresses.
         $label = CompLabel::build(
             ['address' => '12 King Street', 'scheme_name' => 'Seeskulp'],
             suburb: 'Margate',
@@ -35,24 +41,34 @@ final class CompLabelTest extends TestCase
         $this->assertSame('12 King Street', $label);
     }
 
-    public function test_blank_address_falls_through(): void
+    public function test_blank_address_uses_unit_and_scheme(): void
     {
         $label = CompLabel::build(
             ['address' => '   ', 'scheme_name' => 'Seeskulp', 'section_number' => '8'],
             suburb: 'Uvongo',
         );
-        $this->assertSame('Seeskulp, Section 8', $label);
+        $this->assertSame('Unit 8, Seeskulp', $label);
     }
 
-    // ── Step 2: scheme + section ────────────────────────────────────────
+    public function test_freehold_uses_street_address_unchanged(): void
+    {
+        // No scheme, no section → freehold. Street address is the label.
+        $label = CompLabel::build(
+            ['address' => '4 Tucker Avenue'],
+            suburb: 'Uvongo',
+        );
+        $this->assertSame('4 Tucker Avenue', $label);
+    }
 
-    public function test_uses_scheme_and_section_when_no_address(): void
+    // ── Step 2: scheme + section → Unit-first identity ──────────────────
+
+    public function test_uses_unit_and_scheme_when_no_address(): void
     {
         $label = CompLabel::build(
             ['scheme_name' => 'Seeskulp', 'section_number' => '8'],
             suburb: 'Uvongo',
         );
-        $this->assertSame('Seeskulp, Section 8', $label);
+        $this->assertSame('Unit 8, Seeskulp', $label);
     }
 
     public function test_uses_scheme_alone_when_no_section(): void
@@ -71,7 +87,7 @@ final class CompLabelTest extends TestCase
             ['scheme_name' => 'Seeskulp', 'section_no' => '12'],
             suburb: 'Uvongo',
         );
-        $this->assertSame('Seeskulp, Section 12', $label);
+        $this->assertSame('Unit 12, Seeskulp', $label);
     }
 
     // ── Step 3: bare section ────────────────────────────────────────────

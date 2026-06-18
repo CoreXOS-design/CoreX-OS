@@ -15,13 +15,26 @@ namespace App\Support\Presentations;
  * being compared.
  *
  * Single source of truth for the identifier label. Falls through a
- * 5-step chain so the label is NEVER blank:
+ * chain so the label is NEVER blank:
  *
- *   1. raw.address (non-empty)                — street address
- *   2. raw.scheme_name + Section <section>    — sectional ("Seeskulp, Section 8")
- *   3. raw.section_number + suburb            — bare section ("Section 8, Uvongo")
- *   4. suburb                                 — fallback to locality
- *   5. "Comp #<id>"                           — absolute floor
+ *   1. SECTIONAL identity — scheme_name + section both present →
+ *      "Unit <section>, <scheme>" ("Unit 7, Pumula"). This takes
+ *      PRIORITY over the street address: the street on a sectional row
+ *      is the scheme's shared street (non-unique across units — every
+ *      unit of "Suntide Cabanas" sits at "18 Duke Road"), so the
+ *      Unit+complex pair is the identifying label and the street is not.
+ *      Unit-first to read identically to the subject's own identity,
+ *      which Property::buildDisplayAddress() renders Unit-first
+ *      ("Unit 17, Brock Manor, Margate"). Gated on the same
+ *      data-presence test used at AnalysisDataService.php:163 (both
+ *      structured columns filled) rather than the heuristic title_type.
+ *   2. raw.address (non-empty)                — street address (freehold,
+ *      and sectional rows that carry a unique street but lack a usable
+ *      scheme+section pair so nothing regresses)
+ *   3. raw.scheme_name (alone)                — sectional scheme, no section
+ *   4. raw.section_number + suburb            — bare section ("Section 8, Uvongo")
+ *   5. suburb                                 — fallback to locality
+ *   6. "Comp #<id>"                           — absolute floor
  *
  * Section number may appear under either of two keys in raw_row_json
  * depending on the parser:
@@ -53,15 +66,23 @@ final class CompLabel
     {
         $raw = $raw ?? [];
 
+        $section = self::sectionToken($raw);
+        $scheme  = isset($raw['scheme_name']) ? trim((string) $raw['scheme_name']) : '';
         $address = isset($raw['address']) ? trim((string) $raw['address']) : '';
+
+        // Sectional identity takes priority over the street address (see
+        // class docblock). Both structured columns must be filled — this
+        // mirrors the subject's own gate at AnalysisDataService.php:163.
+        if ($scheme !== '' && $section !== '') {
+            return "Unit {$section}, {$scheme}";
+        }
+
         if ($address !== '') {
             return $address;
         }
 
-        $section = self::sectionToken($raw);
-        $scheme  = isset($raw['scheme_name']) ? trim((string) $raw['scheme_name']) : '';
         if ($scheme !== '') {
-            return $section !== '' ? "{$scheme}, Section {$section}" : $scheme;
+            return $scheme;
         }
 
         $suburbStr = is_string($suburb) ? trim($suburb) : '';

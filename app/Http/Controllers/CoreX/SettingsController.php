@@ -361,6 +361,9 @@ class SettingsController extends Controller
             // Phase 3b
             'presentations_default_comp_scope'          => ['nullable', 'in:radius_all,suburb_only'],
             'presentations_default_radius_m'            => ['nullable', 'integer', 'min:50', 'max:5000'],
+            // SS presentations — complex/sectional sales section toggle. Checkbox:
+            // absent (unchecked) → false, handled via $request->boolean() below.
+            'ss_show_complex_section'                   => ['sometimes', 'boolean'],
             // Build 5 — freshness window before the seller-facing CTA fires.
             'presentations_freshness_days'              => ['nullable', 'integer', 'min:7', 'max:365'],
             // Build 8b — CmaComputeService cleaning controls. Decoupled
@@ -429,6 +432,11 @@ class SettingsController extends Controller
                 explode(',', $data['comp_radius_widen_steps'])
             ));
         }
+
+        // Checkbox toggles never post when unchecked — coerce explicitly so an
+        // unchecked box persists as false (the presentations form always
+        // carries this field, so absence means "off", not "leave as-is").
+        $data['ss_show_complex_section'] = $request->boolean('ss_show_complex_section');
 
         $agency->update($data);
 
