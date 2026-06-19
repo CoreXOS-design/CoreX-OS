@@ -226,6 +226,24 @@ new structured columns and prefill the property form field-for-field (six addres
 fields + P24 ids/names). The existing auto-link (hidden `pending_contact_ids[]`
 → `ContactLinkedToProperty` on store) is unchanged.
 
+### Header + transfer-button UI fixes (2026-06-19)
+- **Header layout:** the contact hero card laid every action button as a direct
+  flex-sibling of the `flex-1 min-w-0` name block, so as buttons/badges
+  accumulated the name clipped and the meta wrapped into a narrow column
+  (pre-existing in `origin/main`, not an AT-59/60 regression). Fixed by grouping
+  avatar+name+meta as one left `flex-1 min-w-0` unit and all actions as a right
+  `flex flex-wrap` group under `justify-between`, so the actions wrap as a block
+  and never overlap the name.
+- **Open in a new tab:** both property-creation buttons — header **"Create
+  Listing"** and Properties-tab **"Use for property"** — now `target="_blank"
+  rel="noopener"`, so the agent keeps their place on the contact.
+- **Auto-link on BOTH buttons:** both navigate to `GET …/create?contact_id={id}`,
+  so the `contact_id` travels in the URL into the new tab; `create()` sets
+  `$preLinkedContact` → the form emits the hidden `pending_contact_ids[]` input →
+  `store()` links the contact (`ContactLinkedToProperty`, `syncWithoutDetaching`
+  so existing links are kept). "Create Listing" links even with no address;
+  "Use for property" still requires a captured structured address.
+
 ### Duplicate guard (Universal Match-or-Create, non-negotiable #10)
 Before prefilling, `App\Services\Contact\ContactAddressPropertyGuard` checks
 whether a property already exists at the address. It **reuses**
@@ -250,12 +268,14 @@ user-clear message, transaction-wrapped — and writes **only** the structured
 columns. `ContactController::update` (Info/residential) keeps its own
 `address` rule and no longer touches the structured columns.
 
-**Tests:** `tests/Feature/Contacts/ContactStructuredAddressTest.php` (12) —
+**Tests:** `tests/Feature/Contacts/ContactStructuredAddressTest.php` (15) —
 residential-saves-without-touching-structured / structured-save-doesn't-touch-
 residential / structured-with-no-prior-residential-leaves-address-null /
 legacy-free-text-renders-under-info / partial / lazy-single / dangling-name-
 rejected / p24-id-mapping / create-prefill / auto-link-on-store / guard-offers-
-match / guard-off-mode.
+match / guard-off-mode / create-from-contact-emits-autolink-input-even-without-
+address / create-listing-no-address-links-on-store / store-links-without-
+detaching-existing.
 
 ---
 

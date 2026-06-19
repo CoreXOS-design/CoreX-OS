@@ -34,7 +34,11 @@
 
     {{-- Contact header card --}}
     <div class="rounded-md p-6" style="background: var(--brand-default, #0b2a4a);">
-        <div class="flex items-start gap-5 flex-wrap">
+        <div class="flex items-start justify-between gap-5 flex-wrap">
+            {{-- Left group: avatar + name + meta. Kept as one flex-1 unit so the
+                 action buttons (right group) wrap as a block and never squeeze
+                 the name into a clipped, narrow column. --}}
+            <div class="flex items-start gap-5 flex-1 min-w-0">
             {{-- Avatar --}}
             <div class="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 text-xl font-bold text-white"
                  style="background: var(--brand-icon, #0ea5e9);">
@@ -113,7 +117,10 @@
                     </span>
                 </div>
             </div>
+            </div>{{-- /left group --}}
 
+            {{-- Right group: action buttons — wrap together, never overlap the name --}}
+            <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
             {{-- Schedule Event from Contact --}}
             <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $contact->id, 'prefill_class' => $contact->is_buyer ? 'viewing' : 'meeting']) }}"
                class="corex-btn-primary flex-shrink-0 no-underline">
@@ -151,7 +158,9 @@
             {{-- Create Listing from Contact (only if no linked properties) --}}
             @if(auth()->user()->hasPermission('access_properties') && $contact->properties()->count() === 0)
             <a href="{{ route('corex.properties.create') }}?contact_id={{ $contact->id }}"
-               class="corex-btn-primary flex-shrink-0 no-underline">
+               target="_blank" rel="noopener"
+               class="corex-btn-primary flex-shrink-0 no-underline"
+               title="Create a new property linked to this contact (opens in a new tab)">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                 Create Listing
             </a>
@@ -169,6 +178,7 @@
                 </button>
             </form>
             @endif
+            </div>{{-- /right group (actions) --}}
         </div>
     </div>
 
@@ -852,9 +862,10 @@
                         <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-icon, #2563eb);">Save address</button>
                         @if($contact->hasStructuredAddress())
                             <a href="{{ route('corex.properties.create', ['contact_id' => $contact->id]) }}"
+                               target="_blank" rel="noopener"
                                class="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-md transition-all duration-300"
                                style="background:color-mix(in srgb, var(--brand-icon, #2563eb) 12%, transparent); color:var(--brand-icon, #2563eb);"
-                               title="Create a property record pre-filled with this address and link this contact to it">
+                               title="Create a property record pre-filled with this address and link this contact to it (opens in a new tab)">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
                                 Use for property
                             </a>
