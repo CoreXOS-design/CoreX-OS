@@ -17,18 +17,6 @@ class ContactObserver
     }
 
     /**
-     * AT-60 — keep the legacy free-text `address` column composed from the
-     * structured address fields on EVERY save (create + update), so every
-     * existing reader of $contact->address stays correct. No-ops when no
-     * structured field is set, preserving back-catalogue free-text addresses.
-     */
-    public function saving(Contact $contact): void
-    {
-        $contact->syncStructuredAddress();
-    }
-
-
-    /**
      * When a contact is being created:
      *  - ensure branch_id is populated (creator's branch → agency default → lowest branch)
      *  - auto-link to an existing ClientUser if one exists for this email

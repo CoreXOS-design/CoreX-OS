@@ -35,7 +35,8 @@ class Contact extends Model
         'client_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
         'birthday', 'birthday_reminder', 'id_number', 'id_number_captured_at', 'id_number_source', 'address',
-        // AT-60 — structured address (auto-composed into `address` on save).
+        // AT-60 — structured PROPERTY-address capture (independent of the
+        // residential `address` above; never auto-composed into it).
         'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
         'street_number', 'street_name', 'suburb', 'city', 'province',
         'p24_province_id', 'p24_city_id', 'p24_suburb_id',
@@ -245,12 +246,16 @@ class Contact extends Model
         return strtoupper(substr($this->first_name, 0, 1) . substr($this->last_name, 0, 1));
     }
 
-    // ── Structured address (AT-60) ───────────────────────────────────────
+    // ── Structured PROPERTY-address capture (AT-60) ──────────────────────
+    //
+    // These columns are a property-creation aid ("capture an address → start a
+    // new property"), edited on the Properties & Core Matches tab. They are
+    // INDEPENDENT of the contact's residential `address` (the free-text Info
+    // field) and NEVER write to it.
 
     /**
-     * True iff ANY structured-address component is populated. Drives whether
-     * the "Use for property" transfer button shows and whether the legacy
-     * `address` column gets auto-composed on save.
+     * True iff ANY structured property-address component is populated. Drives
+     * whether the "Use for property" transfer button shows.
      */
     public function hasStructuredAddress(): bool
     {
@@ -267,10 +272,10 @@ class Contact extends Model
 
     /**
      * Compose a single denormalised display string from the structured
-     * components, mirroring Property::buildDisplayAddress so contact and
-     * property addresses read identically across CoreX. Returns null when no
-     * structured component is set (so a legacy free-text `address` is left
-     * untouched — back-catalogue and direct imports keep working).
+     * property-address components, mirroring Property::buildDisplayAddress.
+     * Returns null when no component is set. Used by the duplicate-address
+     * guard (token-overlap fallback) and as a display convenience — it does
+     * NOT touch the residential `address` field.
      */
     public function composeStructuredAddress(): ?string
     {
@@ -309,20 +314,6 @@ class Contact extends Model
         $composed = trim(implode(', ', array_filter($parts, 'strlen')));
 
         return $composed !== '' ? $composed : null;
-    }
-
-    /**
-     * Keep the legacy `address` column in sync with the structured fields so
-     * every existing reader of $contact->address stays correct. Called from
-     * ContactObserver::saving() — the single source of truth for the sync, so
-     * EVERY save path (controller, import, tinker) composes consistently.
-     */
-    public function syncStructuredAddress(): void
-    {
-        $composed = $this->composeStructuredAddress();
-        if ($composed !== null) {
-            $this->address = $composed;
-        }
     }
 
     // ── Consent & Compliance (M3.4) ──
