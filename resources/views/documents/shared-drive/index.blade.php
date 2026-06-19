@@ -29,8 +29,9 @@
                     </button>
                 @endif
                 @if($can['upload'])
-                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary">
-                        Upload File
+                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary" :disabled="uploading" :style="uploading ? 'opacity:.6;' : ''">
+                        <span x-show="!uploading">Upload Files</span>
+                        <span x-show="uploading" x-cloak>Uploading…</span>
                     </button>
                 @endif
             </div>
@@ -50,17 +51,28 @@
         @endforeach
     </nav>
 
-    {{-- Hidden upload form (triggered by button / drag-drop) --}}
+    {{-- Hidden multi-file input (triggered by button / drag-drop) --}}
     @if($can['upload'])
-        <form method="POST" action="{{ route('documents.shared-drive.upload') }}" enctype="multipart/form-data" x-ref="uploadForm" class="hidden">
-            @csrf
-            <input type="hidden" name="folder_id" value="{{ $currentId }}">
-            <input type="file" name="file" x-ref="fileInput" accept="{{ $acceptAttr }}"
-                   @change="onFilePicked($event)">
-        </form>
-        @error('file')
-            <div class="rounded-md px-4 py-2 mb-4 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);">{{ $message }}</div>
-        @enderror
+        <input type="file" multiple x-ref="fileInput" accept="{{ $acceptAttr }}" class="hidden"
+               @change="onFilesPicked($event)">
+
+        {{-- Upload progress / results panel --}}
+        <div x-show="queue.length" x-cloak class="rounded-md mb-4 overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+            <div class="flex items-center justify-between px-4 py-2" style="border-bottom: 1px solid var(--border);">
+                <span class="text-sm font-medium" style="color: var(--text-primary);" x-text="uploading ? 'Uploading…' : 'Upload complete'"></span>
+                <button type="button" x-show="!uploading" @click="queue = []" class="text-xs" style="color: var(--text-secondary);">Dismiss</button>
+            </div>
+            <ul class="divide-y" style="border-color: var(--border);">
+                <template x-for="(item, i) in queue" :key="i">
+                    <li class="flex items-center justify-between px-4 py-2 text-sm gap-3">
+                        <span class="truncate" style="color: var(--text-primary);" x-text="item.name"></span>
+                        <span class="text-xs flex-shrink-0"
+                              :style="item.status === 'error' ? 'color: var(--ds-crimson);' : (item.status === 'done' ? 'color: var(--ds-emerald, #10b981);' : 'color: var(--text-secondary);')"
+                              x-text="item.message"></span>
+                    </li>
+                </template>
+            </ul>
+        </div>
     @endif
 
     {{-- Drop zone wrapper --}}
@@ -215,29 +227,88 @@ function sharedDrive() {
     return {
         showFolderModal: false,
         dragging: false,
+        uploading: false,
+        queue: [],
         viewer: { open: false, url: '', isImage: false, name: '' },
         maxBytes: {{ $maxBytes }},
-        onFilePicked(e) {
-            const file = e.target.files && e.target.files[0];
-            if (!file) return;
-            if (!this.validate(file)) { e.target.value = ''; return; }
-            this.$refs.uploadForm.submit();
+        uploadUrl: @js(route('documents.shared-drive.upload')),
+        folderId: @js($currentId),
+        csrf: document.querySelector('meta[name="csrf-token"]')?.content || '',
+
+        onFilesPicked(e) {
+            this.handleFiles(e.target.files);
+            e.target.value = ''; // allow re-selecting the same file
         },
         onDrop(e) {
             this.dragging = false;
-            const file = e.dataTransfer.files && e.dataTransfer.files[0];
-            if (!file) return;
-            if (!this.validate(file)) return;
-            this.$refs.fileInput.files = e.dataTransfer.files;
-            this.$refs.uploadForm.submit();
+            this.handleFiles(e.dataTransfer.files);
         },
-        validate(file) {
-            if (file.size > this.maxBytes) {
-                alert('Files must be 50 MB or smaller.');
-                return false;
+
+        async handleFiles(fileList) {
+            const files = Array.from(fileList || []);
+            if (!files.length) return;
+
+            // Build the visible queue: oversize files are rejected up-front,
+            // valid files are uploaded one request each (partial success ok).
+            const toUpload = [];
+            for (const file of files) {
+                if (file.size > this.maxBytes) {
+                    this.queue.push({ name: file.name, status: 'error', message: 'Too large (max 50 MB)' });
+                } else {
+                    const entry = { name: file.name, status: 'pending', message: 'Waiting…' };
+                    this.queue.push(entry);
+                    toUpload.push({ file, entry });
+                }
             }
-            return true;
+            if (!toUpload.length) return;
+
+            this.uploading = true;
+            let anySuccess = false;
+            for (const { file, entry } of toUpload) {
+                entry.status = 'uploading';
+                entry.message = 'Uploading…';
+                try {
+                    const ok = await this.uploadOne(file, entry);
+                    anySuccess = anySuccess || ok;
+                } catch (err) {
+                    entry.status = 'error';
+                    entry.message = 'Upload failed';
+                }
+            }
+            this.uploading = false;
+
+            // Refresh to show the newly stored files, but keep the panel
+            // visible briefly so the user sees results.
+            if (anySuccess) {
+                setTimeout(() => window.location.reload(), 700);
+            }
         },
+
+        async uploadOne(file, entry) {
+            const fd = new FormData();
+            fd.append('file', file);
+            if (this.folderId) fd.append('folder_id', this.folderId);
+
+            const res = await fetch(this.uploadUrl, {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                body: fd,
+                credentials: 'same-origin',
+            });
+
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+
+            if (res.ok && data.ok) {
+                entry.status = 'done';
+                entry.message = 'Uploaded';
+                return true;
+            }
+            entry.status = 'error';
+            entry.message = data.message || ('Failed (' + res.status + ')');
+            return false;
+        },
+
         openViewer(url, isImage, name) {
             this.viewer = { open: true, url, isImage, name };
         },

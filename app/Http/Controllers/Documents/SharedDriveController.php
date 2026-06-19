@@ -8,6 +8,7 @@ use App\Models\SharedDriveFolder;
 use App\Services\Documents\SharedDriveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 
 class SharedDriveController extends Controller
 {
@@ -92,29 +93,52 @@ class SharedDriveController extends Controller
         return redirect($target)->with('success', 'Folder and its contents moved to archive.');
     }
 
+    /**
+     * Upload one file per request (the browser uploads multiple files as
+     * parallel single-file requests). Returns JSON so the client can report
+     * per-file success/failure and keep going on a partial failure.
+     *
+     * Sending the CSRF token as a header (the JS uploader does) means an
+     * over-`post_max_size` body no longer strips the token and 419s — it
+     * surfaces here as a clean "required" validation error instead.
+     */
     public function upload(Request $request)
     {
-        abort_unless($this->can('shared_drive.upload'), 403);
+        if (!$this->can('shared_drive.upload')) {
+            return response()->json(['ok' => false, 'message' => 'You do not have permission to upload files.'], 403);
+        }
 
-        $request->validate([
+        $validator = Validator::make($request->all(), [
             'file'      => 'required|file|max:' . SharedDriveService::MAX_KILOBYTES,
             'folder_id' => 'nullable|integer',
         ], [
-            'file.max' => 'Files must be 50 MB or smaller.',
+            'file.required' => 'No file was received — it may exceed the server upload limit.',
+            'file.max'      => 'File exceeds the 50 MB limit.',
+            'file.uploaded' => 'Upload failed — the file may exceed the 50 MB limit.',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json(['ok' => false, 'message' => $validator->errors()->first('file')], 422);
+        }
 
         $file = $request->file('file');
 
         if (!$this->drive->isAllowed($file)) {
-            return back()->with('error', 'That file type is not allowed. Allowed: PDF, Word, Excel, PowerPoint, and images.');
+            return response()->json([
+                'ok' => false,
+                'message' => 'File type not allowed. Allowed: PDF, Word, Excel, PowerPoint, images.',
+            ], 422);
         }
 
         $folder = $this->resolveFolder($request->input('folder_id'));
         $agencyId = Auth::user()->effectiveAgencyId() ?? Auth::user()->agency_id;
 
-        $this->drive->storeUpload($file, $folder, (int) $agencyId, (int) Auth::id());
+        $stored = $this->drive->storeUpload($file, $folder, (int) $agencyId, (int) Auth::id());
 
-        return back()->with('success', 'File uploaded.');
+        return response()->json([
+            'ok'   => true,
+            'name' => $stored->original_name,
+        ]);
     }
 
     public function view(SharedDriveFile $file)
