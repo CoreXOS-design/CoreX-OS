@@ -233,6 +233,15 @@ return [
         ['key' => 'upload_documents_library',    'label' => 'Upload to Library',           'section' => 'document-library', 'type' => 'access',  'module' => 'document_library', 'sort_order' => 2],
         ['key' => 'manage_document_library',     'label' => 'Manage Document Library',    'section' => 'document-library', 'type' => 'access',  'module' => 'document_library', 'sort_order' => 3],
 
+        // ── Shared Drive ──
+        ['key' => 'access_shared_drive',         'label' => 'Access Shared Drive',         'section' => 'shared-drive',     'type' => 'access',  'module' => 'shared_drive',     'sort_order' => 1],
+        ['key' => 'shared_drive.view',           'label' => 'View / Browse Files',         'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 10],
+        ['key' => 'shared_drive.upload',         'label' => 'Upload Files',                'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 11],
+        ['key' => 'shared_drive.download',       'label' => 'Download Files',              'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 12],
+        ['key' => 'shared_drive.folders.create', 'label' => 'Create Folders',             'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 13],
+        ['key' => 'shared_drive.folders.delete', 'label' => 'Delete Folders',             'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 14],
+        ['key' => 'shared_drive.files.delete',   'label' => 'Delete Files',               'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 15],
+
         // ── Presentations ──
         ['key' => 'access_presentations',        'label' => 'Access Presentations',        'section' => 'presentations',    'type' => 'access',  'module' => 'presentations',    'sort_order' => 1],
         ['key' => 'create_presentations',        'label' => 'Create Presentations',        'section' => 'presentations',    'type' => 'access',  'module' => 'presentations',    'sort_order' => 2],
@@ -589,6 +598,9 @@ return [
                 'clauses.view', 'clauses.create', 'clauses.edit',
                 'packs.view', 'packs.create', 'packs.edit',
                 'access_document_library', 'upload_documents_library',
+                'access_shared_drive', 'shared_drive.view', 'shared_drive.upload',
+                'shared_drive.download', 'shared_drive.folders.create',
+                'shared_drive.folders.delete', 'shared_drive.files.delete',
                 'access_presentations', 'create_presentations', 'run_analysis',
                 'presentations.view', 'presentations.create', 'presentations.edit',
                 'access_filing_register',
@@ -665,6 +677,8 @@ return [
                 'clauses.view',
                 'packs.view',
                 'access_document_library',
+                'access_shared_drive', 'shared_drive.view', 'shared_drive.upload',
+                'shared_drive.download', 'shared_drive.folders.create',
                 'access_presentations',
                 'presentations.view', 'presentations.create', 'presentations.edit',
                 'access_filing_register',
@@ -721,6 +735,7 @@ return [
                 'access_communication', 'communication.view',
                 'access_client_portal',
                 'access_document_library',
+                'access_shared_drive', 'shared_drive.view', 'shared_drive.download',
                 'documents.view', 'templates.view', 'clauses.view', 'packs.view',
                 'access_presentations', 'presentations.view',
                 'access_filing_register', 'filing.view',
