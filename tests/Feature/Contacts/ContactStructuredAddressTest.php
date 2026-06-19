@@ -278,6 +278,90 @@ final class ContactStructuredAddressTest extends TestCase
         $this->assertNull($resp->viewData('existingPropertyMatch'), 'guard disabled when mode = off');
     }
 
+    // ── Auto-link on BOTH buttons (header "Create Listing" + Properties-tab
+    //    "Use for property") — both navigate to GET create?contact_id, so the
+    //    contact_id travels in the URL (survives opening in a new tab) and the
+    //    create page emits the hidden pending_contact_ids[] input that links the
+    //    contact when the property is saved IN THAT TAB. ─────────────────────
+
+    public function test_create_from_contact_emits_autolink_input_even_without_address(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        // No structured address — the header "Create Listing" path.
+        $contact = $this->contact($agencyId, $agent->id);
+
+        $resp = $this->actingAs($agent)
+            ->get(route('corex.properties.create', ['contact_id' => $contact->id]))
+            ->assertOk();
+
+        $this->assertEquals($contact->id, $resp->viewData('preLinkedContact')->id);
+        // The hidden auto-link input is in the page → it submits with the form
+        // (in whatever tab) → store() links the contact.
+        $resp->assertSee('name="pending_contact_ids[]" value="' . $contact->id . '"', false);
+        $resp->assertSee('Linking to:', false);
+    }
+
+    public function test_create_listing_no_address_links_contact_on_store(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        $contact = $this->contact($agencyId, $agent->id);   // no address at all
+        [$provinceId, $cityId, $suburbId] = $this->seedP24();
+
+        Event::fake([ContactLinkedToProperty::class]);
+
+        // Mirrors what the create form (reached via create?contact_id) submits:
+        // the hidden pending_contact_ids[] from $preLinkedContact.
+        $this->actingAs($agent)
+            ->post(route('corex.properties.store'), [
+                'title'   => 'New Listing for Contact',
+                'price'   => 1250000,
+                'suburb'  => 'Uvongo',
+                'p24_province_id' => $provinceId,
+                'p24_city_id'     => $cityId,
+                'p24_suburb_id'   => $suburbId,
+                'beds'    => 2, 'baths' => 1, 'garages' => 1,
+                'agent_id' => $agent->id,
+                'pending_contact_ids' => [$contact->id],
+            ])
+            ->assertSessionHasNoErrors();
+
+        $property = Property::withoutGlobalScopes()->where('title', 'New Listing for Contact')->firstOrFail();
+        $this->assertDatabaseHas('contact_property', [
+            'contact_id'  => $contact->id,
+            'property_id' => $property->id,
+        ]);
+        Event::assertDispatched(ContactLinkedToProperty::class);
+    }
+
+    public function test_store_links_without_detaching_existing_properties(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        $contact = $this->contact($agencyId, $agent->id);
+        [$provinceId, $cityId, $suburbId] = $this->seedP24();
+
+        // Pre-existing linked property.
+        $existing = Property::create([
+            'external_id' => (string) Str::uuid(), 'title' => 'Existing Linked',
+            'agent_id' => $agent->id, 'branch_id' => $agencyId, 'agency_id' => $agencyId, 'suburb' => 'Margate',
+        ]);
+        $contact->properties()->attach($existing->id, ['role' => null]);
+
+        $this->actingAs($agent)
+            ->post(route('corex.properties.store'), [
+                'title'   => 'Second Listing',
+                'price'   => 999000,
+                'suburb'  => 'Uvongo',
+                'p24_province_id' => $provinceId, 'p24_city_id' => $cityId, 'p24_suburb_id' => $suburbId,
+                'beds'    => 1, 'baths' => 1, 'garages' => 0,
+                'agent_id' => $agent->id,
+                'pending_contact_ids' => [$contact->id],
+            ])
+            ->assertSessionHasNoErrors();
+
+        // Both the old and the new property remain linked (syncWithoutDetaching).
+        $this->assertSame(2, $contact->fresh()->properties()->count());
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:User} */
