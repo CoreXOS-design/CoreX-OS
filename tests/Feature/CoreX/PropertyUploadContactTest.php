@@ -55,6 +55,27 @@ final class PropertyUploadContactTest extends TestCase
         $this->assertSame($agent->id, $contact->agent_id);
     }
 
+    public function test_upload_persists_half_baths(): void
+    {
+        [$agencyId, $agent, $suburbId] = $this->seedAgencyAgent();
+
+        $payload = $this->propertyPayload($agent->id, $suburbId, [
+            ['first_name' => 'Owner', 'last_name' => 'Half', 'phone' => '0825559999'],
+        ]);
+        $payload['title']      = 'Half Bath Listing ' . Str::random(4);
+        $payload['half_baths'] = 1;
+
+        $this->actingAs($agent)
+            ->post(route('corex.properties.store'), $payload)
+            ->assertSessionHasNoErrors();
+
+        $property = \App\Models\Property::withoutGlobalScopes()
+            ->where('title', $payload['title'])->firstOrFail();
+
+        $this->assertSame(2, (int) $property->baths);
+        $this->assertSame(1, $property->half_baths);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:User,2:int} [agencyId, agent, p24SuburbId] */

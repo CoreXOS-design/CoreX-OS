@@ -93,6 +93,7 @@ class PropertyWizardController extends Controller
             'price'           => 'required|integer|min:0',
             'beds'            => 'required|integer|min:0|max:20',
             'baths'           => 'required|integer|min:0|max:20',
+            'half_baths'      => 'nullable|integer|min:0|max:20',
             'garages'         => 'required|integer|min:0|max:20',
             'title'           => 'required|string|max:200',
         ]);

@@ -382,9 +382,10 @@ class PropertyController extends Controller
         $property->agent_id = $user->id;
         $property->branch_id = $user->effectiveBranchId();
         $property->agency_id = $user->agency_id ?? null;
-        $property->beds     = 0;
-        $property->baths    = 0;
-        $property->garages  = 0;
+        $property->beds       = 0;
+        $property->baths      = 0;
+        $property->half_baths = 0;
+        $property->garages    = 0;
 
         // Pre-fill from contact if creating from a contact page (AT-60).
         $preLinkedContact = null;
@@ -469,6 +470,7 @@ class PropertyController extends Controller
             'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
+            'half_baths'       => 'nullable|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
             'size_m2'          => 'nullable|integer|min:0',
             'erf_size_m2'      => 'nullable|integer|min:0',
@@ -786,6 +788,7 @@ class PropertyController extends Controller
             'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
+            'half_baths'       => 'nullable|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
             'size_m2'          => 'nullable|integer|min:0',
             'erf_size_m2'      => 'nullable|integer|min:0',
@@ -1147,6 +1150,106 @@ class PropertyController extends Controller
         $property->update([$group => $newImages]);
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Rotate a single gallery image 90°/180°. The rotated file is written under
+     * a NEW name (PropertyImageRotator) and we swap the old URL → new URL across
+     * every image field that may reference it, so the corrected orientation
+     * propagates to the gallery, public site, portals, presentations and exports
+     * with zero stale-cache risk. Spec: .ai/specs/gallery-image-rotation.md
+     */
+    public function rotateImage(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $data = $request->validate([
+            'image_url' => 'required|string',
+            'degrees'   => 'required|integer|in:90,-90,180',
+        ]);
+
+        // Drop any cache-bust query before matching against stored URLs.
+        $oldUrl = strtok($data['image_url'], '?');
+
+        try {
+            $newUrl = (new \App\Services\Images\PropertyImageRotator())
+                ->rotate($property, $oldUrl, (int) $data['degrees']);
+        } catch (\InvalidArgumentException $e) {
+            \Log::warning('Image rotation rejected', [
+                'property_id' => $property->id, 'image_url' => $oldUrl, 'reason' => $e->getMessage(),
+            ]);
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+        } catch (\RuntimeException $e) {
+            \Log::error('Image rotation failed', [
+                'property_id' => $property->id, 'image_url' => $oldUrl, 'reason' => $e->getMessage(),
+            ]);
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 500);
+        }
+
+        $this->swapImageUrl($property, $oldUrl, $newUrl);
+
+        return response()->json(['ok' => true, 'url' => $newUrl]);
+    }
+
+    /**
+     * Replace an image URL everywhere it can appear on a property: the four
+     * image lists and the URL-keyed gallery category structure. Persisted in a
+     * single update so the listing never references the deleted original.
+     */
+    private function swapImageUrl(Property $property, string $old, string $new): void
+    {
+        $updates = [];
+
+        foreach (['gallery_images_json', 'dawn_images_json', 'noon_images_json', 'dusk_images_json'] as $field) {
+            $arr = $property->{$field};
+            if (! is_array($arr)) {
+                continue;
+            }
+            $changed = false;
+            foreach ($arr as $i => $url) {
+                if ($url === $old) {
+                    $arr[$i] = $new;
+                    $changed = true;
+                }
+            }
+            if ($changed) {
+                $updates[$field] = array_values($arr);
+            }
+        }
+
+        // gallery_categories_json: { categories: [{name, images:[url...]}], unsorted: [url...] }
+        $cats = $property->gallery_categories_json;
+        if (is_array($cats)) {
+            $catChanged = false;
+            if (! empty($cats['categories']) && is_array($cats['categories'])) {
+                foreach ($cats['categories'] as $ci => $cat) {
+                    if (empty($cat['images']) || ! is_array($cat['images'])) {
+                        continue;
+                    }
+                    foreach ($cat['images'] as $ii => $url) {
+                        if ($url === $old) {
+                            $cats['categories'][$ci]['images'][$ii] = $new;
+                            $catChanged = true;
+                        }
+                    }
+                }
+            }
+            if (! empty($cats['unsorted']) && is_array($cats['unsorted'])) {
+                foreach ($cats['unsorted'] as $ui => $url) {
+                    if ($url === $old) {
+                        $cats['unsorted'][$ui] = $new;
+                        $catChanged = true;
+                    }
+                }
+            }
+            if ($catChanged) {
+                $updates['gallery_categories_json'] = $cats;
+            }
+        }
+
+        if ($updates) {
+            $property->update($updates);
+        }
     }
 
     public function ad(Property $property)

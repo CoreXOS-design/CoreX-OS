@@ -122,11 +122,21 @@
                 if (!this.agentSearch) return this.agents;
                 const q = this.agentSearch.toLowerCase();
                 return this.agents.filter(a => a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q));
+            },
+            // Submit the live filter form with the chosen agent_id so the typed
+            // search term (and every other active filter) is preserved — never
+            // navigate off a stale, server-rendered link. id '' = All agents.
+            pickAgent(id) {
+                const f = this.$refs.filterForm;
+                let h = f.querySelector('input[name=agent_id]');
+                if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'agent_id'; f.appendChild(h); }
+                h.value = (id == null) ? '' : id;
+                f.submit();
             }
          }"
          class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route('corex.properties.index') }}" class="flex flex-wrap items-center gap-3">
+        <form method="GET" action="{{ route('corex.properties.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Search --}}
             <div class="relative flex-1 min-w-[180px] max-w-xs">
@@ -152,13 +162,13 @@
                 $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
-                <a href="{{ $pcMineUrl }}"
+                <a href="{{ $pcMineUrl }}" @click.prevent="pickAgent('{{ $pcuId }}')"
                    class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
                    style="{{ $pcIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
                    title="Show only my properties">
                     My Properties
                 </a>
-                <a href="{{ $pcAllUrl }}"
+                <a href="{{ $pcAllUrl }}" @click.prevent="pickAgent('')"
                    class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
                    style="border-left:1px solid var(--border); {{ $pcIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
                    title="Show all {{ $pcAllLabel }} properties">
@@ -227,6 +237,7 @@
 
                 @if($selectedAgent)
                 <a href="{{ route('corex.properties.index', ['status' => $status, 'search' => $search, 'agent_id' => '']) }}"
+                   @click.prevent="pickAgent('')"
                    class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300"
                    style="color:var(--text-muted);" title="Clear agent filter">&times;</a>
                 @endif
@@ -267,6 +278,7 @@
 
                     <div style="max-height:55vh;overflow-y:auto;">
                         <a href="{{ route('corex.properties.index', ['status' => $status, 'search' => $search, 'agent_id' => '']) }}"
+                           @click.prevent="pickAgent('')"
                            class="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300"
                            style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
@@ -278,6 +290,7 @@
 
                         <template x-for="agent in filtered" :key="agent.id">
                             <a :href="`{{ route('corex.properties.index') }}?agent_id=${agent.id}&status={{ $status }}&search={{ urlencode($search) }}`"
+                               @click.prevent="pickAgent(agent.id)"
                                class="flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300"
                                :style="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? 'background:var(--surface-2);' : '')"
                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">

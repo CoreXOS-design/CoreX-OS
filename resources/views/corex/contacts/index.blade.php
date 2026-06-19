@@ -328,11 +328,21 @@
                 if (!this.agentSearch) return this.agents;
                 const q = this.agentSearch.toLowerCase();
                 return this.agents.filter(a => a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q));
+            },
+            // Submit the live filter form with the chosen agent_id so the typed
+            // search term (and the type filter) is preserved — never navigate off
+            // a stale, server-rendered link. id '' = All agents.
+            pickAgent(id) {
+                const f = this.$refs.filterForm;
+                let h = f.querySelector('input[name=agent_id]');
+                if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'agent_id'; f.appendChild(h); }
+                h.value = (id == null) ? '' : id;
+                f.submit();
             }
          }"
          class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route('corex.contacts.index') }}" class="flex flex-wrap items-center gap-3">
+        <form method="GET" action="{{ route('corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Search --}}
             <div class="relative flex-1 min-w-[180px] max-w-xs">
@@ -345,8 +355,12 @@
                        style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
             </div>
 
-            {{-- Preserve agent_id in form submission --}}
-            @if($filterAgentId !== '')
+            {{-- Preserve the current agent filter across search/type submits —
+                 INCLUDING '' (= All agents). If this only rendered for a selected
+                 agent, clicking Search while on "All" would submit no agent_id and
+                 the controller would fall back to its My-contacts default. Always
+                 render it (when the user can pick agents), matching the properties page. --}}
+            @if($canPickAgent)
             <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
             @endif
 
@@ -370,13 +384,13 @@
                 $vtAllUrl  = route('corex.contacts.index', array_merge($vtCarry, ['agent_id' => '']));
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
-                <a href="{{ $vtMineUrl }}"
+                <a href="{{ $vtMineUrl }}" @click.prevent="pickAgent('{{ $cuId }}')"
                    class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
                    style="{{ $vtIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
                    title="Show only my contacts">
                     My Contacts
                 </a>
-                <a href="{{ $vtAllUrl }}"
+                <a href="{{ $vtAllUrl }}" @click.prevent="pickAgent('')"
                    class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
                    style="border-left:1px solid var(--border); {{ $vtIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
                    title="Show all {{ $vtDScope === 'branch' ? 'branch' : 'agency' }} contacts">
@@ -402,6 +416,7 @@
 
                 @if($selectedAgent)
                 <a href="{{ route('corex.contacts.index', ['search' => request('search'), 'type' => request('type'), 'agent_id' => '']) }}"
+                   @click.prevent="pickAgent('')"
                    class="ml-1 inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300"
                    style="color:var(--text-muted);" title="Clear agent filter">&times;</a>
                 @endif
@@ -432,6 +447,7 @@
 
                     <div style="max-height:260px;overflow-y:auto;">
                         <a href="{{ route('corex.contacts.index', ['search' => request('search'), 'type' => request('type'), 'agent_id' => '']) }}"
+                           @click.prevent="pickAgent('')"
                            class="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300"
                            style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
@@ -443,6 +459,7 @@
 
                         <template x-for="agent in filtered" :key="agent.id">
                             <a :href="`{{ route('corex.contacts.index') }}?agent_id=${agent.id}&search={{ urlencode(request('search','')) }}&type={{ urlencode(request('type','')) }}`"
+                               @click.prevent="pickAgent(agent.id)"
                                class="flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300"
                                :style="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? 'background:var(--surface-2);' : '')"
                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
@@ -472,7 +489,7 @@
 
             <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
             @if(request()->hasAny(['search','type']))
-            <a href="{{ route('corex.contacts.index', $filterAgentId ? ['agent_id' => $filterAgentId] : []) }}"
+            <a href="{{ route('corex.contacts.index', $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
                class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
             @endif
 

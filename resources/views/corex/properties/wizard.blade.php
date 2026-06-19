@@ -281,22 +281,34 @@
 
             </div>
 
-            {{-- Beds / Baths / Garages as steppers --}}
+            {{-- Bedrooms / Bathrooms / Garages as steppers --}}
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Rooms</label>
                 <div class="grid grid-cols-3 gap-3">
-                    @foreach([['beds', 'Beds', '🛏'], ['baths', 'Baths', '🚿'], ['garages', 'Garages', '🚗']] as [$key, $label, $emoji])
+                    @foreach([['beds', 'Bedrooms', '🛏'], ['baths', 'Bathrooms', '🚿'], ['garages', 'Garages', '🚗']] as [$key, $label, $emoji])
                     <div class="rounded-md px-3 py-3 text-center" style="background:var(--surface-2);border:1px solid var(--border);">
                         <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">{{ $label }}</div>
                         <div class="flex items-center justify-between gap-2">
                             <button type="button" @click="s1.{{ $key }} = Math.max(0, s1.{{ $key }} - 1)"
                                     class="inline-flex items-center justify-center w-7 h-7 rounded-md text-sm font-bold transition-all duration-200"
                                     style="background:var(--surface);border:1px solid var(--border);color:var(--text-primary);">&minus;</button>
-                            <span class="text-lg font-bold" style="color:var(--text-primary);" x-text="s1.{{ $key }}"></span>
+                            <span class="text-lg font-bold" style="color:var(--text-primary);" x-text="@if($key === 'baths')(s1.baths || 0) + ((s1.half_baths || 0) > 0 ? 0.5 : 0)@else s1.{{ $key }}@endif"></span>
                             <button type="button" @click="s1.{{ $key }} = Math.min(20, s1.{{ $key }} + 1)"
                                     class="inline-flex items-center justify-center w-7 h-7 rounded-md text-sm font-bold transition-all duration-200"
                                     style="background:var(--brand-icon,#0ea5e9);color:#fff;">+</button>
                         </div>
+                        @if($key === 'baths')
+                        {{-- Half (guest) bathroom — toggled from inside the Bathrooms tile. --}}
+                        <button type="button" @click="s1.half_baths = (s1.half_baths || 0) > 0 ? 0 : 1"
+                                class="mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-all duration-200"
+                                :style="(s1.half_baths || 0) > 0
+                                    ? 'background:var(--brand-icon,#0ea5e9);color:#fff;border:1px solid var(--brand-icon,#0ea5e9);'
+                                    : 'background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);'"
+                                title="Add a half (guest) bathroom">
+                            <span class="text-sm leading-none">½</span>
+                            <span x-text="(s1.half_baths || 0) > 0 ? 'Half bath' : 'Add half'"></span>
+                        </button>
+                        @endif
                     </div>
                     @endforeach
                 </div>
@@ -551,7 +563,7 @@
                     <div class="flex flex-wrap items-center gap-3 text-xs" style="color:var(--text-secondary);">
                         <span x-text="(s1.beds || 0) + ' Bed'"></span>
                         <span style="color:var(--border);">|</span>
-                        <span x-text="(s1.baths || 0) + ' Bath'"></span>
+                        <span x-text="(s1.baths || 0) + ' Bath' + ((s1.half_baths || 0) > 0 ? ' + ½' : '')"></span>
                         <span style="color:var(--border);">|</span>
                         <span x-text="(s1.garages || 0) + ' Gar'"></span>
                         <template x-if="s3.size_m2"><span x-text="s3.size_m2 + ' m²'"></span></template>
@@ -614,7 +626,7 @@ function propertyWizard(config) {
         // Step data — agent_id defaults to current user; the server enforces who can change it.
         s1: { listing_type: 'sale', title: '', property_type: '', suburb: '', city: '', province: '',
               p24_province_id: 0, p24_city_id: 0, p24_suburb_id: 0,
-              street_number: '', street_name: '', price: null, beds: 0, baths: 0, garages: 0,
+              street_number: '', street_name: '', price: null, beds: 0, baths: 0, half_baths: 0, garages: 0,
               unit_number: '', floor_number: '', unit_section_block: '', complex_name: '',
               property_number: '', stand_number: '', zone_type: '', district: '', region: '',
               address_internal_note: '' },

@@ -2265,6 +2265,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/upload-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'uploadImages'])->name('upload-images');
         Route::post('/{property}/delete-image',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteImage'])->name('deleteImage');
         Route::post('/{property}/reorder-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'reorderImages'])->name('reorderImages');
+        // Gallery image rotation — sibling of upload/delete/reorder. Browser-only,
+        // session-authed (the /api/v1 group has stateful middleware removed for
+        // mobile, so it can't auth a cookie request). Spec: gallery-image-rotation.md
+        Route::post('/{property}/rotate-image',[\App\Http\Controllers\CoreX\PropertyController::class, 'rotateImage'])->name('rotate-image');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');

@@ -274,6 +274,7 @@ return [
         ['key' => 'properties.edit',             'label' => 'Edit',                        'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 12],
         ['key' => 'properties.archive',          'label' => 'Archive',                     'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 13],
         ['key' => 'properties.ad_templates.manage', 'label' => 'Manage Others\' Ad Templates', 'section' => 'properties',    'type' => 'action',  'module' => 'properties',       'sort_order' => 14],
+        ['key' => 'properties.share',            'label' => 'Share Listing Link',          'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 15],
 
         // ── Contacts ──
         ['key' => 'access_contacts',             'label' => 'Access Contacts',             'section' => 'contacts',         'type' => 'access',  'module' => 'contacts',         'sort_order' => 1],
@@ -601,7 +602,7 @@ return [
                 'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'create_properties', 'publish_properties', 'delete_properties',
-                'properties.view', 'properties.create', 'properties.edit', 'properties.ad_templates.manage',
+                'properties.view', 'properties.create', 'properties.edit', 'properties.ad_templates.manage', 'properties.share',
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email', 'contacts.export',
@@ -676,7 +677,7 @@ return [
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'create_properties',
-                'properties.view', 'properties.create', 'properties.edit',
+                'properties.view', 'properties.create', 'properties.edit', 'properties.share',
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit',
                 'contacts.whatsapp', 'contacts.email', 'contacts.export',

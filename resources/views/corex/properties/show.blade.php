@@ -221,6 +221,9 @@
                 </a>
                 @endif
 
+                {{-- Share listing — public link (copy / WhatsApp / email). Spec: listing-share-link.md --}}
+                @include('corex.properties.partials.share-actions', ['property' => $property])
+
                 {{-- Presentations V2 — one-button generator (Phase 1) + coverage badge + asking-price modal (Phase 2) --}}
                 @if(auth()->user()->hasPermission('create_presentations'))
                 <div x-data="presentationGenerator({
@@ -792,7 +795,7 @@
                         @endphp
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
-                        <span class="text-xs" style="color:var(--text-secondary);">{{ $property->beds }}bd · {{ $property->baths }}ba</span>
+                        <span class="text-xs" style="color:var(--text-secondary);">{{ $property->beds }}bd · {{ $property->baths }}ba{{ ($property->half_baths ?? 0) > 0 ? '+½' : '' }}</span>
                     </div>
                 </div>
             </div>
@@ -1481,7 +1484,7 @@
                         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm pt-1" style="color:var(--text-primary);">
                             <span><span class="font-semibold">{{ $property->beds ?: '—' }}</span> <span style="color:var(--text-muted);">Beds</span></span>
                             <span style="color:var(--border);">·</span>
-                            <span><span class="font-semibold">{{ $property->baths ?: '—' }}</span> <span style="color:var(--text-muted);">Baths</span></span>
+                            <span><span class="font-semibold">{{ $property->baths ?: '—' }}{{ ($property->half_baths ?? 0) > 0 ? ' + ½' : '' }}</span> <span style="color:var(--text-muted);">Baths</span></span>
                             <span style="color:var(--border);">·</span>
                             <span><span class="font-semibold">{{ $property->garages ?: '—' }}</span> <span style="color:var(--text-muted);">Garages</span></span>
                             @if($property->size_m2)
@@ -3858,6 +3861,26 @@
                     ×
                 </button>
 
+                {{-- Rotate controls (persist to the stored file) --}}
+                <div class="absolute top-5 left-5 z-10 flex gap-2">
+                    <button type="button" onclick="rotateLightbox(90)" id="lightbox-rotate-left" title="Rotate left"
+                            class="w-10 h-10 rounded-full flex items-center justify-center text-white"
+                            style="background:rgba(255,255,255,0.12);"
+                            onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75A9 9 0 1 0 18.364 18.364" />
+                        </svg>
+                    </button>
+                    <button type="button" onclick="rotateLightbox(-90)" id="lightbox-rotate-right" title="Rotate right"
+                            class="w-10 h-10 rounded-full flex items-center justify-center text-white"
+                            style="background:rgba(255,255,255,0.12);"
+                            onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5" style="transform:scaleX(-1);">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75A9 9 0 1 0 18.364 18.364" />
+                        </svg>
+                    </button>
+                </div>
+
                 {{-- Counter --}}
                 <div id="lightbox-counter"
                      class="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full text-xs font-semibold text-white"
@@ -5899,14 +5922,68 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths,
 }
 
 // Gallery lightbox with prev/next navigation
-var _lbImages = @js($galleryJsonForJs ?? []);
-var _lbIndex  = 0;
+var _lbImages  = @js($galleryJsonForJs ?? []);
+var _lbIndex   = 0;
+var _lbGallery = null;   // smartGallery component ref (set by viewImage) — enables rotate
+var _lbBusy    = false;  // guards against double-fire while a rotation is in flight
 
 function openLightbox(idx) {
     _lbIndex = idx;
     _lbRender();
     document.getElementById('lightbox').classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+}
+
+// Rotate the current image and persist it. degrees → GD imagerotate (CCW
+// positive): 90 = rotate left, -90 = rotate right. The server returns a new
+// URL (new file), which we swap into the lightbox + gallery state in place.
+async function rotateLightbox(degrees) {
+    if (_lbBusy || !_lbGallery) return;
+    var oldUrl = _lbImages[_lbIndex];
+    if (!oldUrl) return;
+
+    _lbBusy = true;
+    var imgEl = document.getElementById('lightbox-img');
+    if (imgEl) imgEl.style.opacity = '0.4';
+    try {
+        var csrf = (_lbGallery && _lbGallery.csrfToken)
+                || document.querySelector('meta[name="csrf-token"]')?.content || '';
+        // Web route (same session+CSRF transport as delete-image / reorder-images).
+        var res = await fetch('/corex/properties/' + _lbGallery.propertyId + '/rotate-image', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrf,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({ image_url: oldUrl, degrees: degrees }),
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok || !data.ok || !data.url) {
+            throw new Error(data.message || ('Rotate failed (HTTP ' + res.status + ').'));
+        }
+        var newUrl = data.url;
+
+        // Swap the URL in the lightbox copy and in the live gallery state. The
+        // gallery tag map is keyed by URL, so remap that key too (server already
+        // remapped the persisted copy).
+        _lbImages[_lbIndex] = newUrl;
+        var gi = _lbGallery.images.indexOf(oldUrl);
+        if (gi >= 0) _lbGallery.images[gi] = newUrl;
+        if (_lbGallery.tags && _lbGallery.tags[oldUrl] !== undefined) {
+            _lbGallery.tags[newUrl] = _lbGallery.tags[oldUrl];
+            delete _lbGallery.tags[oldUrl];
+        }
+        _lbRender();
+    } catch (e) {
+        console.error('rotate-image failed:', e);
+        alert(e && e.message ? e.message : 'Could not rotate the image. Please try again.');
+    } finally {
+        _lbBusy = false;
+        if (imgEl) imgEl.style.opacity = '';
+    }
 }
 function closeLightbox() {
     document.getElementById('lightbox').classList.add('hidden');
@@ -6087,7 +6164,7 @@ function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags
         },
         dragDrop(idx) { this._dragIdx = null; },
 
-        viewImage(idx) { _lbImages = [...this.images]; openLightbox(idx); },
+        viewImage(idx) { _lbImages = [...this.images]; _lbGallery = this; openLightbox(idx); },
 
         deleteImage(idx) {
             if (!confirm('Delete this image?')) return;
