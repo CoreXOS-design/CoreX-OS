@@ -210,6 +210,37 @@ final class CmaInfoSectionalTitleSalesParser extends AbstractCmaInfoParser
         $priceTok = '\d{1,3}(?:[\s,]\d{3}){0,3}';
         $ppmTok   = '\d{1,3}(?:[\s,]\d{3}){0,2}';
 
+        // ── Stacked multi-section sales (FIRST, so they win the (date|price)
+        // dedupe over Pattern B's section-less capture of the same anchor) ──
+        // A combined-unit sale wraps its sections + extents to the lines above
+        // and below the anchor; the radius table's anchor carries [price, R/m²]
+        // in source order. See AbstractCmaInfoParser::extractStackedSectionalGroups.
+        foreach ($this->extractStackedSectionalGroups($text) as $g) {
+            $price = $this->parsePriceBounded((string) ($g['r_amounts'][0] ?? ''), 'st.stacked.sale_price');
+            if ($price === null) continue;
+
+            $extent = $g['extent_sum'];
+            // R/m² — prefer the printed figure (2nd R-amount); fall back to the
+            // combined-extent quotient if it's missing or out of the sane band.
+            $ppm = $g['r_amounts'][1] ?? null;
+            if ($ppm === null || $ppm < 100 || $ppm > 500_000) {
+                $ppm = ($extent !== null && $extent > 0) ? (int) round($price / $extent) : null;
+            }
+
+            $rows[] = [
+                'scheme_name'    => $g['scheme_name'] ?? $impliedScheme,
+                'address'        => null,
+                'section_number' => $g['section_label'] !== '' ? $g['section_label'] : null,
+                'ss_number'      => $g['ss_number'],
+                'ss_year'        => $g['ss_year'],
+                'property_type'  => 'Residence',
+                'extent_m2'      => $extent,
+                'sale_date'      => $g['sale_date'],
+                'sale_price'     => $price,
+                'r_per_m2'       => $ppm,
+            ];
+        }
+
         // ── Pattern A — full row ────────────────────────────────────────────
         $patternA = '/(?<sec>\d{1,3})\s+(?<ss>\d{2,5})\s+(?<yr>\d{4})\s+Residence\s+(?<ext>\d{1,5})\s*m\S?\s+(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<sp>' . $priceTok . ')\s+R\s*(?<ppm>' . $ppmTok . ')/u';
 

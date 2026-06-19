@@ -342,6 +342,153 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
     }
 
     /**
+     * Reconstruct STACKED multi-section sectional-title sales (AT-59 follow-up
+     * — pres 98 / PUMULA, reports 162 + 163).
+     *
+     * When one owner owns several sections of a scheme and sells the combined
+     * unit, CMA Info prints the sale as a THREE-line block under
+     * pdftotext -layout: the "Section [Flat] No" + "Extent" for each owned
+     * section sit on the physical lines ABOVE and BELOW an "anchor" line that
+     * carries the scheme name, SS no/year, sale date, price and (radius
+     * report) R/m². The anchor's OWN Section and Extent columns are BLANK —
+     * the data wrapped to the neighbouring lines:
+     *
+     *        2                    Residence     65 m²          <- section 2  / 65 m²
+     *   PUMULA, DUKE ROAD ...   2  1976   ...  2026/01/11  R 500 000  R 5 747   <- anchor
+     *        12                   Residence     22 m²          <- section 12 / 22 m²
+     *
+     * A single-line regex (one comp = one physical line) cannot see the
+     * wrapped fragments, so the sale is either dropped entirely
+     * (CmaInfoPropertyValuationParser comparative table) or its SS-year tail
+     * is mis-read as a phantom section then nulled (CmaInfoSectionalTitleSales
+     * radius table) — leaving section_number + extent_m2 NULL on a real comp.
+     *
+     * The sale is ONE transaction: the price covers the combined unit and the
+     * printed R/m² is price ÷ (sum of the section extents) — e.g.
+     * R 500 000 ÷ (65 + 22 = 87 m²) = R 5 747. We therefore emit ONE logical
+     * group per anchor, carrying:
+     *   - section_label = the owned sections joined "8 / 14"
+     *   - extent_sum    = the SUM of the section extents (the R/m² basis)
+     *   - the anchor's sale_date, SS no/year, scheme and every "R <amount>"
+     *     figure in source order (the caller maps the R-figures to its own
+     *     table's columns — radius: [price, r/m²]; valuation: [price, est]).
+     *
+     * Observed layout invariant (validated across reports 162 + 163): every
+     * combined-unit sale prints exactly ONE section fragment directly above
+     * and ONE directly below its anchor, so each anchor claims line i-1 and
+     * line i+1. A fragment is consumed at most once, so interleaved sales of
+     * adjacent schemes never steal each other's sections.
+     *
+     * @return list<array{
+     *   sections: list<string>, section_label: string, extent_sum: ?int,
+     *   sale_date: ?string, ss_number: ?string, ss_year: ?int,
+     *   r_amounts: list<int>, scheme_name: ?string
+     * }>
+     */
+    protected function extractStackedSectionalGroups(string $text): array
+    {
+        if ($text === '') return [];
+
+        $lines = preg_split('/\r?\n/', $text);
+        if (!is_array($lines)) return [];
+        $n = count($lines);
+
+        $dateRe   = '#\d{4}[/\-]\d{2}[/\-]\d{2}#';
+        // A section fragment: "<sec> [<ss> <yr>] Residence <ext> m²" with NO
+        // sale date on the line (a dated line is a full single-line row, not a
+        // wrapped fragment, and is handled by the per-parser single-line pass).
+        $fragRe   = '/(?<sec>\d{1,3})\s+(?:\d{1,5}\s+\d{4}\s+)?Residence\s+(?<ext>\d{1,3}(?:[\s,]\d{3})?)\s*m/u';
+        // Scheme identifier — "PUMULA, DUKE ROAD" / "FOREST WALK, FOREST ROAD".
+        $schemeRe = "/([A-Z][A-Z0-9 ']{2,40}),/u";
+
+        $isFragment = static function (string $t) use ($dateRe, $fragRe): ?array {
+            if (preg_match($dateRe, $t)) return null;
+            if (!preg_match($fragRe, $t, $m)) return null;
+            $ext = (int) preg_replace('/\D/', '', (string) $m['ext']);
+            return ['sec' => $m['sec'], 'ext' => $ext > 0 ? $ext : null];
+        };
+        // An anchor: a comp line carrying a sale date + price whose own
+        // Section/Extent columns are blank (no inline "Residence" token —
+        // that token only appears on full single-line rows and on fragments).
+        $isAnchor = static function (string $t) use ($dateRe): bool {
+            if (stripos($t, 'Residence') !== false) return false;
+            if (!preg_match($dateRe, $t)) return false;
+            return (bool) preg_match('/R\s*\d/u', $t);
+        };
+
+        $groups = [];
+        $used   = [];
+
+        for ($i = 0; $i < $n; $i++) {
+            $t = trim($lines[$i]);
+            if ($t === '' || !$isAnchor($t)) continue;
+
+            $frags = [];
+            if ($i - 1 >= 0 && !isset($used[$i - 1])) {
+                $f = $isFragment(trim($lines[$i - 1]));
+                if ($f !== null) { $frags['above'] = $f; $used[$i - 1] = true; }
+            }
+            if ($i + 1 < $n && !isset($used[$i + 1])) {
+                $f = $isFragment(trim($lines[$i + 1]));
+                if ($f !== null) { $frags['below'] = $f; $used[$i + 1] = true; }
+            }
+            // No wrapped fragments → not a stacked multi-section sale. Leave it
+            // for the per-parser single-line pass (footers / explanatory text
+            // that look anchor-like carry no adjacent fragments and exit here).
+            if (empty($frags)) continue;
+
+            $sections = [];
+            $extents  = [];
+            foreach (['above', 'below'] as $pos) {
+                if (!isset($frags[$pos])) continue;
+                $sections[] = (string) $frags[$pos]['sec'];
+                if ($frags[$pos]['ext'] !== null) $extents[] = $frags[$pos]['ext'];
+            }
+            if ($sections === []) continue;
+
+            // Scheme: anchor line first (radius report), else the fragment
+            // lines (valuation report carries the scheme on the wrapped lines).
+            $scheme = null;
+            foreach ([$t, trim($lines[$i - 1] ?? ''), trim($lines[$i + 1] ?? '')] as $cand) {
+                if ($cand !== '' && preg_match($schemeRe, $cand, $sm)) { $scheme = trim($sm[1]); break; }
+            }
+
+            // SS no/year — the "<ss> <yr>" pair immediately before the date.
+            $ssNumber = null;
+            $ssYear   = null;
+            if (preg_match('#(\d{1,5})\s+(\d{4})\s+\d{4}[/\-]\d{2}[/\-]\d{2}#u', $t, $mm)) {
+                $ssNumber = $mm[1];
+                $ssYear   = (int) $mm[2];
+            }
+
+            $date = null;
+            if (preg_match($dateRe, $t, $dm)) $date = $dm[0];
+
+            $rAmounts = [];
+            if (preg_match_all('/R\s*(\d{1,3}(?:[\s,]\d{3}){0,3})/u', $t, $rm)) {
+                foreach ($rm[1] as $r) {
+                    $v = (int) preg_replace('/\D/', '', (string) $r);
+                    if ($v > 0) $rAmounts[] = $v;
+                }
+            }
+
+            $extentSum = array_sum($extents);
+            $groups[] = [
+                'sections'      => $sections,
+                'section_label' => implode(' / ', $sections),
+                'extent_sum'    => $extentSum > 0 ? $extentSum : null,
+                'sale_date'     => $this->parseDate($date),
+                'ss_number'     => $ssNumber,
+                'ss_year'       => $ssYear,
+                'r_amounts'     => $rAmounts,
+                'scheme_name'   => $scheme,
+            ];
+        }
+
+        return $groups;
+    }
+
+    /**
      * Used by every CMA parser to seed an extracted-address record from a
      * subject-property or comparable-sale line. The orchestrator then routes
      * these through TrackedPropertyMatchOrCreateService with

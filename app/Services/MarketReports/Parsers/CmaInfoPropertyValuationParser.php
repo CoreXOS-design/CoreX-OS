@@ -324,6 +324,16 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
         }
         $body = $blockMatch['body'];
 
+        // Drop the "SUBJECT PROPERTY" sub-block — the comparative table prints
+        // the subject as its own header row (same scheme + section + sale) and
+        // the single-line pass below would otherwise capture it as a COMPARABLE,
+        // double-counting the subject (it is already emitted as ROW_SUBJECT) and
+        // skewing the complex-section average. Keep only the rows after the
+        // "COMPARATIVE PROPERTIES" divider when that divider is present.
+        if (preg_match('/COMPARATIVE\s+PROPERTIES(?<comps>.*)$/su', $body, $cm)) {
+            $body = $cm['comps'];
+        }
+
         // Phase 3b — scan the whole block in one pass. The regex no longer
         // anchors at line start; it picks up data tuples wherever they appear,
         // including when the scheme/address text bled onto the same line.
@@ -333,9 +343,7 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
         // digits, so the regex can't bleed across column boundaries.
         $pattern = '/(?<sec>\d{1,3})\s+(?<ss>\d{1,5})\s+(?<yr>\d{4})\s+Residence\s+(?<ext>\d{1,5})\s*m\S?\s+(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<sp>\d{1,3}(?:[\s,]\d{3}){0,3})(?:\s+R\s*(?<est>\d{1,3}(?:[\s,]\d{3}){0,3}))?(?:\s+R\s*(?<ppm>\d{1,3}(?:[\s,]\d{3}){0,2}))?/u';
 
-        if (!preg_match_all($pattern, $body, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
-            return $rows;
-        }
+        preg_match_all($pattern, $body, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
 
         foreach ($matches as $m) {
             $matchStart = $m[0][1];
@@ -378,7 +386,55 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
             ];
         }
 
-        return $rows;
+        // ── Stacked multi-section comps ─────────────────────────────────────
+        // A combined-unit sale wraps its sections + extents to the lines above
+        // and below the anchor, so the single-line pass above drops it entirely.
+        // The comparative-table anchor carries [price, estimated_value] in
+        // source order; R/m² is the combined-extent quotient. See
+        // AbstractCmaInfoParser::extractStackedSectionalGroups.
+        foreach ($this->extractStackedSectionalGroups($body) as $g) {
+            $price = $this->parsePriceBounded((string) ($g['r_amounts'][0] ?? ''), 'cma.stacked.sale_price');
+            if ($price === null) continue;
+
+            $extent = $g['extent_sum'];
+            $est    = isset($g['r_amounts'][1])
+                ? $this->parsePriceBounded((string) $g['r_amounts'][1], 'cma.stacked.estimated_value')
+                : null;
+            $ppm    = ($extent !== null && $extent > 0) ? (int) round($price / $extent) : null;
+
+            $scheme = $g['scheme_name'];
+            if (($scheme === null || $scheme === '') && is_string($subjectScheme) && trim($subjectScheme) !== '') {
+                $scheme = trim($subjectScheme);
+            }
+
+            $rows[] = [
+                'scheme_name'     => $scheme,
+                'section_number'  => $g['section_label'] !== '' ? $g['section_label'] : null,
+                'ss_number'       => $g['ss_number'],
+                'ss_year'         => $g['ss_year'],
+                'property_type'   => 'Residence',
+                'extent_m2'       => $extent,
+                'sale_date'       => $g['sale_date'],
+                'sale_price'      => $price,
+                'estimated_value' => $est,
+                'r_per_m2'        => $ppm,
+                'address'         => null,
+            ];
+        }
+
+        // Dedupe by (sale_date, sale_price) — single-line and stacked passes are
+        // disjoint by construction (stacked anchors carry no inline "Residence"
+        // token) but a defensive dedupe keeps a re-printed sale from doubling.
+        $seen = [];
+        $out  = [];
+        foreach ($rows as $r) {
+            $key = ($r['sale_date'] ?? 'no-date') . '|' . ($r['sale_price'] ?? 'no-price');
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $out[] = $r;
+        }
+
+        return $out;
     }
 
     /**
