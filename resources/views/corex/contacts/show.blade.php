@@ -227,35 +227,44 @@
                     editing: false,
                     showWa: false,
                     showEmail: false,
-                    waCount: {{ (int) $contact->whatsapp_count }},
-                    emailCount: {{ (int) $contact->email_count }},
+                    waCount: {{ (int) ($waSent ?? 0) }},
+                    emailCount: {{ (int) ($emailSent ?? 0) }},
                     lastContactedLabel: '{{ $contact->last_contacted_at ? $contact->last_contacted_at->format('d M Y H:i') : 'Never' }}',
                     lastContactedRelative: '{{ $contact->last_contacted_at ? $contact->last_contacted_at->diffForHumans() : '' }}',
                     waMessage: 'Hi {{ addslashes($contact->first_name) }}',
                     emailSubject: 'Hi {{ addslashes($contact->first_name) }}',
                     emailBody: 'Hi {{ addslashes($contact->first_name) }}',
-                    async increment(channel) {
-                        const res = await fetch('{{ route('corex.contacts.increment', $contact) }}', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
-                            body: JSON.stringify({ channel })
-                        });
-                        const data = await res.json();
-                        if (channel === 'whatsapp') this.waCount = data.count;
-                        else this.emailCount = data.count;
-                        this.lastContactedLabel = data.last_contacted;
-                        this.lastContactedRelative = data.last_contacted_relative;
+                    async increment(channel, payload = {}) {
+                        // Optimistic bump for instant feedback; reconciled by the
+                        // server's derived count below (AT-59).
+                        if (channel === 'whatsapp') this.waCount++;
+                        else this.emailCount++;
+                        try {
+                            const res = await fetch('{{ route('corex.contacts.increment', $contact) }}', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
+                                body: JSON.stringify({ channel, subject: payload.subject ?? null, body: payload.body ?? null })
+                            });
+                            const data = await res.json();
+                            if (channel === 'whatsapp') this.waCount = data.count;
+                            else this.emailCount = data.count;
+                            this.lastContactedLabel = data.last_contacted;
+                            this.lastContactedRelative = data.last_contacted_relative;
+                        } catch (e) {
+                            // Network blip: keep the optimistic bump; the archive
+                            // remains the source of truth on next page load.
+                        }
                     },
                     sendWa() {
                         let phone = '{{ preg_replace('/[^0-9]/', '', $contact->phone ?? '') }}';
                         if (phone.startsWith('0')) phone = '27' + phone.substring(1);
                         window.location.href = 'whatsapp://send?phone=' + phone + '&text=' + encodeURIComponent(this.waMessage);
-                        this.increment('whatsapp');
+                        this.increment('whatsapp', { body: this.waMessage });
                         this.showWa = false;
                     },
                     sendEmail() {
                         window.location.href = 'mailto:' + encodeURIComponent({{ Illuminate\Support\Js::from($contact->email) }}) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
-                        this.increment('email');
+                        this.increment('email', { subject: this.emailSubject, body: this.emailBody });
                         this.showEmail = false;
                     }
                  }" class="space-y-3">

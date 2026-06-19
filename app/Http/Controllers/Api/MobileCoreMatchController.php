@@ -203,8 +203,16 @@ class MobileCoreMatchController extends Controller
             : null;
 
         if ($request->isMethod('post')) {
-            $contact->increment('whatsapp_count');
-            $contact->update(['last_contacted_at' => now()]);
+            // AT-59: record a PROVISIONAL outbound WhatsApp communication in the
+            // archive (reconciled by WA capture later) instead of a scalar bump.
+            // The composed message body is stored so ingestion can text-hash match.
+            app(\App\Services\Communications\OutboundProvisionalLogger::class)->log(
+                $contact,
+                \App\Models\Communications\Communication::CHANNEL_WHATSAPP,
+                null,
+                $message,
+                $request->user()->id
+            );
             $match->update(['last_engaged_at' => now()]);
         }
 
@@ -217,7 +225,7 @@ class MobileCoreMatchController extends Controller
             'share_url'       => $shareUrl,
             'contact_name'    => trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')),
             'first_name'      => $contact->first_name,
-            'whatsapp_count'  => $contact->whatsapp_count,
+            'whatsapp_count'  => $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP),
         ]);
     }
 

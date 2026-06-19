@@ -89,6 +89,11 @@ Schedule::job(new \App\Jobs\SyncPrivatePropertyActivations())->everyFifteenMinut
 Schedule::command('communications:prune-retention')->dailyAt('03:20')->withoutOverlapping();
 Schedule::command('communications:prune-pending')->dailyAt('03:35')->withoutOverlapping();
 
+// AT-59 — soft-purge orphaned provisional outbound rows (an edited-before-send
+// click that never reconciled to a real send). Hourly: provisional rows are
+// short-lived and the prune age is agency-configurable.
+Schedule::command('communications:prune-provisional')->hourly()->withoutOverlapping();
+
 // Communication Archive (AT-33) — email adapter: dispatch IMAP poll jobs for
 // due mailboxes. Per-mailbox cadence enforced via poll_interval_minutes.
 Schedule::command('communications:poll-mailboxes')->everyFiveMinutes()->withoutOverlapping();
