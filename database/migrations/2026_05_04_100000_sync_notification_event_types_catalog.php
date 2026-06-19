@@ -43,8 +43,8 @@ return new class extends Migration
             $this->row('property.compliance_doc_missing', 'property', 'Compliance', 'Compliance documents missing',
                 'EAAB / FICA-on-property compliance certs not uploaded.', 'hours', 48, 1, 720),
 
-            $this->row('contact.fica_missing', 'contact', 'Compliance', 'FICA documents not uploaded',
-                'New contact has no FICA documents on file after the threshold.', 'hours', 48, 1, 720),
+            // contact.fica_missing intentionally removed — the "FICA missing/outstanding"
+            // contact nag was retired (see 2026_06_19 remove_contact_fica_missing migration).
             $this->row('contact.fica_expiring', 'contact', 'Compliance', 'FICA expiring soon',
                 'Contact FICA documents are nearing their expiry date.', 'days', 30, 1, 180),
             $this->row('contact.no_followup', 'contact', 'Activity', 'No follow-up logged',

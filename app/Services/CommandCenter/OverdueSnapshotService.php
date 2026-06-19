@@ -4,7 +4,6 @@ namespace App\Services\CommandCenter;
 
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CommandTask;
-use App\Models\Contact;
 use App\Models\Deal;
 use App\Models\Property;
 use App\Models\User;
@@ -53,37 +52,6 @@ class OverdueSnapshotService
                         ? "Listed {$ageHuman}, no documents on file."
                         : 'No documents on file.',
                     'threshold_hit_at' => $p->created_at?->copy()->addHours($threshold)?->toIso8601String(),
-                ];
-            }
-        }
-
-        // Contacts — FICA missing
-        $eff = $this->prefs->effective($user, 'contact.fica_missing');
-        if ($eff && $eff['enabled'] && $eff['threshold']) {
-            $threshold = (int) $eff['threshold'];
-            $contacts = Contact::where('created_by_user_id', $user->id)
-                ->where('created_at', '<=', now()->subHours($threshold))
-                ->limit(50)->get();
-            foreach ($contacts as $c) {
-                $hasFica = false;
-                try { $hasFica = $c->isFicaCompliant(); } catch (\Throwable $e) {}
-                if ($hasFica) continue;
-                $name     = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id);
-                $age      = AgeFormatter::wholeHours($c->created_at);
-                $ageHuman = AgeFormatter::ago($c->created_at);
-                $items[] = [
-                    'event_key' => 'contact.fica_missing',
-                    'pillar'    => 'contact',
-                    'subject'   => ['type' => 'contact', 'id' => $c->id, 'label' => $name],
-                    'age_hours' => $age,
-                    'age_human' => $ageHuman,
-                    'severity'  => 'warning',
-                    'action_url'=> "/contacts/{$c->id}",
-                    'title'     => "$name — FICA missing",
-                    'body'      => $ageHuman
-                        ? "Created {$ageHuman} without FICA documents."
-                        : 'No FICA documents on file.',
-                    'threshold_hit_at' => $c->created_at?->copy()->addHours($threshold)?->toIso8601String(),
                 ];
             }
         }
