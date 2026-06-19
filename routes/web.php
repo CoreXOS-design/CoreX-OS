@@ -1202,6 +1202,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::patch('/calendar/{calendarEvent}/reschedule', [CommandCenterCalendarController::class, 'reschedule'])->name('command-center.calendar.reschedule');
         Route::get('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'showFeedback'])->name('command-center.calendar.feedback.show');
         Route::post('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'storeFeedback'])->name('command-center.calendar.feedback.store');
+        // AT-66 §4.5 — recovery: link the viewed property to a link-less event.
+        Route::post('/calendar/{calendarEvent}/link-property', [CommandCenterCalendarController::class, 'linkProperty'])->name('command-center.calendar.link-property');
         Route::get('/calendar/search/attendees', [CommandCenterCalendarController::class, 'searchAttendees'])->name('command-center.calendar.search.attendees');
         Route::get('/calendar/properties/{property}/owners', [CommandCenterCalendarController::class, 'propertyOwners'])->name('command-center.calendar.property-owners');
 

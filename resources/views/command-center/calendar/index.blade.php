@@ -1672,12 +1672,36 @@
                                 </template>
                             </div>
                         </template>
-                        {{-- AT-66 §4.4/§4.5 — empty-state when no property is linked.
-                             Recovery affordance ("Link property viewed") is wired in §4.5. --}}
+                        {{-- AT-66 §4.4/§4.5 — empty-state + recovery when no property is linked.
+                             Explains why the body is empty AND offers the unlock action
+                             (No Silent Locks). Links the viewed property via syncEventLinks,
+                             then re-fetches showFeedback so the property card appears. --}}
                         <template x-if="feedbackData.items.length === 0">
                             <div class="py-6 text-center">
                                 <p class="text-sm" style="color: var(--text-muted);">No property linked to this event yet.</p>
-                                <p class="text-xs mt-1" style="color: var(--text-muted);">Feedback is captured per property — link the property that was viewed to continue.</p>
+                                <p class="text-xs mt-1 mb-3" style="color: var(--text-muted);">Feedback is captured per property — link the property that was viewed to continue.</p>
+                                <button type="button" @click="feedbackLinkOpen = !feedbackLinkOpen; feedbackLinkResults = []; feedbackLinkQuery = ''; feedbackLinkError = null"
+                                        class="corex-btn-primary text-sm">Link property viewed</button>
+
+                                <div x-show="feedbackLinkOpen" x-cloak class="mt-4 text-left max-w-md mx-auto">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search property</label>
+                                    <input type="text" x-model="feedbackLinkQuery" @input.debounce.300ms="searchFeedbackLink()"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                           placeholder="Type an address or suburb…">
+                                    <template x-if="feedbackLinkError">
+                                        <p class="text-xs mt-1" style="color: var(--ds-crimson, #dc2626);" x-text="feedbackLinkError"></p>
+                                    </template>
+                                    <div class="mt-2 space-y-1" x-show="feedbackLinkResults.length">
+                                        <template x-for="r in feedbackLinkResults" :key="r.id">
+                                            <button type="button" @click="linkPropertyToEvent(r.id)" :disabled="feedbackLinkSaving"
+                                                    class="block w-full text-left rounded-md px-3 py-2 text-sm disabled:opacity-50"
+                                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                                    x-text="r.address || r.label || r.title || ('Property #' + r.id)"></button>
+                                        </template>
+                                    </div>
+                                    <p x-show="feedbackLinkQuery.length >= 2 && !feedbackLinkResults.length && !feedbackLinkSaving" class="text-xs mt-2" style="color: var(--text-muted);">No matches.</p>
+                                </div>
                             </div>
                         </template>
                     </div>
@@ -2487,6 +2511,13 @@ function calendarPage() {
         // inline at the modal footer. Replaces the prior silent fail where
         // a 500 / 422 left the button dead with no user feedback.
         feedbackError: null,
+        // AT-66 §4.5 — recovery picker state (link the viewed property to a
+        // link-less event from the feedback modal's empty-state).
+        feedbackLinkOpen: false,
+        feedbackLinkQuery: '',
+        feedbackLinkResults: [],
+        feedbackLinkSaving: false,
+        feedbackLinkError: null,
         // Reason picker modal (dismiss + require_reason complete)
         reasonPickerOpen: false,
         reasonPickerAction: 'dismiss', // 'dismiss' or 'complete'
@@ -3255,6 +3286,54 @@ function calendarPage() {
                 this.feedbackOpen = true;
             } catch (e) {
                 console.warn('openFeedbackModal failed:', e);
+            }
+        },
+        // AT-66 §4.5 — recovery picker: search properties (reuses the same
+        // endpoint the create-event property picker uses).
+        async searchFeedbackLink() {
+            this.feedbackLinkError = null;
+            if ((this.feedbackLinkQuery || '').length < 2) { this.feedbackLinkResults = []; return; }
+            try {
+                const r = await fetch('/deals-v2/search/properties?q=' + encodeURIComponent(this.feedbackLinkQuery), {
+                    headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
+                });
+                this.feedbackLinkResults = r.ok ? await r.json() : [];
+            } catch (e) {
+                this.feedbackLinkResults = [];
+                this.feedbackLinkError = 'Search failed — please try again.';
+            }
+        },
+        // Link the chosen property to this event, then re-open the modal so
+        // showFeedback() rebuilds with the now-present property item.
+        async linkPropertyToEvent(propertyId) {
+            if (!this.feedbackData.event?.id) return;
+            this.feedbackLinkSaving = true;
+            this.feedbackLinkError = null;
+            try {
+                const r = await fetch('/corex/command-center/calendar/' + this.feedbackData.event.id + '/link-property', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ property_id: propertyId }),
+                });
+                if (r.ok) {
+                    const eventId = this.feedbackData.event.id;
+                    this.feedbackLinkOpen = false;
+                    this.feedbackLinkQuery = '';
+                    this.feedbackLinkResults = [];
+                    await this.openFeedbackModal(eventId); // re-fetch — property card now renders
+                } else {
+                    let body = null; try { body = await r.json(); } catch (_) {}
+                    this.feedbackLinkError = (body && body.message) || ('Could not link property (HTTP ' + r.status + ').');
+                }
+            } catch (e) {
+                this.feedbackLinkError = 'Network error — please try again.';
+            } finally {
+                this.feedbackLinkSaving = false;
             }
         },
         getCurrentFeedbackPropertyId() {

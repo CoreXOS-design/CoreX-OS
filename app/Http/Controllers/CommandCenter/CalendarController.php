@@ -908,6 +908,65 @@ class CalendarController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * AT-66 §4.5 — recovery: link the property that was viewed to an event
+     * that was created without one, so a link-less viewing's feedback modal
+     * is never a dead-end. Writes a subject_property link (and optionally the
+     * buyer attendee) through the SAME syncEventLinks path the create flow
+     * uses, then the client re-fetches showFeedback(). Additive: existing
+     * property/contact links are preserved.
+     */
+    public function linkProperty(Request $request, CalendarEvent $calendarEvent)
+    {
+        $user = $request->user();
+        if (!$this->visibilityResolver->canSee($calendarEvent, $user)) {
+            abort(403);
+        }
+        // Only user-created events carry editable links; source-driven events
+        // own their links from the source. Explain rather than silently fail.
+        if (!in_array($calendarEvent->source_type, ['manual', 'manual:demo'])) {
+            return response()->json(['message' => 'Only manually-created events can have their property linked here.'], 422);
+        }
+
+        $data = $request->validate([
+            'property_id' => 'required|integer|exists:properties,id',
+            'contact_id'  => 'nullable|integer|exists:contacts,id',
+        ]);
+
+        DB::transaction(function () use ($calendarEvent, $data, $user) {
+            // Merge with existing links so the recovery is purely additive.
+            $propertyIds = $calendarEvent->linkedProperties()->pluck('properties.id')->all();
+            $propertyIds[] = (int) $data['property_id'];
+            $propertyIds = array_values(array_unique($propertyIds));
+
+            $syncData = [
+                'category'               => $calendarEvent->category,
+                'property_ids'           => $propertyIds,
+                '_resolved_property_ids' => $propertyIds,
+            ];
+
+            // Only touch contact links when a buyer is supplied (otherwise we
+            // leave any existing attendee links untouched).
+            if (!empty($data['contact_id'])) {
+                $contactIds = $calendarEvent->linkedContacts()->pluck('contacts.id')->all();
+                $contactIds[] = (int) $data['contact_id'];
+                $syncData['contact_ids'] = array_values(array_unique($contactIds));
+            }
+
+            $this->syncEventLinks($calendarEvent, $syncData, $user);
+
+            \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+                'calendar_event_id'    => $calendarEvent->id,
+                'action'               => 'property_linked',
+                'new_values'           => ['property_id' => (int) $data['property_id'], 'contact_id' => $data['contact_id'] ?? null],
+                'performed_by_user_id' => $user->id,
+                'performed_at'         => now(),
+            ]);
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
     public function store(Request $request)
     {
         $user = $request->user();
