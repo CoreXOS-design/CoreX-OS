@@ -95,7 +95,7 @@
         $activeGroup = 'agency-tracker';
     } elseif (request()->routeIs('evaluation.*')) {
         $activeGroup = 'evaluation';
-    } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*')) {
+    } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*') || request()->routeIs('documents.shared-drive.*')) {
         $activeGroup = 'documents';
     } elseif (request()->routeIs('rental.*')) {
         $activeGroup = 'rentals';
@@ -842,7 +842,7 @@
         {{-- ═══════════════════════════════════════════
              DOCUMENTS (DocuPerfect — expandable group)
              ═══════════════════════════════════════════ --}}
-        @if(auth()->check() && (auth()->user()->hasPermission('access_docuperfect') || auth()->user()->hasPermission('view_agency_documents')))
+        @if(auth()->check() && (auth()->user()->hasPermission('access_docuperfect') || auth()->user()->hasPermission('view_agency_documents') || auth()->user()->hasPermission('access_shared_drive')))
         @if(\Illuminate\Support\Facades\Route::has('docuperfect.dashboard'))
         <div>
             <button type="button" @click="push('documents')"
@@ -885,6 +885,9 @@
                 @endpermission
                 @permission('view_agency_documents')
                 <a href="{{ route('my-portal.agency-documents') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">Agency Documents</a>
+                @endpermission
+                @permission('access_shared_drive')
+                <a href="{{ route('documents.shared-drive.index') }}" class="corex-nav-subitem {{ request()->routeIs('documents.shared-drive.*') ? 'active' : '' }}">Shared Drive</a>
                 @endpermission
             </div>
         </div>

@@ -3155,6 +3155,32 @@ Route::middleware(['auth', 'permission:access_document_library'])->prefix('docum
         ->name('library.types.destroy');
 });
 
+// ===== SHARED DRIVE =====
+// Google-Drive-style team file store. Spec: .ai/specs/shared-drive.md
+Route::middleware(['auth', 'permission:access_shared_drive'])
+    ->prefix('documents/shared-drive')
+    ->name('documents.shared-drive.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\Documents\SharedDriveController::class, 'index'])
+            ->name('index');
+        Route::get('/folder/{folder}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'index'])
+            ->name('folder');
+
+        Route::post('/folders', [\App\Http\Controllers\Documents\SharedDriveController::class, 'storeFolder'])
+            ->name('folders.store');
+        Route::delete('/folders/{folder}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'destroyFolder'])
+            ->name('folders.destroy');
+
+        Route::post('/upload', [\App\Http\Controllers\Documents\SharedDriveController::class, 'upload'])
+            ->name('upload');
+        Route::get('/files/{file}/view', [\App\Http\Controllers\Documents\SharedDriveController::class, 'view'])
+            ->name('files.view');
+        Route::get('/files/{file}/download', [\App\Http\Controllers\Documents\SharedDriveController::class, 'download'])
+            ->name('files.download');
+        Route::delete('/files/{file}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'destroyFile'])
+            ->name('files.destroy');
+    });
+
 // ===== TRACKED PROPERTIES (Prospecting sub-menu) =====
 // Universe of properties CoreX knows about, regardless of mandate status.
 // Spec: CLAUDE.md HARD RULE #10 (Universal Match-or-Create Rule), Build D.3.
