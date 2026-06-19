@@ -88,7 +88,9 @@ final class ContactAddressPropertyGuard
             'suburb'        => $contact->suburb,
             'town'          => $contact->city,      // service key is 'town'
             'province'      => $contact->province,
-            'address'       => $contact->address,   // free-text fallback for token overlap
+            // Token-overlap fallback = the COMPOSED structured property address,
+            // NOT the contact's residential `address` (unrelated to the property).
+            'address'       => $contact->composeStructuredAddress(),
         ], fn ($v) => filled($v));
     }
 

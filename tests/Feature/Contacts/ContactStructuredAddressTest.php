@@ -8,7 +8,6 @@ use App\Events\Contact\ContactLinkedToProperty;
 use App\Models\AgencyContactSettings;
 use App\Models\Contact;
 use App\Models\Property;
-use App\Models\Prospecting\TrackedProperty;
 use App\Models\User;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -18,126 +17,129 @@ use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * AT-60 — structured contact address: storage + auto-composed legacy address,
- * modal validation (input-space rule), transfer-to-property prefill, and the
- * configurable match-or-create duplicate guard.
+ * AT-60 (corrected) — TWO distinct, INDEPENDENT concerns:
  *
- * Input paths proven (BUILD_STANDARD §5):
- *  - happy path (all components)
- *  - each-empty / partial (street-only; complex-only; no-structured-fields)
- *  - lazy-but-valid (single component)
- *  - malformed (dangling P24 name with no id rejected clearly)
- *  - p24 ids mapped to the right columns
- *  - transfer prefill + auto-link on store (ContactLinkedToProperty)
- *  - duplicate guard offers existing match; respects agency 'off' mode
+ *  1. RESIDENTIAL address = where the contact lives. Free-text contacts.address,
+ *     set ONLY via the Info-tab form (contacts.update). Never auto-composed.
+ *  2. STRUCTURED PROPERTY-ADDRESS capture = a property-creation aid on the
+ *     Properties & Core Matches tab, saved via the dedicated
+ *     property-address.update endpoint. Never writes to the residential column.
+ *
+ * These tests prove the two are independent (neither writes to the other),
+ * plus the transfer prefill + the configurable duplicate guard.
  */
 final class ContactStructuredAddressTest extends TestCase
 {
     use RefreshDatabase;
 
-    // ── Storage + auto-compose ───────────────────────────────────────────
+    // ── Independence: residential vs structured ──────────────────────────
 
-    public function test_full_structured_address_saves_and_composes_legacy_address(): void
-    {
-        [$agencyId, $agent] = $this->fixture();
-        $contact = $this->contact($agencyId, $agent->id);
-        [$provinceId, $cityId, $suburbId] = $this->seedP24();
-
-        $this->actingAs($agent)
-            ->put(route('corex.contacts.update', $contact), $this->payload([
-                'unit_number'        => '3',
-                'unit_section_block' => 'Block B',
-                'complex_name'       => 'Seaside Villas',
-                'street_number'      => '21',
-                'street_name'        => 'Dee Road',
-                'suburb'             => 'Uvongo',
-                'city'               => 'Margate',
-                'province'           => 'KwaZulu-Natal',
-                'contact_addr_province_id' => $provinceId,
-                'contact_addr_city_id'     => $cityId,
-                'contact_addr_suburb_id'   => $suburbId,
-                '_from_show'         => 1,
-            ]))
-            ->assertSessionHasNoErrors();
-
-        $fresh = $contact->fresh();
-        $this->assertSame('Seaside Villas', $fresh->complex_name);
-        $this->assertSame('Dee Road', $fresh->street_name);
-        $this->assertSame('Uvongo', $fresh->suburb);
-        // Legacy `address` auto-composed from the structured components.
-        $this->assertSame(
-            'Unit 3, Block B, Seaside Villas, 21 Dee Road, Uvongo, Margate, KwaZulu-Natal',
-            $fresh->address
-        );
-    }
-
-    public function test_partial_street_only_composes(): void
+    public function test_residential_address_saves_and_does_not_touch_structured_columns(): void
     {
         [$agencyId, $agent] = $this->fixture();
         $contact = $this->contact($agencyId, $agent->id);
 
         $this->actingAs($agent)
             ->put(route('corex.contacts.update', $contact), $this->payload([
-                'street_number' => '21',
-                'street_name'   => 'Dee Road',
-                '_from_show'    => 1,
-            ]))
-            ->assertSessionHasNoErrors();
-
-        $this->assertSame('21 Dee Road', $contact->fresh()->address);
-    }
-
-    public function test_complex_without_street_composes(): void
-    {
-        [$agencyId, $agent] = $this->fixture();
-        $contact = $this->contact($agencyId, $agent->id);
-
-        $this->actingAs($agent)
-            ->put(route('corex.contacts.update', $contact), $this->payload([
-                'unit_number'  => '12',
-                'complex_name' => 'The Dunes',
-                '_from_show'   => 1,
-            ]))
-            ->assertSessionHasNoErrors();
-
-        $this->assertSame('Unit 12, The Dunes', $contact->fresh()->address);
-    }
-
-    public function test_lazy_single_component_works(): void
-    {
-        [$agencyId, $agent] = $this->fixture();
-        $contact = $this->contact($agencyId, $agent->id);
-
-        $this->actingAs($agent)
-            ->put(route('corex.contacts.update', $contact), $this->payload([
-                'street_name' => 'Marine Drive',
-                '_from_show'  => 1,
-            ]))
-            ->assertSessionHasNoErrors();
-
-        $this->assertSame('Marine Drive', $contact->fresh()->address);
-    }
-
-    public function test_no_structured_fields_leaves_legacy_address_untouched(): void
-    {
-        [$agencyId, $agent] = $this->fixture();
-        $contact = $this->contact($agencyId, $agent->id);
-        // Simulate a back-catalogue contact carrying only the old free-text value.
-        $contact->forceFill(['address' => '7 Old Free Text St, Port Edward'])->saveQuietly();
-
-        $this->actingAs($agent)
-            ->put(route('corex.contacts.update', $contact), $this->payload([
-                'first_name' => 'Renamed',
+                'address'    => '7 Smith Street, Port Edward',
                 '_from_show' => 1,
             ]))
             ->assertSessionHasNoErrors();
 
         $fresh = $contact->fresh();
-        $this->assertSame('Renamed', $fresh->first_name);
-        $this->assertSame('7 Old Free Text St, Port Edward', $fresh->address, 'legacy address preserved when no structured fields submitted');
+        $this->assertSame('7 Smith Street, Port Edward', $fresh->address, 'residential address saved as typed');
+        // The structured property-address columns stay untouched.
+        $this->assertNull($fresh->street_name);
+        $this->assertNull($fresh->complex_name);
+        $this->assertNull($fresh->suburb);
+        $this->assertFalse($fresh->hasStructuredAddress());
     }
 
-    // ── Validation (input-space rule) ────────────────────────────────────
+    public function test_structured_save_does_not_touch_residential_address(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        // Contact already has a residential address typed by the agent earlier.
+        $contact = $this->contact($agencyId, $agent->id, ['address' => '7 Smith Street, Port Edward']);
+
+        $this->actingAs($agent)
+            ->put(route('corex.contacts.property-address.update', $contact), [
+                'unit_number'   => '3',
+                'complex_name'  => 'Seaside Villas',
+                'street_number' => '21',
+                'street_name'   => 'Dee Road',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $fresh = $contact->fresh();
+        // Structured columns saved...
+        $this->assertSame('Seaside Villas', $fresh->complex_name);
+        $this->assertSame('Dee Road', $fresh->street_name);
+        $this->assertSame('21', $fresh->street_number);
+        // ...and the residential address is UNCHANGED (never auto-composed).
+        $this->assertSame('7 Smith Street, Port Edward', $fresh->address);
+    }
+
+    public function test_structured_save_with_no_prior_residential_leaves_address_null(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        $contact = $this->contact($agencyId, $agent->id);   // no residential address
+
+        $this->actingAs($agent)
+            ->put(route('corex.contacts.property-address.update', $contact), [
+                'street_number' => '21',
+                'street_name'   => 'Dee Road',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $fresh = $contact->fresh();
+        $this->assertSame('Dee Road', $fresh->street_name);
+        $this->assertNull($fresh->address, 'residential address is never auto-filled from structured');
+    }
+
+    public function test_legacy_free_text_address_renders_under_info_unchanged(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        $contact = $this->contact($agencyId, $agent->id, ['address' => '12 Marine Drive, Uvongo Beach']);
+
+        $resp = $this->actingAs($agent)->get(route('corex.contacts.show', $contact))->assertOk();
+        // The residential value appears in the Info free-text input.
+        $resp->assertSee('12 Marine Drive, Uvongo Beach', false);
+    }
+
+    // ── Structured capture: partial / lazy / validation ──────────────────
+
+    public function test_partial_street_only_structured_persists(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        $contact = $this->contact($agencyId, $agent->id);
+
+        $this->actingAs($agent)
+            ->put(route('corex.contacts.property-address.update', $contact), [
+                'street_number' => '21',
+                'street_name'   => 'Dee Road',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $fresh = $contact->fresh();
+        $this->assertSame('21', $fresh->street_number);
+        $this->assertSame('Dee Road', $fresh->street_name);
+        $this->assertNull($fresh->complex_name);
+        $this->assertSame('21 Dee Road', $fresh->composeStructuredAddress());
+    }
+
+    public function test_lazy_single_structured_component_persists(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        $contact = $this->contact($agencyId, $agent->id);
+
+        $this->actingAs($agent)
+            ->put(route('corex.contacts.property-address.update', $contact), [
+                'complex_name' => 'The Dunes',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('The Dunes', $contact->fresh()->complex_name);
+    }
 
     public function test_dangling_province_name_without_id_is_rejected(): void
     {
@@ -145,11 +147,12 @@ final class ContactStructuredAddressTest extends TestCase
         $contact = $this->contact($agencyId, $agent->id);
 
         $this->actingAs($agent)
-            ->put(route('corex.contacts.update', $contact), $this->payload([
-                'province'   => 'Gauteng',  // typed but no matching contact_addr_province_id
-                '_from_show' => 1,
-            ]))
+            ->put(route('corex.contacts.property-address.update', $contact), [
+                'province' => 'Gauteng',  // typed but no matching contact_addr_province_id
+            ])
             ->assertSessionHasErrors('province');
+
+        $this->assertNull($contact->fresh()->province);
     }
 
     public function test_p24_ids_map_to_columns(): void
@@ -159,21 +162,21 @@ final class ContactStructuredAddressTest extends TestCase
         [$provinceId, $cityId, $suburbId] = $this->seedP24();
 
         $this->actingAs($agent)
-            ->put(route('corex.contacts.update', $contact), $this->payload([
+            ->put(route('corex.contacts.property-address.update', $contact), [
                 'province'                 => 'KwaZulu-Natal',
                 'city'                     => 'Margate',
                 'suburb'                   => 'Uvongo',
                 'contact_addr_province_id' => $provinceId,
                 'contact_addr_city_id'     => $cityId,
                 'contact_addr_suburb_id'   => $suburbId,
-                '_from_show'               => 1,
-            ]))
+            ])
             ->assertSessionHasNoErrors();
 
         $fresh = $contact->fresh();
         $this->assertSame($provinceId, (int) $fresh->p24_province_id);
         $this->assertSame($cityId, (int) $fresh->p24_city_id);
         $this->assertSame($suburbId, (int) $fresh->p24_suburb_id);
+        $this->assertNull($fresh->address, 'p24 capture never writes residential address');
     }
 
     // ── Transfer to property ─────────────────────────────────────────────
@@ -189,7 +192,6 @@ final class ContactStructuredAddressTest extends TestCase
             'suburb'        => 'Uvongo',
             'city'          => 'Margate',
             'province'      => 'KwaZulu-Natal',
-            'p24_suburb_id' => null,
         ]);
 
         $resp = $this->actingAs($agent)
@@ -306,7 +308,7 @@ final class ContactStructuredAddressTest extends TestCase
         ], $extra));
     }
 
-    /** Update requires the core fields; merge in the bits under test. */
+    /** contacts.update requires the core fields; merge in the bits under test. */
     private function payload(array $extra): array
     {
         return array_merge([

@@ -162,9 +162,24 @@ primary agent defaulted; malformed ID dropped but contact still saved).
 
 **Pillars:** Contact (read/write), Property (write on transfer), Agent (actor).
 
-Contacts had ONE free-text `contacts.address` column. AT-60 replaces the
-free-text input with a **structured address** mirroring the property "Internal
-Address" modal, and lets that address transfer onto a new Property field-for-field.
+**TWO DISTINCT, INDEPENDENT concepts (do not conflate):**
+
+1. **Residential address** — where the CONTACT lives. The existing free-text
+   `contacts.address` field, edited ONLY on the **Info tab** (`contacts.update`).
+   Free text, `nullable|string|max:500`, unchanged by AT-60. It is **never**
+   auto-composed or written to by the structured columns.
+2. **Structured property-address capture** — a **property-creation aid** ("capture
+   an address → start a new property"). Lives on the **Properties & Core Matches
+   tab**, alongside link-existing/create-new. Persists to its own structured
+   columns and transfers onto a new `Property`. Independent of the residential
+   address; never writes to `contacts.address`.
+
+> Correction note (2026-06-19): the first AT-60 build wrongly put the structured
+> modal under Info, removed the residential free-text input, and auto-composed
+> `contacts.address` from the structured columns (`ContactObserver::saving` →
+> `syncStructuredAddress`). That conflated the two concepts and was reverted:
+> residential free-text restored on Info, auto-compose removed, structured capture
+> moved to the Properties & Core Matches tab with its own save endpoint.
 
 ### Storage
 New nullable columns on `contacts`
@@ -174,25 +189,25 @@ New nullable columns on `contacts`
 `p24_province_id` / `p24_city_id` / `p24_suburb_id` (all `nullOnDelete`,
 mirroring the property definitions in `2026_05_13_150003`). Deeds-office working
 fields (erf/stand/zone/district/region) are deliberately NOT mirrored — those
-are property-stage fields.
+are property-stage fields. These columns are the **structured property-address
+capture** and are independent of `contacts.address`.
 
-The legacy `contacts.address` column is **kept** and becomes a denormalised
-display string **auto-composed from the structured fields on every save** via
-`Contact::syncStructuredAddress()` (called from `ContactObserver::saving()`), so
-every existing reader of `$contact->address` (exports, e-sign
-`RoleBlockExpansionService`/`ESignWizardController`, `MobileContactController`,
-`WebTemplateDataService`, blades) keeps working unchanged. Compose mirrors
-`Property::buildDisplayAddress`. No-ops when no structured field is set, so
-back-catalogue free-text addresses are preserved.
+`Contact::composeStructuredAddress()` (mirrors `Property::buildDisplayAddress`)
+composes the structured columns into a display string and is used by the
+duplicate guard's token-overlap fallback — it does **not** write to
+`contacts.address`. There is no observer hook on save.
 
 ### Modal & UI
-Contact show → Info tab: the free-text address input is replaced by a read-only
-composed **summary** (a real, clearly-editable control per STANDARDS "No
-Invisible Edits") that opens an **Address modal** — same two-section shape as the
-property Internal Address modal (Complex-or-Estate + Street) plus the shared
-`corex._partials.p24-location-picker` include under fieldPrefix `contact_addr`.
-Full CRUD: view / edit / **Clear address**. A **"Use for property"** button
-shows only when a structured address is present.
+- **Info tab:** the original free-text `name="address"` residential input is
+  present, unchanged (label "Address (optional)", `old('address', $contact->address)`).
+- **Properties & Core Matches tab:** a "Start a Property from an Address" card
+  sits below "Link a Property". A read-only composed **summary** (a real,
+  clearly-editable control per STANDARDS "No Invisible Edits") opens the
+  structured **modal** (Complex-or-Estate + Street + the shared
+  `corex._partials.p24-location-picker` under fieldPrefix `contact_addr`). The
+  card is its own form → `corex.contacts.property-address.update` with a **Save
+  address** button; full CRUD incl. **Clear address**. A **"Use for property"**
+  button shows only when a structured address is already persisted.
 
 ### p24 picker event namespacing (bug-class fix)
 The shared picker previously dispatched a namespace-free global
@@ -226,15 +241,21 @@ alternative to creating a duplicate.
 only flags an exact street match. Editable at **Contact Governance** settings.
 
 ### Validation & robustness
-`ContactController::update` validates all structured fields `nullable|string`
-(sane max), P24 ids as `exists:` references, allows partial addresses, maps
-`contact_addr_*_id` → `p24_*_id`, rejects a **dangling P24 name** (name typed,
-id empty) with a user-clear message, and is transaction-wrapped.
+The structured capture saves via **`ContactController::updatePropertyAddress`**
+(`PUT corex.contacts.property-address.update`, gated `access_contacts` +
+`LogsContactAccess:edit`): structured fields `nullable|string` (sane max), P24
+ids as `exists:` references, partial addresses allowed, maps `contact_addr_*_id`
+→ `p24_*_id`, rejects a **dangling P24 name** (name typed, id empty) with a
+user-clear message, transaction-wrapped — and writes **only** the structured
+columns. `ContactController::update` (Info/residential) keeps its own
+`address` rule and no longer touches the structured columns.
 
-**Tests:** `tests/Feature/Contacts/ContactStructuredAddressTest.php` — happy /
-each-empty / partial / lazy-single / no-structured-fields-preserves-legacy /
-dangling-name-rejected / p24-id-mapping / create-prefill / auto-link-on-store /
-guard-offers-match / guard-off-mode.
+**Tests:** `tests/Feature/Contacts/ContactStructuredAddressTest.php` (12) —
+residential-saves-without-touching-structured / structured-save-doesn't-touch-
+residential / structured-with-no-prior-residential-leaves-address-null /
+legacy-free-text-renders-under-info / partial / lazy-single / dangling-name-
+rejected / p24-id-mapping / create-prefill / auto-link-on-store / guard-offers-
+match / guard-off-mode.
 
 ---
 
