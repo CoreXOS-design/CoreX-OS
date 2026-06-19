@@ -1,4 +1,6 @@
-{{-- props: $contact, $property, $linkedProperties, $channel, $availableTemplates, $context, $propertyStatuses --}}
+{{-- props: $contact, $property, $linkedProperties, $channel, $availableTemplates, $context, $propertyStatuses, $addressOnly --}}
+
+@php $addressOnly = $addressOnly ?? false; @endphp
 
 @php
     // A.3.4 — collision badges. Map each prospect-status to a label + tint
@@ -20,6 +22,32 @@
 
 <div class="space-y-4">
 
+    {{-- AT-61 — address-only mode: no property to pick. Show the captured
+         address the pitch is composed against (read-only). The pitch makes an
+         honest area-level demand statement; no per-property matching claim. --}}
+    @if($addressOnly)
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="flex items-center justify-between gap-2 mb-1">
+            <label class="block text-xs font-semibold" style="color: var(--text-secondary);">
+                Address this pitch is about
+            </label>
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold"
+                  style="background: rgba(245,158,11,0.16); color: #b45309;"
+                  title="This contact has a captured property address but no linked property. The pitch references the address and area demand only — it does not claim buyers matching a specific property.">
+                Address only — no property linked
+            </span>
+        </div>
+        <div class="text-sm" style="color: var(--text-primary);">
+            {{ $context?->mergeFields['property_address'] ?? $contact->composeStructuredAddress() ?? '(address unavailable)' }}
+        </div>
+        @if(!empty($context?->mergeFields['property_suburb']))
+            <div class="text-xs mt-1" style="color: var(--text-secondary);">{{ $context->mergeFields['property_suburb'] }}</div>
+        @endif
+        <p class="text-xs mt-2" style="color: var(--text-muted);">
+            To make a property-specific pitch, link or create a property on the contact first.
+        </p>
+    </div>
+    @else
     {{-- Property picker --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
          x-data="propertyPickerCollision({
@@ -66,6 +94,7 @@
             </div>
         @endif
     </div>
+    @endif {{-- addressOnly picker branch --}}
 
     {{-- Channel toggle --}}
     <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">

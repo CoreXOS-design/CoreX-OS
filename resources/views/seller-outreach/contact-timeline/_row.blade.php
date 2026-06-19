@@ -26,6 +26,12 @@
     $propAddr = $send->property
         ? trim(((string) ($send->property->street_number ?? '')) . ' ' . ((string) ($send->property->street_name ?? '')))
         : '';
+    // AT-61 — address-only sends have no property; fall back to the recorded
+    // address/suburb snapshot so the row still says what was pitched about.
+    $sendAddr = $send->property
+        ? trim($propAddr . (!empty($send->property->suburb) ? ', ' . $send->property->suburb : ''))
+        : trim((string) ($send->address_snapshot ?? ''));
+    $sendAddr = $sendAddr !== '' ? $sendAddr : null;
 @endphp
 
 <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
@@ -49,8 +55,8 @@
                 @if($send->agent)
                     by {{ $send->agent->name ?? ('agent #' . $send->agent_id) }}
                 @endif
-                @if($send->property)
-                    · about {{ $propAddr !== '' ? $propAddr : '(address)' }}{{ !empty($send->property->suburb) ? ', ' . $send->property->suburb : '' }}
+                @if($sendAddr)
+                    · about {{ $sendAddr }}{{ !$send->property ? ' (address only)' : '' }}
                 @endif
             </div>
 

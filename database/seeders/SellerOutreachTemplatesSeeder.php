@@ -87,7 +87,7 @@ Hi {seller_name},
 
 This is {agent_name} from {agency_name}. I noticed your property at {property_address}.
 
-I wanted to reach out because we currently have {buyer_count} active buyers looking for properties in {property_town}, and {matching_buyer_count} of them are specifically searching for {property_beds}-bedroom {property_type}s in your price range.
+I wanted to reach out because we currently have {buyer_count} active buyers looking for properties in {property_town}{?matching_buyer_count}, and {matching_buyer_count} of them are specifically searching for {property_beds}-bedroom {property_type}s in your price range{/matching_buyer_count}.
 
 If you're considering selling — or curious about what your property could fetch in this market — I'd love to share more.
 
@@ -128,7 +128,7 @@ Hi {seller_name},
 
 I'm {agent_name} from {agency_name}.
 
-I wanted to reach out about your property at {property_address}. We're tracking {buyer_count} active buyers in {property_town} right now, and {matching_buyer_count} are specifically looking for {property_beds}-bedroom {property_type}s in your price range.
+I wanted to reach out about your property at {property_address}. We're tracking {buyer_count} active buyers in {property_town} right now{?matching_buyer_count}, and {matching_buyer_count} are specifically looking for {property_beds}-bedroom {property_type}s in your price range{/matching_buyer_count}.
 
 You can see the live demand and what we're seeing in your area here:
 {tracking_link}

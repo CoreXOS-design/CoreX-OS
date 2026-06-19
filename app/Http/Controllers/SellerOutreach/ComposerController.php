@@ -71,14 +71,22 @@ final class ComposerController extends Controller
         $bodyOverride = $request->query('body');
         $subjectOverride = $request->query('subject');
 
-        // Compose context only if a property is selected (defensibility:
-        // property is mandatory — spec S2).
+        // AT-61 — address-only mode: when the contact has a captured structured
+        // address (AT-60) but NO linked property, compose the pitch off that
+        // address instead of dead-ending. Precedence: a linked property always
+        // wins (richer source; enables the per-property matching claim). Only
+        // fall to address-only when there is genuinely no property to pitch.
+        $addressOnly = $property === null
+            && $linkedProperties->isEmpty()
+            && $contact->hasStructuredAddress();
+
+        // Compose context when a property is selected OR in address-only mode.
         $context = null;
-        if ($property) {
+        if ($property || $addressOnly) {
             $context = $this->composer->composeContext(
                 agencyId:        $agencyId,
                 contact:         $contact,
-                property:        $property,
+                property:        $property, // null in address-only mode
                 channel:         $channel,
                 templateId:      $templateId,
                 agent:           $request->user(),
@@ -106,6 +114,7 @@ final class ComposerController extends Controller
             'context'            => $context,
             'agencyId'           => $agencyId,
             'propertyStatuses'   => $propertyStatuses,
+            'addressOnly'        => $addressOnly,
         ]);
     }
 
@@ -133,18 +142,32 @@ final class ComposerController extends Controller
         $agencyId = $this->ensureAgencyContext($request, $contact);
 
         $validated = $request->validate([
-            'property_id'  => 'required|integer',
+            // AT-61 — property_id is now optional. Absent ⇒ address-only send
+            // (pitch composed off the contact's captured structured address).
+            'property_id'  => 'nullable|integer',
             'channel'      => 'required|in:whatsapp,email',
             'template_id'  => 'nullable|integer',
             'subject'      => 'nullable|string|max:255',
             'body'         => 'required|string',
         ]);
 
-        $property = Property::withoutGlobalScopes()
-            ->where('id', $validated['property_id'])
-            ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
-            ->firstOrFail();
+        // Property mode when a property_id is supplied (firstOrFail keeps the
+        // agency/soft-delete guard). Address-only mode when it is absent — but
+        // only if the contact actually has a captured structured address;
+        // otherwise there is nothing to pitch and we block (neither case).
+        $property = null;
+        if (!empty($validated['property_id'])) {
+            $property = Property::withoutGlobalScopes()
+                ->where('id', $validated['property_id'])
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->firstOrFail();
+        } elseif (!$contact->hasStructuredAddress()) {
+            $msg = 'Cannot send: this contact has no linked property and no captured address to pitch.';
+            return $request->wantsJson()
+                ? response()->json(['message' => $msg], 422)
+                : back()->with('error', $msg);
+        }
 
         // Laravel's `nullable|integer` validates but does NOT cast — the value
         // is still a string from the form payload. composeContext() declares
@@ -185,11 +208,17 @@ final class ComposerController extends Controller
         // listing (via property_id → prospecting_listings.matched_property_id),
         // upgrade the agent's temp lock to a permanent claim with a structured
         // note. Idempotent — existing claim by same agent gets the note appended.
-        $prospectingListing = \Illuminate\Support\Facades\DB::table('prospecting_listings')
-            ->where('matched_property_id', $send->property_id)
-            ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
-            ->first(['id']);
+        //
+        // AT-61 — skip entirely for address-only sends (no property_id): there
+        // is no matched property to map a prospecting listing to, and a NULL
+        // lookup would falsely match listings with a NULL matched_property_id.
+        $prospectingListing = $send->property_id !== null
+            ? \Illuminate\Support\Facades\DB::table('prospecting_listings')
+                ->where('matched_property_id', $send->property_id)
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->first(['id'])
+            : null;
 
         if ($prospectingListing) {
             try {

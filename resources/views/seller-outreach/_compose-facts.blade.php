@@ -19,19 +19,32 @@
                 </div>
             </div>
 
+            @php
+                // AT-61 — the per-property matching claim only exists when a
+                // property is linked. Address-only mode leaves it blank; show
+                // an honest "area demand only" note instead of a misleading 0.
+                $matching = $context->mergeFields['matching_buyer_count'] ?? '';
+                $beds = $context->mergeFields['property_beds'] ?? '';
+                $type = $context->mergeFields['property_type'] ?? '';
+            @endphp
+            @if($matching !== '')
             <div>
                 <div class="text-xs" style="color: var(--text-muted);">Matching this specific property</div>
                 <div class="text-2xl font-bold" style="color: var(--text-primary);">
-                    {{ $context->mergeFields['matching_buyer_count'] ?? '0' }}
+                    {{ $matching }}
                 </div>
-                @php
-                    $beds = $context->mergeFields['property_beds'] ?? '';
-                    $type = $context->mergeFields['property_type'] ?? 'property';
-                @endphp
                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                    {{ $type }}{{ $beds !== '' ? ', ' . $beds . ' bed' . ($beds !== '1' ? 's' : '') : '' }}, similar price band
+                    {{ $type !== '' ? $type : 'property' }}{{ $beds !== '' ? ', ' . $beds . ' bed' . ($beds !== '1' ? 's' : '') : '' }}, similar price band
                 </div>
             </div>
+            @else
+            <div>
+                <div class="text-xs" style="color: var(--text-muted);">Matching this specific property</div>
+                <div class="text-sm mt-0.5" style="color: var(--text-muted);">
+                    No property linked — this pitch makes an area-level demand statement only.
+                </div>
+            </div>
+            @endif
         </div>
     </div>
 

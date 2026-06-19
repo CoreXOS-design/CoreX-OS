@@ -82,7 +82,10 @@ final class SellerOutreachSenderService
             return SellerOutreachSend::create([
                 'agency_id' => $context->agencyId,
                 'contact_id' => $context->contact->id,
-                'property_id' => $context->property->id,
+                // AT-61 — null in address-only mode (no Property linked). The
+                // address context is recorded below so the send log stays
+                // complete and auditable without a Property row.
+                'property_id' => $context->property?->id,
                 'agent_id' => $context->agent->id,
                 'template_id' => $context->template?->id,
                 'channel' => $context->channel,
@@ -93,6 +96,11 @@ final class SellerOutreachSenderService
                 'opt_out_token' => $optOutToken,
                 'recipient_phone_snapshot' => $context->recipientPhone,
                 'recipient_email_snapshot' => $context->recipientEmail,
+                // AT-61 — composed address + suburb the pitch referenced. Set in
+                // every mode (property or address-only) so a send is always
+                // self-describing even if the linked Property is later archived.
+                'address_snapshot' => $context->address->displayAddress(),
+                'suburb_snapshot' => $context->address->suburb,
                 'sent_at' => now(),
                 'outcome' => SellerOutreachSend::OUTCOME_SENT,
             ]);

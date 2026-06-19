@@ -31,6 +31,7 @@ class SellerOutreachSend extends Model
         'contact_id', 'property_id', 'agent_id', 'template_id', 'channel',
         'subject_snapshot', 'body_snapshot', 'facts_snapshot',
         'tracking_short_code', 'opt_out_token', 'recipient_phone_snapshot', 'recipient_email_snapshot',
+        'address_snapshot', 'suburb_snapshot',
         'sent_at', 'first_clicked_at', 'outcome', 'outcome_note',
         'outcome_set_by_user_id', 'outcome_set_at',
     ];

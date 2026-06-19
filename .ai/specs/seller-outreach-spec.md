@@ -81,6 +81,24 @@ The pitch is about a property. The composer requires one selected before facts c
 
 When a property is created on the fly, it gets linked to the contact via the standard property-contact pivot. Future agents see the link.
 
+#### S2.1 — Address-only compose (AT-61)
+
+A linked Property is the **preferred** pitch subject, but no longer the *only* one. When a contact has a captured structured property-address (the AT-60 contact columns: `street_number`, `street_name`, `suburb`, `p24_suburb_id`) but **no** linked Property, the composer opens in **address-only mode** and composes the pitch off that address **without creating a Property**. (This is distinct from AT-60's "Use for property" feature, where an agent deliberately creates a real Property through the full property-create flow — that is unchanged.)
+
+The pitch builder consumes an **address source** (`App\Support\SellerOutreach\OutreachAddress` — `street_number`, `street_name`, `suburb`, `town`, `p24_suburb_id`) that **either** a Property **or** a contact's structured address can produce. It is never a hard-typed Property.
+
+Pitch claims by mode:
+
+| Claim | Linked property | Address only |
+|---|---|---|
+| `{property_address}` / `{property_suburb}` / `{property_town}` | from property | from contact address |
+| `{buyer_count}` — area-level demand in town/suburb | yes | **yes** (honest — address gives suburb + town) |
+| `{matching_buyer_count}` — "N buyers match THIS property" | yes | **no** — needs property type/beds/price; the `{?matching_buyer_count}…{/}` optional segment collapses so no per-property claim is emitted |
+
+Precedence: linked property always wins. Neither property nor a captured address → composer still blocks (no pitch subject).
+
+A send composed this way has `seller_outreach_sends.property_id = NULL`; the composed address + suburb are recorded in `address_snapshot` / `suburb_snapshot` so the send log is complete and auditable without a Property. The public landing page resolves such a send to **Generic mode** (area demand only), recovering the town from `facts_snapshot`.
+
 ### S3. Dedupe on every contact creation/link path
 
 When the prospecting-tab entry creates a contact, OR when the on-the-fly property is captured against a contact, dedupe rules:
@@ -269,7 +287,9 @@ Indexes: `(agency_id, channel, is_active)`, `(agency_id, is_default_for_channel)
 | `id` | bigint PK | NO | |
 | `agency_id` | bigint unsigned | NO | FK → agencies |
 | `contact_id` | bigint unsigned | NO | FK → contacts |
-| `property_id` | bigint unsigned | NO | FK → properties |
+| `property_id` | bigint unsigned | YES | FK → properties; **nullable since AT-61** — NULL for address-only sends |
+| `address_snapshot` | varchar(255) | YES | **AT-61** — composed address the pitch referenced (set in every mode) |
+| `suburb_snapshot` | varchar(120) | YES | **AT-61** — suburb the pitch referenced |
 | `agent_id` | bigint unsigned | NO | FK → users — the sending agent |
 | `template_id` | bigint unsigned | YES | FK → seller_outreach_templates; nullable if free-edited |
 | `channel` | enum('whatsapp','email') | NO | |
