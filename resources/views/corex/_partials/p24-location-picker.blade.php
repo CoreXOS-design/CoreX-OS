@@ -41,6 +41,7 @@
         initialProvinceName: @js($initialProvinceName),
         initialCityName:     @js($initialCityName),
         initialSuburbName:   @js($initialSuburbName),
+        eventPrefix:         @js($fieldPrefix),
      })" x-init="init()" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
 
     {{-- Hidden inputs the server reads --}}
@@ -115,6 +116,12 @@ function p24LocationCombobox(init) {
     const cityId     = init.initialCityId     || 0;
     const suburbId   = init.initialSuburbId   || 0;
     return {
+        // Per-instance event namespace. Two pickers on the same DOM (e.g. a
+        // contact address modal sharing the page with a property form) must NOT
+        // cross-fire: each dispatches "p24-location-changed:<prefix>" and each
+        // listener subscribes only to its own prefix. Defaults to 'p24' so any
+        // legacy include without an explicit prefix keeps the historic name.
+        eventPrefix: init.eventPrefix || 'p24',
         provinceId: provinceId,
         cityId:     cityId,
         suburbId:   suburbId,
@@ -141,6 +148,21 @@ function p24LocationCombobox(init) {
             // Hydrate cities/suburbs if we have a saved property being edited.
             if (this.provinceId) await this._load('city');
             if (this.cityId)     await this._load('suburb');
+
+            // Allow a parent form to clear this picker (e.g. a contact "Clear
+            // address" button). Namespaced per-instance so it never resets a
+            // sibling picker. Reusable across every include site.
+            window.addEventListener('p24-location-reset:' + this.eventPrefix, () => this._reset());
+        },
+
+        _reset() {
+            this.provinceId = 0; this.cityId = 0; this.suburbId = 0;
+            this.provinceName = ''; this.cityName = ''; this.suburbName = '';
+            this.queries.province = ''; this.queries.city = ''; this.queries.suburb = '';
+            this.options.city = []; this.options.suburb = [];
+            this.invalid.province = false; this.invalid.city = false; this.invalid.suburb = false;
+            this.placeholders.city = 'Pick a province first';
+            this.placeholders.suburb = 'Pick a city first';
         },
 
         async _load(level) {
@@ -232,9 +254,10 @@ function p24LocationCombobox(init) {
             if (level === 'suburb') {
                 this.suburbId = item.id; this.suburbName = item.name;
             }
-            // Tell the property form (if it's listening) that location changed
-            // so the map can re-geocode and the wizard can mirror IDs into s1.
-            window.dispatchEvent(new CustomEvent('p24-location-changed', { detail: {
+            // Tell the parent form (if it's listening) that location changed so
+            // the map can re-geocode and the wizard can mirror IDs into s1. The
+            // event is namespaced per-instance so sibling pickers never cross-fire.
+            window.dispatchEvent(new CustomEvent('p24-location-changed:' + this.eventPrefix, { detail: {
                 provinceId: this.provinceId, cityId: this.cityId, suburbId: this.suburbId,
                 provinceName: this.provinceName, cityName: this.cityName, suburbName: this.suburbName,
             }}));

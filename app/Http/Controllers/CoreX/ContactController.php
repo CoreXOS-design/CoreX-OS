@@ -517,7 +517,6 @@ class ContactController extends Controller
             ],
             'birthday'        => 'nullable|date',
             'id_number'       => 'nullable|string|max:20',
-            'address'         => 'nullable|string|max:500',
             'loaded_at'       => 'nullable|date',
             'modified_at'     => 'nullable|date',
             'tag_ids'         => 'nullable|array',
@@ -532,7 +531,46 @@ class ContactController extends Controller
             'preapproval_amount'      => 'nullable|numeric|min:0',
             'preapproval_expires_at'  => 'nullable|date',
             'preapproval_institution' => 'nullable|string|max:100',
+            // AT-60 — structured address. All optional; partial addresses
+            // allowed (street with no unit, complex with no street, etc.).
+            // The legacy free-text `address` is no longer an input — it is
+            // auto-composed from these fields on save (ContactObserver::saving).
+            'unit_number'        => 'nullable|string|max:50',
+            'floor_number'       => 'nullable|string|max:50',
+            'unit_section_block' => 'nullable|string|max:150',
+            'complex_name'       => 'nullable|string|max:150',
+            'street_number'      => 'nullable|string|max:50',
+            'street_name'        => 'nullable|string|max:200',
+            'suburb'             => 'nullable|string|max:120',
+            'city'               => 'nullable|string|max:120',
+            'province'           => 'nullable|string|max:120',
+            // P24 location ids come from the shared picker under the
+            // 'contact_addr' prefix; validated as real references when present.
+            'contact_addr_province_id' => 'nullable|integer|exists:p24_provinces,id',
+            'contact_addr_city_id'     => 'nullable|integer|exists:p24_cities,id',
+            'contact_addr_suburb_id'   => 'nullable|integer|exists:p24_suburbs,id',
         ]);
+
+        // Map the picker's prefixed ids onto the contact columns.
+        $data['p24_province_id'] = $data['contact_addr_province_id'] ?? null;
+        $data['p24_city_id']     = $data['contact_addr_city_id'] ?? null;
+        $data['p24_suburb_id']   = $data['contact_addr_suburb_id'] ?? null;
+        unset($data['contact_addr_province_id'], $data['contact_addr_city_id'], $data['contact_addr_suburb_id']);
+
+        // Dangling-name guard (BUILD_STANDARD prevent-or-absorb): a P24 location
+        // NAME typed but not matched to a record leaves its id empty. The picker
+        // already clears the name client-side when unmatched, but a JS-off or
+        // tampered POST could carry a name with no id — reject it clearly rather
+        // than silently storing an unlinkable suburb.
+        $danglers = [];
+        foreach (['province' => 'p24_province_id', 'city' => 'p24_city_id', 'suburb' => 'p24_suburb_id'] as $name => $idKey) {
+            if (filled($data[$name] ?? null) && empty($data[$idKey])) {
+                $danglers[$name] = "Pick a {$name} from the Property24 list, or clear it.";
+            }
+        }
+        if (!empty($danglers)) {
+            throw \Illuminate\Validation\ValidationException::withMessages($danglers);
+        }
 
         $tagIds = $data['tag_ids'] ?? [];
         unset($data['tag_ids']);
@@ -542,23 +580,27 @@ class ContactController extends Controller
             $data['second_agent_id'] = null;
         }
 
-        $contact->update($data);
-        $previousTagIds = $contact->tags()->pluck('contact_tags.id')->all();
-        $contact->tags()->sync($tagIds);
+        // Transaction-wrapped so a partial failure (e.g. tag sync) rolls the
+        // whole address save back cleanly — no half-written record.
+        \DB::transaction(function () use ($contact, $data, $tagIds) {
+            $contact->update($data);
+            $previousTagIds = $contact->tags()->pluck('contact_tags.id')->all();
+            $contact->tags()->sync($tagIds);
 
-        // Domain event — ContactTagged for each newly attached tag.
-        // Spec: .ai/specs/corex-domain-events-spec.md
-        $newlyAttached = array_diff(array_map('intval', $tagIds), array_map('intval', $previousTagIds));
-        if (!empty($newlyAttached)) {
-            $tagNames = ContactTag::whereIn('id', $newlyAttached)->pluck('name', 'id');
-            foreach ($newlyAttached as $tagId) {
-                event(new \App\Events\Contact\ContactTagged(
-                    contact: $contact,
-                    tag: (string) ($tagNames[$tagId] ?? $tagId),
-                    actorUserId: auth()->id(),
-                ));
+            // Domain event — ContactTagged for each newly attached tag.
+            // Spec: .ai/specs/corex-domain-events-spec.md
+            $newlyAttached = array_diff(array_map('intval', $tagIds), array_map('intval', $previousTagIds));
+            if (!empty($newlyAttached)) {
+                $tagNames = ContactTag::whereIn('id', $newlyAttached)->pluck('name', 'id');
+                foreach ($newlyAttached as $tagId) {
+                    event(new \App\Events\Contact\ContactTagged(
+                        contact: $contact,
+                        tag: (string) ($tagNames[$tagId] ?? $tagId),
+                        actorUserId: auth()->id(),
+                    ));
+                }
             }
-        }
+        });
 
         // Redirect to show page if coming from there, otherwise index
         if ($request->has('_from_show')) {

@@ -1724,6 +1724,35 @@
 
         {{-- ── INFO TAB ───────────────────────────────────────────────────── --}}
         <div x-show="activeTab === 'info'" {{ $isNew ? '' : 'x-cloak' }} class="px-4 pb-4">
+            {{-- AT-60 — duplicate-address guard. A property already matches this
+                 contact's address: offer link-to-existing (kept OUTSIDE the create
+                 form — no nested forms). The agent can ignore it and keep creating. --}}
+            @if($isNew && isset($existingPropertyMatch) && $existingPropertyMatch && isset($preLinkedContact) && $preLinkedContact)
+            <div class="rounded-md px-4 py-3 mb-4" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);">
+                <div class="flex items-start gap-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0 mt-0.5" style="color:var(--ds-amber, #f59e0b);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+                    <div class="flex-1">
+                        <p class="text-sm font-semibold" style="color:var(--text-primary);">A property at this address may already exist</p>
+                        <p class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                            <strong>{{ $existingPropertyMatch->buildDisplayAddress() }}</strong>
+                            (#{{ $existingPropertyMatch->id }}) — link <strong>{{ $preLinkedContact->full_name }}</strong> to it instead of creating a duplicate?
+                        </p>
+                        <div class="flex items-center gap-3 mt-2">
+                            <form method="POST" action="{{ route('corex.contacts.properties.link', $preLinkedContact) }}">
+                                @csrf
+                                <input type="hidden" name="property_id" value="{{ $existingPropertyMatch->id }}">
+                                <button type="submit" class="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--ds-amber, #f59e0b);">
+                                    Link to this property
+                                </button>
+                            </form>
+                            <a href="{{ route('corex.properties.show', $existingPropertyMatch) }}" class="text-xs font-semibold" style="color:var(--brand-icon, #2563eb);">View it</a>
+                            <span class="text-xs" style="color:var(--text-muted);">or keep filling in the form below to create a new one.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            @endif
+
             <form id="prop-update-form" method="POST" enctype="multipart/form-data"
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
                   class="space-y-0"
@@ -5330,7 +5359,7 @@ function propertyContactsManager(searchUrl) {
             if (this.submitting) return;
             this.submitting = true;
             try {
-                const res = await fetch(@js(route('corex.properties.contacts.link', $property)), {
+                const res = await fetch(@js($property->exists ? route('corex.properties.contacts.link', $property) : ''), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -5356,7 +5385,7 @@ function propertyContactsManager(searchUrl) {
                 const fd = new FormData(formEl);
                 const payload = {};
                 for (const [k, v] of fd.entries()) { if (k !== '_token') payload[k] = v; }
-                let res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                let res = await fetch(@js($property->exists ? route('corex.properties.contacts.createAndLink', $property) : ''), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -5377,7 +5406,7 @@ function propertyContactsManager(searchUrl) {
                     if (dup.can_override || dup.mode === 'soft_warn') {
                         if (!confirm('Possible duplicate contact(s) found:\n\n' + names + '\n\nCreate anyway?')) return;
                         payload.bypass_duplicate_check = 1;
-                        res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                        res = await fetch(@js($property->exists ? route('corex.properties.contacts.createAndLink', $property) : ''), {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -5417,7 +5446,7 @@ function propertyContactsManager(searchUrl) {
         async unlinkContact(id, name) {
             if (!confirm('Unlink ' + name + ' from this property?')) return;
             try {
-                const urlTpl = @js(route('corex.properties.contacts.unlink', [$property->id, 0]));
+                const urlTpl = @js($property->exists ? route('corex.properties.contacts.unlink', [$property->id, 0]) : '');
                 const res = await fetch(urlTpl.replace(/\/0$/, '/' + id), {
                     method: 'DELETE',
                     headers: {
@@ -6873,7 +6902,7 @@ function propertyMapWidget(cfg) {
             this.open = false;
 
             // Auto-geocode every time the P24 picker reports a new suburb.
-            window.addEventListener('p24-location-changed', (e) => {
+            window.addEventListener('p24-location-changed:p24', (e) => {
                 if (e.detail && e.detail.suburbName) {
                     this.geocodeFromBackend({
                         suburb: e.detail.suburbName,

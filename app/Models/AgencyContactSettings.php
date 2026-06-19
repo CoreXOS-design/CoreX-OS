@@ -18,6 +18,7 @@ class AgencyContactSettings extends Model
         'buyer_pipeline_default_scope',
         'duplicate_mode',
         'duplicate_match_fields',
+        'address_match_mode', // AT-60 — address-duplicate-guard aggressiveness (off|standard|strict)
         'buyer_warm_days',
         'buyer_cold_days',
         'buyer_lost_days',
@@ -48,6 +49,7 @@ class AgencyContactSettings extends Model
                 'buyer_pipeline_default_scope' => 'own',
                 'duplicate_mode' => 'soft_warn',
                 'duplicate_match_fields' => ['phone', 'email', 'id_number'],
+                'address_match_mode' => 'standard',
                 'buyer_warm_days' => 14,
                 'buyer_cold_days' => 30,
                 'buyer_lost_days' => 60,

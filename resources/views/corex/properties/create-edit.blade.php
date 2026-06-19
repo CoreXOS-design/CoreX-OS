@@ -627,7 +627,7 @@ function propertyMap(init) {
 
             this.$nextTick(() => this._renderMap());
 
-            window.addEventListener('p24-location-changed', () => this.geocode());
+            window.addEventListener('p24-location-changed:p24', () => this.geocode());
         },
 
         _renderMap() {

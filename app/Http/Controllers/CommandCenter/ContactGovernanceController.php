@@ -42,6 +42,9 @@ class ContactGovernanceController extends Controller
             'duplicate_mode' => 'required|in:auto_link,soft_warn,hard_block_override,hard_block_request',
             'duplicate_match_fields' => 'required|array|min:1',
             'duplicate_match_fields.*' => 'in:phone,email,id_number',
+            // AT-60 — address-duplicate-guard aggressiveness for the
+            // "Use for property" transfer.
+            'address_match_mode' => 'required|in:off,standard,strict',
             'buyer_warm_days' => 'required|integer|min:1|max:365',
             'buyer_cold_days' => 'required|integer|min:1|max:365',
             'buyer_lost_days' => 'required|integer|min:1|max:730',
@@ -57,6 +60,7 @@ class ContactGovernanceController extends Controller
             'buyer_pipeline_default_scope',
             'duplicate_mode',
             'duplicate_match_fields',
+            'address_match_mode',
             'buyer_warm_days',
             'buyer_cold_days',
             'buyer_lost_days',
