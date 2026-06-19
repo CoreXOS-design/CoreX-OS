@@ -202,8 +202,10 @@
     @include('partials.agency-access-consent', ['agencies' => $agencies, 'activeAgencyId' => $activeAgencyId, 'activeAgency' => $activeAgency, 'accessGrants' => $accessGrants])
     @endif
 
-    {{-- Remote Access Inbox (agency admins only) --}}
-    @if(auth()->check() && auth()->user()->role === 'admin')
+    {{-- Remote Access Inbox (agency admins only, and only when the agency
+         requires consent for remote access). When the toggle is OFF there is
+         nothing to authorize, so the inbox is hidden entirely. --}}
+    @if(auth()->check() && auth()->user()->role === 'admin' && $_userAgency?->require_external_access_authorization)
     <div class="px-3 pb-2">
         @include('partials.agency-access-inbox')
     </div>
