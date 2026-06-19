@@ -302,6 +302,8 @@ CREATE TABLE `agencies` (
   `website_branch_order_mode` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'alphabetical',
   `communication_ingest_drop_noreply` tinyint(1) DEFAULT NULL,
   `communication_ingest_blocklist_domains` json DEFAULT NULL,
+  `communication_reconcile_window_minutes` int unsigned DEFAULT NULL,
+  `communication_provisional_prune_hours` int unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `agencies_slug_unique` (`slug`),
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
@@ -426,12 +428,17 @@ CREATE TABLE `agency_contact_settings` (
   `buyer_pipeline_default_scope` enum('own','branch','agency') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'own' COMMENT 'Default pipeline view scope for agents. Independent of contact access.',
   `duplicate_mode` enum('auto_link','soft_warn','hard_block_override','hard_block_request') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'soft_warn',
   `duplicate_match_fields` json DEFAULT NULL,
+  `address_match_mode` enum('off','standard','strict') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'standard',
   `buyer_warm_days` int unsigned NOT NULL DEFAULT '14',
   `buyer_cold_days` int unsigned NOT NULL DEFAULT '30',
   `buyer_lost_days` int unsigned NOT NULL DEFAULT '60',
   `contact_retention_years` int unsigned NOT NULL DEFAULT '5',
   `consent_retention_years` int unsigned NOT NULL DEFAULT '5',
   `access_log_retention_years` int unsigned NOT NULL DEFAULT '5',
+  `feedback_seller_roles` json DEFAULT NULL,
+  `feedback_buyer_source` json DEFAULT NULL,
+  `feedback_lessor_roles` json DEFAULT NULL,
+  `feedback_lessee_source` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -2537,12 +2544,14 @@ CREATE TABLE `communications` (
   `participant_identifiers` json DEFAULT NULL,
   `occurred_at` datetime NOT NULL,
   `captured_at` datetime NOT NULL,
+  `provisional_at` datetime DEFAULT NULL,
   `subject` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `body_text` mediumtext COLLATE utf8mb4_unicode_ci,
   `body_preview` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `raw_path` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `has_attachments` tinyint(1) NOT NULL DEFAULT '0',
   `content_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `text_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -2555,6 +2564,8 @@ CREATE TABLE `communications` (
   KEY `comm_occurred_idx` (`occurred_at`),
   KEY `comm_agency_channel_idx` (`agency_id`,`channel`),
   KEY `comm_hash_idx` (`content_hash`),
+  KEY `comm_provisional_idx` (`agency_id`,`channel`,`provisional_at`),
+  KEY `comm_texthash_idx` (`text_hash`),
   CONSTRAINT `comm_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -2621,9 +2632,11 @@ CREATE TABLE `contact_consent_records` (
   `contact_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned NOT NULL,
   `consent_type` enum('fica_processing','marketing_communications','data_sharing','channel_email','channel_sms','channel_whatsapp','channel_call') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `decision` enum('given','declined') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'given',
   `given_at` timestamp NOT NULL,
-  `given_by_user_id` bigint unsigned NOT NULL,
+  `given_by_user_id` bigint unsigned DEFAULT NULL,
   `method` enum('verbal','written','electronic','signed_document') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `evidence_document_id` bigint unsigned DEFAULT NULL,
   `revoked_at` timestamp NULL DEFAULT NULL,
   `revoked_by_user_id` bigint unsigned DEFAULT NULL,
@@ -2996,6 +3009,8 @@ CREATE TABLE `contacts` (
   `contact_type_id` bigint unsigned DEFAULT NULL,
   `contact_source_id` bigint unsigned DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `agent_id` bigint unsigned DEFAULT NULL,
+  `second_agent_id` bigint unsigned DEFAULT NULL,
   `client_user_id` bigint unsigned DEFAULT NULL,
   `first_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -3008,6 +3023,18 @@ CREATE TABLE `contacts` (
   `id_number_captured_at` timestamp NULL DEFAULT NULL,
   `id_number_source` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `address` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `unit_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `floor_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `unit_section_block` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `complex_name` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `street_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `street_name` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `city` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `province` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `p24_suburb_id` bigint unsigned DEFAULT NULL,
+  `p24_city_id` bigint unsigned DEFAULT NULL,
+  `p24_province_id` bigint unsigned DEFAULT NULL,
   `loaded_at` timestamp NULL DEFAULT NULL,
   `modified_at` timestamp NULL DEFAULT NULL,
   `last_contacted_at` timestamp NULL DEFAULT NULL,
@@ -3060,13 +3087,23 @@ CREATE TABLE `contacts` (
   KEY `contacts_messaging_opt_out_at_idx` (`messaging_opt_out_at`),
   KEY `contacts_msg_optin_recorded_by_fk` (`messaging_opt_in_recorded_by_user_id`),
   KEY `contacts_messaging_opted_in_at_idx` (`messaging_opted_in_at`),
+  KEY `contacts_agent_id_foreign` (`agent_id`),
+  KEY `contacts_second_agent_id_foreign` (`second_agent_id`),
+  KEY `contacts_p24_suburb_id_foreign` (`p24_suburb_id`),
+  KEY `contacts_p24_city_id_foreign` (`p24_city_id`),
+  KEY `contacts_p24_province_id_foreign` (`p24_province_id`),
+  CONSTRAINT `contacts_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `contacts_client_user_id_foreign` FOREIGN KEY (`client_user_id`) REFERENCES `client_users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_contact_source_id_foreign` FOREIGN KEY (`contact_source_id`) REFERENCES `contact_sources` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_contact_type_id_foreign` FOREIGN KEY (`contact_type_id`) REFERENCES `contact_types` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_msg_optin_recorded_by_fk` FOREIGN KEY (`messaging_opt_in_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `contacts_msg_optout_recorded_by_fk` FOREIGN KEY (`messaging_opt_out_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `contacts_msg_optout_recorded_by_fk` FOREIGN KEY (`messaging_opt_out_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contacts_p24_city_id_foreign` FOREIGN KEY (`p24_city_id`) REFERENCES `p24_cities` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contacts_p24_province_id_foreign` FOREIGN KEY (`p24_province_id`) REFERENCES `p24_provinces` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contacts_p24_suburb_id_foreign` FOREIGN KEY (`p24_suburb_id`) REFERENCES `p24_suburbs` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contacts_second_agent_id_foreign` FOREIGN KEY (`second_agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `daily_activities`;
@@ -6173,7 +6210,7 @@ CREATE TABLE `oversight_nudges` (
   `from_user_id` bigint unsigned NOT NULL,
   `to_user_id` bigint unsigned NOT NULL,
   `subject_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `subject_id` bigint unsigned DEFAULT NULL,
+  `subject_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `category` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `message` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `sent_at` timestamp NULL DEFAULT NULL,
@@ -9580,7 +9617,7 @@ CREATE TABLE `seller_outreach_sends` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned NOT NULL,
-  `property_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned DEFAULT NULL,
   `agent_id` bigint unsigned DEFAULT NULL,
   `template_id` bigint unsigned DEFAULT NULL,
   `channel` enum('whatsapp','email') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -9591,6 +9628,8 @@ CREATE TABLE `seller_outreach_sends` (
   `opt_out_token` varchar(48) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `recipient_phone_snapshot` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `recipient_email_snapshot` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address_snapshot` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb_snapshot` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sent_at` timestamp NOT NULL,
   `first_clicked_at` timestamp NULL DEFAULT NULL,
   `outcome` enum('sent','clicked','replied','booked','no_response','not_interested','bounced') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sent',
@@ -11866,3 +11905,13 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_16_19
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (827,'2026_06_16_220000_add_outreach_live_deal_statuses_to_agencies',151);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (828,'2026_06_17_090000_add_messaging_all_blocked_to_contacts',152);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (829,'2026_06_17_160000_add_ss_show_complex_section_to_agencies',153);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (830,'2026_06_17_000001_change_oversight_nudges_subject_id_to_string',154);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (831,'2026_06_17_120000_add_agent_assignment_to_contacts_table',154);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (832,'2026_06_29_000001_add_provisional_to_communications_table',154);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (833,'2026_06_29_000002_add_comms_reconcile_settings_to_agencies',154);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (834,'2026_06_19_120000_add_structured_address_to_contacts_table',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (835,'2026_06_19_120100_add_address_match_mode_to_agency_contact_settings',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (836,'2026_06_18_120000_add_decision_and_source_to_contact_consent_records',156);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (837,'2026_06_19_090000_add_address_only_to_seller_outreach_sends',156);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (838,'2026_06_19_090100_wrap_matching_claim_in_outreach_templates',156);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (839,'2026_06_19_000001_add_feedback_fanout_roles_to_agency_contact_settings',157);
