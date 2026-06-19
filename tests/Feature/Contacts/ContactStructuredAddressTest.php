@@ -280,11 +280,14 @@ final class ContactStructuredAddressTest extends TestCase
 
     // ── Auto-link on BOTH buttons (header "Create Listing" + Properties-tab
     //    "Use for property") — both navigate to GET create?contact_id, so the
-    //    contact_id travels in the URL (survives opening in a new tab) and the
-    //    create page emits the hidden pending_contact_ids[] input that links the
-    //    contact when the property is saved IN THAT TAB. ─────────────────────
+    //    contact_id travels in the URL (survives opening in a new tab). The
+    //    create page SEEDS the pre-linked contact into the Contacts tab's
+    //    pendingContactsManager so it shows as an already-selected, REMOVABLE
+    //    chip in "Contacts to Link" (not a hidden input). The chip's hidden
+    //    pending_contact_ids[idx] input links the contact when the property is
+    //    saved IN THAT TAB. ────────────────────────────────────────────────
 
-    public function test_create_from_contact_emits_autolink_input_even_without_address(): void
+    public function test_create_from_contact_seeds_visible_prelinked_chip_even_without_address(): void
     {
         [$agencyId, $agent] = $this->fixture();
         // No structured address — the header "Create Listing" path.
@@ -295,10 +298,53 @@ final class ContactStructuredAddressTest extends TestCase
             ->assertOk();
 
         $this->assertEquals($contact->id, $resp->viewData('preLinkedContact')->id);
-        // The hidden auto-link input is in the page → it submits with the form
-        // (in whatever tab) → store() links the contact.
-        $resp->assertSee('name="pending_contact_ids[]" value="' . $contact->id . '"', false);
-        $resp->assertSee('Linking to:', false);
+
+        // The contact is SEEDED into the visible Contacts-to-Link list (the same
+        // Alpine `pending` array a manual search-add pushes into) — VISIBLE and
+        // pre-selected, not a hidden input. Js::from emits the seed as
+        // JSON.parse('[{"id":NNN,"name":"Sam Seller",…}]').
+        $resp->assertSee('pendingContactsManager(', false);
+        $resp->assertSee('\\u0022id\\u0022:' . $contact->id, false);
+        $resp->assertSee('\u0022name\u0022:\u0022Sam Seller\u0022', false);
+
+        // The OLD hidden-input-on-the-info-tab model is GONE (it double-submitted
+        // and went stale if the agent removed the chip).
+        $resp->assertDontSee('name="pending_contact_ids[]" value="' . $contact->id . '"', false);
+        $resp->assertDontSee('Linking to:', false);
+    }
+
+    public function test_create_from_contact_with_address_seeds_visible_chip(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        // Structured address — the "Use for property" path.
+        $contact = $this->contact($agencyId, $agent->id, [
+            'street_number' => '21', 'street_name' => 'Dee Road', 'suburb' => 'Uvongo',
+        ]);
+
+        $resp = $this->actingAs($agent)
+            ->get(route('corex.properties.create', ['contact_id' => $contact->id]))
+            ->assertOk();
+
+        // Address prefilled on the property AND the contact seeded as a visible chip.
+        $this->assertSame('Dee Road', $resp->viewData('property')->street_name);
+        $resp->assertSee('pendingContactsManager(', false);
+        $resp->assertSee('\\u0022id\\u0022:' . $contact->id, false);
+        $resp->assertSee('\u0022name\u0022:\u0022Sam Seller\u0022', false);
+        $resp->assertDontSee('name="pending_contact_ids[]" value="' . $contact->id . '"', false);
+    }
+
+    public function test_create_without_contact_id_seeds_empty_pending_list(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+
+        $resp = $this->actingAs($agent)
+            ->get(route('corex.properties.create'))
+            ->assertOk();
+
+        $this->assertNull($resp->viewData('preLinkedContact'));
+        // No seed → the manager initialises with an empty array → "None selected yet".
+        $resp->assertSee('pendingContactsManager(', false);
+        $resp->assertSee('None selected yet', false);
     }
 
     public function test_create_listing_no_address_links_contact_on_store(): void

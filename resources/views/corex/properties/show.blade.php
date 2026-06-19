@@ -1777,16 +1777,13 @@
                 @csrf
                 @if(!$isNew) @method('PUT') @endif
 
-                {{-- Pre-linked contact from "Create Listing" on contact page --}}
-                @if($isNew && isset($preLinkedContact) && $preLinkedContact)
-                <input type="hidden" name="pending_contact_ids[]" value="{{ $preLinkedContact->id }}">
-                <div class="rounded-md px-4 py-3 flex items-center gap-3" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 20%, transparent);">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" style="color:var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
-                    <span class="text-sm font-medium" style="color:var(--brand-icon);">
-                        Linking to: <strong>{{ $preLinkedContact->full_name }}</strong>
-                    </span>
-                </div>
-                @endif
+                {{-- Pre-linked contact from a contact page (?contact_id=) is NOT
+                     rendered as a hidden input here. It is seeded into the
+                     Contacts tab's pendingContactsManager so it shows as a
+                     visible, removable chip in "Contacts to Link" (see
+                     x-data at the Contacts tab). A hidden input here would
+                     double-submit and could go stale if the agent removes the
+                     chip. The chip is the single visible source of truth. --}}
 
                 {{-- ── SECTION: IDENTITY ──────────────────────────────────── --}}
                 <section id="sec-identity" class="prop-section">
@@ -3877,7 +3874,7 @@
         {{-- ── CONTACTS TAB ─────────────────────────────────────────────────── --}}
         <div x-show="activeTab === 'contacts'" x-cloak class="p-6 space-y-6"
              @if($isNew)
-             x-data="pendingContactsManager('{{ route('corex.properties.contacts.search-global') }}')"
+             x-data="pendingContactsManager('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from(isset($preLinkedContact) && $preLinkedContact ? [['id' => $preLinkedContact->id, 'name' => trim($preLinkedContact->full_name), 'phone' => $preLinkedContact->phone ?? '', 'email' => $preLinkedContact->email ?? '']] : []) }})"
              @else
              x-data="propertyContactsManager('{{ route('corex.properties.contacts.search', $property) }}')"
              @endif>
@@ -5272,13 +5269,17 @@ window.coreXPropertyContactGuard = function (event, form) {
 };
 
 // Pending contacts manager (create form — no property ID yet)
-function pendingContactsManager(searchUrl) {
+function pendingContactsManager(searchUrl, seed = []) {
     return {
         query: '',
         results: [],
         loading: false,
         searched: false,
-        pending: [],    // existing contacts to link: { id, name, phone, email }
+        // Pre-linked contact (arrived via ?contact_id= from a contact page) is
+        // seeded here so it renders as an already-selected chip in "Contacts to
+        // Link" on load — identical to a manually searched-and-added contact.
+        // The agent can Remove it (full control) and can add more alongside it.
+        pending: Array.isArray(seed) ? seed.slice() : [],    // existing contacts to link: { id, name, phone, email }
         pendingNew: [], // new contacts to create+link: { first_name, last_name, phone, email, contact_type_id }
         newForm: { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' },
         showNewForm: false,
