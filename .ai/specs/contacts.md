@@ -158,6 +158,86 @@ primary agent defaulted; malformed ID dropped but contact still saved).
 
 ---
 
+## Structured Contact Address (AT-60, 2026-06-19)
+
+**Pillars:** Contact (read/write), Property (write on transfer), Agent (actor).
+
+Contacts had ONE free-text `contacts.address` column. AT-60 replaces the
+free-text input with a **structured address** mirroring the property "Internal
+Address" modal, and lets that address transfer onto a new Property field-for-field.
+
+### Storage
+New nullable columns on `contacts`
+(`2026_06_19_120000_add_structured_address_to_contacts_table`): `unit_number`,
+`floor_number`, `unit_section_block`, `complex_name`, `street_number`,
+`street_name`, denormalised `suburb` / `city` / `province`, and P24 FKs
+`p24_province_id` / `p24_city_id` / `p24_suburb_id` (all `nullOnDelete`,
+mirroring the property definitions in `2026_05_13_150003`). Deeds-office working
+fields (erf/stand/zone/district/region) are deliberately NOT mirrored — those
+are property-stage fields.
+
+The legacy `contacts.address` column is **kept** and becomes a denormalised
+display string **auto-composed from the structured fields on every save** via
+`Contact::syncStructuredAddress()` (called from `ContactObserver::saving()`), so
+every existing reader of `$contact->address` (exports, e-sign
+`RoleBlockExpansionService`/`ESignWizardController`, `MobileContactController`,
+`WebTemplateDataService`, blades) keeps working unchanged. Compose mirrors
+`Property::buildDisplayAddress`. No-ops when no structured field is set, so
+back-catalogue free-text addresses are preserved.
+
+### Modal & UI
+Contact show → Info tab: the free-text address input is replaced by a read-only
+composed **summary** (a real, clearly-editable control per STANDARDS "No
+Invisible Edits") that opens an **Address modal** — same two-section shape as the
+property Internal Address modal (Complex-or-Estate + Street) plus the shared
+`corex._partials.p24-location-picker` include under fieldPrefix `contact_addr`.
+Full CRUD: view / edit / **Clear address**. A **"Use for property"** button
+shows only when a structured address is present.
+
+### p24 picker event namespacing (bug-class fix)
+The shared picker previously dispatched a namespace-free global
+`p24-location-changed`, so two pickers on one DOM would cross-fire. It now
+dispatches `p24-location-changed:{fieldPrefix}` (and listens for
+`p24-location-reset:{fieldPrefix}`). All include sites updated: the three
+property pickers (`create-edit`, `wizard`, `show`) all use prefix `p24`; their
+listeners moved to `p24-location-changed:p24`. The contact picker uses
+`contact_addr`.
+
+### Transfer to property + the latent prefill bug
+`PropertyController::create()` accepted `?contact_id=` and pre-filled the create
+form, but read `$contact->suburb/city/province/street_address` — columns that
+**never existed on contacts**, so the prefill silently no-oped. Fixed to read the
+new structured columns and prefill the property form field-for-field (six address
+fields + P24 ids/names). The existing auto-link (hidden `pending_contact_ids[]`
+→ `ContactLinkedToProperty` on store) is unchanged.
+
+### Duplicate guard (Universal Match-or-Create, non-negotiable #10)
+Before prefilling, `App\Services\Contact\ContactAddressPropertyGuard` checks
+whether a property already exists at the address. It **reuses**
+`TrackedPropertyMatchOrCreateService::findExistingMatch()` (the same 5-strategy
+matcher every ingestion path uses — no parallel matcher), resolves the matched
+`TrackedProperty` to a stock `Property` via `promoted_to_property_id`, and if
+found surfaces a banner offering **link-to-existing** (POST to
+`corex.contacts.properties.link` → fires `ContactLinkedToProperty`) as an
+alternative to creating a duplicate.
+
+**Configurable (not hardcoded):** `agency_contact_settings.address_match_mode`
+(`off` | `standard` | `strict`, default `standard`) drives the guard — `strict`
+only flags an exact street match. Editable at **Contact Governance** settings.
+
+### Validation & robustness
+`ContactController::update` validates all structured fields `nullable|string`
+(sane max), P24 ids as `exists:` references, allows partial addresses, maps
+`contact_addr_*_id` → `p24_*_id`, rejects a **dangling P24 name** (name typed,
+id empty) with a user-clear message, and is transaction-wrapped.
+
+**Tests:** `tests/Feature/Contacts/ContactStructuredAddressTest.php` — happy /
+each-empty / partial / lazy-single / no-structured-fields-preserves-legacy /
+dangling-name-rejected / p24-id-mapping / create-prefill / auto-link-on-store /
+guard-offers-match / guard-off-mode.
+
+---
+
 ## Pending Spec Items
 
 - Full contact record design (all fields, all relationships to pillars)

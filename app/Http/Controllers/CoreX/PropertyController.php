@@ -386,17 +386,36 @@ class PropertyController extends Controller
         $property->baths    = 0;
         $property->garages  = 0;
 
-        // Pre-fill from contact if creating from a contact page
+        // Pre-fill from contact if creating from a contact page (AT-60).
         $preLinkedContact = null;
+        $existingPropertyMatch = null;
         if ($contactId = request('contact_id')) {
             $contact = \App\Models\Contact::find($contactId);
             if ($contact) {
                 $preLinkedContact = $contact;
-                // Pre-fill address from contact if available
-                if ($contact->suburb) $property->suburb = $contact->suburb;
-                if ($contact->city) $property->city = $contact->city;
-                if ($contact->province) $property->province = $contact->province;
-                if ($contact->street_address) $property->address = $contact->street_address;
+
+                // Field-for-field prefill from the contact's STRUCTURED address.
+                // (Previously read $contact->suburb/city/province/street_address —
+                // columns that never existed on contacts, so this silently no-oped.)
+                $property->unit_number        = $contact->unit_number;
+                $property->floor_number       = $contact->floor_number;
+                $property->unit_section_block  = $contact->unit_section_block;
+                $property->complex_name       = $contact->complex_name;
+                $property->street_number      = $contact->street_number;
+                $property->street_name        = $contact->street_name;
+                $property->suburb             = $contact->suburb;
+                $property->city               = $contact->city;
+                $property->province           = $contact->province;
+                $property->p24_province_id    = $contact->p24_province_id;
+                $property->p24_city_id        = $contact->p24_city_id;
+                $property->p24_suburb_id      = $contact->p24_suburb_id;
+
+                // Match-or-create duplicate guard (non-negotiable #10): surface
+                // an existing property at this address so the agent can link to
+                // it instead of minting a duplicate. Aggressiveness is
+                // agency-configurable (address_match_mode).
+                $existingPropertyMatch = app(\App\Services\Contact\ContactAddressPropertyGuard::class)
+                    ->findLinkableProperty($contact);
             }
         }
 
@@ -412,7 +431,7 @@ class PropertyController extends Controller
         $agents    = $this->agentList($property);
         $activeTab = 'info';
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch'));
     }
 
     public function store(Request $request)

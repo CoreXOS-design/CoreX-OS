@@ -428,6 +428,7 @@ CREATE TABLE `agency_contact_settings` (
   `buyer_pipeline_default_scope` enum('own','branch','agency') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'own' COMMENT 'Default pipeline view scope for agents. Independent of contact access.',
   `duplicate_mode` enum('auto_link','soft_warn','hard_block_override','hard_block_request') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'soft_warn',
   `duplicate_match_fields` json DEFAULT NULL,
+  `address_match_mode` enum('off','standard','strict') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'standard',
   `buyer_warm_days` int unsigned NOT NULL DEFAULT '14',
   `buyer_cold_days` int unsigned NOT NULL DEFAULT '30',
   `buyer_lost_days` int unsigned NOT NULL DEFAULT '60',
@@ -3016,6 +3017,18 @@ CREATE TABLE `contacts` (
   `id_number_captured_at` timestamp NULL DEFAULT NULL,
   `id_number_source` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `address` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `unit_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `floor_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `unit_section_block` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `complex_name` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `street_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `street_name` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `city` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `province` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `p24_suburb_id` bigint unsigned DEFAULT NULL,
+  `p24_city_id` bigint unsigned DEFAULT NULL,
+  `p24_province_id` bigint unsigned DEFAULT NULL,
   `loaded_at` timestamp NULL DEFAULT NULL,
   `modified_at` timestamp NULL DEFAULT NULL,
   `last_contacted_at` timestamp NULL DEFAULT NULL,
@@ -3070,6 +3083,9 @@ CREATE TABLE `contacts` (
   KEY `contacts_messaging_opted_in_at_idx` (`messaging_opted_in_at`),
   KEY `contacts_agent_id_foreign` (`agent_id`),
   KEY `contacts_second_agent_id_foreign` (`second_agent_id`),
+  KEY `contacts_p24_suburb_id_foreign` (`p24_suburb_id`),
+  KEY `contacts_p24_city_id_foreign` (`p24_city_id`),
+  KEY `contacts_p24_province_id_foreign` (`p24_province_id`),
   CONSTRAINT `contacts_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `contacts_client_user_id_foreign` FOREIGN KEY (`client_user_id`) REFERENCES `client_users` (`id`) ON DELETE SET NULL,
@@ -3078,6 +3094,9 @@ CREATE TABLE `contacts` (
   CONSTRAINT `contacts_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_msg_optin_recorded_by_fk` FOREIGN KEY (`messaging_opt_in_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_msg_optout_recorded_by_fk` FOREIGN KEY (`messaging_opt_out_recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contacts_p24_city_id_foreign` FOREIGN KEY (`p24_city_id`) REFERENCES `p24_cities` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contacts_p24_province_id_foreign` FOREIGN KEY (`p24_province_id`) REFERENCES `p24_provinces` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contacts_p24_suburb_id_foreign` FOREIGN KEY (`p24_suburb_id`) REFERENCES `p24_suburbs` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_second_agent_id_foreign` FOREIGN KEY (`second_agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -11882,3 +11901,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (830,'2026_06_17_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (831,'2026_06_17_120000_add_agent_assignment_to_contacts_table',154);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (832,'2026_06_29_000001_add_provisional_to_communications_table',154);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (833,'2026_06_29_000002_add_comms_reconcile_settings_to_agencies',154);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (834,'2026_06_19_120000_add_structured_address_to_contacts_table',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (835,'2026_06_19_120100_add_address_match_mode_to_agency_contact_settings',155);

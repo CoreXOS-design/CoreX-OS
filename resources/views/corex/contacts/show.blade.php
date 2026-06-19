@@ -490,12 +490,145 @@
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Address <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                            <input type="text" name="address" value="{{ old('address', $contact->address) }}"
-                                   placeholder="e.g. 21 Dee Road, Uvongo"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        {{-- AT-60 — Structured address. Replaces the old free-text input.
+                             The legacy `address` column is auto-composed from these
+                             fields on save (Contact::syncStructuredAddress), so every
+                             existing reader keeps working. --}}
+                        <div class="sm:col-span-2 lg:col-span-3"
+                             x-data="contactAddress({{ Js::from([
+                                'unitNumber'       => old('unit_number',        $contact->unit_number ?? ''),
+                                'floorNumber'      => old('floor_number',       $contact->floor_number ?? ''),
+                                'unitSectionBlock' => old('unit_section_block', $contact->unit_section_block ?? ''),
+                                'complexName'      => old('complex_name',       $contact->complex_name ?? ''),
+                                'streetNumber'     => old('street_number',      $contact->street_number ?? ''),
+                                'streetName'       => old('street_name',        $contact->street_name ?? ''),
+                                'suburb'           => old('suburb',             $contact->suburb ?? ''),
+                                'city'             => old('city',               $contact->city ?? ''),
+                                'province'         => old('province',           $contact->province ?? ''),
+                             ]) }})">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-semibold" style="color:var(--text-muted);">Address <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
+                                @if($contact->hasStructuredAddress())
+                                    <a href="{{ route('corex.properties.create', ['contact_id' => $contact->id]) }}"
+                                       class="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-all duration-300"
+                                       style="background:color-mix(in srgb, var(--brand-icon, #2563eb) 12%, transparent); color:var(--brand-icon, #2563eb);"
+                                       title="Create a property record pre-filled with this address and link this contact to it">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                                        Use for property
+                                    </a>
+                                @endif
+                            </div>
+
+                            {{-- Read-only composed summary — a real, clearly-editable control (No Invisible Edits, STANDARDS.md) --}}
+                            <button type="button" @click="openAddrModal = true"
+                                    class="w-full flex items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-all duration-300"
+                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <span class="text-sm truncate" x-text="hasAddress ? summary : 'Click to set address'"
+                                      :style="hasAddress ? '' : 'color:var(--text-muted);'"></span>
+                                <span class="inline-flex items-center gap-1 flex-shrink-0 text-[11px] font-semibold" style="color:var(--brand-icon, #2563eb);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                    <span x-text="hasAddress ? 'Edit' : 'Set'"></span>
+                                </span>
+                            </button>
+
+                            {{-- Hidden inputs holding the parent-managed components so they
+                                 submit with the contact form even while the modal is closed. --}}
+                            <input type="hidden" name="unit_number"        :value="unitNumber">
+                            <input type="hidden" name="floor_number"       :value="floorNumber">
+                            <input type="hidden" name="unit_section_block" :value="unitSectionBlock">
+                            <input type="hidden" name="complex_name"       :value="complexName">
+                            <input type="hidden" name="street_number"      :value="streetNumber">
+                            <input type="hidden" name="street_name"        :value="streetName">
+
+                            {{-- ===== ADDRESS MODAL ===== --}}
+                            <div x-show="openAddrModal" x-cloak
+                                 class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                                 @keydown.escape.window="openAddrModal = false">
+                                <div class="absolute inset-0 bg-black/60" @click="openAddrModal = false"></div>
+                                <div class="relative w-full max-w-[46rem] max-h-[85vh] overflow-y-auto rounded-lg shadow-2xl"
+                                     style="background:var(--surface); border:1px solid var(--border);" @click.stop>
+
+                                    <div class="sticky top-0 z-10 flex items-center justify-between px-5 py-3 rounded-t-lg"
+                                         style="background:var(--brand-default, #0b2a4a); color:#fff;">
+                                        <div class="flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a8 8 0 1111.314 0z"/><circle cx="12" cy="11" r="3"/></svg>
+                                            <span class="text-sm font-bold">Contact Address</span>
+                                        </div>
+                                        <button type="button" @click="openAddrModal = false" class="p-1 rounded hover:bg-white/10">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
+
+                                    <div class="p-5 space-y-5">
+                                        {{-- Complex or Estate --}}
+                                        <div>
+                                            <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default, #0b2a4a); color:#fff;">Complex or Estate</div>
+                                            <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                                                <div class="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Unit Number</label>
+                                                        <input type="text" x-model="unitNumber" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Floor Number</label>
+                                                        <input type="text" x-model="floorNumber" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Unit, Section or Block</label>
+                                                    <input type="text" x-model="unitSectionBlock" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Complex or Estate</label>
+                                                    <input type="text" x-model="complexName" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {{-- Street --}}
+                                        <div>
+                                            <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default, #0b2a4a); color:#fff;">Street</div>
+                                            <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                                                <div>
+                                                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Number</label>
+                                                    <input type="text" x-model="streetNumber" placeholder="e.g. 21" autocomplete="off" class="w-40 rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Name</label>
+                                                    <input type="text" x-model="streetName" placeholder="e.g. Dee Road" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {{-- Province / City / Suburb — Property24-backed typeahead (shared partial).
+                                             fieldPrefix 'contact_addr' so it never cross-fires a property picker. --}}
+                                        <div>
+                                            <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default, #0b2a4a); color:#fff;">Province / City / Suburb</div>
+                                            <div class="p-4 rounded-b-md" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                                                @include('corex._partials.p24-location-picker', [
+                                                    'fieldPrefix'         => 'contact_addr',
+                                                    'initialProvinceId'   => old('contact_addr_province_id', $contact->p24_province_id ?? 0),
+                                                    'initialCityId'       => old('contact_addr_city_id',     $contact->p24_city_id ?? 0),
+                                                    'initialSuburbId'     => old('contact_addr_suburb_id',   $contact->p24_suburb_id ?? 0),
+                                                    'initialProvinceName' => old('province', $contact->province ?? ''),
+                                                    'initialCityName'     => old('city',     $contact->city ?? ''),
+                                                    'initialSuburbName'   => old('suburb',   $contact->suburb ?? ''),
+                                                    'denormaliseNames'    => true,
+                                                ])
+                                                <p class="text-[11px] mt-2" style="color:var(--text-muted);">Suburb is optional, but if you type one it must be picked from the Property24 list so it links cleanly to a property later.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="sticky bottom-0 px-5 py-3 rounded-b-lg flex items-center justify-between" style="background:var(--surface); border-top:1px solid var(--border);">
+                                        <button type="button" @click="clearAddress()" x-show="hasAddress"
+                                                class="px-3 py-2 rounded-md text-xs font-semibold transition-all duration-300"
+                                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--ds-crimson, #dc2626);">Clear address</button>
+                                        <span x-show="!hasAddress"></span>
+                                        <button type="button" @click="openAddrModal = false" class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--ds-green, #16a34a);">Done</button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         {{-- Tags --}}
@@ -1698,6 +1831,57 @@
 </div>
 
 <script>
+// AT-60 — structured contact address modal + live summary.
+function contactAddress(config) {
+    return {
+        openAddrModal: false,
+        unitNumber:       config.unitNumber       || '',
+        floorNumber:      config.floorNumber      || '',
+        unitSectionBlock: config.unitSectionBlock || '',
+        complexName:      config.complexName      || '',
+        streetNumber:     config.streetNumber     || '',
+        streetName:       config.streetName       || '',
+        // Province/City/Suburb are owned by the P24 picker; mirrored here for the
+        // summary via the namespaced "p24-location-changed:contact_addr" event so
+        // the property pickers on other pages never cross-fire this one.
+        suburb:   config.suburb   || '',
+        city:     config.city     || '',
+        province: config.province || '',
+
+        init() {
+            window.addEventListener('p24-location-changed:contact_addr', (e) => {
+                if (!e.detail) return;
+                this.suburb   = e.detail.suburbName   || '';
+                this.city     = e.detail.cityName     || '';
+                this.province = e.detail.provinceName || '';
+            });
+        },
+
+        get summary() {
+            const parts = [];
+            if (this.unitNumber)       parts.push('Unit ' + this.unitNumber.trim());
+            if (this.unitSectionBlock) parts.push(this.unitSectionBlock.trim());
+            if (this.complexName)      parts.push(this.complexName.trim());
+            if (this.streetNumber && this.streetName) parts.push((this.streetNumber + ' ' + this.streetName).trim());
+            else if (this.streetName)  parts.push(this.streetName.trim());
+            if (this.suburb)           parts.push(this.suburb.trim());
+            if (this.city && this.city.toLowerCase() !== (this.suburb || '').toLowerCase()) parts.push(this.city.trim());
+            if (this.province)         parts.push(this.province.trim());
+            return parts.filter(Boolean).join(', ');
+        },
+
+        get hasAddress() { return this.summary.length > 0; },
+
+        clearAddress() {
+            this.unitNumber = ''; this.floorNumber = ''; this.unitSectionBlock = '';
+            this.complexName = ''; this.streetNumber = ''; this.streetName = '';
+            this.suburb = ''; this.city = ''; this.province = '';
+            // Reset the P24 picker (clears its hidden ids/names too).
+            window.dispatchEvent(new CustomEvent('p24-location-reset:contact_addr'));
+        },
+    };
+}
+
 function contactShowData(searchUrl, initTab) {
     // Core Matches was merged into the Properties tab — keep legacy ?tab=matches links working
     if (initTab === 'matches') initTab = 'properties';

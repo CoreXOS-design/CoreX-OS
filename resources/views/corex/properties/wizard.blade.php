@@ -622,7 +622,7 @@ function propertyWizard(config) {
 
         init() {
             // Sync P24 picker state into s1 so submitStep1 picks it up.
-            window.addEventListener('p24-location-changed', (e) => {
+            window.addEventListener('p24-location-changed:p24', (e) => {
                 if (!e.detail) return;
                 this.s1.p24_province_id = e.detail.provinceId || 0;
                 this.s1.p24_city_id     = e.detail.cityId || 0;

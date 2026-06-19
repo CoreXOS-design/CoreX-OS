@@ -35,6 +35,10 @@ class Contact extends Model
         'client_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
         'birthday', 'birthday_reminder', 'id_number', 'id_number_captured_at', 'id_number_source', 'address',
+        // AT-60 — structured address (auto-composed into `address` on save).
+        'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
+        'street_number', 'street_name', 'suburb', 'city', 'province',
+        'p24_province_id', 'p24_city_id', 'p24_suburb_id',
         'loaded_at', 'modified_at', 'last_contacted_at',
         'whatsapp_count', 'email_count',
         'bank_name', 'bank_account_name', 'bank_account_number',
@@ -239,6 +243,86 @@ class Contact extends Model
     public function getInitialsAttribute(): string
     {
         return strtoupper(substr($this->first_name, 0, 1) . substr($this->last_name, 0, 1));
+    }
+
+    // ── Structured address (AT-60) ───────────────────────────────────────
+
+    /**
+     * True iff ANY structured-address component is populated. Drives whether
+     * the "Use for property" transfer button shows and whether the legacy
+     * `address` column gets auto-composed on save.
+     */
+    public function hasStructuredAddress(): bool
+    {
+        foreach ([
+            'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
+            'street_number', 'street_name', 'suburb', 'city', 'province',
+        ] as $field) {
+            if (filled($this->{$field})) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Compose a single denormalised display string from the structured
+     * components, mirroring Property::buildDisplayAddress so contact and
+     * property addresses read identically across CoreX. Returns null when no
+     * structured component is set (so a legacy free-text `address` is left
+     * untouched — back-catalogue and direct imports keep working).
+     */
+    public function composeStructuredAddress(): ?string
+    {
+        if (! $this->hasStructuredAddress()) {
+            return null;
+        }
+
+        $parts = [];
+
+        if (filled($this->unit_number)) {
+            $parts[] = 'Unit ' . trim((string) $this->unit_number);
+        }
+        if (filled($this->unit_section_block)) {
+            $parts[] = trim((string) $this->unit_section_block);
+        }
+        if (filled($this->complex_name)) {
+            $parts[] = trim((string) $this->complex_name);
+        }
+
+        if (filled($this->street_number) && filled($this->street_name)) {
+            $parts[] = trim($this->street_number . ' ' . $this->street_name);
+        } elseif (filled($this->street_name)) {
+            $parts[] = trim((string) $this->street_name);
+        }
+
+        if (filled($this->suburb)) {
+            $parts[] = trim((string) $this->suburb);
+        }
+        if (filled($this->city) && strtolower((string) $this->city) !== strtolower((string) ($this->suburb ?? ''))) {
+            $parts[] = trim((string) $this->city);
+        }
+        if (filled($this->province)) {
+            $parts[] = trim((string) $this->province);
+        }
+
+        $composed = trim(implode(', ', array_filter($parts, 'strlen')));
+
+        return $composed !== '' ? $composed : null;
+    }
+
+    /**
+     * Keep the legacy `address` column in sync with the structured fields so
+     * every existing reader of $contact->address stays correct. Called from
+     * ContactObserver::saving() — the single source of truth for the sync, so
+     * EVERY save path (controller, import, tinker) composes consistently.
+     */
+    public function syncStructuredAddress(): void
+    {
+        $composed = $this->composeStructuredAddress();
+        if ($composed !== null) {
+            $this->address = $composed;
+        }
     }
 
     // ── Consent & Compliance (M3.4) ──

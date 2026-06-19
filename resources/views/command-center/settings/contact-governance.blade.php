@@ -166,6 +166,16 @@
                         @endforeach
                     </div>
                 </div>
+
+                <div class="pt-3 border-t" style="border-color:var(--border);">
+                    <p class="text-xs font-medium mb-1" style="color:var(--text-secondary);">Property address duplicate guard</p>
+                    <p class="text-xs mb-2" style="color:var(--text-muted);">When an agent uses a contact's address to create a property, how aggressively should CoreX warn that a property at that address may already exist?</p>
+                    <select name="address_match_mode" class="w-full md:w-80 px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                        <option value="off"      {{ ($settings->address_match_mode ?? 'standard') === 'off' ? 'selected' : '' }}>Off — never warn</option>
+                        <option value="standard" {{ ($settings->address_match_mode ?? 'standard') === 'standard' ? 'selected' : '' }}>Standard — warn on any address match (recommended)</option>
+                        <option value="strict"   {{ ($settings->address_match_mode ?? 'standard') === 'strict' ? 'selected' : '' }}>Strict — warn only on an exact street match</option>
+                    </select>
+                </div>
             </div>
         </div>
 
