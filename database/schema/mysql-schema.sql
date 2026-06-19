@@ -164,7 +164,6 @@ CREATE TABLE `agencies` (
   `ffc_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_number` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `public_contact` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `ppra_registered_at` date DEFAULT NULL,
   `fic_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_agency_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_agency_label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -435,6 +434,10 @@ CREATE TABLE `agency_contact_settings` (
   `contact_retention_years` int unsigned NOT NULL DEFAULT '5',
   `consent_retention_years` int unsigned NOT NULL DEFAULT '5',
   `access_log_retention_years` int unsigned NOT NULL DEFAULT '5',
+  `feedback_seller_roles` json DEFAULT NULL,
+  `feedback_buyer_source` json DEFAULT NULL,
+  `feedback_lessor_roles` json DEFAULT NULL,
+  `feedback_lessee_source` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -1788,43 +1791,12 @@ CREATE TABLE `cds_drafts` (
   `settings` json DEFAULT NULL,
   `source_template_id` bigint unsigned DEFAULT NULL,
   `status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
-  `extraction_verification` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `cds_drafts_user_id_status_index` (`user_id`,`status`),
   CONSTRAINT `cds_drafts_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `cds_extraction_flags`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `cds_extraction_flags` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `cds_draft_id` bigint unsigned DEFAULT NULL,
-  `template_id` bigint unsigned DEFAULT NULL,
-  `severity` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'high',
-  `divergence_type` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'unknown',
-  `location` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `description` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `source_snippet` text COLLATE utf8mb4_unicode_ci,
-  `extracted_snippet` text COLLATE utf8mb4_unicode_ci,
-  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
-  `resolution_note` text COLLATE utf8mb4_unicode_ci,
-  `resolved_by` bigint unsigned DEFAULT NULL,
-  `resolved_at` timestamp NULL DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `cds_flags_gate_idx` (`template_id`,`severity`,`status`),
-  KEY `cds_extraction_flags_resolved_by_foreign` (`resolved_by`),
-  KEY `cds_extraction_flags_cds_draft_id_index` (`cds_draft_id`),
-  KEY `cds_extraction_flags_template_id_index` (`template_id`),
-  CONSTRAINT `cds_extraction_flags_cds_draft_id_foreign` FOREIGN KEY (`cds_draft_id`) REFERENCES `cds_drafts` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `cds_extraction_flags_resolved_by_foreign` FOREIGN KEY (`resolved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `cds_extraction_flags_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `docuperfect_templates` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `client_access_logs`;
@@ -4146,16 +4118,13 @@ CREATE TABLE `docuperfect_clauses` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `category` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_global` tinyint(1) NOT NULL DEFAULT '0',
-  `is_system` tinyint(1) NOT NULL DEFAULT '0',
   `owner_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `docuperfect_clauses_owner_id_foreign` (`owner_id`),
-  KEY `docuperfect_clauses_category_index` (`category`),
   CONSTRAINT `docuperfect_clauses_owner_id_foreign` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -4460,11 +4429,9 @@ CREATE TABLE `docuperfect_templates` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   `sections` json DEFAULT NULL,
-  `extraction_verification` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `docuperfect_templates_owner_id_foreign` (`owner_id`),
   KEY `docuperfect_templates_document_type_id_foreign` (`document_type_id`),
-  KEY `docuperfect_templates_extraction_verification_index` (`extraction_verification`),
   CONSTRAINT `docuperfect_templates_document_type_id_foreign` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE SET NULL,
   CONSTRAINT `docuperfect_templates_owner_id_foreign` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -5218,7 +5185,6 @@ CREATE TABLE `information_officer_appointments` (
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `title` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Information Officer',
   `appointed_on` date NOT NULL,
-  `regulator_registered_on` date DEFAULT NULL,
   `ended_on` date DEFAULT NULL,
   `appointed_by` bigint unsigned DEFAULT NULL,
   `appointment_letter_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -7995,6 +7961,7 @@ CREATE TABLE `properties` (
   `town` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `beds` tinyint NOT NULL DEFAULT '0',
   `baths` tinyint NOT NULL DEFAULT '0',
+  `half_baths` tinyint unsigned NOT NULL DEFAULT '0',
   `garages` tinyint NOT NULL DEFAULT '0',
   `size_m2` int unsigned DEFAULT NULL,
   `erf_size_m2` int unsigned DEFAULT NULL,
@@ -10045,7 +10012,7 @@ CREATE TABLE `suggested_action_thresholds` (
   `stock_repitch_days` smallint unsigned NOT NULL DEFAULT '30',
   `colleague_claim_stale_days` smallint unsigned NOT NULL DEFAULT '21',
   `investigate_mid_min` smallint unsigned NOT NULL DEFAULT '5',
-  `new_listing_lookback_days` smallint unsigned NOT NULL DEFAULT '3',
+  `new_listing_lookback_days` smallint unsigned NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -11860,53 +11827,51 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (777,'2026_06_09_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (778,'2026_06_09_120001_add_website_branch_order_to_agencies_table',128);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (779,'2026_06_09_120002_add_website_order_to_branches_table',128);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (780,'2026_06_10_120000_add_new_listing_lookback_days_to_suggested_action_thresholds',129);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (782,'2026_06_10_000001_add_new_listing_lookback_days_to_suggested_action_thresholds',130);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (784,'2026_06_24_000000_add_category_and_is_system_to_docuperfect_clauses',131);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (785,'2026_06_25_000000_create_cds_extraction_flags_table',132);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (786,'2026_06_23_100000_add_ppra_registered_at_to_agencies',133);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (787,'2026_06_23_100100_add_regulator_registered_on_to_information_officer_appointments',133);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (788,'2026_06_11_180000_add_comp_selection_settings_to_agencies',134);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (789,'2026_06_11_180500_add_thumbnail_source_url_to_prospecting_listings',134);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_23_120000_normalize_user_phone_numbers',134);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_11_190000_add_comp_curation_override_types',135);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_12_090000_add_thumbnail_blocked_reason_to_prospecting_listings',136);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (793,'2026_06_24_000000_add_in_analysis_to_presentation_versions_review_status',137);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (794,'2026_06_14_120000_add_day_windows_to_dashboard_settings',138);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (795,'2026_06_25_000001_create_agency_policies_table',138);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (796,'2026_06_25_000002_create_policy_versions_table',138);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (797,'2026_06_25_000003_create_policy_sections_table',138);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (798,'2026_06_25_000004_create_policy_acknowledgements_table',138);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (799,'2026_06_25_000005_create_policy_section_acknowledgements_table',139);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (800,'2026_06_26_000001_create_communications_table',140);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (801,'2026_06_26_000002_create_communication_attachments_table',140);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (802,'2026_06_26_000003_create_communication_links_table',140);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (803,'2026_06_26_000004_create_communication_mailboxes_table',140);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (804,'2026_06_26_000005_create_communication_wa_devices_table',140);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (805,'2026_06_26_000006_create_communication_pending_table',140);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (809,'2026_06_28_000001_add_user_fields_to_communication_mailboxes_table',142);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (810,'2026_06_28_000002_create_mailbox_credential_reveals_table',142);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (811,'2026_06_27_000001_create_communication_flags_table',143);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (812,'2026_06_27_000002_create_communication_flag_alerts_table',143);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (813,'2026_06_27_000003_add_classification_to_communication_pending_table',143);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (814,'2026_06_15_140000_add_communication_ingest_filter_to_agencies',144);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (815,'2026_06_16_140000_add_cma_band_pct_to_agencies',145);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (816,'2026_06_16_160000_set_cma_band_pct_asymmetric_default',146);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (818,'2026_06_16_180000_add_messaging_opt_in_to_contacts_table',147);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (821,'2026_06_16_181000_add_include_tracking_link_to_seller_outreach_templates',148);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (822,'2026_06_16_182000_add_public_contact_to_agencies',148);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (823,'2026_06_16_190000_add_opt_out_token_to_seller_outreach_sends',149);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (824,'2026_06_16_190001_add_messaging_opt_out_source_to_contacts',149);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (825,'2026_06_16_190002_create_marketing_suppressions_table',150);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_16_190003_add_marketing_unsubscribe_footer_to_agencies',150);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (827,'2026_06_16_220000_add_outreach_live_deal_statuses_to_agencies',151);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (828,'2026_06_17_090000_add_messaging_all_blocked_to_contacts',152);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (829,'2026_06_17_160000_add_ss_show_complex_section_to_agencies',153);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (830,'2026_06_17_000001_change_oversight_nudges_subject_id_to_string',154);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (831,'2026_06_17_120000_add_agent_assignment_to_contacts_table',154);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (832,'2026_06_29_000001_add_provisional_to_communications_table',154);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (833,'2026_06_29_000002_add_comms_reconcile_settings_to_agencies',154);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (834,'2026_06_19_120000_add_structured_address_to_contacts_table',155);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (835,'2026_06_19_120100_add_address_match_mode_to_agency_contact_settings',155);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (836,'2026_06_18_120000_add_decision_and_source_to_contact_consent_records',156);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (837,'2026_06_19_090000_add_address_only_to_seller_outreach_sends',156);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (838,'2026_06_19_090100_wrap_matching_claim_in_outreach_templates',156);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (781,'2026_06_23_120000_normalize_user_phone_numbers',130);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (782,'2026_06_11_180000_add_comp_selection_settings_to_agencies',131);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (783,'2026_06_11_180500_add_thumbnail_source_url_to_prospecting_listings',131);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (784,'2026_06_11_190000_add_comp_curation_override_types',132);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (785,'2026_06_12_090000_add_thumbnail_blocked_reason_to_prospecting_listings',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (786,'2026_06_24_000000_add_in_analysis_to_presentation_versions_review_status',134);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (787,'2026_06_14_120000_add_day_windows_to_dashboard_settings',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (788,'2026_06_25_000001_create_agency_policies_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (789,'2026_06_25_000002_create_policy_versions_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_25_000003_create_policy_sections_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_25_000004_create_policy_acknowledgements_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_25_000005_create_policy_section_acknowledgements_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (793,'2026_06_26_000001_create_communications_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (794,'2026_06_26_000002_create_communication_attachments_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (795,'2026_06_26_000003_create_communication_links_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (796,'2026_06_26_000004_create_communication_mailboxes_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (797,'2026_06_26_000005_create_communication_wa_devices_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (798,'2026_06_26_000006_create_communication_pending_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (799,'2026_06_27_000001_create_communication_flags_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (800,'2026_06_27_000002_create_communication_flag_alerts_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (801,'2026_06_27_000003_add_classification_to_communication_pending_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (802,'2026_06_28_000001_add_user_fields_to_communication_mailboxes_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (803,'2026_06_28_000002_create_mailbox_credential_reveals_table',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (804,'2026_06_15_140000_add_communication_ingest_filter_to_agencies',137);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (805,'2026_06_16_140000_add_cma_band_pct_to_agencies',138);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (806,'2026_06_16_160000_set_cma_band_pct_asymmetric_default',138);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (807,'2026_06_16_180000_add_messaging_opt_in_to_contacts_table',139);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (808,'2026_06_16_181000_add_include_tracking_link_to_seller_outreach_templates',139);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (809,'2026_06_16_182000_add_public_contact_to_agencies',139);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (810,'2026_06_16_190000_add_opt_out_token_to_seller_outreach_sends',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (811,'2026_06_16_190001_add_messaging_opt_out_source_to_contacts',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (812,'2026_06_16_190002_create_marketing_suppressions_table',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (813,'2026_06_16_190003_add_marketing_unsubscribe_footer_to_agencies',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (814,'2026_06_16_220000_add_outreach_live_deal_statuses_to_agencies',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (815,'2026_06_17_090000_add_messaging_all_blocked_to_contacts',142);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (816,'2026_06_17_000001_change_oversight_nudges_subject_id_to_string',143);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (817,'2026_06_17_120000_add_agent_assignment_to_contacts_table',143);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (818,'2026_06_17_160000_add_ss_show_complex_section_to_agencies',143);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (819,'2026_06_18_120000_add_decision_and_source_to_contact_consent_records',144);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (820,'2026_06_29_000001_add_provisional_to_communications_table',145);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (821,'2026_06_29_000002_add_comms_reconcile_settings_to_agencies',145);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (822,'2026_06_19_120000_add_structured_address_to_contacts_table',146);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (823,'2026_06_19_120100_add_address_match_mode_to_agency_contact_settings',146);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (824,'2026_06_19_090000_add_address_only_to_seller_outreach_sends',147);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (825,'2026_06_19_090100_wrap_matching_claim_in_outreach_templates',147);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_29_000003_add_half_baths_to_properties_table',148);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (827,'2026_06_30_000001_remove_contact_fica_missing_notifications',149);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (828,'2026_06_19_000001_add_feedback_fanout_roles_to_agency_contact_settings',150);

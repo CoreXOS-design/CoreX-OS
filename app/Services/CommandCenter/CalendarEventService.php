@@ -13,6 +13,18 @@ class CalendarEventService
      */
     public function createManual(array $data, User $user): CalendarEvent
     {
+        // AT-66 §4.6 — property-centric classes must be linked to a property at
+        // creation (a link-less viewing renders a blank feedback body). Enforce
+        // at the service boundary too, so every caller (web, mobile API, future)
+        // gets the same guarantee. Clear message, never a silent link-less write.
+        $category = $data['category'] ?? 'manual';
+        if (in_array($category, ['viewing', 'listing_presentation', 'property_evaluation'], true)
+            && empty($data['property_id']) && empty($data['property_ids'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'property_id' => 'A ' . str_replace('_', ' ', $category) . ' must be linked to at least one property.',
+            ]);
+        }
+
         return CalendarEvent::create(array_merge($data, [
             'user_id'       => $data['user_id'] ?? $user->id,
             'created_by_id' => $user->id,

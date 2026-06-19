@@ -55,6 +55,27 @@ class CalendarEventClassSeeder extends Seeder
                 ->update($values);
         }
 
+        // AT-66 §4.1 — assert feedback_mode for property-centric classes.
+        // These are fundamentally about a property, so feedback is captured
+        // PER PROPERTY and fans out to that property's linked contacts (see
+        // .ai/specs/claude_viewing_feedback_per_property_spec.md). The
+        // migration default is 'per_contact'; viewing was wrongly left on it,
+        // which routed the feedback modal to the per-contact branch and — on
+        // link-less viewings — rendered a blank body. Reassert here at the
+        // canonical creation point so it survives every re-seed (do NOT rely
+        // on a one-off UPDATE). Property-less classes stay 'per_contact'.
+        $feedbackModeMap = [
+            'viewing'              => 'per_property',
+            'listing_presentation' => 'per_property',
+            'property_evaluation'  => 'per_property',
+        ];
+        foreach ($feedbackModeMap as $eventClass => $mode) {
+            CalendarEventClassSetting::withoutGlobalScopes()
+                ->where('event_class', $eventClass)
+                ->whereNull('agency_id')
+                ->update(['feedback_mode' => $mode]);
+        }
+
         $this->command->info('Seeded ' . count($this->classes()) . ' calendar event class settings.');
     }
 
