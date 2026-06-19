@@ -35,9 +35,20 @@ return new class extends Migration
 
         if (Schema::hasTable('notifications')) {
             // Notification `data` is stored as a JSON string in a text column.
-            DB::table('notifications')
-                ->where('data', 'like', '%"event_key":"contact.fica_missing"%')
-                ->delete();
+            //
+            // Delete in small chunks rather than one big statement: a single
+            // unindexed `LIKE` delete over the (large, actively-written)
+            // notifications table holds row locks long enough to hit the InnoDB
+            // lock-wait timeout. Each LIMITed delete commits and releases its
+            // locks immediately. The producer (contact.fica_missing) is already
+            // retired, so the matching set only ever shrinks — the loop ends when
+            // a batch removes nothing.
+            do {
+                $deleted = DB::table('notifications')
+                    ->where('data', 'like', '%"event_key":"contact.fica_missing"%')
+                    ->limit(500)
+                    ->delete();
+            } while ($deleted > 0);
         }
     }
 
