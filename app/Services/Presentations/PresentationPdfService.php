@@ -1763,7 +1763,7 @@ a:hover { text-decoration: underline; }
         <tr style="page-break-inside:avoid;break-inside:avoid;">
             <td><?= $esc($sale['address'] ?? '—') ?></td>
             <td><?= $sale['distance_m'] ? $sale['distance_m'] . 'm' : '—' ?></td>
-            <td class="num"><?= $sale['extent_m2'] ? number_format((int) $sale['extent_m2']) : '—' ?></td>
+            <td class="num"><?= !empty($sale['extent_display']) ? $esc($sale['extent_display']) : ($sale['extent_m2'] ? number_format((int) $sale['extent_m2']) : '—') ?></td>
             <td><?= $esc($sale['sale_date'] ?? '—') ?></td>
             <td class="num"><?= $zar($sale['sale_price'] ?? null) ?></td>
             <td class="num"><?= $sale['price_per_m2'] ? 'R ' . number_format((int) $sale['price_per_m2']) : '—' ?></td>
@@ -1832,7 +1832,7 @@ a:hover { text-decoration: underline; }
         <?php foreach ($complexTop as $sale): ?>
         <tr style="page-break-inside:avoid;break-inside:avoid;">
             <td><?= $esc($sale['address'] ?? '—') ?></td>
-            <td class="num"><?= $sale['extent_m2'] ? number_format((int) $sale['extent_m2']) : '—' ?></td>
+            <td class="num"><?= !empty($sale['extent_display']) ? $esc($sale['extent_display']) : ($sale['extent_m2'] ? number_format((int) $sale['extent_m2']) : '—') ?></td>
             <td><?= $esc($sale['sale_date'] ?? '—') ?></td>
             <td class="num"><?= $zar($sale['sale_price'] ?? null) ?></td>
             <td class="num"><?= $sale['price_per_m2'] ? 'R ' . number_format((int) $sale['price_per_m2']) : '—' ?></td>
@@ -2294,7 +2294,7 @@ a:hover { text-decoration: underline; }
         <tr>
             <td><?= $esc($comp['address'] ?? '—') ?></td>
             <td><?= $comp['distance_m'] ? $comp['distance_m'] . 'm' : '—' ?></td>
-            <td class="num"><?= $comp['extent_m2'] ? number_format((int) $comp['extent_m2']) : '—' ?></td>
+            <td class="num"><?= !empty($comp['extent_display']) ? $esc($comp['extent_display']) : ($comp['extent_m2'] ? number_format((int) $comp['extent_m2']) : '—') ?></td>
             <td><?= $esc($comp['sale_date'] ?? '—') ?></td>
             <td class="num"><?= $zar($comp['sale_price'] ?? null) ?></td>
             <td class="num"><?= isset($comp['price_per_m2']) && $comp['price_per_m2'] ? 'R ' . number_format((int) $comp['price_per_m2']) : '—' ?></td>

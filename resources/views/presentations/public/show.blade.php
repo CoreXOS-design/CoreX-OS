@@ -943,7 +943,7 @@
                         </td>
                         <td>{{ $row['sale_date'] ?? '—' }}</td>
                         <td class="num">{{ isset($row['sale_price']) ? 'R ' . number_format((int) $row['sale_price'], 0, '.', ' ') : '—' }}</td>
-                        <td class="num">{{ $row['extent_m2'] ?? '—' }}</td>
+                        <td class="num">{{ !empty($row['extent_display']) ? $row['extent_display'] : ($row['extent_m2'] ?? '—') }}</td>
                     </tr>
                 @endforeach
                 </tbody>
@@ -976,7 +976,7 @@
                         </td>
                         <td>{{ $row['sale_date'] ?? '—' }}</td>
                         <td class="num">{{ isset($row['sale_price']) ? 'R ' . number_format((int) $row['sale_price'], 0, '.', ' ') : '—' }}</td>
-                        <td class="num">{{ $row['extent_m2'] ?? '—' }}</td>
+                        <td class="num">{{ !empty($row['extent_display']) ? $row['extent_display'] : ($row['extent_m2'] ?? '—') }}</td>
                     </tr>
                 @endforeach
                 </tbody>

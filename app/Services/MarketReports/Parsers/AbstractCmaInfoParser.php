@@ -363,12 +363,21 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
      * is mis-read as a phantom section then nulled (CmaInfoSectionalTitleSales
      * radius table) — leaving section_number + extent_m2 NULL on a real comp.
      *
+     * The CMA's stacked-vs-separate layout encodes the title-deed reality —
+     * stacked = ONE title deed (sections sold together, inseparable); separate
+     * rows = separate deeds. The parser mirrors that exactly: it neither merges
+     * separate rows nor splits a stacked one. A stacked sale stays ONE comp,
+     * preserving BOTH section numbers AND BOTH extents for display.
+     *
      * The sale is ONE transaction: the price covers the combined unit and the
      * printed R/m² is price ÷ (sum of the section extents) — e.g.
      * R 500 000 ÷ (65 + 22 = 87 m²) = R 5 747. We therefore emit ONE logical
      * group per anchor, carrying:
-     *   - section_label = the owned sections joined "8 / 14"
-     *   - extent_sum    = the SUM of the section extents (the R/m² basis)
+     *   - section_label = the owned sections joined "8/14"
+     *   - extent_label  = BOTH extents joined "65/22" — the agent-facing cell,
+     *                     mirroring the source (NOT summed)
+     *   - extent_sum    = the SUM of the section extents — the math basis for
+     *                     size_m2 / R-per-m² ONLY (never shown raw)
      *   - the anchor's sale_date, SS no/year, scheme and every "R <amount>"
      *     figure in source order (the caller maps the R-figures to its own
      *     table's columns — radius: [price, r/m²]; valuation: [price, est]).
@@ -380,9 +389,10 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
      * adjacent schemes never steal each other's sections.
      *
      * @return list<array{
-     *   sections: list<string>, section_label: string, extent_sum: ?int,
-     *   sale_date: ?string, ss_number: ?string, ss_year: ?int,
-     *   r_amounts: list<int>, scheme_name: ?string
+     *   sections: list<string>, section_label: string, extents: list<int>,
+     *   extent_label: ?string, extent_sum: ?int, sale_date: ?string,
+     *   ss_number: ?string, ss_year: ?int, r_amounts: list<int>,
+     *   scheme_name: ?string
      * }>
      */
     protected function extractStackedSectionalGroups(string $text): array
@@ -475,7 +485,12 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
             $extentSum = array_sum($extents);
             $groups[] = [
                 'sections'      => $sections,
-                'section_label' => implode(' / ', $sections),
+                'section_label' => implode('/', $sections),
+                'extents'       => $extents,
+                // Display string mirroring the source — both extents preserved
+                // ("65/22"), NOT summed. The summed extent_sum is the math basis
+                // for size_m2 / R-per-m² only; the agent-facing cell shows both.
+                'extent_label'  => $extents !== [] ? implode('/', array_map('strval', $extents)) : null,
                 'extent_sum'    => $extentSum > 0 ? $extentSum : null,
                 'sale_date'     => $this->parseDate($date),
                 'ss_number'     => $ssNumber,

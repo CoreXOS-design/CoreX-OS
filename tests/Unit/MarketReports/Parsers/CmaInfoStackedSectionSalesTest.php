@@ -27,7 +27,9 @@ use Tests\TestCase;
  * The sale is ONE transaction: the price covers the combined unit and the
  * printed R/m² is price ÷ (sum of the section extents) — R 500 000 ÷
  * (65 + 22 = 87 m²) = R 5 747. So we emit ONE comp carrying the joined
- * section label ("8 / 14") and the SUMMED extent (87).
+ * section label ("8/14") and BOTH extents for display ("65/22"); extent_m2
+ * holds the SUMMED 87 as the math basis for size / R-per-m² only. The CMA's
+ * stacked-vs-separate layout is mirrored exactly — separate rows stay separate.
  *
  * Both parsers operate on extracted text; the extraction methods are private,
  * so we drive them via reflection with synthetic blocks reproducing the exact
@@ -74,12 +76,14 @@ final class CmaInfoStackedSectionSalesTest extends TestCase
 
         $this->assertNotNull($stacked, 'the stacked PUMULA sale (R500 000) must be parsed');
         $this->assertSame('PUMULA', $stacked['scheme_name']);
-        $this->assertSame('8 / 14', $stacked['section_number'],
-            'both owned sections are preserved, joined "8 / 14"');
+        $this->assertSame('8/14', $stacked['section_number'],
+            'both owned sections are preserved, joined "8/14" (mirrors the source)');
+        $this->assertSame('65/22', $stacked['extent_display'],
+            'BOTH extents are preserved for display — "65/22", NOT summed');
         $this->assertSame(87, $stacked['extent_m2'],
-            'the combined-unit extent is the SUM (65 + 22), the basis of the printed R/m²');
+            'extent_m2 is the SUM (65 + 22) — the math basis for size / R-per-m² only');
         $this->assertSame(5747, $stacked['r_per_m2'],
-            'R/m² is the printed 5 747 = 500 000 / 87');
+            'R/m² is the printed 5 747 = 500 000 / 87 (combined extent)');
     }
 
     public function test_radius_no_pumula_row_loses_section_or_extent(): void
@@ -154,8 +158,9 @@ final class CmaInfoStackedSectionSalesTest extends TestCase
 
         $this->assertNotNull($stacked, 'the stacked comp (R500 000) must be recovered, not dropped');
         $this->assertSame('PUMULA', $stacked['scheme_name']);
-        $this->assertSame('8 / 14', $stacked['section_number']);
-        $this->assertSame(87, $stacked['extent_m2']);
+        $this->assertSame('8/14', $stacked['section_number']);
+        $this->assertSame('65/22', $stacked['extent_display'], 'BOTH extents preserved for display');
+        $this->assertSame(87, $stacked['extent_m2'], 'summed math basis only');
         $this->assertSame(518000, $stacked['estimated_value'],
             'the second R-figure on the comparative anchor is the estimated value');
         $this->assertSame(5747, $stacked['r_per_m2'], 'R/m² = 500 000 / 87 (combined extent)');

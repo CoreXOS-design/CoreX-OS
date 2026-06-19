@@ -251,6 +251,13 @@ class AnalysisDataService
                 'distance_m'   => $raw['distance_m'] ?? null,
                 'erf_no'       => $raw['erf_no'] ?? null,
                 'extent_m2'    => $sizeM2 ? (int) $sizeM2 : null,
+                // Stacked multi-section comps carry BOTH extents ("65/22") for
+                // the rendered cell; extent_m2 stays the summed math basis for
+                // sorting / closest-match. Null for ordinary single rows, which
+                // render number_format(extent_m2) as before.
+                'extent_display' => (isset($raw['extent_display']) && is_string($raw['extent_display']) && $raw['extent_display'] !== '')
+                    ? $raw['extent_display']
+                    : null,
                 'sale_date'    => $comp->sold_date ? $comp->sold_date->format('Y/m/d') : null,
                 'sale_price'   => $comp->sold_price_inc,
                 'price_per_m2' => $raw['price_per_m2']

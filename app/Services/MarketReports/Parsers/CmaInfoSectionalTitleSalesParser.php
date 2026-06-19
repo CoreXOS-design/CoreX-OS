@@ -235,6 +235,10 @@ final class CmaInfoSectionalTitleSalesParser extends AbstractCmaInfoParser
                 'ss_year'        => $g['ss_year'],
                 'property_type'  => 'Residence',
                 'extent_m2'      => $extent,
+                // BOTH extents preserved for display ("65/22"); extent_m2 above
+                // is the summed math basis only. Rides in raw_row_json through
+                // to the comp's rendered "Unit m²" cell.
+                'extent_display' => $g['extent_label'],
                 'sale_date'      => $g['sale_date'],
                 'sale_price'     => $price,
                 'r_per_m2'       => $ppm,

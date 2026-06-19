@@ -414,6 +414,9 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
                 'ss_year'         => $g['ss_year'],
                 'property_type'   => 'Residence',
                 'extent_m2'       => $extent,
+                // BOTH extents preserved for display ("65/22"); extent_m2 above
+                // is the summed math basis only.
+                'extent_display'  => $g['extent_label'],
                 'sale_date'       => $g['sale_date'],
                 'sale_price'      => $price,
                 'estimated_value' => $est,

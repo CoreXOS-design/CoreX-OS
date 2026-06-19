@@ -836,6 +836,12 @@ final class MicSnapshotHydrator
                                     : (($row->extent_m2 && $row->list_price)
                                         ? (int) round($row->list_price / $row->extent_m2)
                                         : null),
+            // Stacked multi-section comps preserve BOTH extents ("65/22") for
+            // display while extent_m2 above is the summed math basis. The
+            // parser stashes this in the source raw_row_json; pass it through so
+            // the rendered "Unit m²" cell mirrors the source. Null for the
+            // overwhelming majority (single-section / freehold) rows.
+            'extent_display'      => $this->sourceExtentDisplay($row),
             'subject_match_used'  => in_array((int) $row->market_report_id, $sourceReportIds, true),
             // CMA-map fix — expose GPS so the review-screen marker
             // placement (PresentationReviewController:117) reads real
@@ -846,6 +852,20 @@ final class MicSnapshotHydrator
             'longitude'           => $lng,
         ];
         return json_encode($payload, JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Read the both-extents display string ("65/22") the CMA parser stashed in
+     * the source comp row's raw_row_json for stacked multi-section sales.
+     * Returns null for every ordinary single-section / freehold row.
+     */
+    private function sourceExtentDisplay(object $row): ?string
+    {
+        if (empty($row->raw_row_json) || !is_string($row->raw_row_json)) return null;
+        $decoded = json_decode($row->raw_row_json, true);
+        if (!is_array($decoded)) return null;
+        $val = $decoded['extent_display'] ?? null;
+        return (is_string($val) && $val !== '') ? $val : null;
     }
 
     // ── Suburb metrics ─────────────────────────────────────────────────────
