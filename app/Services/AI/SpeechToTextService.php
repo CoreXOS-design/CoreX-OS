@@ -15,12 +15,29 @@ class SpeechToTextService
     private string $baseUrl;
     private int $timeout;
     private int $maxSeconds;
+    /** @var array<string,string> Sensitivity params forwarded to the /transcribe endpoint. */
+    private array $tuning;
 
     public function __construct()
     {
         $this->baseUrl    = rtrim((string) (config('services.hf_ai.base_url') ?? env('HF_AI_BASE_URL', 'http://127.0.0.1:3100')), '/');
         $this->timeout    = (int) (config('services.hf_ai.transcribe_timeout') ?? env('HF_AI_TRANSCRIBE_TIMEOUT', 15));
         $this->maxSeconds = (int) (config('services.hf_ai.voice_max_seconds') ?? env('AI_VOICE_MAX_SECONDS', 30));
+
+        // Sent as multipart form fields alongside the audio. Booleans are sent
+        // as '0'/'1' strings; the Python endpoint coerces them back. A blank
+        // field is omitted so the endpoint keeps its own default.
+        $this->tuning = array_filter([
+            'vad_filter'          => filter_var(config('services.hf_ai.vad_filter'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0',
+            'no_speech_threshold' => $this->stringOrNull(config('services.hf_ai.no_speech_threshold')),
+            'log_prob_threshold'  => $this->stringOrNull(config('services.hf_ai.log_prob_threshold')),
+            'initial_prompt'      => $this->stringOrNull(config('services.hf_ai.initial_prompt')),
+        ], fn ($v) => $v !== null);
+    }
+
+    private function stringOrNull(mixed $value): ?string
+    {
+        return ($value === null || $value === '') ? null : (string) $value;
     }
 
     /**
@@ -40,7 +57,7 @@ class SpeechToTextService
             ->attach('audio', file_get_contents($path), $audio->getClientOriginalName() ?: 'audio.webm', [
                 'Content-Type' => $audio->getMimeType() ?: 'application/octet-stream',
             ])
-            ->post($this->baseUrl . '/transcribe');
+            ->post($this->baseUrl . '/transcribe', $this->tuning);
 
         if (!$response->successful()) {
             Log::warning('SpeechToTextService: transcribe failed', [

@@ -1,0 +1,23 @@
+# Reference copy of the systemd unit. Lives at /etc/systemd/system/hf-ai.service on the host.
+# This matches the unit that was already installed — kept here so the whole service
+# (code + unit) is version-controlled and reproducible.
+[Unit]
+Description=HF AI service (Ellie chat + Whisper transcribe)
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/hf-ai/openai.env
+Environment=WHISPER_MODEL=small.en
+Environment=WHISPER_MAX_SECONDS=30
+Type=simple
+WorkingDirectory=/opt/hf-ai
+ExecStart=/opt/hf-ai/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 3100 --workers 1
+Restart=always
+RestartSec=2
+# Backstop: if it ever crash-loops again, stop hammering after 5 fails in 60s
+# so `systemctl status` shows a clean "failed" instead of an endless restart count.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
