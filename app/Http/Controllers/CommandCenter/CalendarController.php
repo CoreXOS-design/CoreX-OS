@@ -996,8 +996,18 @@ class CalendarController extends Controller
         ]);
 
         // Resolve property_ids from either property_ids[] array or single property_id
-        $propertyIds = $data['property_ids'] ?? ($data['property_id'] ? [$data['property_id']] : []);
+        $propertyIds = $data['property_ids'] ?? (($data['property_id'] ?? null) ? [$data['property_id']] : []);
         $data['_resolved_property_ids'] = $propertyIds;
+
+        // AT-66 §4.6 — property-centric classes MUST be linked to a property at
+        // creation time. A link-less viewing is exactly what produced the blank
+        // feedback body; prevent it here with a clear message rather than write
+        // a silent link-less event.
+        if (in_array($data['category'], ['viewing', 'listing_presentation', 'property_evaluation'], true) && empty($propertyIds)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'property_id' => 'Select the property being viewed — a ' . str_replace('_', ' ', $data['category']) . ' must be linked to at least one property.',
+            ]);
+        }
 
         // Class-config cap enforcement: reject multiple properties for single-property classes
         if (count($propertyIds) > 1) {
@@ -1024,7 +1034,7 @@ class CalendarController extends Controller
                 'title'         => $data['title'],
                 'description'   => ($data['description'] ?? '') ?: null,
                 'event_date'    => $data['event_date'],
-                'end_date'      => $data['end_date'] ?: null,
+                'end_date'      => ($data['end_date'] ?? null) ?: null,
                 'all_day'       => Carbon::parse($data['event_date'])->format('H:i:s') === '00:00:00',
                 'status'        => 'pending',
                 'priority'      => 'normal',
