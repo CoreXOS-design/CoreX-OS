@@ -11,6 +11,7 @@ use App\Models\SellerOutreach\SellerOutreachTemplate;
 use App\Models\User;
 use App\Services\Prospecting\ProspectingConfigurationService;
 use App\Services\Prospecting\ProspectingIntelligenceService;
+use App\Support\SellerOutreach\OutreachAddress;
 use App\Support\SellerOutreach\OutreachContext;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -35,7 +36,7 @@ final class SellerOutreachComposerService
     public function composeContext(
         int $agencyId,
         Contact $contact,
-        Property $property,
+        ?Property $property,
         string $channel,
         ?int $templateId = null,
         ?User $agent = null,
@@ -43,6 +44,15 @@ final class SellerOutreachComposerService
         ?string $subjectOverride = null,
     ): OutreachContext {
         $this->assertSameAgency($agencyId, $contact, $property);
+
+        // AT-61 — the address the pitch is composed against. A linked Property
+        // is the richer source (carries property_type/beds/price → enables the
+        // per-property matching claim); a contact's structured address (AT-60)
+        // is the address-only source (area-level demand statement only, no
+        // Property created).
+        $address = $property !== null
+            ? OutreachAddress::fromProperty($property)
+            : OutreachAddress::fromContact($contact);
 
         $agent = $agent ?? Auth::user();
         if (!$agent instanceof User) {
@@ -68,7 +78,7 @@ final class SellerOutreachComposerService
                     ->first();
         }
 
-        $mergeFields = $this->buildMergeFields($agencyId, $contact, $property, $agent);
+        $mergeFields = $this->buildMergeFields($agencyId, $contact, $address, $property, $agent);
 
         $bodyTemplate = $bodyOverride ?? ($template?->body ?? '');
         $subjectTemplate = $subjectOverride ?? ($template?->subject ?? '');
@@ -106,6 +116,7 @@ final class SellerOutreachComposerService
         return new OutreachContext(
             contact: $contact,
             property: $property,
+            address: $address,
             agent: $agent,
             agencyId: $agencyId,
             template: $template,
@@ -122,17 +133,33 @@ final class SellerOutreachComposerService
         );
     }
 
-    private function buildMergeFields(int $agencyId, Contact $contact, Property $property, User $agent): array
+    /**
+     * AT-61 — builds the merge-field map from an ADDRESS source plus an
+     * OPTIONAL Property.
+     *
+     * - Area-level fields (address, suburb, town, {buyer_count}) come from the
+     *   address DTO and work identically whether the address came from a linked
+     *   Property or a contact's structured address.
+     * - Per-property fields (property_type, property_beds, {matching_buyer_count})
+     *   require a Property. In address-only mode ($property === null) they are
+     *   blank and {matching_buyer_count} is NOT emitted — an address gives us a
+     *   suburb, not a property's type/beds/price, so a "X buyers match THIS
+     *   property" claim would be dishonest. The {?matching_buyer_count}…{/…}
+     *   optional segment in the templates collapses on the empty value.
+     */
+    private function buildMergeFields(int $agencyId, Contact $contact, OutreachAddress $address, ?Property $property, User $agent): array
     {
-        $propertyAddress = $this->propertyAddress($property);
-        $propertySuburb = (string) ($property->suburb ?? '');
-        $propertyType = $property->property_type ?? null;
+        $propertyAddress = $address->displayAddress();
+        $propertySuburb = (string) ($address->suburb ?? '');
+        // Per-property attributes only exist when a Property is linked.
         // Properties table column is `beds`, not `bedrooms` — confirmed in pre-flight.
-        $propertyBeds = $property->beds ?? null;
-        $propertyPrice = $property->price ?? null;
-        $listingType = $property->listing_type ?? 'sale';
+        $propertyType = $property?->property_type ?? null;
+        $propertyBeds = $property?->beds ?? null;
+        $propertyPrice = $property?->price ?? null;
+        $listingType = $property?->listing_type ?? 'sale';
 
-        $town = $propertySuburb !== '' ? $this->config->suburbToTown($agencyId, $propertySuburb) : null;
+        $town = $address->town
+            ?? ($propertySuburb !== '' ? $this->config->suburbToTown($agencyId, $propertySuburb) : null);
         $propertyTypeOpt = $propertyType
             ? $this->config->propertyTypes($agencyId, activeOnly: false)
                 ->firstWhere('slug', Str::slug($propertyType))
@@ -164,7 +191,14 @@ final class SellerOutreachComposerService
         // matching = subset of the town buyers (when we have a town) who also
         // match property_type AND bedroom AND price_band. Without a town we
         // can't honestly attribute "matching" to a place — return 0.
-        if ($townBuyerIds === null) {
+        //
+        // AT-61 — address-only mode ($property === null): there is no
+        // property_type/beds/price to match against, so we make NO per-property
+        // claim. null here → '' in the merge map → the {?matching_buyer_count}
+        // segment collapses, leaving only the honest area-level statement.
+        if ($property === null) {
+            $matchingBuyerCount = null;
+        } elseif ($townBuyerIds === null) {
             $matchingBuyerCount = 0;
         } else {
             $matchingIds = $townBuyerIds;
@@ -191,7 +225,10 @@ final class SellerOutreachComposerService
             'property_address' => $propertyAddress,
             'property_suburb' => $propertySuburb,
             'property_town' => $town?->name ?? ($propertySuburb !== '' ? $propertySuburb : 'your area'),
-            'property_type' => $propertyType ?? 'property',
+            // AT-61 — in address-only mode there is no property type/beds, so
+            // these stay blank (and the per-property clause that uses them
+            // collapses). In property mode keep the existing 'property' default.
+            'property_type' => $property !== null ? ($propertyType ?? 'property') : '',
             'property_beds' => $propertyBeds !== null ? (string) $propertyBeds : '',
             'agent_name' => $this->agentDisplayName($agent),
             'agent_phone' => $this->agentDisplayPhone($agent) ?? '',
@@ -203,7 +240,10 @@ final class SellerOutreachComposerService
             'agent_ffc' => $this->agentFfcNumber($agent),
             'branch_or_company_tel' => $this->branchOrCompanyTel($agencyId, $agent),
             'buyer_count' => (string) $buyerCount,
-            'matching_buyer_count' => (string) $matchingBuyerCount,
+            // AT-61 — '' (not '0') in address-only mode so the optional
+            // {?matching_buyer_count} segment collapses entirely. A real
+            // linked property always yields a numeric string (incl. '0').
+            'matching_buyer_count' => $matchingBuyerCount === null ? '' : (string) $matchingBuyerCount,
             // `tracking_link` is intentionally NOT substituted into the body
             // here — `renderBody()` skips it so the agent sees the literal
             // `{tracking_link}` merge token in the composer's textarea
@@ -279,20 +319,6 @@ final class SellerOutreachComposerService
             ->where('is_default_for_channel', true)
             ->whereNull('deleted_at')
             ->first();
-    }
-
-    private function propertyAddress(Property $property): string
-    {
-        $line1 = trim(((string) ($property->street_number ?? '')) . ' ' . ((string) ($property->street_name ?? '')));
-        $line1 = trim($line1);
-        $parts = array_filter([
-            $line1 !== '' ? $line1 : null,
-            !empty($property->suburb) ? (string) $property->suburb : null,
-        ]);
-        if (!empty($parts)) {
-            return implode(', ', $parts);
-        }
-        return (string) ($property->address ?? '(address unavailable)');
     }
 
     private function sellerDisplayName(Contact $contact): string
@@ -432,12 +458,13 @@ final class SellerOutreachComposerService
         return $agencyPhone ? (string) $agencyPhone : '';
     }
 
-    private function assertSameAgency(int $agencyId, Contact $contact, Property $property): void
+    private function assertSameAgency(int $agencyId, Contact $contact, ?Property $property): void
     {
         if ((int) $contact->agency_id !== $agencyId) {
             throw new \InvalidArgumentException("Contact {$contact->id} is not in agency {$agencyId}.");
         }
-        if ((int) $property->agency_id !== $agencyId) {
+        // AT-61 — property is optional (address-only mode). Only assert when present.
+        if ($property !== null && (int) $property->agency_id !== $agencyId) {
             throw new \InvalidArgumentException("Property {$property->id} is not in agency {$agencyId}.");
         }
     }

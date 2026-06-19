@@ -2628,9 +2628,11 @@ CREATE TABLE `contact_consent_records` (
   `contact_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned NOT NULL,
   `consent_type` enum('fica_processing','marketing_communications','data_sharing','channel_email','channel_sms','channel_whatsapp','channel_call') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `decision` enum('given','declined') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'given',
   `given_at` timestamp NOT NULL,
-  `given_by_user_id` bigint unsigned NOT NULL,
+  `given_by_user_id` bigint unsigned DEFAULT NULL,
   `method` enum('verbal','written','electronic','signed_document') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `evidence_document_id` bigint unsigned DEFAULT NULL,
   `revoked_at` timestamp NULL DEFAULT NULL,
   `revoked_by_user_id` bigint unsigned DEFAULT NULL,
@@ -9611,7 +9613,7 @@ CREATE TABLE `seller_outreach_sends` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned NOT NULL,
-  `property_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned DEFAULT NULL,
   `agent_id` bigint unsigned DEFAULT NULL,
   `template_id` bigint unsigned DEFAULT NULL,
   `channel` enum('whatsapp','email') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -9622,6 +9624,8 @@ CREATE TABLE `seller_outreach_sends` (
   `opt_out_token` varchar(48) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `recipient_phone_snapshot` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `recipient_email_snapshot` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address_snapshot` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb_snapshot` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sent_at` timestamp NOT NULL,
   `first_clicked_at` timestamp NULL DEFAULT NULL,
   `outcome` enum('sent','clicked','replied','booked','no_response','not_interested','bounced') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sent',
@@ -11903,3 +11907,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (832,'2026_06_29_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (833,'2026_06_29_000002_add_comms_reconcile_settings_to_agencies',154);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (834,'2026_06_19_120000_add_structured_address_to_contacts_table',155);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (835,'2026_06_19_120100_add_address_match_mode_to_agency_contact_settings',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (836,'2026_06_18_120000_add_decision_and_source_to_contact_consent_records',156);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (837,'2026_06_19_090000_add_address_only_to_seller_outreach_sends',156);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (838,'2026_06_19_090100_wrap_matching_claim_in_outreach_templates',156);

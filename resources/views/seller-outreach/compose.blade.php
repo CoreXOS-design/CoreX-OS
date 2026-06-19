@@ -44,16 +44,19 @@
         </div>
     @endif
 
-    {{-- Empty state: contact has no linked properties --}}
-    @if($linkedProperties->isEmpty())
+    {{-- Empty state: contact has neither a linked property NOR a captured
+         structured address. AT-61 — when an address IS captured we render the
+         composer in address-only mode below instead of this dead-end. --}}
+    @if($linkedProperties->isEmpty() && !($addressOnly ?? false))
         <div class="rounded-md px-6 py-10 text-center"
              style="background: var(--surface); border: 1px dashed var(--border); color: var(--text-secondary);">
             <h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
-                No properties linked to this contact
+                No property or address to pitch about
             </h2>
             <p class="text-sm mb-4">
-                The composer needs a specific property to pitch about. Link a property to
-                {{ $contact->first_name ?: 'this contact' }} first.
+                The composer needs either a linked property or a captured address to pitch about.
+                Link a property to {{ $contact->first_name ?: 'this contact' }}, or capture the
+                property address on the contact, first.
             </p>
             <a href="{{ route('corex.contacts.show', $contact) }}"
                class="inline-flex items-center px-4 py-2 rounded text-sm font-semibold"
@@ -74,6 +77,7 @@
                     'availableTemplates' => $availableTemplates,
                     'context'            => $context,
                     'propertyStatuses'   => $propertyStatuses ?? [],
+                    'addressOnly'        => $addressOnly ?? false,
                 ])
             </div>
             <div class="lg:col-span-2">
@@ -133,7 +137,10 @@ function composerState(init) {
                         'Accept': 'application/json',
                     },
                     body: new URLSearchParams({
-                        property_id: this.propertyId,
+                        // AT-61 — address-only mode has no property; send ''
+                        // (not the JS literal null, which would serialise to
+                        // the string "null" and fail `nullable|integer`).
+                        property_id: this.propertyId || '',
                         channel: this.channel,
                         template_id: this.templateId || '',
                         subject: this.subject || '',
