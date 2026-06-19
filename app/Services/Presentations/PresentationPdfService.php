@@ -838,16 +838,73 @@ body {
     print-color-adjust: exact;
 }
 
-/* ── PAGE BREAK HELPERS ──────────────────────────────────────────────── */
-/* Always pair the legacy `page-break-inside` with the modern `break-inside`.
-   The headless-Chrome render host (server-bundled puppeteer Chromium) can
-   differ in version from a developer's local Chromium, and the LayoutNG
-   fragmentation engine honours the modern property; the legacy alias alone
-   is not reliable across versions. Carrying both keeps a wrapped block whole
-   regardless of which Chromium prints it. */
-.page-break { page-break-before: always; }
-.avoid-break { page-break-inside: avoid; break-inside: avoid; }
-/* AT-22 item 4 — the closing CTA + footer travel together and carry NO
+/* ── PAGINATION POLICY ───────────────────────────────────────────────────
+   ONE document-wide policy governs every section/block. This replaces the
+   old block-by-block page-break patches (which stranded headings, left blank
+   half-pages, and pushed content). Six rules, applied by semantic selector —
+   not by scattering wraps per block.
+
+   Every legacy `page-break-*` is paired with the modern `break-*`: the
+   server's headless-Chromium LayoutNG fragmentation engine honours the modern
+   property; the legacy alias covers older engines. Carrying both keeps the
+   policy stable regardless of which Chromium prints it.
+
+   R1 CONTINUOUS FLOW — only the cover owns a page. Every section flows on
+      directly from the one before it; there are NO per-section forced page
+      breaks (those were the blank-half-page cause). The single deliberate
+      break is `.cover`'s break-after.
+   R2 KEEP-WITH-NEXT (heading glue) — a heading never renders at a page foot
+      with its body on the next page. Headings glue to what follows; the
+      section intro glues to its heading above AND its first body block below,
+      so heading + intro + first block move as one unit.
+   R3 NO BROKEN FIXED BLOCKS — metric-tile rows, charts/SVGs, callouts and
+      cards are atomic: they move whole, never split.
+   R4 TABLES MAY SPLIT — the ONE thing allowed to span pages — but the header
+      row repeats on every page and no individual row is split.
+   R5 NO EMPTY-PAGE PADDING — emergent from R1 + R3: the page fills with what
+      fits and only the block that will not fit moves on. Nothing forces a gap.
+   R6 ORPHANS/WIDOWS — no single line is ever stranded alone. */
+
+/* R1 — continuous flow: only the cover forces a page. */
+.cover       { page-break-after: always; break-after: page; }
+/* Retained for rare, DELIBERATE explicit breaks only — NOT used per-section. */
+.page-break  { page-break-before: always; break-before: page; }
+
+/* R2 — keep-with-next. Headings glue DOWN to the content that follows. */
+h2, h3, h4,
+.section-header,
+.beat-eyebrow {
+    page-break-after: avoid;  break-after: avoid;
+    page-break-inside: avoid; break-inside: avoid;
+}
+.section-intro {
+    page-break-before: avoid; break-before: avoid;   /* glue under its heading */
+    page-break-after:  avoid; break-after:  avoid;    /* glue to first body block */
+    page-break-inside: avoid; break-inside: avoid;
+}
+
+/* R3 — unsplittable fixed blocks move whole. */
+.avoid-break,
+.metric-grid, .metric-card,
+.callout,
+.subject-card,
+.two-col,
+.chart, .chart-box, .chart-wrap, svg,
+.table-summary {
+    page-break-inside: avoid; break-inside: avoid;
+}
+
+/* R4 — tables may split; header repeats; rows stay intact. */
+table { page-break-inside: auto; break-inside: auto; }
+thead { display: table-header-group; }
+tfoot { display: table-footer-group; }
+tr, th, td { page-break-inside: avoid; break-inside: avoid; }
+
+/* R6 — orphans/widows document-wide. */
+body { orphans: 2; widows: 2; }
+p, li, td, .section-intro { orphans: 2; widows: 2; }
+
+/* R5 — AT-22 item 4: the closing CTA + footer travel together and carry NO
    trailing margin, so the document's last box never spills a hair past the
    page content-box and triggers chromium to emit an empty final page. */
 .report-tail { page-break-inside: avoid; break-inside: avoid; }
@@ -874,7 +931,13 @@ h3 { font-size: 14px; font-weight: 600; }
    number circle, page-break-after:avoid so it never orphans from its
    section. */
 .beat-eyebrow {
-    display: inline-block;
+    /* BLOCK (not inline-block) with shrink-to-fit width so the pill keeps its
+       content width AND `break-after: avoid` is actually honoured — the
+       fragmentation engine ignores break-after on inline-level boxes, which is
+       why the eyebrow used to strand at a page foot while its section header
+       moved to the next page. */
+    display: block;
+    width: fit-content;
     padding: 3px 10px;
     margin-bottom: 6px;
     background: var(--brand);
@@ -884,7 +947,7 @@ h3 { font-size: 14px; font-weight: 600; }
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    page-break-after: avoid;
+    page-break-after: avoid; break-after: avoid;
 }
 .section-header h2 { color: var(--brand); }
 .section-number {
@@ -1421,7 +1484,6 @@ a:hover { text-decoration: underline; }
       // where they belong as proof, not summary. The bullets each
       // carry their canonical figures + a → p.{N} cross-reference
       // computed in buildSummaryPayload(). ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number">__SECNO__</span>
     <h2>Executive Summary</h2>
@@ -1464,7 +1526,6 @@ a:hover { text-decoration: underline; }
       // .subject-card so it never splits across a page boundary.
       // POPIA: no owner field is rendered.
       // ══════════════════════════════════════════════════════════════════════ ?>
-<div class="page-break"></div>
 <div class="beat-eyebrow">Section <?= $summary['section_index']['your_property'] ?? 3 ?> · Beat 1 — Your Property</div>
 <div class="subject-card">
     <div class="subject-card-header">
@@ -1729,7 +1790,6 @@ a:hover { text-decoration: underline; }
 ?>
 
 <?php if ($renderVicinitySurface): ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number">__SECNO__</span>
     <h2>Recent Sales Near Your Property</h2>
@@ -1800,7 +1860,7 @@ a:hover { text-decoration: underline; }
       // comps when the vicinity group is empty.
 ?>
 <?php if ($showComplexSales): ?>
-<?php if (!$renderVicinitySurface): ?><div class="page-break"></div><?php endif // standalone complex starts a fresh page when the vicinity surface was suppressed ?>
+<?php // R1 continuous flow: the standalone complex section flows on directly — no forced page break. ?>
 <?php
     // Sort by date desc, top 15 — same shape as the vicinity table.
     $complexTop = $complexSales;
@@ -2216,7 +2276,6 @@ a:hover { text-decoration: underline; }
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php ob_start(); ?>
 <?php if ($sectionEnabled('cma_analysis')): ?>
-<div class="page-break"></div>
 <div class="beat-eyebrow">Section <?= $summary['section_index']['recommendation'] ?? 6 ?> · Beat 4 — Where You Should Be</div>
 <div class="section-header">
     <span class="section-number">__SECNO__</span>
@@ -2424,7 +2483,6 @@ a:hover { text-decoration: underline; }
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php ob_start(); ?>
 <?php if ($sectionEnabled('active_competition')): ?>
-<div class="page-break"></div>
 <div class="beat-eyebrow">Section <?= $summary['section_index']['competition'] ?? 5 ?> · Beat 3 — What's On The Market Now</div>
 <div class="section-header">
     <span class="section-number">__SECNO__</span>
@@ -2880,7 +2938,6 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php ob_start(); ?>
 <?php if (!empty($propcon['has_data'])): ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number">__SECNO__</span>
     <h2>Listing Performance &mdash; Similar Properties</h2>
@@ -3287,7 +3344,6 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         $simCfg       = $simConfig['config'] ?? [];
         $simNarrative = $simConfig['narrative'] ?? '';
 ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number">__SECNO__</span>
     <h2>Pricing Scenarios</h2>
@@ -3458,7 +3514,6 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
     $pdfArticles = $presentation->articles;
     if ($pdfArticles->isNotEmpty()):
 ?>
-<div class="page-break"></div>
 <div class="section-header">
     <span class="section-number">&bull;</span>
     <h2>Market Context</h2>

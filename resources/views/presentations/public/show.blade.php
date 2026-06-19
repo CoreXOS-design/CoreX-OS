@@ -716,15 +716,44 @@
             margin-bottom: 14px;
         }
 
-        /* ── @media print — strip interactive chrome, ensure page-break
-              behaviour for the HTML-as-PDF flow used today ── */
+        /* ── @media print — the seller HTML-as-PDF flow obeys the SAME
+              pagination policy as PresentationPdfService (R1-R6): one
+              governing ruleset, no per-section forced breaks. ── */
         @media print {
             .fcp-button, .agent-footer .af-action, .holding-callout .hc-disclosure { display: none !important; }
             .freshness-cta-panel, .notice { box-shadow: none !important; }
-            section.block, .agent-footer { page-break-inside: avoid; }
-            .beat-divider { page-break-before: always; }
             body { background: #fff !important; }
             .hero-image { background-attachment: scroll !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+            /* R1 CONTINUOUS FLOW — sections flow one after another; nothing
+               forces a per-section page break (the old `.beat-divider`
+               page-break-before stranded each beat on its own page and left
+               blank half-pages). Sections may split naturally. */
+            section.block { page-break-inside: auto; break-inside: auto; }
+            .beat-divider { page-break-before: auto; break-before: auto; }
+
+            /* R2 KEEP-WITH-NEXT — headings/eyebrows glue to the content below. */
+            h2, h3, .beat-title, .beat-eyebrow, .beat-sub,
+            .block-eyebrow, .block-caption {
+                page-break-after: avoid;  break-after: avoid;
+                page-break-inside: avoid; break-inside: avoid;
+            }
+
+            /* R3 NO BROKEN FIXED BLOCKS — tile rows, charts, callouts, cards
+               move whole. */
+            .kpi-grid, .facts-grid, .comp-grid, .comp-card,
+            .chart-container, .holding-callout, .af-grid, .agent-footer {
+                page-break-inside: avoid; break-inside: avoid;
+            }
+
+            /* R4 TABLES MAY SPLIT — header repeats, rows never split. */
+            table { page-break-inside: auto; break-inside: auto; }
+            thead { display: table-header-group; }
+            tfoot { display: table-footer-group; }
+            tr, th, td { page-break-inside: avoid; break-inside: avoid; }
+
+            /* R6 ORPHANS/WIDOWS. */
+            body, p, li, td { orphans: 2; widows: 2; }
         }
     </style>
 </head>
