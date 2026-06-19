@@ -223,8 +223,9 @@ listeners moved to `p24-location-changed:p24`. The contact picker uses
 form, but read `$contact->suburb/city/province/street_address` — columns that
 **never existed on contacts**, so the prefill silently no-oped. Fixed to read the
 new structured columns and prefill the property form field-for-field (six address
-fields + P24 ids/names). The existing auto-link (hidden `pending_contact_ids[]`
-→ `ContactLinkedToProperty` on store) is unchanged.
+fields + P24 ids/names). The contact is auto-linked by seeding it as a visible,
+pre-selected chip in the create screen's Contacts tab (see "Pre-linked contact is
+VISIBLE on the create screen" below) → `ContactLinkedToProperty` on store.
 
 ### Header + transfer-button UI fixes (2026-06-19)
 - **Header layout:** the contact hero card laid every action button as a direct
@@ -239,10 +240,31 @@ fields + P24 ids/names). The existing auto-link (hidden `pending_contact_ids[]`
   rel="noopener"`, so the agent keeps their place on the contact.
 - **Auto-link on BOTH buttons:** both navigate to `GET …/create?contact_id={id}`,
   so the `contact_id` travels in the URL into the new tab; `create()` sets
-  `$preLinkedContact` → the form emits the hidden `pending_contact_ids[]` input →
-  `store()` links the contact (`ContactLinkedToProperty`, `syncWithoutDetaching`
-  so existing links are kept). "Create Listing" links even with no address;
-  "Use for property" still requires a captured structured address.
+  `$preLinkedContact`. "Create Listing" links even with no address; "Use for
+  property" still requires a captured structured address.
+
+### Pre-linked contact is VISIBLE on the create screen (2026-06-19 bugfix)
+The pre-linked contact must appear **pre-selected and visible** in the Contacts
+tab's "Contacts to Link" list the moment the create screen opens — not deferred
+to save. The first implementation emitted only a **hidden** `pending_contact_ids[]`
+input on the Info tab, so the Contacts tab still read "None selected yet"; the
+agent saw nothing linked and re-linked manually, defeating the button.
+
+The create-screen Contacts tab is driven by the Alpine `pendingContactsManager`,
+whose `pending` array renders the visible chips (the same array a manual
+search-add pushes into). The component now takes a `seed` argument:
+`pendingContactsManager(searchUrl, seed = [])`, and the Contacts-tab `x-data`
+seeds it from `$preLinkedContact` via
+`\Illuminate\Support\Js::from([['id'=>…,'name'=>…,'phone'=>…,'email'=>…]])`. The
+contact renders as an **already-selected, removable chip** identical to a manual
+add, and submits via the chip's own `pending_contact_ids[idx]` input
+(`form="prop-update-form"`, present in-DOM even while the tab is `x-show`-hidden).
+The redundant Info-tab hidden input + static "Linking to:" banner were removed —
+a hidden-input-that-links-on-save is the wrong model, and the banner went stale
+the instant the agent removed the chip. The chip is the single visible source of
+truth; removing it then saving creates a valid unlinked property (agent's choice).
+Linking still flows through `store()` → `syncWithoutDetaching` +
+`ContactLinkedToProperty` (non-negotiable #9, unchanged).
 
 ### Duplicate guard (Universal Match-or-Create, non-negotiable #10)
 Before prefilling, `App\Services\Contact\ContactAddressPropertyGuard` checks
@@ -268,14 +290,16 @@ user-clear message, transaction-wrapped — and writes **only** the structured
 columns. `ContactController::update` (Info/residential) keeps its own
 `address` rule and no longer touches the structured columns.
 
-**Tests:** `tests/Feature/Contacts/ContactStructuredAddressTest.php` (15) —
+**Tests:** `tests/Feature/Contacts/ContactStructuredAddressTest.php` (17) —
 residential-saves-without-touching-structured / structured-save-doesn't-touch-
 residential / structured-with-no-prior-residential-leaves-address-null /
 legacy-free-text-renders-under-info / partial / lazy-single / dangling-name-
 rejected / p24-id-mapping / create-prefill / auto-link-on-store / guard-offers-
-match / guard-off-mode / create-from-contact-emits-autolink-input-even-without-
-address / create-listing-no-address-links-on-store / store-links-without-
-detaching-existing.
+match / guard-off-mode / create-from-contact-seeds-visible-prelinked-chip-even-
+without-address (asserts the seed IS rendered AND the old hidden input + "Linking
+to:" banner are GONE) / create-from-contact-with-address-seeds-visible-chip /
+create-without-contact_id-seeds-empty-pending-list / create-listing-no-address-
+links-on-store / store-links-without-detaching-existing.
 
 ---
 
