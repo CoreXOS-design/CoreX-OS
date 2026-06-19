@@ -746,10 +746,12 @@
                 page-break-inside: avoid; break-inside: avoid;
             }
 
-            /* R4 TABLES MAY SPLIT — header repeats, rows never split. */
+            /* R4 TABLES MAY SPLIT — header repeats, rows never split. No
+               repeating <tfoot> summary (Fix A): a tfoot is table-footer-group
+               and Chromium repeats it per fragment, duplicating the summary —
+               summaries must be final in-flow tbody rows. */
             table { page-break-inside: auto; break-inside: auto; }
             thead { display: table-header-group; }
-            tfoot { display: table-footer-group; }
             tr, th, td { page-break-inside: avoid; break-inside: avoid; }
 
             /* R6 ORPHANS/WIDOWS. */
