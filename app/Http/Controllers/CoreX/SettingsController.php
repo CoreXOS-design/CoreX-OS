@@ -8,6 +8,7 @@ use App\Models\AgentSocialAccount;
 use App\Models\ContactSource;
 use App\Models\ContactTag;
 use App\Models\ContactType;
+use App\Models\CommissionSetting;
 use App\Models\Designation;
 use App\Models\PropertySettingItem;
 use App\Models\Docuperfect\NamedField;
@@ -17,6 +18,8 @@ use App\Models\Rental\RentalReminderSetting;
 use App\Models\Branch;
 use App\Models\User;
 use App\Models\CommandCenter\AgencyDashboardSetting;
+use App\Models\CommandCenter\AutomationRule;
+use App\Models\CommandCenter\DocumentExpectation;
 use App\Models\CommandCenter\UserDashboardSetting;
 use App\Services\CommandCenter\NotificationPreferenceService;
 use Illuminate\Http\Request;
@@ -41,8 +44,8 @@ class SettingsController extends Controller
         $validSections = [
             'agency', 'user', 'system', 'notifications',
             'feature-documents', 'feature-rentals', 'feature-contacts',
-            'feature-properties', 'feature-matches', 'feature-dashboard',
-            'leave-visibility', 'remote-access',
+            'feature-properties', 'feature-presentations', 'feature-matches', 'feature-dashboard',
+            'leave-visibility', 'remote-access', 'commission', 'command-center', 'prospecting-setup',
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
@@ -121,6 +124,42 @@ class SettingsController extends Controller
         // Agency Settings tab: Company details from Agency model
         $agencyId = $user?->effectiveAgencyId();
         $data['agency'] = $agencyId ? Agency::find($agencyId) : Agency::first();
+
+        // Operations tab: Commission & Revenue Share (singleton per agency)
+        $data['commissionSettings'] = CommissionSetting::forAgency($user?->effectiveAgencyId() ?? 1);
+
+        // Operations tab: Command Center rules + document expectations.
+        // Gated to the same permission the mutation routes require.
+        if ($user?->hasPermission('command_center.settings')) {
+            $data['automationRules'] = AutomationRule::orderBy('sort_order')->get();
+            $data['docExpectations'] = DocumentExpectation::orderBy('property_type')->orderBy('sort_order')->get();
+        } else {
+            $data['automationRules'] = collect();
+            $data['docExpectations'] = collect();
+        }
+
+        // Operations tab: Prospecting Setup (towns/suburbs, property types,
+        // bedroom segments, price bands, buyer-match tiers). Mirrors
+        // TownsController::index so the _panel partial renders inline.
+        $prospectingAgencyId = $user?->effectiveAgencyId();
+        if ($user?->hasPermission('prospecting_setup.manage') && $prospectingAgencyId) {
+            $prospectingConfig = app(\App\Services\Prospecting\ProspectingConfigurationService::class);
+            $prospectingConfig->clearCache($prospectingAgencyId); // see latest writes after a redirect
+            $data['prospectingActiveTab'] = $request->query('tab', 'towns');
+            $data['towns'] = \App\Models\Prospecting\Town::withoutGlobalScopes()
+                ->where('agency_id', $prospectingAgencyId)
+                ->orderBy('display_order')
+                ->orderBy('name')
+                ->with(['suburbs' => fn ($q) => $q->withoutGlobalScopes()->orderBy('suburb_name')])
+                ->get();
+            $data['propertyTypes']     = $prospectingConfig->propertyTypes($prospectingAgencyId, activeOnly: false);
+            $data['bedroomSegments']   = $prospectingConfig->bedroomSegments($prospectingAgencyId);
+            $data['priceBandsSale']    = $prospectingConfig->priceBandsFor($prospectingAgencyId, 'sale');
+            $data['priceBandsRental']  = $prospectingConfig->priceBandsFor($prospectingAgencyId, 'rental');
+            $data['suggestionRegions'] = app(\App\Services\Prospecting\RegionSuggestionService::class)->regions();
+            $data['unmappedSuburbs']   = $prospectingConfig->unmappedSuburbsFor($prospectingAgencyId);
+            $data['buyerMatchTier']    = $prospectingConfig->buyerMatchTiers($prospectingAgencyId);
+        }
 
         // Agents list for email signature preview selector
         $data['agents'] = User::agencyMembers()->where('is_active', true)->orderBy('name')->get(['id', 'name']);

@@ -1,10 +1,11 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
 
 @php $isSettings = ($context ?? 'splitter') === 'settings'; @endphp
 
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="w-full space-y-6">
 
     {{-- Page header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -166,10 +167,8 @@
                                                 <div x-show="open" x-cloak x-transition
                                                      class="absolute z-50 mt-1 w-44 rounded-md py-1"
                                                      style="background: var(--surface); border: 1px solid var(--border); right: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
-                                                    <label class="flex items-center gap-2 px-3 py-2 cursor-pointer text-sm transition-colors"
-                                                           style="color: var(--text-secondary);"
-                                                           onmouseover="this.style.background='var(--surface-2)'"
-                                                           onmouseout="this.style.background=''">
+                                                    <label class="flex items-center gap-2 px-3 py-2 cursor-pointer text-sm transition-colors hover:bg-[var(--surface-2)]"
+                                                           style="color: var(--text-secondary);">
                                                         <input type="checkbox"
                                                                name="types[{{ $i }}][listing_types][]"
                                                                value="sale"
@@ -177,10 +176,8 @@
                                                                class="rounded" style="accent-color: var(--ds-green);">
                                                         <span>For Sale</span>
                                                     </label>
-                                                    <label class="flex items-center gap-2 px-3 py-2 cursor-pointer text-sm transition-colors"
-                                                           style="color: var(--text-secondary);"
-                                                           onmouseover="this.style.background='var(--surface-2)'"
-                                                           onmouseout="this.style.background=''">
+                                                    <label class="flex items-center gap-2 px-3 py-2 cursor-pointer text-sm transition-colors hover:bg-[var(--surface-2)]"
+                                                           style="color: var(--text-secondary);">
                                                         <input type="checkbox"
                                                                name="types[{{ $i }}][listing_types][]"
                                                                value="rental"

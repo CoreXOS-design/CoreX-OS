@@ -13,10 +13,10 @@ class CommissionSettingsController extends Controller
         $user = auth()->user();
         abort_unless($user?->hasPermission('access_settings'), 403);
 
-        $agencyId = $user->effectiveAgencyId() ?? 1;
-        $settings = CommissionSetting::forAgency($agencyId);
-
-        return view('corex.settings.commission', compact('settings'));
+        // Commission settings now live embedded in the unified Settings hub
+        // (Operations → Commission & Revenue Share). Keep this legacy URL
+        // working by redirecting to the hub section.
+        return redirect()->route('corex.settings', ['s' => 'commission']);
     }
 
     public function update(Request $request)
@@ -58,7 +58,7 @@ class CommissionSettingsController extends Controller
         $settings = CommissionSetting::forAgency($agencyId);
         $settings->update($validated);
 
-        return redirect()->route('corex.settings.commission')
+        return redirect()->route('corex.settings', ['s' => 'commission'])
             ->with('success', 'Commission & Revenue Share settings saved.');
     }
 }

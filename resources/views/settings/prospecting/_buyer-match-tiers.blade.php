@@ -12,7 +12,7 @@
     $tier = $tier ?? \App\Models\Prospecting\BuyerMatchTier::defaultsFor(0);
 @endphp
 
-<div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+<div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
     <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">
         Buyer Match Quality Thresholds
     </h3>
@@ -32,7 +32,7 @@
 
     <div class="space-y-3">
         {{-- Strong tier --}}
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
             <div class="flex items-center gap-2 mb-3">
                 <span class="text-xl">🟢</span>
                 <input type="text" name="strong_label"
@@ -46,13 +46,13 @@
                 <input type="number" name="strong_min_score" min="0" max="100" required
                        value="{{ old('strong_min_score', $tier['strong_min_score']) }}"
                        class="w-20 px-2 py-1 text-sm rounded"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <span class="text-xs" style="color: var(--text-muted);">and above</span>
             </div>
         </div>
 
         {{-- Mid tier --}}
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
             <div class="flex items-center gap-2 mb-3">
                 <span class="text-xl">🟡</span>
                 <input type="text" name="mid_label"
@@ -66,13 +66,13 @@
                 <input type="number" name="mid_min_score" min="0" max="100" required
                        value="{{ old('mid_min_score', $tier['mid_min_score']) }}"
                        class="w-20 px-2 py-1 text-sm rounded"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <span class="text-xs" style="color: var(--text-muted);">to just below the strong cutoff</span>
             </div>
         </div>
 
         {{-- Weak tier --}}
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
             <div class="flex items-center gap-2 mb-3">
                 <span class="text-xl">⚪</span>
                 <input type="text" name="weak_label"
@@ -86,7 +86,7 @@
                 <input type="number" name="weak_min_score" min="0" max="100" required
                        value="{{ old('weak_min_score', $tier['weak_min_score']) }}"
                        class="w-20 px-2 py-1 text-sm rounded"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <span class="text-xs" style="color: var(--text-muted);">to just below the mid cutoff. Scores under this floor are excluded entirely.</span>
             </div>
             <label class="flex items-start gap-2 text-sm" style="color: var(--text-secondary);">
