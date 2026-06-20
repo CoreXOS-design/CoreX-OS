@@ -4662,7 +4662,7 @@
                     $recentViewings = $intel->getRecentViewings($property->id);
                 @endphp
                 @if($recentViewings->isNotEmpty())
-                    <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <div id="recent-viewings-feedback" class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border); scroll-margin-top: 5rem;">
                         <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Recent Viewings & Feedback</h3>
                         <div class="space-y-3">
                             @foreach($recentViewings as $rv)

@@ -732,9 +732,16 @@ class CalendarController extends Controller
         }
 
         DB::transaction(function () use ($data, $calendarEvent, $user, $feedbackKind) {
+            // Cross-agent feedback notification (Defect 3): collect the properties
+            // whose feedback was actually created or changed in this capture, so a
+            // no-op re-save (which only bumps captured_at) does NOT notify. Purely
+            // additive — the writes below are unchanged.
+            $notifyTouched   = [];
+            $eventPropertyIds = null;
+            $metaOnlyKeys = ['captured_at', 'captured_by_user_id', 'updated_at'];
             foreach ($data['feedback'] as $row) {
                 if ($feedbackKind === 'listing_presentation') {
-                    \App\Models\CommandCenter\CalendarEventFeedback::updateOrCreate(
+                    $fb = \App\Models\CommandCenter\CalendarEventFeedback::updateOrCreate(
                         [
                             'calendar_event_id' => $calendarEvent->id,
                             'property_id'       => $row['property_id'],
@@ -752,8 +759,11 @@ class CalendarController extends Controller
                             'branch_id'          => $calendarEvent->branch_id,
                         ]
                     );
+                    if ($fb->wasRecentlyCreated || !empty(array_diff_key($fb->getChanges(), array_flip($metaOnlyKeys)))) {
+                        $notifyTouched[$row['property_id']] = true;
+                    }
                 } else {
-                    \App\Models\CommandCenter\CalendarEventFeedback::updateOrCreate(
+                    $fb = \App\Models\CommandCenter\CalendarEventFeedback::updateOrCreate(
                         [
                             'calendar_event_id' => $calendarEvent->id,
                             'contact_id'        => $row['contact_id'],
@@ -773,6 +783,18 @@ class CalendarController extends Controller
                             'branch_id'            => $calendarEvent->branch_id,
                         ]
                     );
+                    if ($fb->wasRecentlyCreated || !empty(array_diff_key($fb->getChanges(), array_flip($metaOnlyKeys)))) {
+                        if (!empty($row['property_id'])) {
+                            $notifyTouched[$row['property_id']] = true;
+                        } else {
+                            // Single-property viewing with no per-row property → attribute
+                            // to the event's linked property/properties.
+                            $eventPropertyIds ??= $calendarEvent->linkedProperties()->pluck('properties.id')->all();
+                            foreach ($eventPropertyIds as $epid) {
+                                $notifyTouched[$epid] = true;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -839,6 +861,59 @@ class CalendarController extends Controller
 
             if ($calendarEvent->status !== 'completed') {
                 $calendarEvent->update(['status' => 'completed']);
+            }
+
+            // Cross-agent feedback notification (Defect 3): for each property whose
+            // feedback was created/changed above, notify its listing agent when that
+            // agent is NOT the capturing agent. Per-property, so each agent hears only
+            // about their own listing(s). Guarded so a dispatch failure can never roll
+            // back the feedback capture. Contact-facing notice is out of scope (live
+            // links cover that).
+            if (!empty($notifyTouched)) {
+                $dispatcher = app(\App\Services\CommandCenter\NotificationDispatcher::class);
+                // First captured buyer (contact) per property, for the notification body.
+                $buyerByProperty = [];
+                foreach ($data['feedback'] as $row) {
+                    $pid = $row['property_id'] ?? null;
+                    if ($pid && !array_key_exists($pid, $buyerByProperty) && !empty($row['contact_id'])) {
+                        $c = \App\Models\Contact::withoutGlobalScopes()->find($row['contact_id']);
+                        $buyerByProperty[$pid] = $c ? (trim($c->first_name . ' ' . $c->last_name) ?: null) : null;
+                    }
+                }
+                $kindLabel = $feedbackKind === 'listing_presentation' ? 'listing presentation' : 'viewing';
+                foreach (array_keys($notifyTouched) as $pid) {
+                    try {
+                        $property = \App\Models\Property::withoutGlobalScopes()->with('agent')->find($pid);
+                        // Skip silently: missing property, no listing agent, self-capture,
+                        // or the agent record is gone.
+                        if (!$property || empty($property->agent_id)
+                            || (int) $property->agent_id === (int) $user->id
+                            || !$property->agent) {
+                            continue;
+                        }
+                        $addr = $property->address;
+                        if (blank($addr)) {
+                            $addr = trim(trim(($property->street_number ?? '') . ' ' . ($property->street_name ?? '')) . ', ' . ($property->suburb ?? ''), ' ,');
+                        }
+                        $addr = $addr ?: ($property->title ?: ('Property #' . $property->id));
+                        $buyer = $buyerByProperty[$pid] ?? null;
+                        $dispatcher->fire(
+                            $property->agent,
+                            'property.feedback_captured',
+                            $property,
+                            [
+                                'title'      => $user->name . ' captured ' . $kindLabel . ' feedback',
+                                'body'       => $addr . ($buyer ? ' — ' . $buyer : ''),
+                                'action_url' => route('corex.properties.show', $property->id) . '#recent-viewings-feedback',
+                                'severity'   => 'info',
+                            ]
+                        );
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('Cross-agent feedback notification failed', [
+                            'property' => $pid, 'capturer' => $user->id, 'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
             }
         });
 
