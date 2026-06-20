@@ -332,6 +332,37 @@ class PropertyObserver
             }
         }
 
+        // Off-market delist (Private Property + agency website). When a listing
+        // goes off-market, take it off PP and — for true removals only — the
+        // website. P24 is handled per-status by the auto-sync block below
+        // (Sold/Withdrawn/Expired…). Sold/rented STAY on the website (agencies
+        // showcase sold stock); withdrawn/expired/cancelled/archived are removed
+        // everywhere. The DesyndicatePropertyFromPortalsJob guards are idempotent,
+        // so the rare double with the mandate-expiry cron path is harmless.
+        // See .ai/audits/syndication-bug-sweep-2026-06-20.md (PP-1).
+        // No wasRecentlyCreated guard (it lingers on a reused instance — same
+        // reasoning as the website webhook block above): the $onPortal check
+        // already excludes brand-new, not-yet-syndicated stock.
+        if (array_key_exists('status', $property->getChanges())
+            && $this->isOffMarketStatus((string) $property->status)) {
+            try {
+                // Only dispatch when the property is actually on PP or a website
+                // (P24 is delisted per-status by the auto-sync block below). Skips
+                // pointless no-op jobs for never-syndicated stock.
+                $onPortal = $property->pp_syndication_enabled
+                    || \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                        ->where('property_id', $property->id)->where('enabled', true)->exists();
+                if ($onPortal) {
+                    \App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob::dispatch(
+                        $property,
+                        removeFromWebsite: $this->isWebsiteRemovalStatus((string) $property->status),
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Off-market delist dispatch failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // Prospecting stock match — find prospects that match this property.
         // Queued (not inline): the matcher scans every prospect with regex and
         // is too slow to run synchronously, especially during bulk creation
@@ -350,7 +381,15 @@ class PropertyObserver
             return;
         }
 
-        $dirty = $property->getDirty();
+        // MUST be getChanges(), not getDirty(). saved()'s first call
+        // (onPropertyUpdated → updateQuietly(last_activity_at)) runs a nested
+        // save that calls syncOriginal(), so getDirty() is already EMPTY by the
+        // time we reach here — which silently killed ALL P24 status/field
+        // auto-sync (sold/withdrawn/price/photo edits never reached P24).
+        // getChanges() still carries the real change because it was captured
+        // (and re-captured) during those saves. Matches every other change
+        // check in saved(). Audit: .ai/audits/mandate-expiry-desyndication-2026-06-20.md
+        $dirty = $property->getChanges();
 
         // If status changed, send a lightweight status update to P24
         if (isset($dirty['status'])) {
@@ -427,5 +466,37 @@ class PropertyObserver
                 Log::channel('property24')->error("P24 withdrawal failed for deleted property #{$property->id}: {$e->getMessage()}");
             }
         }
+    }
+
+    /**
+     * Off-market = no longer actively for sale / to let. These must come off the
+     * portals. Substring match mirrors Property24ListingMapper::getP24Status so
+     * status-string variants (e.g. "Sold", "sold • cash") all resolve.
+     */
+    private function isOffMarketStatus(string $status): bool
+    {
+        $s = strtolower($status);
+        foreach (['sold', 'rented', 'withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $needle) {
+            if (str_contains($s, $needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True removals — the listing must come off the agency website too. Sold and
+     * rented are deliberately EXCLUDED: agencies showcase sold/rented stock on
+     * their websites (see WebsiteSyndicationService::bulkActivateSold).
+     */
+    private function isWebsiteRemovalStatus(string $status): bool
+    {
+        $s = strtolower($status);
+        foreach (['withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $needle) {
+            if (str_contains($s, $needle)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

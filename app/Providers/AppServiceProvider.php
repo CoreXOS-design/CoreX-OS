@@ -388,6 +388,15 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Mandate\MandateSigned::class    => \App\Listeners\Mandate\LogMandateEvent::class,
             \App\Events\Mandate\MandateExpired::class   => \App\Listeners\Mandate\LogMandateEvent::class,
             \App\Events\Mandate\MandateConverted::class => \App\Listeners\Mandate\LogMandateEvent::class,
+            // NOTE: MandateExpired ALSO triggers App\Listeners\Mandate\
+            // DesyndicateExpiredMandate (takes the property off P24 / Private
+            // Property / agency websites). That listener is wired by Laravel's
+            // automatic listener discovery — do NOT add an explicit Event::listen
+            // for it here, or it double-registers and fires twice (delisting
+            // twice). LogMandateEvent above is safe to list explicitly because it
+            // type-hints AbstractDomainEvent, so discovery binds it to the base
+            // contract, not to MandateExpired. Audit: .ai/audits/
+            // mandate-expiry-desyndication-2026-06-20.md
             // FICA pillar
             \App\Events\Fica\FicaSubmitted::class => \App\Listeners\Fica\LogFicaEvent::class,
             \App\Events\Fica\FicaApproved::class  => \App\Listeners\Fica\LogFicaEvent::class,

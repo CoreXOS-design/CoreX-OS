@@ -27,8 +27,8 @@ class PrivatePropertyListingMapper
         $branchGuid  = $cfg['branch_guid'];
         $category    = $this->mapCategory($property->category);
         $mandateType = $this->mapMandateType($property->mandate_type);
-        $listingType = $this->mapListingType($property->listing_type ?? $property->mandate_type);
-        $status      = $listingType === 'Rental' ? 'ToLet' : 'ForSale';
+        $listingType = self::resolveListingType($property);
+        $status      = $this->mapPropertyStatus($property, $listingType);
 
         // Build the full Listing struct — ALL fields must be present for PHP SoapClient
         $expiryDate = $property->expiry_date
@@ -422,6 +422,51 @@ class PrivatePropertyListingMapper
     private function mapListingType(?string $listingType): string
     {
         return strtolower($listingType ?? '') === 'rental' ? 'Rental' : 'Sale';
+    }
+
+    /**
+     * Single source of truth for the PP Sale-vs-Rental decision.
+     *
+     * PP keys every listing by (PropertyId, ListingType), so the submit payload
+     * (this mapper) and EVERY follow-up call that must hit the same record —
+     * deactivate, reactivate, GetReferenceNumberByListing, video push, unique-id
+     * update — MUST derive the type identically. They previously diverged
+     * (mandate_type-only vs listing_type-only vs mixed), so a sole rental could be
+     * submitted as Rental but deactivated as Sale, missing the record and leaving
+     * the listing live. Prefer listing_type, fall back to mandate_type — exactly
+     * how map() builds the submitted listing. See audit syndication-bug-sweep
+     * 2026-06-20 (PP-7).
+     */
+    public static function resolveListingType(Property $property): string
+    {
+        return strtolower((string) ($property->listing_type ?? $property->mandate_type)) === 'rental'
+            ? 'Rental' : 'Sale';
+    }
+
+    /**
+     * Map the CoreX property status to a PP PropertyStatus enum.
+     *
+     * Previously this was hardcoded to ForSale/ToLet, so a Sold/Withdrawn/Expired
+     * listing was re-published as actively on-market on every UpdateListing (incl.
+     * the agent "Refresh to portal" button). Off-market statuses now map to
+     * 'Inactive' — the only off-market PropertyStatus PP's submission contract
+     * documents (ForSale, ToLet, Inactive). The active de-listing path is the
+     * ListingStatusUpdate SOAP call (see DesyndicatePropertyFromPortalsJob); this
+     * mapping is the safety net so a stray submit can never re-advertise a dead
+     * listing. Under-offer/pending stays advertised (still on-market, just flagged).
+     * See .ai/audits/syndication-bug-sweep-2026-06-20.md (PP-1).
+     */
+    private function mapPropertyStatus(Property $property, string $listingType): string
+    {
+        $status = strtolower(trim($property->status ?? ''));
+
+        foreach (['sold', 'rented', 'withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $offMarket) {
+            if (str_contains($status, $offMarket)) {
+                return 'Inactive';
+            }
+        }
+
+        return $listingType === 'Rental' ? 'ToLet' : 'ForSale';
     }
 
     private function mapPropertyType(?string $type): string
