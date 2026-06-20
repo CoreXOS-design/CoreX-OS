@@ -233,8 +233,15 @@ class Property24SyndicationService
             return ['success' => false, 'message' => $result['message'] ?? 'Status check failed', 'status' => $property->p24_syndication_status];
         }
 
+        // is-on-portal returns a bare boolean. When P24 sends it as
+        // Content-Type: application/json, the client decodes it to a PHP bool
+        // and wraps it as ['data' => true|false] — so array-accessing $data['raw']
+        // on a scalar yields null and the status never reconciled (listings stuck
+        // 'submitted' forever). Handle the scalar/bool shape first.
         $data = $result['data'] ?? [];
-        $isOnPortal = $data['raw'] ?? $data['isOnPortal'] ?? $data['IsOnPortal'] ?? null;
+        $isOnPortal = is_array($data)
+            ? ($data['raw'] ?? $data['isOnPortal'] ?? $data['IsOnPortal'] ?? null)
+            : $data;
 
         if ($isOnPortal === true || $isOnPortal === 'true' || $isOnPortal === 'True') {
             if ($property->p24_syndication_status !== 'active') {
@@ -257,8 +264,11 @@ class Property24SyndicationService
 
     public function syncAllActivations(): array
     {
+        // Include 'active' so live listings are periodically re-verified against
+        // is-on-portal — otherwise a P24-side removal (expiry, moderation) leaves
+        // CoreX showing 'active' forever. submitted/pending await first activation.
         $properties = Property::where('p24_syndication_enabled', true)
-            ->whereIn('p24_syndication_status', ['submitted', 'pending'])
+            ->whereIn('p24_syndication_status', ['submitted', 'pending', 'active'])
             ->whereNotNull('p24_ref')->get();
 
         $synced = 0;

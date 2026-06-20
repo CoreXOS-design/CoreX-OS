@@ -24,6 +24,13 @@ class ListingsController extends Controller
 
         $query = Property::query()
             ->whereHas('websiteSyndication', fn ($q) => $q->where('agency_api_key_id', $keyId)->where('enabled', true))
+            // Belt-and-braces: an off-market listing must never be served, even
+            // if its pivot was not disabled (legacy data, or a missed delist).
+            // NULL-safe so unstatused rows stay visible. 'sold'/'rented' are
+            // intentionally NOT excluded — agencies showcase sold stock
+            // (bulkActivateSold). See audits mandate-expiry-desyndication and
+            // syndication-bug-sweep (2026-06-20).
+            ->where(fn ($q) => $q->whereNull('status')->orWhereNotIn('status', ['expired', 'withdrawn']))
             ->with(['agent', 'secondAgent', 'activeShowdays'])
             ->latest('published_at');
 
@@ -52,6 +59,8 @@ class ListingsController extends Controller
 
         $listing = Property::query()
             ->whereHas('websiteSyndication', fn ($q) => $q->where('agency_api_key_id', $keyId)->where('enabled', true))
+            // Same off-market guard as index() (NULL-safe).
+            ->where(fn ($q) => $q->whereNull('status')->orWhereNotIn('status', ['expired', 'withdrawn']))
             ->where(fn ($q) => $q->where('id', $idOrRef)->orWhere('external_id', $idOrRef))
             ->with(['agent', 'secondAgent', 'activeShowdays'])
             ->first();

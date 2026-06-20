@@ -134,7 +134,7 @@ class ListingResource extends JsonResource
             // Primary agent — kept as a single object for backward compatibility
             // with existing website consumers that read `agent`.
             'agent' => $this->when(
-                $this->relationLoaded('agent') && $this->agent,
+                $this->relationLoaded('agent') && $this->agent && $this->agent->is_active,
                 fn () => new AgentResource($this->agent)
             ),
 
@@ -167,7 +167,9 @@ class ListingResource extends JsonResource
         ];
 
         foreach ($candidates as [$agent, $isPrimary]) {
-            if (!$agent || isset($seen[$agent->id])) {
+            // Skip a deactivated (departed) agent — never surface them publicly,
+            // even as a listing card. Mirrors AgentsController (WEB-1).
+            if (!$agent || !$agent->is_active || isset($seen[$agent->id])) {
                 continue;
             }
             $seen[$agent->id] = true;

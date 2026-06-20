@@ -84,9 +84,11 @@ class BranchesController extends Controller
         $branchIds = $branches->pluck('id')->all();
 
         // Public agents in these branches, ordered the same way as /agents.
+        // is_active gate mirrors AgentsController (WEB-1) — no departed agents.
         $agentsByBranch = User::query()
             ->where('agency_id', $agencyId)
             ->where('show_on_website', true)
+            ->where('is_active', true)
             ->whereIn('branch_id', $branchIds)
             ->orderBy('name')
             ->get()
