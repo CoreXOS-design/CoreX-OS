@@ -858,7 +858,7 @@
                     <input type="hidden" name="street_number"      :value="streetNumber">
                     <input type="hidden" name="street_name"        :value="streetName">
 
-                    <div class="flex items-center gap-2 mt-3">
+                    <div class="flex items-center gap-2 mt-3 flex-wrap">
                         <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-icon, #2563eb);">Save address</button>
                         @if($contact->hasStructuredAddress())
                             <a href="{{ route('corex.properties.create', ['contact_id' => $contact->id]) }}"
@@ -869,6 +869,20 @@
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
                                 Use for property
                             </a>
+                            {{-- AT-61 follow-up — REMOVE the captured property-address (completes
+                                 CRUD). Submits the sibling DELETE form below via the HTML5 `form=`
+                                 attribute (forms cannot legally nest). Only shown when an address is
+                                 actually present. Clearing turns the address-only outreach bypass OFF
+                                 and does NOT touch the residential address or any linked property. --}}
+                            <button type="submit"
+                                    form="clear-property-address-{{ $contact->id }}"
+                                    onclick="return confirm('Remove this captured property address?\n\nThis clears the address from {{ addslashes($contact->first_name ?: 'this contact') }} and turns OFF the address-only pitch. The contact\'s residential address and any property you already created from it are NOT affected.');"
+                                    class="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-md transition-all duration-300"
+                                    style="background:color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent); color:var(--ds-crimson, #dc2626);"
+                                    title="Remove the captured property address from this contact. Does not affect the residential address or any property already created from it.">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                Remove address
+                            </button>
                         @endif
                     </div>
 
@@ -962,6 +976,16 @@
                         </div>
                     </div>
                 </form>
+
+                {{-- AT-61 follow-up — sibling DELETE form for "Remove address" (kept
+                     OUTSIDE the update form above so the markup never nests forms).
+                     Triggered by the Remove button via its `form=` attribute. --}}
+                @if($contact->hasStructuredAddress())
+                    <form id="clear-property-address-{{ $contact->id }}" method="POST"
+                          action="{{ route('corex.contacts.property-address.clear', $contact) }}" class="hidden">
+                        @csrf @method('DELETE')
+                    </form>
+                @endif
             </div>
 
         </div>

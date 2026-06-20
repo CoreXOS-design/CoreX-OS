@@ -2376,6 +2376,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'show'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':view')->name('show');
         Route::put('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'update'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('update');
         Route::put('/{contact}/property-address', [\App\Http\Controllers\CoreX\ContactController::class, 'updatePropertyAddress'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('property-address.update');
+        Route::delete('/{contact}/property-address', [\App\Http\Controllers\CoreX\ContactController::class, 'clearPropertyAddress'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('property-address.clear');
         Route::delete('/{contact}',       [\App\Http\Controllers\CoreX\ContactController::class, 'destroy'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':delete')->name('destroy');
         Route::post('/{contact}/tags',    [\App\Http\Controllers\CoreX\ContactController::class, 'syncTags'])->name('tags.sync');
         Route::post('/{contact}/consent/record', [\App\Http\Controllers\CoreX\ContactController::class, 'recordConsent'])->name('consent.record');
