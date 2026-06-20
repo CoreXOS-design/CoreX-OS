@@ -616,48 +616,12 @@ class CalendarController extends Controller
             ->orderBy('sort_order')
             ->get(['id', 'label']);
 
-        // Per-property mode (viewing / listing_presentation / property_evaluation):
-        // iterate properties, not contacts.
+        // Per-property mode (listing_presentation): iterate properties, not contacts
         if ($feedbackMode === 'per_property') {
-            // AT-66 §4.2 — fan-out resolver. Sellers come from the property
-            // (contact_property role); the buyer is event-level (the same
-            // buyer toured every property), sourced from the event's attendee
-            // links. Both sides resolve from the agency-configurable role map
-            // (no hardcoded roles). Each side independently empty is fine —
-            // it simply contributes no fan-out rows, never an error (§6).
-            $settings    = \App\Models\AgencyContactSettings::forAgency((int) ($agencyId ?? $user->effectiveAgencyId() ?? 1));
-            $fanout      = $settings->fanoutConfig();
-            $sellerRoles = $fanout['seller_roles'];
-            $buyerRoles  = $settings->buyerLinkRoles();
-
-            // feedback_kind drives which capture fields the modal renders:
-            // viewings use the buyer-reaction fields (outcome / concerns /
-            // seller-visible notes); seller-side classes keep the LP fields.
-            $feedbackKind = $calendarEvent->category === 'viewing' ? 'viewing' : 'listing_presentation';
-
-            $existingByProperty = \App\Models\CommandCenter\CalendarEventFeedback::query()
+            $existing = \App\Models\CommandCenter\CalendarEventFeedback::query()
                 ->where('calendar_event_id', $calendarEvent->id)
                 ->get()
-                ->groupBy('property_id');
-
-            // Event-level buyer(s). Soft-deleted contacts are excluded by
-            // Contact's SoftDeletes scope, so deleted relations skip
-            // gracefully. Empty buyerRoles => no buyer side.
-            $buyerContacts = $buyerRoles
-                ? $calendarEvent->linkedContacts()->wherePivotIn('role', $buyerRoles)->get()
-                : collect();
-            $buyers = $buyerContacts->map(fn ($c) => [
-                'contact_id'     => $c->id,
-                'name'           => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id),
-                'role'           => 'buyer',
-                'direction'      => 'buyer',
-                'seller_visible' => false,
-            ])->values();
-
-            // Sellers per property — eager-loaded once, N+1 safe.
-            $properties->load(['contacts' => function ($q) use ($sellerRoles) {
-                $sellerRoles ? $q->wherePivotIn('role', $sellerRoles) : $q->whereRaw('1 = 0');
-            }]);
+                ->keyBy('property_id');
 
             return response()->json([
                 'event' => [
@@ -666,31 +630,15 @@ class CalendarController extends Controller
                     'date'  => $calendarEvent->event_date->format('D, j M Y H:i'),
                 ],
                 'feedback_mode' => 'per_property',
-                'feedback_kind' => $feedbackKind,
-                'items' => $properties->map(function ($p) use ($existingByProperty, $buyers) {
-                    $row = optional($existingByProperty->get($p->id))->first();
-                    $sellers = $p->contacts->map(fn ($c) => [
-                        'contact_id'     => $c->id,
-                        'name'           => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id),
-                        'role'           => $c->pivot->role ?? 'seller',
-                        'direction'      => 'seller',
-                        'seller_visible' => true,
-                    ])->values();
-                    return [
-                        'property_id'    => $p->id,
-                        'label'          => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
-                        'feedback_id'    => $row?->id,
-                        'kind_data'      => $row?->kind_specific_data ?? [],
-                        // Viewing-shape prefill (per-property buyer-reaction fields).
-                        'outcome_id'     => $row?->outcome_option_id,
-                        'concern_ids'    => $row?->concern_option_ids ?? [],
-                        'seller_notes'   => $row?->seller_visible_notes,
-                        'internal_notes' => $row?->internal_notes,
-                        'next_action'    => $row?->next_action_notes,
-                        // Fan-out targets: this property's sellers + event buyer(s).
-                        'contacts'       => $sellers->concat($buyers)->values(),
-                    ];
-                }),
+                'feedback_kind' => 'listing_presentation',
+                'items' => $properties->map(fn ($p) => [
+                    'property_id'    => $p->id,
+                    'label'          => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
+                    'feedback_id'    => optional($existing->get($p->id))->id,
+                    'kind_data'      => optional($existing->get($p->id))->kind_specific_data ?? [],
+                    'internal_notes' => optional($existing->get($p->id))->internal_notes,
+                    'next_action'    => optional($existing->get($p->id))->next_action_notes,
+                ]),
                 // CAL-7 Class 4 — read lp_outcome + lp_mandate_type from the
                 // same agency_feedback_options table the per_contact mode
                 // uses (the seeder now seeds them). Empty seed -> empty
@@ -770,13 +718,9 @@ class CalendarController extends Controller
                 'feedback.*.next_action_notes'    => 'nullable|string|max:2000',
             ]);
         } else {
-            // AT-66 §4.3 — viewings are now per-property and fan out to the
-            // event's buyer(s). A row is keyed by property_id and carries the
-            // buyer as contact_id; contact_id is nullable so a property-only
-            // viewing (no buyer attendee) still saves without blocking (§4.3).
             $data = $request->validate([
                 'feedback'                        => 'required|array',
-                'feedback.*.contact_id'           => 'nullable|integer|exists:contacts,id',
+                'feedback.*.contact_id'           => 'required|integer|exists:contacts,id',
                 'feedback.*.property_id'          => 'nullable|integer|exists:properties,id',
                 'feedback.*.outcome_id'           => 'nullable|integer|exists:agency_feedback_options,id',
                 'feedback.*.concern_ids'          => 'nullable|array',
@@ -809,16 +753,10 @@ class CalendarController extends Controller
                         ]
                     );
                 } else {
-                    // Skip a fully-empty row (neither buyer nor property) — a
-                    // property-only viewing keys by property_id, a legacy
-                    // per-contact row keys by contact_id; one must be present.
-                    if (empty($row['contact_id']) && empty($row['property_id'])) {
-                        continue;
-                    }
                     \App\Models\CommandCenter\CalendarEventFeedback::updateOrCreate(
                         [
                             'calendar_event_id' => $calendarEvent->id,
-                            'contact_id'        => $row['contact_id'] ?? null,
+                            'contact_id'        => $row['contact_id'],
                             'property_id'       => $row['property_id'] ?? null,
                         ],
                         [
@@ -853,8 +791,7 @@ class CalendarController extends Controller
             if ($feedbackKind !== 'listing_presentation') {
             $linkedPropertyIds = $calendarEvent->linkedProperties()->pluck('properties.id')->toArray();
             foreach ($data['feedback'] as $row) {
-                $contactId = $row['contact_id'] ?? null;
-                if (!$contactId) { continue; } // property-only row — no buyer to fan out to
+                $contactId = $row['contact_id'];
                 $contact = \App\Models\Contact::withoutGlobalScopes()->find($contactId);
                 if ($contact && $contact->is_buyer) {
                     \App\Models\BuyerActivityLog::create([
@@ -908,65 +845,6 @@ class CalendarController extends Controller
         return response()->json(['success' => true]);
     }
 
-    /**
-     * AT-66 §4.5 — recovery: link the property that was viewed to an event
-     * that was created without one, so a link-less viewing's feedback modal
-     * is never a dead-end. Writes a subject_property link (and optionally the
-     * buyer attendee) through the SAME syncEventLinks path the create flow
-     * uses, then the client re-fetches showFeedback(). Additive: existing
-     * property/contact links are preserved.
-     */
-    public function linkProperty(Request $request, CalendarEvent $calendarEvent)
-    {
-        $user = $request->user();
-        if (!$this->visibilityResolver->canSee($calendarEvent, $user)) {
-            abort(403);
-        }
-        // Only user-created events carry editable links; source-driven events
-        // own their links from the source. Explain rather than silently fail.
-        if (!in_array($calendarEvent->source_type, ['manual', 'manual:demo'])) {
-            return response()->json(['message' => 'Only manually-created events can have their property linked here.'], 422);
-        }
-
-        $data = $request->validate([
-            'property_id' => 'required|integer|exists:properties,id',
-            'contact_id'  => 'nullable|integer|exists:contacts,id',
-        ]);
-
-        DB::transaction(function () use ($calendarEvent, $data, $user) {
-            // Merge with existing links so the recovery is purely additive.
-            $propertyIds = $calendarEvent->linkedProperties()->pluck('properties.id')->all();
-            $propertyIds[] = (int) $data['property_id'];
-            $propertyIds = array_values(array_unique($propertyIds));
-
-            $syncData = [
-                'category'               => $calendarEvent->category,
-                'property_ids'           => $propertyIds,
-                '_resolved_property_ids' => $propertyIds,
-            ];
-
-            // Only touch contact links when a buyer is supplied (otherwise we
-            // leave any existing attendee links untouched).
-            if (!empty($data['contact_id'])) {
-                $contactIds = $calendarEvent->linkedContacts()->pluck('contacts.id')->all();
-                $contactIds[] = (int) $data['contact_id'];
-                $syncData['contact_ids'] = array_values(array_unique($contactIds));
-            }
-
-            $this->syncEventLinks($calendarEvent, $syncData, $user);
-
-            \App\Models\CommandCenter\CalendarEventAuditEntry::create([
-                'calendar_event_id'    => $calendarEvent->id,
-                'action'               => 'property_linked',
-                'new_values'           => ['property_id' => (int) $data['property_id'], 'contact_id' => $data['contact_id'] ?? null],
-                'performed_by_user_id' => $user->id,
-                'performed_at'         => now(),
-            ]);
-        });
-
-        return response()->json(['ok' => true]);
-    }
-
     public function store(Request $request)
     {
         $user = $request->user();
@@ -996,18 +874,8 @@ class CalendarController extends Controller
         ]);
 
         // Resolve property_ids from either property_ids[] array or single property_id
-        $propertyIds = $data['property_ids'] ?? (($data['property_id'] ?? null) ? [$data['property_id']] : []);
+        $propertyIds = $data['property_ids'] ?? ($data['property_id'] ? [$data['property_id']] : []);
         $data['_resolved_property_ids'] = $propertyIds;
-
-        // AT-66 §4.6 — property-centric classes MUST be linked to a property at
-        // creation time. A link-less viewing is exactly what produced the blank
-        // feedback body; prevent it here with a clear message rather than write
-        // a silent link-less event.
-        if (in_array($data['category'], ['viewing', 'listing_presentation', 'property_evaluation'], true) && empty($propertyIds)) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
-                'property_id' => 'Select the property being viewed — a ' . str_replace('_', ' ', $data['category']) . ' must be linked to at least one property.',
-            ]);
-        }
 
         // Class-config cap enforcement: reject multiple properties for single-property classes
         if (count($propertyIds) > 1) {
@@ -1034,7 +902,7 @@ class CalendarController extends Controller
                 'title'         => $data['title'],
                 'description'   => ($data['description'] ?? '') ?: null,
                 'event_date'    => $data['event_date'],
-                'end_date'      => ($data['end_date'] ?? null) ?: null,
+                'end_date'      => $data['end_date'] ?: null,
                 'all_day'       => Carbon::parse($data['event_date'])->format('H:i:s') === '00:00:00',
                 'status'        => 'pending',
                 'priority'      => 'normal',

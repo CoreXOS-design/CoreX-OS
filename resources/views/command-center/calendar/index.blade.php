@@ -1511,9 +1511,9 @@
                      "blank". Surface the actual root cause to whoever's
                      using the form instead of staring at an empty
                      dropdown. --}}
-                <template x-if="feedbackData.items.length > 0 || feedbackData.contacts.length > 0 ? ((feedbackData.feedback_mode === 'per_property' && feedbackData.feedback_kind !== 'viewing')
+                <template x-if="(feedbackData.feedback_mode === 'per_property'
                                  ? (feedbackData.lp_outcomes.length === 0)
-                                 : (feedbackData.outcomes.length === 0)) : false">
+                                 : (feedbackData.outcomes.length === 0))">
                     <div class="rounded-md p-4 text-xs"
                          style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 6%, var(--surface));
                                 border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, var(--border));
@@ -1528,181 +1528,76 @@
                     </div>
                 </template>
 
-                {{-- AT-66 §4.3 — Per-property feedback (viewing / listing_presentation / property_evaluation).
-                     One card per property; the viewing shape captures the buyer's
-                     reaction to THAT property and fans out to the property's seller(s)
-                     + the event's buyer(s). Seller-side classes keep the LP fields. --}}
+                {{-- Per-property feedback (listing_presentation events) --}}
                 <template x-if="feedbackData.feedback_mode === 'per_property'">
                     <div class="space-y-4">
                         <template x-for="item in feedbackData.items" :key="item.property_id">
                             <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                                 <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="item.label"></h3>
 
-                                {{-- Fan-out summary: who this property's feedback reaches (agent-facing) --}}
-                                <div class="text-xs mb-3" style="color: var(--text-muted);" x-show="item.contacts && item.contacts.length">
-                                    <span class="font-medium">Feedback fans to —</span>
-                                    <template x-if="item.contacts.some(c => c.direction === 'seller')">
-                                        <span> Seller: <span style="color: var(--text-primary);" x-text="item.contacts.filter(c => c.direction === 'seller').map(c => c.name).join(', ')"></span></span>
-                                    </template>
-                                    <template x-if="item.contacts.some(c => c.direction === 'buyer')">
-                                        <span> · Buyer: <span style="color: var(--text-primary);" x-text="item.contacts.filter(c => c.direction === 'buyer').map(c => c.name).join(', ')"></span></span>
-                                    </template>
-                                </div>
-                                <template x-if="!item.contacts || !item.contacts.some(c => c.direction === 'seller')">
-                                    <p class="text-xs mb-3" style="color: var(--text-muted);">No seller linked to this property — feedback still captures.</p>
-                                </template>
-                                <template x-if="feedbackData.feedback_kind === 'viewing' && (!item.contacts || !item.contacts.some(c => c.direction === 'buyer'))">
-                                    <p class="text-xs mb-3" style="color: var(--text-muted);">No buyer attendee on this viewing — feedback still captures.</p>
-                                </template>
-
-                                {{-- VIEWING per-property fields (buyer's reaction to this property) --}}
-                                <template x-if="feedbackData.feedback_kind === 'viewing'">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                    {{-- Outcome --}}
                                     <div>
-                                        <div class="mb-3">
-                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
-                                            <select x-model="feedbackForm['prop:' + item.property_id].outcome_id"
-                                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                                <option value="">Select…</option>
-                                                <template x-for="o in feedbackData.outcomes" :key="o.id">
-                                                    <option :value="o.id" x-text="o.label"></option>
-                                                </template>
-                                            </select>
-                                        </div>
-                                        <div class="mb-3" x-show="feedbackData.concerns.length > 0">
-                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
-                                            <div class="flex flex-wrap gap-2">
-                                                <template x-for="c in feedbackData.concerns" :key="c.id">
-                                                    <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
-                                                        <input type="checkbox" :value="c.id"
-                                                               x-model="feedbackForm['prop:' + item.property_id].concern_ids"
-                                                               class="rounded">
-                                                        <span x-text="c.label"></span>
-                                                    </label>
-                                                </template>
-                                            </div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller-visible notes</label>
-                                            <textarea x-model="feedbackForm['prop:' + item.property_id].seller_visible_notes" rows="2"
-                                                      class="w-full rounded-md px-3 py-2 text-sm"
-                                                      style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                                      placeholder="Shown to seller on live link…"></textarea>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
-                                            <textarea x-model="feedbackForm['prop:' + item.property_id].internal_notes" rows="2"
-                                                      class="w-full rounded-md px-3 py-2 text-sm"
-                                                      style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                                      placeholder="Agent-only notes…"></textarea>
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
-                                            <input type="text" x-model="feedbackForm['prop:' + item.property_id].next_action_notes"
-                                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                                   placeholder="Follow-up action…">
-                                        </div>
-                                    </div>
-                                </template>
-
-                                {{-- LISTING-PRESENTATION / EVALUATION per-property fields (unchanged shape) --}}
-                                <template x-if="feedbackData.feedback_kind !== 'viewing'">
-                                  <div>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                                        {{-- Outcome --}}
-                                        <div>
-                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
-                                            <select x-model="feedbackForm['prop:' + item.property_id].outcome"
-                                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                                <option value="">Select…</option>
-                                                <template x-for="o in feedbackData.lp_outcomes" :key="o">
-                                                    <option :value="o" x-text="o"></option>
-                                                </template>
-                                            </select>
-                                        </div>
-                                        {{-- Mandate type --}}
-                                        <div>
-                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate type</label>
-                                            <select x-model="feedbackForm['prop:' + item.property_id].mandate_type"
-                                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                                <option value="">Select…</option>
-                                                <template x-for="m in feedbackData.lp_mandate_types" :key="m">
-                                                    <option :value="m" x-text="m"></option>
-                                                </template>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    {{-- Concerns --}}
-                                    <div class="mb-3" x-show="feedbackData.lp_concerns.length > 0">
-                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
-                                        <div class="flex flex-wrap gap-2">
-                                            <template x-for="c in feedbackData.lp_concerns" :key="c.id">
-                                                <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
-                                                    <input type="checkbox" :value="c.id"
-                                                           x-model="feedbackForm['prop:' + item.property_id].concern_ids"
-                                                           class="rounded">
-                                                    <span x-text="c.label"></span>
-                                                </label>
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
+                                        <select x-model="feedbackForm['prop:' + item.property_id].outcome"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <option value="">Select…</option>
+                                            <template x-for="o in feedbackData.lp_outcomes" :key="o">
+                                                <option :value="o" x-text="o"></option>
                                             </template>
-                                        </div>
+                                        </select>
                                     </div>
-
-                                    {{-- Internal notes --}}
-                                    <div class="mb-3">
-                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
-                                        <textarea x-model="feedbackForm['prop:' + item.property_id].internal_notes" rows="2"
-                                                  class="w-full rounded-md px-3 py-2 text-sm"
-                                                  style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                                  placeholder="Agent-only notes for this property…"></textarea>
-                                    </div>
-
-                                    {{-- Next action --}}
+                                    {{-- Mandate type --}}
                                     <div>
-                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
-                                        <input type="text" x-model="feedbackForm['prop:' + item.property_id].next_action_notes"
-                                               class="w-full rounded-md px-3 py-2 text-sm"
-                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                               placeholder="Follow-up action…">
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate type</label>
+                                        <select x-model="feedbackForm['prop:' + item.property_id].mandate_type"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <option value="">Select…</option>
+                                            <template x-for="m in feedbackData.lp_mandate_types" :key="m">
+                                                <option :value="m" x-text="m"></option>
+                                            </template>
+                                        </select>
                                     </div>
-                                  </div>
-                                </template>
-                            </div>
-                        </template>
-                        {{-- AT-66 §4.4/§4.5 — empty-state + recovery when no property is linked.
-                             Explains why the body is empty AND offers the unlock action
-                             (No Silent Locks). Links the viewed property via syncEventLinks,
-                             then re-fetches showFeedback so the property card appears. --}}
-                        <template x-if="feedbackData.items.length === 0">
-                            <div class="py-6 text-center">
-                                <p class="text-sm" style="color: var(--text-muted);">No property linked to this event yet.</p>
-                                <p class="text-xs mt-1 mb-3" style="color: var(--text-muted);">Feedback is captured per property — link the property that was viewed to continue.</p>
-                                <button type="button" @click="feedbackLinkOpen = !feedbackLinkOpen; feedbackLinkResults = []; feedbackLinkQuery = ''; feedbackLinkError = null"
-                                        class="corex-btn-primary text-sm">Link property viewed</button>
+                                </div>
 
-                                <div x-show="feedbackLinkOpen" x-cloak class="mt-4 text-left max-w-md mx-auto">
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search property</label>
-                                    <input type="text" x-model="feedbackLinkQuery" @input.debounce.300ms="searchFeedbackLink()"
-                                           class="w-full rounded-md px-3 py-2 text-sm"
-                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                           placeholder="Type an address or suburb…">
-                                    <template x-if="feedbackLinkError">
-                                        <p class="text-xs mt-1" style="color: var(--ds-crimson, #dc2626);" x-text="feedbackLinkError"></p>
-                                    </template>
-                                    <div class="mt-2 space-y-1" x-show="feedbackLinkResults.length">
-                                        <template x-for="r in feedbackLinkResults" :key="r.id">
-                                            <button type="button" @click="linkPropertyToEvent(r.id)" :disabled="feedbackLinkSaving"
-                                                    class="block w-full text-left rounded-md px-3 py-2 text-sm disabled:opacity-50"
-                                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                                                    x-text="r.address || r.label || r.title || ('Property #' + r.id)"></button>
+                                {{-- Concerns --}}
+                                <div class="mb-3" x-show="feedbackData.lp_concerns.length > 0">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="c in feedbackData.lp_concerns" :key="c.id">
+                                            <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
+                                                <input type="checkbox" :value="c.id"
+                                                       x-model="feedbackForm['prop:' + item.property_id].concern_ids"
+                                                       class="rounded">
+                                                <span x-text="c.label"></span>
+                                            </label>
                                         </template>
                                     </div>
-                                    <p x-show="feedbackLinkQuery.length >= 2 && !feedbackLinkResults.length && !feedbackLinkSaving" class="text-xs mt-2" style="color: var(--text-muted);">No matches.</p>
+                                </div>
+
+                                {{-- Internal notes --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
+                                    <textarea x-model="feedbackForm['prop:' + item.property_id].internal_notes" rows="2"
+                                              class="w-full rounded-md px-3 py-2 text-sm"
+                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                              placeholder="Agent-only notes for this property…"></textarea>
+                                </div>
+
+                                {{-- Next action --}}
+                                <div>
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
+                                    <input type="text" x-model="feedbackForm['prop:' + item.property_id].next_action_notes"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                           placeholder="Follow-up action…">
                                 </div>
                             </div>
+                        </template>
+                        <template x-if="feedbackData.items.length === 0">
+                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this listing presentation.</p>
                         </template>
                     </div>
                 </template>
@@ -1767,17 +1662,6 @@
                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                                    placeholder="Follow-up action…">
                         </div>
-                    </div>
-                </template>
-
-                {{-- AT-66 §4.4 — universal empty-state for the per-contact branch
-                     (bug-class fix: this branch previously rendered nothing when
-                     contacts was empty → blank modal body). No feedback branch may
-                     render an empty x-for without a fallback. --}}
-                <template x-if="feedbackData.feedback_mode !== 'per_property' && feedbackData.contacts.length === 0">
-                    <div class="py-6 text-center">
-                        <p class="text-sm" style="color: var(--text-muted);">No contacts linked to this event.</p>
-                        <p class="text-xs mt-1" style="color: var(--text-muted);">Link a contact to this event to capture feedback.</p>
                     </div>
                 </template>
             </div>
@@ -2511,13 +2395,6 @@ function calendarPage() {
         // inline at the modal footer. Replaces the prior silent fail where
         // a 500 / 422 left the button dead with no user feedback.
         feedbackError: null,
-        // AT-66 §4.5 — recovery picker state (link the viewed property to a
-        // link-less event from the feedback modal's empty-state).
-        feedbackLinkOpen: false,
-        feedbackLinkQuery: '',
-        feedbackLinkResults: [],
-        feedbackLinkSaving: false,
-        feedbackLinkError: null,
         // Reason picker modal (dismiss + require_reason complete)
         reasonPickerOpen: false,
         reasonPickerAction: 'dismiss', // 'dismiss' or 'complete'
@@ -3246,28 +3123,16 @@ function calendarPage() {
                 this.feedbackError = null;
 
                 if (mode === 'per_property') {
-                    // Index per-property form rows by property_id. AT-66 §4.3 —
-                    // the row carries BOTH shapes' fields so the same form object
-                    // works whether the card renders the viewing fields
-                    // (outcome_id / seller_visible_notes) or the LP fields
-                    // (outcome / mandate_type). Concerns prefill from the shape
-                    // that actually persisted them.
-                    const isViewing = this.feedbackData.feedback_kind === 'viewing';
+                    // Index per-property form rows by property_id.
                     this.feedbackData.items.forEach(it => {
                         const kd = it.kind_data || {};
                         this.feedbackForm['prop:' + it.property_id] = {
-                            // viewing shape
-                            outcome_id:           it.outcome_id ? String(it.outcome_id) : '',
-                            seller_visible_notes: it.seller_notes || '',
-                            // listing-presentation shape
-                            outcome:              kd.outcome || '',
-                            mandate_type:         kd.mandate_type || '',
-                            // shared
-                            concern_ids:          isViewing
-                                                    ? (Array.isArray(it.concern_ids) ? it.concern_ids.map(String) : [])
-                                                    : (Array.isArray(kd.concern_ids) ? kd.concern_ids.map(String) : []),
-                            internal_notes:       it.internal_notes || '',
-                            next_action_notes:    it.next_action || '',
+                            outcome:        kd.outcome || '',
+                            mandate_type:   kd.mandate_type || '',
+                            concern_ids:    Array.isArray(kd.concern_ids) ? kd.concern_ids.map(String) : [],
+                            seller_notes:   kd.seller_notes || '',
+                            internal_notes: it.internal_notes || '',
+                            next_action_notes: it.next_action || '',
                         };
                     });
                 } else {
@@ -3288,54 +3153,6 @@ function calendarPage() {
                 console.warn('openFeedbackModal failed:', e);
             }
         },
-        // AT-66 §4.5 — recovery picker: search properties (reuses the same
-        // endpoint the create-event property picker uses).
-        async searchFeedbackLink() {
-            this.feedbackLinkError = null;
-            if ((this.feedbackLinkQuery || '').length < 2) { this.feedbackLinkResults = []; return; }
-            try {
-                const r = await fetch('/deals-v2/search/properties?q=' + encodeURIComponent(this.feedbackLinkQuery), {
-                    headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
-                });
-                this.feedbackLinkResults = r.ok ? await r.json() : [];
-            } catch (e) {
-                this.feedbackLinkResults = [];
-                this.feedbackLinkError = 'Search failed — please try again.';
-            }
-        },
-        // Link the chosen property to this event, then re-open the modal so
-        // showFeedback() rebuilds with the now-present property item.
-        async linkPropertyToEvent(propertyId) {
-            if (!this.feedbackData.event?.id) return;
-            this.feedbackLinkSaving = true;
-            this.feedbackLinkError = null;
-            try {
-                const r = await fetch('/corex/command-center/calendar/' + this.feedbackData.event.id + '/link-property', {
-                    method: 'POST',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                    },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ property_id: propertyId }),
-                });
-                if (r.ok) {
-                    const eventId = this.feedbackData.event.id;
-                    this.feedbackLinkOpen = false;
-                    this.feedbackLinkQuery = '';
-                    this.feedbackLinkResults = [];
-                    await this.openFeedbackModal(eventId); // re-fetch — property card now renders
-                } else {
-                    let body = null; try { body = await r.json(); } catch (_) {}
-                    this.feedbackLinkError = (body && body.message) || ('Could not link property (HTTP ' + r.status + ').');
-                }
-            } catch (e) {
-                this.feedbackLinkError = 'Network error — please try again.';
-            } finally {
-                this.feedbackLinkSaving = false;
-            }
-        },
         getCurrentFeedbackPropertyId() {
             if (!this.feedbackData.is_multi_property || !this.feedbackData.properties.length) {
                 return (this.feedbackData.properties && this.feedbackData.properties[0]) ? this.feedbackData.properties[0].id : null;
@@ -3344,34 +3161,8 @@ function calendarPage() {
         },
 
         buildFeedbackPayload() {
+            // Per-property mode (listing_presentation) — keys are "prop:<id>"
             if (this.feedbackData.feedback_mode === 'per_property') {
-                // AT-66 §4.3 — VIEWING per-property: one row per (property × buyer).
-                // The captured fields apply to each buyer who toured that property;
-                // a property with no buyer still saves a property-keyed row
-                // (contact_id null) so feedback is never blocked.
-                if (this.feedbackData.feedback_kind === 'viewing') {
-                    const rows = [];
-                    this.feedbackData.items.forEach(item => {
-                        const f = this.feedbackForm['prop:' + item.property_id] || {};
-                        const base = {
-                            property_id: item.property_id,
-                            outcome_id: f.outcome_id ? parseInt(f.outcome_id) : null,
-                            concern_ids: (f.concern_ids || []).map(Number),
-                            seller_visible_notes: f.seller_visible_notes || null,
-                            internal_notes: f.internal_notes || null,
-                            next_action_notes: f.next_action_notes || null,
-                        };
-                        const buyers = (item.contacts || []).filter(c => c.direction === 'buyer');
-                        if (buyers.length) {
-                            buyers.forEach(b => rows.push({ ...base, contact_id: b.contact_id }));
-                        } else {
-                            rows.push({ ...base, contact_id: null });
-                        }
-                    });
-                    return { feedback_kind: 'viewing', feedback: rows };
-                }
-
-                // LISTING-PRESENTATION / EVALUATION per-property — keys are "prop:<id>"
                 return {
                     feedback_kind: 'listing_presentation',
                     feedback: Object.entries(this.feedbackForm)
