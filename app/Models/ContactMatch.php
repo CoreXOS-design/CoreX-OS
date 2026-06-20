@@ -333,6 +333,134 @@ class ContactMatch extends Model
         return array_values(array_unique(array_filter(array_map('intval', $list))));
     }
 
+    // ── AT-71 — countable-buyer gate ─────────────────────────────────────
+    //
+    // A wishlist is COUNTABLE when it carries enough real criteria to be a
+    // meaningful buyer. The default bar (agency-configurable) is "at least one
+    // non-empty criteria field" — only a completely empty wishlist is
+    // uncountable. Uncountable wishlists are excluded from every match
+    // count/list (both engines) so an empty wishlist can never inflate to a
+    // full match. Always read CANONICAL columns here (p24_suburb_ids,
+    // property_types, beds_min/bedrooms_max) — never the legacy `suburb`
+    // (dropped) or derived `suburbs` shadow.
+
+    /**
+     * Which canonical criteria GROUPS this wishlist has populated. The single
+     * PHP source of truth for "what counts as a non-empty wish field". The SQL
+     * mirror lives in countableGroupSql() — keep the two in lock-step.
+     *
+     * @return string[]
+     */
+    public function presentCriteriaGroups(): array
+    {
+        $g = [];
+        if ($this->price_min || $this->price_max)                       $g[] = 'price_band';
+        if (!empty($this->p24SuburbIdList()))                            $g[] = 'area';
+        if ($this->beds_min || $this->bedrooms_max)                     $g[] = 'beds';
+        if ($this->baths_min)                                           $g[] = 'baths';
+        if ($this->garages_min || $this->parking_min)                   $g[] = 'garages';
+        if (!empty($this->propertyTypeList()))                          $g[] = 'property_type';
+        if (filled($this->category))                                    $g[] = 'category';
+        if ($this->floor_size_min || $this->floor_size_max
+            || $this->erf_size_min || $this->erf_size_max)              $g[] = 'size';
+        if (!empty($this->must_have_features))                          $g[] = 'must_have';
+        if (!empty($this->nice_to_have_features))                       $g[] = 'nice_to_have';
+        if (!empty($this->deal_breakers))                               $g[] = 'deal_breakers';
+        return $g;
+    }
+
+    /**
+     * Authoritative (PHP) countability test, honouring the agency setting.
+     * Default bar (['any']) → countable iff ≥1 criteria group present.
+     * A specific bar (e.g. ['area','price_band']) → all listed groups required.
+     */
+    public function isCountable(): bool
+    {
+        $required = $this->agency_id
+            ? AgencyContactSettings::minCountableFor((int) $this->agency_id)
+            : AgencyContactSettings::DEFAULT_MIN_COUNTABLE_CRITERIA;
+
+        $present = $this->presentCriteriaGroups();
+
+        if (in_array('any', $required, true) || empty($required)) {
+            return count($present) > 0;
+        }
+        return count(array_diff($required, $present)) === 0;
+    }
+
+    /**
+     * SQL gate mirroring isCountable(). Restricts a query to countable
+     * wishlists for the given agency's configured bar. Used by the live
+     * matching engine and the raw demand counts.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $q
+     */
+    public function scopeCountable(Builder $q, int $agencyId): Builder
+    {
+        self::applyCountableSql($q, $agencyId);
+        return $q;
+    }
+
+    /**
+     * Apply the countable-wishlist WHERE to ANY query builder (Eloquent or raw
+     * DB::table). `$prefix` lets callers target an aliased join, e.g. 'cm.'.
+     * Reads the agency's configured bar; the per-group SQL is the mirror of
+     * presentCriteriaGroups().
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder  $query
+     */
+    public static function applyCountableSql($query, int $agencyId, string $prefix = '')
+    {
+        $required = AgencyContactSettings::minCountableFor($agencyId);
+        $conds    = self::countableGroupSql($prefix);
+
+        if (in_array('any', $required, true) || empty($required)) {
+            // Countable if ANY one group is non-empty.
+            $query->where(function ($q) use ($conds) {
+                foreach ($conds as $sql) {
+                    $q->orWhereRaw($sql);
+                }
+            });
+        } else {
+            // Countable only if EVERY required group is non-empty.
+            foreach ($required as $group) {
+                if (isset($conds[$group])) {
+                    $query->whereRaw($conds[$group]);
+                }
+            }
+        }
+
+        return $query;
+    }
+
+    /**
+     * Per-group raw-SQL "is non-empty" predicates — the SQL mirror of
+     * presentCriteriaGroups(). `$prefix` (e.g. 'cm.') qualifies the columns.
+     *
+     * @return array<string,string>
+     */
+    protected static function countableGroupSql(string $prefix = ''): array
+    {
+        $c = fn (string $col) => $prefix . $col;
+        $jsonNonEmpty = fn (string $col) => "JSON_LENGTH(COALESCE({$c($col)}, JSON_ARRAY())) > 0";
+
+        return [
+            'price_band'    => "({$c('price_min')} > 0 OR {$c('price_max')} > 0)",
+            'area'          => $jsonNonEmpty('p24_suburb_ids'),
+            'beds'          => "({$c('beds_min')} > 0 OR {$c('bedrooms_max')} > 0)",
+            'baths'         => "{$c('baths_min')} > 0",
+            'garages'       => "({$c('garages_min')} > 0 OR {$c('parking_min')} > 0)",
+            'property_type' => '(' . $jsonNonEmpty('property_types')
+                                . " OR ({$c('property_type')} IS NOT NULL AND {$c('property_type')} <> ''))",
+            'category'      => "({$c('category')} IS NOT NULL AND {$c('category')} <> '')",
+            'size'          => "({$c('floor_size_min')} > 0 OR {$c('floor_size_max')} > 0"
+                                . " OR {$c('erf_size_min')} > 0 OR {$c('erf_size_max')} > 0)",
+            'must_have'     => $jsonNonEmpty('must_have_features'),
+            'nice_to_have'  => $jsonNonEmpty('nice_to_have_features'),
+            'deal_breakers' => $jsonNonEmpty('deal_breakers'),
+        ];
+    }
+
     /**
      * Looks up suburb names for the current p24_suburb_ids and writes them
      * into the `suburbs` column. Called from creating/updating hooks so

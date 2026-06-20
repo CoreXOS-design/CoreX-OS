@@ -91,7 +91,8 @@ class MatchingService
 
         $query = ContactMatch::query()
             ->active()
-            ->where('agency_id', $property->agency_id);
+            ->where('agency_id', $property->agency_id)
+            ->countable((int) $property->agency_id); // AT-71 — exclude uncountable (empty) wishlists
 
         $this->applyHardFilters($query, $property);
 
@@ -110,7 +111,8 @@ class MatchingService
 
         $candidates = ContactMatch::query()
             ->active()
-            ->where('agency_id', $property->agency_id);
+            ->where('agency_id', $property->agency_id)
+            ->countable((int) $property->agency_id); // AT-71 — exclude uncountable (empty) wishlists
 
         $this->applyHardFilters($candidates, $property);
 
@@ -143,6 +145,12 @@ class MatchingService
      */
     public function propertiesForMatch(ContactMatch $match, array $overrides = []): Collection
     {
+        // AT-71 — an uncountable (empty / below-bar) wishlist matches nothing.
+        // Guards the empty→100 inflation at the entry point of this path.
+        if (!$match->isCountable()) {
+            return collect();
+        }
+
         $relaxed = $overrides['relaxed'] ?? true;
         $query = Property::query()
             ->whereNotIn('status', self::EXCLUDED_FOR_DISPLAY);
@@ -377,7 +385,12 @@ class MatchingService
         }
 
         if (empty($components)) {
-            return 100; // no criteria specified → every live property is a full match
+            // AT-71 — belt-and-braces against the empty-wishlist inflation bug.
+            // No scorable component means either (a) the wishlist is uncountable
+            // (no criteria at all) → must NOT inflate to a full match → 0; or
+            // (b) it specified ONLY must-have features, which were already
+            // verified above → a genuine full match → 100.
+            return $match->isCountable() ? 100 : 0;
         }
 
         $totalWeight = 0;
