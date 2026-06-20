@@ -7,7 +7,10 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Jobs\MarketReports\ParseMarketReportJob;
 use App\Jobs\MarketReports\SpotCheckMarketReportJob;
+use App\Models\MarketReports\MarketDataDiscrepancy;
+use App\Models\MarketReports\MarketDataPoint;
 use App\Models\MarketReports\MarketReport;
+use App\Models\MarketReports\MarketReportCompRow;
 use App\Models\MarketReports\MarketReportType;
 use App\Services\MarketReports\MarketReportParserRegistry;
 use Illuminate\Http\JsonResponse;
@@ -414,22 +417,24 @@ final class MarketReportController extends Controller
     }
 
     /**
-     * Clear a report's previously-extracted rows + reset its parse status
+     * Supersede a report's previously-extracted rows + reset its parse status
      * so the next ParseMarketReportJob dispatch starts from a clean slate.
-     * Force-deletes (not soft) — the rows belong to a SINGLE parse run and
-     * have no meaning outside it.
      *
-     * NOTE: this is the simple, current model. Once Phase 2 of the
-     * fact-history work lands the re-parse path will become supersession-
-     * aware (mark old as superseded, append new with provenance) so the
-     * per-fact dated trail survives a re-parse. Out of scope here per the
-     * Phase 1+4 lifecycle prompt.
+     * Soft-deletes (NOT force-deletes) — non-negotiable #1: no hard deletes,
+     * ever. The previous parse run's rows are marked deleted_at and remain
+     * recoverable; every aggregating reader (the sold/active comp adapters,
+     * MicSnapshotHydrator's pool query, CmaCoverageService, the import
+     * summary) already filters whereNull('deleted_at'), so superseded rows
+     * drop out of the comp pool, analytics, and presentations on the next
+     * read while staying on disk for audit/recovery. All three tables carry a
+     * deleted_at column; ParseMarketReportJob then appends the fresh rows with
+     * new ids (no unique-key collision — the tables key only on the PK).
      */
     private function resetReportForReparse(MarketReport $report): void
     {
-        DB::table('market_data_discrepancies')->where('report_id', $report->id)->delete();
-        DB::table('market_report_comp_rows')->where('market_report_id', $report->id)->delete();
-        DB::table('market_data_points')->where('report_id', $report->id)->delete();
+        MarketDataDiscrepancy::where('report_id', $report->id)->delete();
+        MarketReportCompRow::where('market_report_id', $report->id)->delete();
+        MarketDataPoint::where('report_id', $report->id)->delete();
         // Clear report_type_id so ParseMarketReportJob takes its detect()
         // branch (the null-fork) on dispatch — re-parse is "start over",
         // not "re-run whatever parser was stamped last time". Without this

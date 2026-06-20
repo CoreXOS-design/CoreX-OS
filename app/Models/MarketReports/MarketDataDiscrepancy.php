@@ -7,13 +7,16 @@ namespace App\Models\MarketReports;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * AI spot-check diff between the deterministic parser and the AI re-extraction.
  *
  * No BelongsToAgency — discrepancies follow the data point's shared-pool
- * nature. No SoftDeletes — audit records are kept forever (resolved=true
- * rather than archived).
+ * nature. Resolved (not archived) in the normal lifecycle via resolved=true.
+ * SoftDeletes is present so a report re-parse can SUPERSEDE the previous run's
+ * discrepancies (deleted_at) instead of hard-deleting them — non-negotiable #1
+ * (no hard deletes); the rows stay recoverable for audit.
  *
  * Severity ≥ medium fires a super-admin notification (handled by a separate
  * listener in Phase B).
@@ -22,6 +25,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 final class MarketDataDiscrepancy extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'market_data_discrepancies';
 
     public const TYPE_VALUE_MISMATCH   = 'value_mismatch';

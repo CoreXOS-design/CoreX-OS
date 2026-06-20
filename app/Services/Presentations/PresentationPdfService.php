@@ -2099,6 +2099,7 @@ a:hover { text-decoration: underline; }
             if (($_lat === null || $_lng === null) && $_compRowId) {
                 $_gps = \Illuminate\Support\Facades\DB::table('market_report_comp_rows')
                     ->where('id', $_compRowId)
+                    ->whereNull('deleted_at')
                     ->first(['latitude', 'longitude', 'scheme_name']);
                 if ($_gps) {
                     if ($_gps->latitude !== null && $_gps->longitude !== null) {

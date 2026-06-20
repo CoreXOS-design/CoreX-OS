@@ -230,6 +230,7 @@ final class MapController extends Controller
             if ($compRowId) {
                 $r = \Illuminate\Support\Facades\DB::table('market_report_comp_rows')
                     ->where('id', $compRowId)
+                    ->whereNull('deleted_at')
                     ->first(['latitude', 'longitude', 'scheme_name']);
                 if ($r) {
                     if ($r->latitude !== null && $r->longitude !== null) {
