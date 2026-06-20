@@ -618,11 +618,57 @@ class ContactController extends Controller
             throw \Illuminate\Validation\ValidationException::withMessages($danglers);
         }
 
+        // Normalise empty optional components to NULL rather than '' so the
+        // stored shape is consistent with the dedicated clear path below and so
+        // hasStructuredAddress()/composeStructuredAddress() (both filled()-based)
+        // never see a "blank but present" column. (BUILD_STANDARD §6 — one shape
+        // for the empty value, set everywhere.)
+        foreach ([
+            'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
+            'street_number', 'street_name', 'suburb', 'city', 'province',
+        ] as $field) {
+            if (array_key_exists($field, $data) && trim((string) ($data[$field] ?? '')) === '') {
+                $data[$field] = null;
+            }
+        }
+
         // Save ONLY the structured property-address columns — never `address`.
         \DB::transaction(fn () => $contact->update($data));
 
         return redirect()->route('corex.contacts.show', $contact)
             ->with('success', 'Property address saved.')
+            ->with('tab', 'properties');
+    }
+
+    /**
+     * AT-61 follow-up — REMOVE the captured structured property-address (full
+     * CRUD: set/edit existed, delete was missing). Nulls ALL twelve AT-60
+     * structured columns in one transactional update so the write is all-or-
+     * nothing — a partial failure rolls back and leaves the captured address
+     * exactly as it was.
+     *
+     * Consequence (the point of the feature): with every component null,
+     * Contact::hasStructuredAddress() returns false, so the AT-61 outreach
+     * "address-only" bypass switches OFF — the composer falls back to the
+     * "link a property" gate for this contact (ComposerController::show /
+     * ::submit both re-check hasStructuredAddress()).
+     *
+     * Does NOT touch the contact's residential `address` (Info free-text) and
+     * does NOT touch any Property the agent already created from this address —
+     * that is a separate, real Property with its own contact_property pivot.
+     */
+    public function clearPropertyAddress(Request $request, Contact $contact)
+    {
+        $columns = [
+            'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
+            'street_number', 'street_name', 'suburb', 'city', 'province',
+            'p24_province_id', 'p24_city_id', 'p24_suburb_id',
+        ];
+
+        \DB::transaction(fn () => $contact->update(array_fill_keys($columns, null)));
+
+        return redirect()->route('corex.contacts.show', $contact)
+            ->with('success', 'Property address removed.')
             ->with('tab', 'properties');
     }
 
