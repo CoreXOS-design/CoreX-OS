@@ -9,6 +9,7 @@ use App\Services\Documents\SharedDriveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class SharedDriveController extends Controller
 {
@@ -182,6 +183,88 @@ class SharedDriveController extends Controller
             : route('documents.shared-drive.index');
 
         return redirect($target)->with('success', 'File moved to archive.');
+    }
+
+    /**
+     * Download several selected files at once. A single selection streams the
+     * file directly; multiple files are bundled into a ZIP. The whereIn query
+     * is agency-scoped, so foreign ids are silently dropped.
+     */
+    public function bulkDownload(Request $request)
+    {
+        abort_unless($this->can('shared_drive.download'), 403);
+
+        $ids = array_filter((array) $request->input('ids', []));
+        $files = SharedDriveFile::whereIn('id', $ids)->get();
+
+        if ($files->isEmpty()) {
+            return back()->with('error', 'No files selected.');
+        }
+
+        if ($files->count() === 1) {
+            $only = $files->first();
+            $path = $this->drive->absolutePath($only);
+            abort_unless(is_file($path), 404, 'File not found.');
+            return response()->download($path, $only->original_name);
+        }
+
+        $tmpDir = storage_path('app/private/tmp');
+        if (!is_dir($tmpDir)) {
+            @mkdir($tmpDir, 0775, true);
+        }
+        $zipPath = $tmpDir . '/' . Str::random(20) . '.zip';
+
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            return back()->with('error', 'Could not build the download.');
+        }
+
+        $used = [];
+        foreach ($files as $f) {
+            $abs = $this->drive->absolutePath($f);
+            if (!is_file($abs)) {
+                continue;
+            }
+            $name = $this->uniqueZipName($f->original_name, $used);
+            $zip->addFile($abs, $name);
+        }
+        $zip->close();
+
+        $zipName = 'shared-drive-' . now()->format('Ymd-His') . '.zip';
+        return response()->download($zipPath, $zipName)->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Soft-delete several selected files at once.
+     */
+    public function destroyFilesBulk(Request $request)
+    {
+        abort_unless($this->can('shared_drive.files.delete'), 403);
+
+        $ids = array_filter((array) $request->input('ids', []));
+        $files = SharedDriveFile::whereIn('id', $ids)->get();
+        $files->each->delete();
+
+        $folderId = $request->input('folder_id');
+        $target = $folderId
+            ? route('documents.shared-drive.folder', $folderId)
+            : route('documents.shared-drive.index');
+
+        return redirect($target)->with('success', $files->count() . ' file(s) moved to archive.');
+    }
+
+    /** Ensure each entry in a ZIP has a distinct name. */
+    private function uniqueZipName(string $name, array &$used): string
+    {
+        $candidate = $name;
+        $base = pathinfo($name, PATHINFO_FILENAME);
+        $ext = pathinfo($name, PATHINFO_EXTENSION);
+        $i = 1;
+        while (isset($used[mb_strtolower($candidate)])) {
+            $candidate = $base . ' (' . $i++ . ')' . ($ext !== '' ? '.' . $ext : '');
+        }
+        $used[mb_strtolower($candidate)] = true;
+        return $candidate;
     }
 
     /**

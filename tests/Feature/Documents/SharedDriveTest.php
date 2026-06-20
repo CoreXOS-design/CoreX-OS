@@ -107,6 +107,55 @@ final class SharedDriveTest extends TestCase
         $this->actingAs($viewer)
             ->post(route('documents.shared-drive.folders.store'), ['name' => 'Nope'])
             ->assertForbidden();
+
+        // Bulk download (needs download perm) and bulk delete blocked
+        $this->actingAs($viewer)
+            ->post(route('documents.shared-drive.files.bulk-download'), ['ids' => [1]])
+            ->assertForbidden();
+        $this->actingAs($viewer)
+            ->delete(route('documents.shared-drive.files.bulk-destroy'), ['ids' => [1]])
+            ->assertForbidden();
+    }
+
+    public function test_bulk_delete_soft_deletes_only_selected_files(): void
+    {
+        $user = $this->userWithPermissions(self::FULL);
+
+        $make = fn (string $name) => SharedDriveFile::create([
+            'agency_id' => $user->agency_id, 'folder_id' => null,
+            'original_name' => $name, 'stored_path' => 'shared_drive/x/' . $name,
+            'extension' => 'pdf', 'bytes' => 1, 'uploaded_by_user_id' => $user->id,
+        ]);
+        $a = $make('a.pdf');
+        $b = $make('b.pdf');
+        $c = $make('c.pdf');
+
+        $this->actingAs($user)
+            ->delete(route('documents.shared-drive.files.bulk-destroy'), ['ids' => [$a->id, $b->id]])
+            ->assertRedirect();
+
+        $this->assertSoftDeleted('shared_drive_files', ['id' => $a->id]);
+        $this->assertSoftDeleted('shared_drive_files', ['id' => $b->id]);
+        $this->assertNotSoftDeleted('shared_drive_files', ['id' => $c->id]);
+    }
+
+    public function test_bulk_download_of_multiple_files_returns_a_zip(): void
+    {
+        Storage::fake('local');
+        $user = $this->userWithPermissions(self::FULL);
+
+        foreach (['one.pdf', 'two.pdf'] as $name) {
+            $this->actingAs($user)->post(route('documents.shared-drive.upload'), [
+                'file' => UploadedFile::fake()->create($name, 10, 'application/pdf'),
+            ])->assertOk();
+        }
+
+        $ids = SharedDriveFile::pluck('id')->all();
+        $resp = $this->actingAs($user)->post(route('documents.shared-drive.files.bulk-download'), ['ids' => $ids]);
+
+        $resp->assertOk();
+        $disposition = (string) $resp->headers->get('content-disposition');
+        $this->assertStringContainsString('.zip', strtolower($disposition));
     }
 
     public function test_deleting_folder_soft_deletes_descendants(): void

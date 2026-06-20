@@ -3175,6 +3175,10 @@ Route::middleware(['auth', 'permission:access_shared_drive'])
 
         Route::post('/upload', [\App\Http\Controllers\Documents\SharedDriveController::class, 'upload'])
             ->name('upload');
+        Route::post('/files/bulk-download', [\App\Http\Controllers\Documents\SharedDriveController::class, 'bulkDownload'])
+            ->name('files.bulk-download');
+        Route::delete('/files/bulk', [\App\Http\Controllers\Documents\SharedDriveController::class, 'destroyFilesBulk'])
+            ->name('files.bulk-destroy');
         Route::get('/files/{file}/view', [\App\Http\Controllers\Documents\SharedDriveController::class, 'view'])
             ->name('files.view');
         Route::get('/files/{file}/download', [\App\Http\Controllers\Documents\SharedDriveController::class, 'download'])

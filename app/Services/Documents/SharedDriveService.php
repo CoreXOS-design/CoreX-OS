@@ -112,9 +112,9 @@ class SharedDriveService
         $folder->delete();
     }
 
-    /** Absolute path on disk for a stored file. */
+    /** Absolute path on disk for a stored file (consistent with the disk used by storeUpload). */
     public function absolutePath(SharedDriveFile $file): string
     {
-        return storage_path('app/private/' . $file->stored_path);
+        return $this->disk()->path($file->stored_path);
     }
 }
