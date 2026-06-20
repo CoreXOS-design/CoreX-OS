@@ -353,6 +353,76 @@ final class ReportLifecycleTest extends TestCase
         );
     }
 
+    public function test_reparse_supersedes_old_rows_softly_not_hard_delete(): void
+    {
+        // Non-negotiable #1 guard: resetReportForReparse must SOFT-delete the
+        // previous parse run's comp_rows / data_points / discrepancies
+        // (deleted_at set, recoverable) — never hard-delete. Every aggregating
+        // reader filters whereNull('deleted_at'), so the superseded rows drop
+        // out of the live pool while staying on disk for audit/recovery.
+        [$agencyId, $userId] = $this->seedAgency();
+        $type = $this->seedVicinityType();
+        Storage::fake('local');
+
+        // Upload + initial parse → real comp_rows + data_points on disk.
+        $upload = $this->fixtureUploadedFile();
+        $this->actingAs(User::find($userId))
+            ->post(route('market-intelligence.reports.store'), [
+                'file' => $upload, 'report_type_id' => $type->id,
+            ])->assertRedirect();
+
+        $report = MarketReport::query()->firstOrFail();
+
+        // A manual data_point + discrepancy on the report so we assert the
+        // soft-supersede across all three child tables (parse alone never
+        // writes discrepancies — those come from the AI spot-check).
+        $dp = MarketDataPoint::create([
+            'agency_id'            => $agencyId,
+            'report_id'            => $report->id,
+            'metric_key'          => 'municipal_valuation',
+            'metric_value_numeric'=> 1_200_000,
+            'metric_date'         => now()->toDateString(),
+            'source_type'         => 'market_report',
+        ]);
+        $disc = MarketDataDiscrepancy::create([
+            'report_id'        => $report->id,
+            'data_point_id'    => $dp->id,
+            'parsed_value'     => '1 200 000',
+            'audit_value'      => '1 100 000',
+            'discrepancy_type' => 'value_mismatch',
+            'severity'         => 'medium',
+            'resolved'         => false,
+        ]);
+
+        $origCompIds = MarketReportCompRow::where('market_report_id', $report->id)
+            ->pluck('id')->all();
+        $this->assertNotEmpty($origCompIds, 'fixture must yield comp rows to supersede');
+
+        $this->actingAs(User::find($userId))
+            ->post(route('market-intelligence.reports.reparse', $report))
+            ->assertRedirect(route('market-intelligence.reports.show', $report));
+
+        // Old comp rows: every original id still on disk, all soft-deleted.
+        $survivors = MarketReportCompRow::withTrashed()
+            ->whereIn('id', $origCompIds)->get();
+        $this->assertCount(count($origCompIds), $survivors,
+            'original comp rows must remain recoverable — not hard-deleted');
+        $this->assertTrue($survivors->every(fn ($r) => $r->trashed()),
+            'every superseded comp row must carry deleted_at');
+
+        // Old data_point + discrepancy: soft-deleted, recoverable.
+        $this->assertTrue(MarketDataPoint::withTrashed()->find($dp->id)?->trashed(),
+            'superseded data_point must be soft-deleted, recoverable');
+        $this->assertTrue(MarketDataDiscrepancy::withTrashed()->find($disc->id)?->trashed(),
+            'superseded discrepancy must be soft-deleted, recoverable');
+
+        // Live pool: fresh rows exist and exclude the superseded ones.
+        $live = MarketReportCompRow::where('market_report_id', $report->id)->pluck('id')->all();
+        $this->assertNotEmpty($live, 're-parse must leave a fresh live comp set');
+        $this->assertEmpty(array_intersect($origCompIds, $live),
+            'live pool must contain only the fresh rows, never the superseded ids');
+    }
+
     public function test_reparse_with_missing_pdf_flashes_error_no_500(): void
     {
         [$agencyId, $userId] = $this->seedAgency();

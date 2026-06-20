@@ -792,6 +792,11 @@ class PresentationPdfService
         // Links for references
         $p24Links = $presentation->links->where('type', 'property24')->values();
 
+        // Pagination policy thresholds (Fix B / Fix C) — config-driven, default
+        // 2; per-agency override is the natural extension (agencies column).
+        $_minTableRows    = max(1, (int) config('presentations.pagination.min_table_lead_rows', 2));
+        $_minCardGridRows = max(1, (int) config('presentations.pagination.min_card_grid_tail_rows', 2));
+
         ob_start();
         ?>
 <!DOCTYPE html>
@@ -882,6 +887,14 @@ h2, h3, h4,
     page-break-after:  avoid; break-after:  avoid;    /* glue to first body block */
     page-break-inside: avoid; break-inside: avoid;
 }
+/* Fix E — keep-with-PREVIOUS: a block that summarises the content above it
+   (e.g. the Sale Prices Over Time chart after the comp tables) glues to that
+   content so it is never stranded alone on a fresh page. */
+.keep-with-prev { page-break-before: avoid; break-before: avoid; }
+/* Fix C — keep-with-NEXT for a heading's intro paragraph, so a card-grid
+   heading + its intro stay attached to the first card row (the card grid is a
+   <table>, so its rows also obey the Fix B min-row rule above). */
+.keep-with-next { page-break-after: avoid; break-after: avoid; }
 
 /* R3 — unsplittable fixed blocks move whole. */
 .avoid-break,
@@ -894,11 +907,21 @@ h2, h3, h4,
     page-break-inside: avoid; break-inside: avoid;
 }
 
-/* R4 — tables may split; header repeats; rows stay intact. */
+/* R4 — tables may split; header repeats; rows stay intact. Summary rows are
+   final in-flow tbody rows (Fix A), NOT <tfoot> — a tfoot is table-footer-group
+   and Chromium repeats it on every fragment, duplicating the "Average". */
 table { page-break-inside: auto; break-inside: auto; }
 thead { display: table-header-group; }
-tfoot { display: table-footer-group; }
 tr, th, td { page-break-inside: avoid; break-inside: avoid; }
+
+/* Fix B — table-row orphan/widow control (CSS orphans/widows do NOT apply to
+   table rows). Keep the first/last <?= $_minTableRows ?> data rows of every
+   splittable table together, so a fragment never strands fewer than the
+   configured minimum: if the remaining page space can't seat the lead rows the
+   whole table moves to the next page, and the repeating header (R4) never sits
+   above a lone orphan row. Threshold is config-driven (default 2). */
+tbody tr:nth-child(-n+<?= max(1, $_minTableRows - 1) ?>)      { page-break-after:  avoid; break-after:  avoid; }
+tbody tr:nth-last-child(-n+<?= max(1, $_minTableRows - 1) ?>) { page-break-before: avoid; break-before: avoid; }
 
 /* R6 — orphans/widows document-wide. */
 body { orphans: 2; widows: 2; }
@@ -1829,16 +1852,18 @@ a:hover { text-decoration: underline; }
             <td class="num"><?= $sale['price_per_m2'] ? 'R ' . number_format((int) $sale['price_per_m2']) : '—' ?></td>
         </tr>
         <?php endforeach ?>
-    </tbody>
     <?php if ($vicAvgPrice || $vicAvgPpm2): ?>
-    <tfoot>
+    <?php /* Fix A — summary is a FINAL in-flow tbody row, NOT a <tfoot>:
+             tfoot is table-footer-group and Chromium REPEATS it on every page
+             fragment, duplicating "Average" when the table spans. As the last
+             tbody row it renders exactly once at the true end. */ ?>
         <tr class="table-summary">
             <td colspan="4"><strong>Average</strong></td>
             <td class="num"><?= $zar($vicAvgPrice) ?></td>
             <td class="num"><?= $vicAvgPpm2 ? 'R ' . number_format($vicAvgPpm2) : '—' ?></td>
         </tr>
-    </tfoot>
     <?php endif ?>
+    </tbody>
 </table>
 
 <?php if ($vicAvgPrice && $askingPrice && $vicAvgPrice > 0): ?>
@@ -1898,16 +1923,14 @@ a:hover { text-decoration: underline; }
             <td class="num"><?= $sale['price_per_m2'] ? 'R ' . number_format((int) $sale['price_per_m2']) : '—' ?></td>
         </tr>
         <?php endforeach ?>
-    </tbody>
     <?php if ($complexAvgPrice || $complexAvgPpm2): ?>
-    <tfoot>
-        <tr class="table-summary">
+        <tr class="table-summary"><?php /* Fix A — final tbody row, not <tfoot> (see vicinity table). */ ?>
             <td colspan="3"><strong>Average</strong></td>
             <td class="num"><?= $zar($complexAvgPrice) ?></td>
             <td class="num"><?= $complexAvgPpm2 ? 'R ' . number_format($complexAvgPpm2) : '—' ?></td>
         </tr>
-    </tfoot>
     <?php endif ?>
+    </tbody>
 </table>
 <?php if ($complexAvgPrice && $askingPrice && $complexAvgPrice > 0): ?>
 <?php $askVsComplexPct = round(($askingPrice - $complexAvgPrice) / $complexAvgPrice * 100, 1); ?>
@@ -1999,7 +2022,7 @@ a:hover { text-decoration: underline; }
             ? 'Trend: flat'
             : sprintf('Trend: %s%.1f%%/mo', $stMonthlyPct >= 0 ? '+' : '', $stMonthlyPct);
 ?>
-<div class="avoid-break" style="margin-top:16px;">
+<div class="avoid-break keep-with-prev" style="margin-top:16px;"><?php /* Fix E — keep-with-previous: this chart summarises the comp tables above, so it glues to them and is never stranded alone on a fresh page. */ ?>
     <p style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Sale Prices Over Time</p>
     <svg viewBox="0 0 <?= $stW ?> <?= $stH ?>" style="display:block;width:100%;max-width:<?= $stW ?>px;height:auto;aspect-ratio:<?= $stW ?> / <?= $stH ?>;background:var(--bg);border:1px solid var(--border);border-radius:4px;">
         <?php // Plot frame ?>
@@ -2076,6 +2099,7 @@ a:hover { text-decoration: underline; }
             if (($_lat === null || $_lng === null) && $_compRowId) {
                 $_gps = \Illuminate\Support\Facades\DB::table('market_report_comp_rows')
                     ->where('id', $_compRowId)
+                    ->whereNull('deleted_at')
                     ->first(['latitude', 'longitude', 'scheme_name']);
                 if ($_gps) {
                     if ($_gps->latitude !== null && $_gps->longitude !== null) {
@@ -2223,7 +2247,11 @@ a:hover { text-decoration: underline; }
       // Caption shows plotted/unplotted counts honestly. ?>
 <div style="margin-top:18px;">
     <h3 style="margin-bottom:8px;">CMA Map — Subject + Sold Comps + Active Competition</h3>
-    <img src="<?= $_staticMapDataUri ?>" alt="CMA map" style="width:100%;max-width:640px;height:auto;border:1px solid #e2e8f0;border-radius:6px;">
+    <?php /* Fix D — cap the map height (the policy's "scale the image to the
+             remaining space" option) so the atomic map block fits the page
+             remainder instead of jumping whole to the next page and leaving a
+             large blank gap before it. The legend below already flows. */ ?>
+    <img src="<?= $_staticMapDataUri ?>" alt="CMA map" style="width:auto;max-width:100%;max-height:300px;height:auto;border:1px solid #e2e8f0;border-radius:6px;">
     <p style="font-size:10px;color:#64748b;margin-top:4px;">
         Numbered pins keyed to the legend below ·
         Sold comps: <?= count($_svgComps) - (isset($_staticComp) ? count($_staticComp) : 0) ?> plotted ·
@@ -2359,7 +2387,6 @@ a:hover { text-decoration: underline; }
             <td class="num"><?= isset($comp['price_per_m2']) && $comp['price_per_m2'] ? 'R ' . number_format((int) $comp['price_per_m2']) : '—' ?></td>
         </tr>
         <?php endforeach ?>
-    </tbody>
     <?php
         $cmaPrices = array_filter(array_column($cmaComps, 'sale_price'), fn($v) => $v > 0);
         $cmaPpm2   = array_filter(array_column($cmaComps, 'price_per_m2'), fn($v) => $v > 0);
@@ -2367,14 +2394,13 @@ a:hover { text-decoration: underline; }
         $cmaAvgPpm2 = count($cmaPpm2) > 0 ? (int) round(array_sum($cmaPpm2) / count($cmaPpm2)) : null;
     ?>
     <?php if ($cmaAvgP): ?>
-    <tfoot>
-        <tr class="table-summary">
+        <tr class="table-summary"><?php /* Fix A — final tbody row, not <tfoot> (see vicinity table). */ ?>
             <td colspan="4"><strong>Average</strong></td>
             <td class="num"><?= $zar($cmaAvgP) ?></td>
             <td class="num"><?= $cmaAvgPpm2 ? 'R ' . number_format($cmaAvgPpm2) : '—' ?></td>
         </tr>
-    </tfoot>
     <?php endif ?>
+    </tbody>
 </table>
 </div>
 <?php endif ?>
@@ -2541,16 +2567,14 @@ a:hover { text-decoration: underline; }
             <td class="num"><?= $c['days_on_market'] ?? '—' ?></td>
         </tr>
         <?php endforeach ?>
-    </tbody>
     <?php if ($compAvg): ?>
-    <tfoot>
-        <tr class="table-summary">
+        <tr class="table-summary"><?php /* Fix A — final tbody row, not <tfoot> (see vicinity table). */ ?>
             <td colspan="4"><strong>Average</strong></td>
             <td class="num"><?= $zar($compAvg) ?></td>
             <td class="num"></td>
         </tr>
-    </tfoot>
     <?php endif ?>
+    </tbody>
 </table>
 <?php else: ?>
 <div class="callout callout-info">No scored competitor stock for this property yet. Competitors are matched from prospecting listings on price, suburb, type and bedrooms.</div>
@@ -2661,7 +2685,7 @@ $visibleCompetitors = $competitorStock['visible'] ?? [];
 if (!empty($visibleCompetitors)):
 ?>
 <h3 style="margin-top:18px;margin-bottom:8px;">Scored Competitor Stock (<?= count($visibleCompetitors) ?>)</h3>
-<p style="margin:0 0 10px 0;font-size:11px;color:#64748b;">
+<p class="keep-with-next" style="margin:0 0 10px 0;font-size:11px;color:#64748b;"><?php /* Fix C — glue heading+intro to the first card row. */ ?>
     Active listings the property competes against, scored by Core Matches.
     Match % reflects proximity by price, suburb, type, and bedrooms.
 </p>
@@ -3097,13 +3121,11 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
                 </tr>
                 <?php endif ?>
                 <?php endforeach ?>
-            </tbody>
-            <tfoot>
-                <tr class="table-summary">
+                <tr class="table-summary"><?php /* Fix A — final tbody row, not <tfoot> (see vicinity table). */ ?>
                     <td><strong>Monthly Total</strong></td>
                     <td class="num"><?= $zarFloat($monthlyTotal) ?></td>
                 </tr>
-            </tfoot>
+            </tbody>
         </table>
     </div>
 

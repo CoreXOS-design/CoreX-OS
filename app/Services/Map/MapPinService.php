@@ -571,6 +571,7 @@ final class MapPinService
 
             $gps = DB::table('market_report_comp_rows')
                 ->where('id', $compRowId)
+                ->whereNull('deleted_at')
                 ->whereNotNull('latitude')->whereNotNull('longitude')
                 ->select(['latitude', 'longitude', 'address'])
                 ->first();
