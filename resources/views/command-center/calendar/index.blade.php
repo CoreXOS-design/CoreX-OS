@@ -563,7 +563,7 @@
                                         <button type="button"
                                                 data-event-id="{{ $evt->id }}"
                                                 @click.stop="openEventPanel({{ $evt->id }})"
-                                                class="block w-full text-left px-1.5 py-0.5 rounded text-[10px] truncate transition hover:opacity-80"
+                                                class="block w-full text-left px-1.5 py-0.5 rounded text-[10px] truncate transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
                                                 style="{{ $chipStyle }}"
                                                 title="{{ $evt->title }}">
                                             {{ \Illuminate\Support\Str::limit($evt->title, 18) }}
@@ -630,7 +630,7 @@
                                                 @else
                                                     style="{{ $chipStyle }}"
                                                 @endif
-                                                class="block w-full text-left px-1.5 py-0.5 rounded text-[10px] truncate transition hover:opacity-80"
+                                                class="block w-full text-left px-1.5 py-0.5 rounded text-[10px] truncate transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
                                                 title="{{ $evt->event_date->format('H:i') }} {{ $evt->title }}">
                                             <span class="opacity-70">{{ $evt->event_date->format('H:i') }}</span>
                                             <span class="font-medium ml-0.5">{{ \Illuminate\Support\Str::limit($evt->title, 14) }}</span>
@@ -711,7 +711,7 @@
                             <button type="button"
                                     data-event-id="{{ $evt->id }}"
                                     @click.stop="openEventPanel({{ $evt->id }})"
-                                    class="block w-full text-left px-3 py-2 rounded transition hover:opacity-80"
+                                    class="block w-full text-left px-3 py-2 rounded transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
                                     style="{{ $chipStyle }}">
                                 <div class="font-medium text-sm flex items-center gap-1.5">
                                     <span>{{ $evt->title }}</span>
@@ -772,7 +772,7 @@
                                             @else
                                                 style="{{ $chipStyle }}"
                                             @endif
-                                            class="block w-full text-left px-3 py-2 rounded transition hover:opacity-80">
+                                            class="block w-full text-left px-3 py-2 rounded transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}">
                                         <div class="flex items-center gap-2">
                                             <span class="text-xs opacity-80">{{ $evt->event_date->format('H:i') }}</span>
                                             <span class="font-medium text-sm">{{ $evt->title }}</span>
@@ -905,11 +905,11 @@
                                             {{ $evt->all_day ? 'All day' : $evt->event_date->format('H:i') }}
                                         </span>
                                         @if($evt->property_id)
-                                            <a href="{{ route('corex.properties.show', $evt->property_id) }}" class="text-sm flex-1 truncate hover:underline" style="color: var(--text-primary);">
+                                            <a href="{{ route('corex.properties.show', $evt->property_id) }}" class="text-sm flex-1 truncate hover:underline {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}" style="color: var(--text-primary);">
                                                 {{ $evt->title }}
                                             </a>
                                         @else
-                                            <span class="text-sm flex-1 truncate" style="color: var(--text-primary);">{{ $evt->title }}</span>
+                                            <span class="text-sm flex-1 truncate {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}" style="color: var(--text-primary);">{{ $evt->title }}</span>
                                         @endif
                                         @if($evt->created_by_ai)<x-ai-badge size="xs" />@endif
                                         @if($evt->property_id)
