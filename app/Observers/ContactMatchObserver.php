@@ -2,10 +2,12 @@
 
 namespace App\Observers;
 
+use App\Jobs\RegenerateBuyerMatchesJob;
 use App\Models\ContactMatch;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Observer for ContactMatch.
@@ -59,6 +61,14 @@ class ContactMatchObserver
 
     public function saved(ContactMatch $m): void
     {
+        // AT-71 freshness — a wishlist create/update can change its countability
+        // and its scores, so refresh this contact's cached match rows promptly
+        // (queued, per-contact scoped). The 04:00/04:30 crons remain the
+        // full fallback sweep. Skipped during internal sibling-demotion re-entry.
+        if (!self::$demoting) {
+            $this->dispatchRecompute($m);
+        }
+
         if (self::$demoting) {
             return;
         }
@@ -84,6 +94,10 @@ class ContactMatchObserver
 
     public function deleted(ContactMatch $m): void
     {
+        // AT-71 freshness — removing a wishlist changes the contact's match set;
+        // clear+rebuild this contact's cached rows (queued, scoped).
+        $this->dispatchRecompute($m);
+
         // Eloquent fires `deleted` on soft-delete; the row now has deleted_at set.
         if (!$m->is_primary) {
             return;
@@ -98,6 +112,30 @@ class ContactMatchObserver
         if ($next) {
             $next->is_primary = true;
             $next->save();
+        }
+    }
+
+    /**
+     * AT-71 — queue a scoped recompute of the cached match tables for this
+     * wishlist's contact. Idempotent + per-contact scoped (truncate+rebuild).
+     * A dispatch failure must never break the wishlist save (BUILD_STANDARD §4).
+     */
+    private function dispatchRecompute(ContactMatch $m): void
+    {
+        if (!$m->contact_id) {
+            return;
+        }
+        try {
+            RegenerateBuyerMatchesJob::dispatch(
+                agencyId: $m->agency_id ? (int) $m->agency_id : null,
+                contactId: (int) $m->contact_id,
+                truncate: true,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('ContactMatchObserver: recompute dispatch failed', [
+                'contact_id' => $m->contact_id,
+                'error'      => $e->getMessage(),
+            ]);
         }
     }
 }

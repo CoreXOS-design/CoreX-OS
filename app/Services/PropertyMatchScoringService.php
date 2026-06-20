@@ -64,6 +64,17 @@ class PropertyMatchScoringService
         // Eager-load the contact relation so preapproval reads do not N+1 the caller.
         $match->loadMissing('contact');
 
+        // AT-71 — an uncountable (empty / below-bar) wishlist scores 0 and is
+        // therefore never cached (< MIN_SCORE_TO_CACHE), excluding it from every
+        // cached surface. This also neutralises the no-signal scoring defaults
+        // (price 20 / area 15 / type 8 / must-have 12 / deal-breaker 10 /
+        // bedrooms 20 ≈ 85 "strong") for empty wishlists — they never reach the
+        // scorers. Genuinely-partial-but-countable wishlists still score via the
+        // no-signal defaults, which is intentional (the % handles partial fit).
+        if (!$match->isCountable()) {
+            return $this->failedResult('uncountable-wishlist');
+        }
+
         // Hard filters — return 0 immediately on any failure (spec D4, D5).
         if ($this->violatesBedroomFilter($match, $property)) {
             return $this->failedResult('out-of-range-bedrooms');
@@ -190,7 +201,7 @@ class PropertyMatchScoringService
         // AND at least one active ContactMatch (otherwise they're not in the buyer pool).
         $preapprovedCount = 0;
         if ($property && $property->price) {
-            $preapprovedCount = DB::table('contacts as c')
+            $q = DB::table('contacts as c')
                 ->join('contact_matches as cm', 'cm.contact_id', '=', 'c.id')
                 ->where('c.agency_id', $agencyId)
                 ->where('c.is_buyer', 1)
@@ -199,30 +210,36 @@ class PropertyMatchScoringService
                 ->where('cm.status', ContactMatch::STATUS_ACTIVE)
                 ->whereNotNull('c.preapproval_amount')
                 ->where('c.preapproval_amount', '>=', $property->price)
-                ->where(function ($q) {
-                    $q->whereNull('c.preapproval_expires_at')
+                ->where(function ($w) {
+                    $w->whereNull('c.preapproval_expires_at')
                       ->orWhere('c.preapproval_expires_at', '>=', Carbon::today()->toDateString());
-                })
-                ->distinct()
-                ->count('c.id');
+                });
+            ContactMatch::applyCountableSql($q, $agencyId, 'cm.'); // AT-71 — empty wishlists are not real buyers
+            $preapprovedCount = $q->distinct()->count('c.id');
         }
 
-        // Area buyers — distinct contacts whose any active wishlist names this suburb.
+        // Area buyers — distinct contacts whose any active wishlist covers this
+        // property's area. AT-71 fix: the legacy `cm.suburb` column was DROPPED
+        // (2026_05_20_100001); match on the CANONICAL p24_suburb_ids (by the
+        // property's p24_suburb_id) with the derived `suburbs` name list as a
+        // fallback for records lacking P24 ids.
         $areaBuyers = 0;
         if ($property && $property->suburb) {
-            $areaBuyers = DB::table('contacts as c')
+            $q = DB::table('contacts as c')
                 ->join('contact_matches as cm', 'cm.contact_id', '=', 'c.id')
                 ->where('c.agency_id', $agencyId)
                 ->where('c.is_buyer', 1)
                 ->whereNull('c.deleted_at')
                 ->whereNull('cm.deleted_at')
                 ->where('cm.status', ContactMatch::STATUS_ACTIVE)
-                ->where(function ($q) use ($property) {
-                    $q->where('cm.suburb', $property->suburb)
-                      ->orWhereRaw("JSON_SEARCH(cm.suburbs, 'one', ?) IS NOT NULL", [$property->suburb]);
-                })
-                ->distinct()
-                ->count('c.id');
+                ->where(function ($w) use ($property) {
+                    if ($property->p24_suburb_id) {
+                        $w->whereRaw('JSON_CONTAINS(COALESCE(cm.p24_suburb_ids, JSON_ARRAY()), ?)', [(string) (int) $property->p24_suburb_id]);
+                    }
+                    $w->orWhereRaw("JSON_SEARCH(cm.suburbs, 'one', ?) IS NOT NULL", [$property->suburb]);
+                });
+            ContactMatch::applyCountableSql($q, $agencyId, 'cm.'); // AT-71
+            $areaBuyers = $q->distinct()->count('c.id');
         }
 
         return [
