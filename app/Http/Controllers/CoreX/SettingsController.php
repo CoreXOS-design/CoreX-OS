@@ -46,6 +46,7 @@ class SettingsController extends Controller
             'feature-documents', 'feature-rentals', 'feature-contacts',
             'feature-properties', 'feature-presentations', 'feature-matches', 'feature-dashboard',
             'leave-visibility', 'remote-access', 'commission', 'command-center', 'prospecting-setup',
+            'outreach-templates', 'p24-suburbs',
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
@@ -159,6 +160,39 @@ class SettingsController extends Controller
             $data['suggestionRegions'] = app(\App\Services\Prospecting\RegionSuggestionService::class)->regions();
             $data['unmappedSuburbs']   = $prospectingConfig->unmappedSuburbsFor($prospectingAgencyId);
             $data['buyerMatchTier']    = $prospectingConfig->buyerMatchTiers($prospectingAgencyId);
+        }
+
+        // Operations tab: Seller Outreach Templates (WhatsApp + email).
+        // Mirrors TemplatesController::index so the channel panels render inline.
+        if ($user?->hasPermission('outreach_templates.manage') && $prospectingAgencyId) {
+            $outreachTemplate = \App\Models\SellerOutreach\SellerOutreachTemplate::class;
+            $data['whatsappTemplates'] = $outreachTemplate::withoutGlobalScopes()
+                ->where('agency_id', $prospectingAgencyId)
+                ->where('channel', $outreachTemplate::CHANNEL_WHATSAPP)
+                ->whereNull('deleted_at')
+                ->orderByDesc('is_default_for_channel')
+                ->orderByDesc('is_active')
+                ->orderBy('name')
+                ->get();
+            $data['emailTemplates'] = $outreachTemplate::withoutGlobalScopes()
+                ->where('agency_id', $prospectingAgencyId)
+                ->where('channel', $outreachTemplate::CHANNEL_EMAIL)
+                ->whereNull('deleted_at')
+                ->orderByDesc('is_default_for_channel')
+                ->orderByDesc('is_active')
+                ->orderBy('name')
+                ->get();
+            $data['mergeFields'] = \App\Services\SellerOutreach\SellerOutreachTemplateValidator::KNOWN_MERGE_FIELDS;
+            $outreachTab = $request->query('tab', 'whatsapp');
+            $data['outreachActiveTab'] = in_array($outreachTab, ['whatsapp', 'email'], true) ? $outreachTab : 'whatsapp';
+        }
+
+        // System tab: P24 Suburb mappings. Gated to the same permission the
+        // mutation routes require.
+        if ($user?->hasPermission('manage_p24')) {
+            $data['p24Suburbs'] = \App\Models\P24Suburb::orderBy('name')->get();
+        } else {
+            $data['p24Suburbs'] = collect();
         }
 
         // Agents list for email signature preview selector

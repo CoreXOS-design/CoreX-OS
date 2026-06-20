@@ -89,7 +89,7 @@
                         ? ['key'=>'prospecting-setup', 'label'=>'Prospecting Setup', 'type'=>'section', 'keywords'=>'towns suburbs property types bedroom segments price bands prospecting buyer match tiers']
                         : null,
                     $can('outreach_templates.manage')
-                        ? ['key'=>'outreach-templates', 'label'=>'Outreach Templates', 'type'=>'link', 'href'=>route('settings.outreach-templates.index'), 'keywords'=>'seller outreach whatsapp email template merge fields pitch']
+                        ? ['key'=>'outreach-templates', 'label'=>'Outreach Templates', 'type'=>'section', 'keywords'=>'seller outreach whatsapp email template merge fields pitch tracking link']
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
@@ -105,10 +105,12 @@
             ],
             [
                 'label' => 'System',
-                'items' => [
+                'items' => array_values(array_filter([
                     ['key'=>'system',                'label'=>'System Info & Tools',   'type'=>'section', 'keywords'=>'environment debug'],
-                    ['key'=>'p24-suburbs',           'label'=>'P24 Suburbs',           'type'=>'link', 'href'=>route('admin.p24-suburbs.index'), 'keywords'=>'property24 mapping'],
-                ],
+                    $can('manage_p24')
+                        ? ['key'=>'p24-suburbs', 'label'=>'P24 Suburbs', 'type'=>'section', 'keywords'=>'property24 mapping suburb id region surrounding']
+                        : null,
+                ])),
             ],
         ];
     @endphp
@@ -867,6 +869,236 @@
                 'buyerMatchTier'    => $buyerMatchTier ?? null,
                 'context'           => 'page',
             ])
+        </div>
+        @endpermission
+
+        {{-- ============================================================
+             OUTREACH TEMPLATES — embedded Operations section
+             Mirrors the standalone /settings/outreach-templates page,
+             rendering the shared channel panels inline in the hub.
+             ============================================================ --}}
+        @permission('outreach_templates.manage')
+        <div x-show="activeSection === 'outreach-templates'" x-cloak class="p-6 space-y-5"
+             x-data="{ outreachTab: '{{ $outreachActiveTab ?? 'whatsapp' }}' }">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">Seller Outreach Templates</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">
+                    Pre-written templates agents use to pitch sellers via WhatsApp and email. Every template must include the
+                    <code class="font-mono text-[11px]" style="background:var(--surface-2); padding:1px 4px; border-radius:4px;">{{ '{tracking_link}' }}</code> merge field and the opt-out word
+                    <code class="font-mono text-[11px]" style="background:var(--surface-2); padding:1px 4px; border-radius:4px;">STOP</code>.
+                </p>
+            </div>
+
+            {{-- Tabs --}}
+            <div class="flex overflow-x-auto" style="border-bottom: 1px solid var(--border);">
+                <button type="button" @click="outreachTab = 'whatsapp'"
+                        :class="outreachTab === 'whatsapp' ? 'border-b-2' : 'border-b-2 border-transparent'"
+                        :style="outreachTab === 'whatsapp' ? 'color: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-secondary);'"
+                        class="px-4 py-3 text-xs font-semibold whitespace-nowrap">
+                    WhatsApp Templates ({{ ($whatsappTemplates ?? collect())->count() }})
+                </button>
+                <button type="button" @click="outreachTab = 'email'"
+                        :class="outreachTab === 'email' ? 'border-b-2' : 'border-b-2 border-transparent'"
+                        :style="outreachTab === 'email' ? 'color: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-secondary);'"
+                        class="px-4 py-3 text-xs font-semibold whitespace-nowrap">
+                    Email Templates ({{ ($emailTemplates ?? collect())->count() }})
+                </button>
+            </div>
+
+            {{-- WhatsApp panel --}}
+            <div x-show="outreachTab === 'whatsapp'" x-cloak>
+                @include('settings.outreach-templates._channel-panel', [
+                    'channel'     => 'whatsapp',
+                    'templates'   => $whatsappTemplates ?? collect(),
+                    'mergeFields' => $mergeFields ?? [],
+                ])
+            </div>
+
+            {{-- Email panel --}}
+            <div x-show="outreachTab === 'email'" x-cloak>
+                @include('settings.outreach-templates._channel-panel', [
+                    'channel'     => 'email',
+                    'templates'   => $emailTemplates ?? collect(),
+                    'mergeFields' => $mergeFields ?? [],
+                ])
+            </div>
+        </div>
+        @endpermission
+
+        {{-- ============================================================
+             P24 SUBURBS — embedded System section
+             Mirrors the standalone /settings/p24-suburbs page, rendered
+             inline in the hub like the other settings sections.
+             ============================================================ --}}
+        @permission('manage_p24')
+        @php $p24Suburbs = $p24Suburbs ?? collect(); @endphp
+        <div x-show="activeSection === 'p24-suburbs'" x-cloak class="p-6 space-y-5"
+             x-data="{
+                 search: '',
+                 regionFilter: '',
+                 confirmedFilter: '',
+             }"
+             x-effect="
+                 document.querySelectorAll('#p24-suburbs-table tbody tr.suburb-row').forEach(row => {
+                     const name = (row.dataset.name || '').toLowerCase();
+                     const p24id = (row.dataset.p24id || '');
+                     const region = (row.dataset.region || '');
+                     const confirmed = (row.dataset.confirmed || '');
+                     const s = search.toLowerCase();
+                     let show = true;
+                     if (s && !name.includes(s) && !p24id.includes(s)) show = false;
+                     if (regionFilter && region !== regionFilter) show = false;
+                     if (confirmedFilter !== '' && confirmed !== confirmedFilter) show = false;
+                     row.style.display = show ? '' : 'none';
+                 });
+                 const visCount = document.querySelectorAll('#p24-suburbs-table tbody tr.suburb-row:not([style*=\'display: none\'])').length;
+                 const countEl = document.getElementById('p24-suburb-count');
+                 if (countEl) countEl.textContent = 'Showing ' + visCount + ' of {{ $p24Suburbs->count() }}';
+             ">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">P24 Suburb Mappings</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Map Property24 suburb IDs so CoreX can pull listings and alerts for your areas.</p>
+            </div>
+
+            {{-- Filter bar --}}
+            <div class="p-4 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="relative flex-1 min-w-[12rem] max-w-sm">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                        </svg>
+                        <input type="text"
+                               x-model.debounce.300ms="search"
+                               placeholder="Search name or P24 ID..."
+                               class="w-full pl-10 pr-3 py-2 text-sm rounded-md focus:outline-none transition-all duration-300"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    </div>
+
+                    @php $regions = $p24Suburbs->pluck('region')->filter()->unique()->sort()->values(); @endphp
+                    <select x-model="regionFilter" class="list-header-filter">
+                        <option value="">All regions</option>
+                        @foreach($regions as $r)
+                        <option value="{{ $r }}">{{ $r }}</option>
+                        @endforeach
+                    </select>
+
+                    <select x-model="confirmedFilter" class="list-header-filter">
+                        <option value="">All</option>
+                        <option value="1">Confirmed</option>
+                        <option value="0">Unconfirmed</option>
+                    </select>
+
+                    <span id="p24-suburb-count" class="text-sm ml-auto" style="color: var(--text-muted);">Showing {{ $p24Suburbs->count() }} of {{ $p24Suburbs->count() }}</span>
+                </div>
+            </div>
+
+            {{-- Add New Suburb --}}
+            <div class="p-4 rounded-md space-y-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="text-sm font-semibold" style="color: var(--text-primary);">Add New Suburb</div>
+                <form method="POST" action="{{ route('admin.p24-suburbs.store') }}" class="flex flex-wrap items-end gap-3">
+                    @csrf
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Suburb Name</label>
+                        <input type="text" name="name" required class="rounded-md px-3 py-2 text-sm w-44"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Margate">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">P24 ID</label>
+                        <input type="number" name="p24_id" class="rounded-md px-3 py-2 text-sm w-28"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 6348">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Region</label>
+                        <input type="text" name="region" value="kzn-south-coast" class="rounded-md px-3 py-2 text-sm w-36"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Surrounding IDs</label>
+                        <input type="text" name="surrounding_ids" class="rounded-md px-3 py-2 text-sm w-36"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="6357,6358">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="hidden" name="confirmed" value="0">
+                        <label class="inline-flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
+                            <input type="checkbox" name="confirmed" value="1" class="rounded"
+                                   style="border: 1px solid var(--border); accent-color: var(--brand-button, #0ea5e9);">
+                            Confirmed
+                        </label>
+                    </div>
+                    <button type="submit" class="corex-btn-primary text-sm">Add</button>
+                </form>
+            </div>
+
+            {{-- Suburbs Table --}}
+            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="overflow-x-auto">
+                    <table id="p24-suburbs-table" class="min-w-full text-sm ds-table">
+                        <thead>
+                            <tr>
+                                <th class="text-left px-4 py-2.5">Name</th>
+                                <th class="text-left px-4 py-2.5">Slug</th>
+                                <th class="text-right px-4 py-2.5">P24 ID</th>
+                                <th class="text-left px-4 py-2.5">Region</th>
+                                <th class="text-left px-4 py-2.5">Surrounding</th>
+                                <th class="text-center px-4 py-2.5">Confirmed</th>
+                                <th class="text-right px-4 py-2.5">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($p24Suburbs as $suburb)
+                            <tr class="suburb-row"
+                                id="p24-row-{{ $suburb->id }}"
+                                data-name="{{ strtolower($suburb->name) }}"
+                                data-p24id="{{ $suburb->p24_id }}"
+                                data-region="{{ $suburb->region }}"
+                                data-confirmed="{{ $suburb->confirmed ? '1' : '0' }}">
+                                <form method="POST" action="{{ route('admin.p24-suburbs.update', $suburb) }}">
+                                    @csrf
+                                    @method('PUT')
+                                    <td class="px-4 py-3">
+                                        <input type="text" name="name" value="{{ $suburb->name }}" class="rounded-md px-2 py-1 text-sm w-full"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </td>
+                                    <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $suburb->slug }}</td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" name="p24_id" value="{{ $suburb->p24_id }}" class="rounded-md px-2 py-1 text-sm w-20 text-right"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="text" name="region" value="{{ $suburb->region }}" class="rounded-md px-2 py-1 text-sm w-32"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="text" name="surrounding_ids" value="{{ is_array($suburb->surrounding_ids) ? implode(',', $suburb->surrounding_ids) : '' }}" class="rounded-md px-2 py-1 text-sm w-28"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="6357,6358">
+                                    </td>
+                                    <td class="px-4 py-3 text-center">
+                                        <input type="hidden" name="confirmed" value="0">
+                                        <input type="checkbox" name="confirmed" value="1" {{ $suburb->confirmed ? 'checked' : '' }} class="rounded"
+                                               style="border: 1px solid var(--border); accent-color: var(--brand-button, #0ea5e9);">
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <div class="flex items-center justify-end gap-2">
+                                            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+                                </form>
+                                            <form method="POST" action="{{ route('admin.p24-suburbs.destroy', $suburb) }}" class="inline" onsubmit="return confirm('Delete {{ $suburb->name }}?')">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors"
+                                                        style="color: var(--ds-crimson, #c41e3a); border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 35%, transparent); background: transparent;">Delete</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                            </tr>
+                            @empty
+                            <tr>
+                                <td colspan="7" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No suburbs configured. Add one above or run the seeder.</td>
+                            </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
         @endpermission
 
