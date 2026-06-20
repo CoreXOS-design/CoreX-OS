@@ -57,6 +57,21 @@
                     @csrf
                     @if($isEdit) @method('PUT') @endif
 
+                    {{-- AT-71 — countable-buyer indicator (non-blocking / absorb, BUILD_STANDARD §3).
+                         The wishlist still SAVES while empty; this just warns the agent that an
+                         empty wishlist won't be counted in matches until at least one requirement
+                         is added. Shown only when editing a wishlist that is currently uncountable. --}}
+                    @if($isEdit && method_exists($match, 'isCountable') && !$match->isCountable())
+                        <div class="rounded-md px-4 py-3 flex items-start gap-2"
+                             style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid var(--ds-amber, #f59e0b);">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                            <p class="text-xs leading-snug" style="color:var(--text-primary);">
+                                <strong>This buyer won't be counted in matches yet.</strong>
+                                Add at least one requirement (price, area, beds, property type, or any other wish) for this buyer to appear in match counts and lists.
+                            </p>
+                        </div>
+                    @endif
+
                     {{-- Listing type toggle --}}
                     <div>
                         <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Listing Type</label>
