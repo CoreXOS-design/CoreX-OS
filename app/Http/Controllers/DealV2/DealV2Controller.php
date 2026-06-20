@@ -210,17 +210,41 @@ class DealV2Controller extends Controller
             return response()->json([]);
         }
 
-        $properties = Property::where('address', 'like', "%{$search}%")
+        // Match the flat `address` OR any of the structured address columns.
+        // Newer records populate street_number/street_name/suburb/city and leave
+        // the legacy flat `address` NULL — matching `address` alone silently drops
+        // them (e.g. "99 Clarendon Road, Uvongo" with address=NULL). The closure
+        // keeps the OR-group AND-ed with the model's global scopes (SoftDeletes,
+        // Agency, Branch), which still apply.
+        $properties = Property::where(function ($q) use ($search) {
+                $like = "%{$search}%";
+                $q->where('address', 'like', $like)
+                  ->orWhere('street_number', 'like', $like)
+                  ->orWhere('street_name', 'like', $like)
+                  ->orWhere('suburb', 'like', $like)
+                  ->orWhere('city', 'like', $like);
+            })
             ->limit(15)
             ->get()
-            ->map(fn ($p) => [
-                'id' => $p->id,
-                'address' => $p->address,
-                'price' => $p->listing_price ?? $p->price ?? null,
-                'listing_agent_id' => $p->agent_id,
-                'listing_agent_name' => $p->agent ? $p->agent->name : null,
-                'commission_percent' => $p->commission_percent,
-            ]);
+            ->map(function ($p) {
+                // Readable label even when the flat `address` is NULL: compose
+                // "street_number street_name, suburb" from whatever parts exist,
+                // then fall back to title / id so a result is never blank.
+                $display = $p->address;
+                if (blank($display)) {
+                    $street = trim(($p->street_number ?? '') . ' ' . ($p->street_name ?? ''));
+                    $parts = array_filter([$street, $p->suburb]);
+                    $display = $parts ? implode(', ', $parts) : ($p->title ?: "Property #{$p->id}");
+                }
+                return [
+                    'id' => $p->id,
+                    'address' => $display,
+                    'price' => $p->listing_price ?? $p->price ?? null,
+                    'listing_agent_id' => $p->agent_id,
+                    'listing_agent_name' => $p->agent ? $p->agent->name : null,
+                    'commission_percent' => $p->commission_percent,
+                ];
+            });
 
         return response()->json($properties);
     }
