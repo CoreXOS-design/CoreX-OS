@@ -11,6 +11,7 @@ use App\Models\Property;
 use App\Models\PropertyBuyerMatch;
 use App\Models\ProspectingBuyerMatch;
 use App\Models\ProspectingListing;
+use App\Services\Matching\MatchingService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -29,8 +30,9 @@ use Illuminate\Support\Facades\DB;
  *   - Deal-breakers  10  (hard-excludes the property if any deal-breaker is present — spec D5)
  *   - Bedrooms       20  (hard-excludes outside [beds_min, bedrooms_max] — spec D4)
  *
- * Threshold to write a cached match row: score >= 50. Tier boundaries:
- * perfect 90+, strong 70-89, approximate 50-69.
+ * Threshold to write a cached match row: score >= 50. Tier boundaries
+ * (AT-73 — aligned to the canonical Core Matches/Path 1 thresholds):
+ * perfect 90+, strong 80-89, approximate 50-79.
  *
  * Multi-wishlist-per-contact handling: a contact may have multiple active
  * ContactMatch rows. The match tables enforce UNIQUE(target, contact_id),
@@ -655,9 +657,16 @@ class PropertyMatchScoringService
 
     private function determineTier(int $score): string
     {
-        if ($score >= 90) return 'perfect';
-        if ($score >= 70) return 'strong';
-        if ($score >= 50) return 'approximate';
+        // AT-73 — "strong" must mean the SAME thing here as on Core Matches
+        // (Path 1) and the MIC strong-buyer reads, which all gate at score >= 80
+        // (MatchingService::TIER_STRONG_MIN / BuyerMatchTier strong_min_score=80).
+        // This engine previously stamped tier='strong' at >= 70, so a 70-79 row
+        // was labelled "strong" in the column yet excluded by every >= 80 reader
+        // — an internal inconsistency. Aligned to the canonical threshold; the
+        // finer 'perfect' (>= 90) sub-band of strong is retained.
+        if ($score >= 90)                                return 'perfect';
+        if ($score >= MatchingService::TIER_STRONG_MIN)  return 'strong';      // 80 — canonical
+        if ($score >= self::MIN_SCORE_TO_CACHE)          return 'approximate'; // 50
         return 'none';
     }
 

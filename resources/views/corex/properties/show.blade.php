@@ -4828,14 +4828,22 @@
                     </div>
                     <div x-show="!sellerPreview" class="space-y-1">
                         @foreach($buyerSignals as $buyer)
+                            @php
+                                $statePill = match($buyer['state']) { 'warm' => '#10b981', 'cold' => '#f59e0b', 'lost' => '#ef4444', default => '#3b82f6' };
+                                // Canonical tier (MatchingService::tierFor) — same vocabulary as the Core Matches tab.
+                                $tierColour = match($buyer['tier'] ?? null) { 'strong' => '#10b981', 'good' => '#3b82f6', 'fair' => '#f59e0b', default => '#94a3b8' };
+                                $tierLabel  = ucfirst($buyer['tier'] ?? 'match');
+                            @endphp
                             <div class="flex items-center justify-between px-3 py-2 rounded" style="background: var(--surface-2);">
                                 <div class="flex items-center gap-2">
                                     <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $buyer['name'] }}</span>
-                                    @php $statePill = match($buyer['state']) { 'warm' => '#10b981', 'cold' => '#f59e0b', 'lost' => '#ef4444', default => '#3b82f6' }; @endphp
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style="background: {{ $statePill }}20; color: {{ $statePill }};">{{ $buyer['state'] ?? 'new' }}</span>
                                 </div>
-                                <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer['id'], 'prefill_class' => 'viewing']) }}"
-                                   class="text-[10px] font-medium no-underline" style="color: #00d4aa;">Schedule Viewing</a>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[11px] font-bold px-1.5 py-0.5 rounded" title="Match strength: {{ $tierLabel }} ({{ $buyer['match_score'] }}% fit to this property)" style="background: {{ $tierColour }}20; color: {{ $tierColour }};">{{ $buyer['match_score'] }}% · {{ $tierLabel }}</span>
+                                    <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer['id'], 'prefill_class' => 'viewing']) }}"
+                                       class="text-[10px] font-medium no-underline" style="color: #00d4aa;">Schedule Viewing</a>
+                                </div>
                             </div>
                         @endforeach
                     </div>
