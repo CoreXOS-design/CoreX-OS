@@ -314,6 +314,28 @@ class PropertyMatchScoringService
     }
 
     /**
+     * AT-74 hotfix — chunked upsert.
+     *
+     * A broad wishlist (area + price + type, no hard exclusions) can match
+     * thousands of the agency's prospecting listings. A single upsert of all
+     * matched rows blows past MySQL's 65,535 bound-parameter limit (SQLSTATE
+     * 1390 "too many placeholders") and the ENTIRE write throws — which is
+     * caught per-contact by RegenerateBuyerMatchesJob and silently swallowed,
+     * leaving prospecting_buyer_matches EMPTY. That is why MIC "Buyer matched"
+     * read 0 while the same buyer scored fine on the live Core Matches/
+     * Intelligence paths. Chunking keeps every statement well under the limit
+     * (≈11 cols × 500 rows = 5,500 placeholders).
+     *
+     * @param array<int,array<string,mixed>> $rows
+     */
+    private function chunkedUpsert(string $table, array $rows, array $uniqueBy, array $update, int $chunk = 500): void
+    {
+        foreach (array_chunk($rows, $chunk) as $batch) {
+            DB::table($table)->upsert($batch, $uniqueBy, $update);
+        }
+    }
+
+    /**
      * AT-74 — empty buyer-demand shape (property not found / no signal).
      */
     private function emptyDemand(): array
@@ -408,7 +430,8 @@ class PropertyMatchScoringService
         // columns (only computed_at), so the Eloquent model's auto-timestamp logic
         // would add invalid columns to the SQL. Reads still use PropertyBuyerMatch
         // (and its BelongsToAgency scope) on the consumer side.
-        DB::table('property_buyer_matches')->upsert(
+        $this->chunkedUpsert(
+            'property_buyer_matches',
             $rows,
             ['property_id', 'contact_id'],
             ['agency_id', 'score', 'tier', 'breakdown', 'missing_features', 'computed_at']
@@ -473,7 +496,8 @@ class PropertyMatchScoringService
 
         // Raw DB::table upsert for consistency with property_buyer_matches write path.
         // Reads still go through ProspectingBuyerMatch (BelongsToAgency scope applies).
-        DB::table('prospecting_buyer_matches')->upsert(
+        $this->chunkedUpsert(
+            'prospecting_buyer_matches',
             $rows,
             ['prospecting_listing_id', 'contact_id'],
             ['agency_id', 'score', 'tier', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
@@ -538,7 +562,8 @@ class PropertyMatchScoringService
 
         // Raw DB::table upsert for consistency with property_buyer_matches write path.
         // Reads still go through ProspectingBuyerMatch (BelongsToAgency scope applies).
-        DB::table('prospecting_buyer_matches')->upsert(
+        $this->chunkedUpsert(
+            'prospecting_buyer_matches',
             $rows,
             ['prospecting_listing_id', 'contact_id'],
             ['agency_id', 'score', 'tier', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
