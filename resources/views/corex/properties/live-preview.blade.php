@@ -589,7 +589,7 @@
                                     WhatsApp
                                 </a>
                             @endif
-                            <a href="mailto:{{ $displayAgent->email }}?subject={{ urlencode('Enquiry: '.$property->title) }}" class="corex-btn-outline btn-block">
+                            <a href="mailto:{{ $displayAgent->outward_email }}?subject={{ urlencode('Enquiry: '.$property->title) }}" class="corex-btn-outline btn-block">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--brand-icon);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>
                                 Email agent
                             </a>
@@ -597,7 +597,7 @@
 
                         {{-- Quick enquiry --}}
                         <form class="mt-5 pt-5 space-y-2.5" style="border-top:1px solid var(--border);"
-                              onsubmit="event.preventDefault(); const f=event.target; const body='Name: '+f.n.value+'%0AContact: '+f.c.value+'%0A%0A'+encodeURIComponent(f.m.value); window.location.href='mailto:{{ $displayAgent->email }}?subject={{ urlencode('Enquiry: '.$property->title) }}&body='+body;">
+                              onsubmit="event.preventDefault(); const f=event.target; const body='Name: '+f.n.value+'%0AContact: '+f.c.value+'%0A%0A'+encodeURIComponent(f.m.value); window.location.href='mailto:{{ $displayAgent->outward_email }}?subject={{ urlencode('Enquiry: '.$property->title) }}&body='+body;">
                             <div class="detail-label">Quick enquiry</div>
                             <input name="n" placeholder="Your name" required class="ds-input">
                             <input name="c" placeholder="Phone or email" required class="ds-input">

@@ -16,9 +16,9 @@
                 📞 {{ $cardPhone }}
             </a>
         @endif
-        @if($card->email ?? null)
-            <a href="mailto:{{ $card->email }}" class="block text-sm" style="color: var(--brand-button);">
-                ✉️ {{ $card->email }}
+        @if($card->outward_email ?? null)
+            <a href="mailto:{{ $card->outward_email }}" class="block text-sm" style="color: var(--brand-button);">
+                ✉️ {{ $card->outward_email }}
             </a>
         @endif
     </div>

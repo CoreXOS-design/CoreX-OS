@@ -8,7 +8,7 @@
 --}}
 @php
     $agentName  = $agent?->name ?? null;
-    $agentEmail = $agent?->email ?? null;
+    $agentEmail = $agent?->outward_email ?? null; // AT-79 outward override
     $agentPhone = $agent?->phone ?? null;
 @endphp
 <!doctype html>

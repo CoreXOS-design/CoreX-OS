@@ -621,7 +621,7 @@ class PrivatePropertyListingMapper
             'AgentId'               => (string) ($user->pp_external_ref ?: $user->id),
             'FirstName'             => $firstName,
             'LastName'              => $lastName,
-            'Email'                 => $user->email ?? '',
+            'Email'                 => $user->outward_email ?? '', // AT-79 outward override
             'TelCell'               => $cellPhone,
             'TelWork'               => $workPhone,
             'TelHome'               => '', // PP only recognises TelCell + TelWork

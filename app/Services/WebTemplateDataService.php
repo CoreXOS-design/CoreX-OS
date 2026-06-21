@@ -374,7 +374,7 @@ class WebTemplateDataService
 
             // Agent
             'agent_name'            => $agent->name ?? '',
-            'agent_email'           => $agent->email ?? '',
+            'agent_email'           => $agent->outward_email ?? '', // AT-79 outward override
             'agent_cell'            => $agent->cell ?? $agent->phone ?? '',
 
             // Signature block names (clean — no ID number appended)
@@ -1089,7 +1089,7 @@ class WebTemplateDataService
             'mandate_expiry' => $details['mandate_expiry'] ?? '',
             'mandate_start_formatted' => !empty($details['mandate_start']) ? date('j F Y', strtotime($details['mandate_start'])) : '',
             'mandate_expiry_formatted' => !empty($details['mandate_expiry']) ? date('j F Y', strtotime($details['mandate_expiry'])) : '',
-            'agent_name' => $agent->name ?? '', 'agent_email' => $agent->email ?? '',
+            'agent_name' => $agent->name ?? '', 'agent_email' => $agent->outward_email ?? '', // AT-79 outward override
             'agent_cell' => $agent->cell ?? $agent->phone ?? '',
             'lessor_signature_name' => $lessorName, 'lessee_signature_name' => $lesseeName,
             'seller_signature_name' => $sellerName, 'buyer_signature_name' => $buyerName,
