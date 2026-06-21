@@ -45,10 +45,17 @@ return new class extends Migration {
     {
         Schema::table('agencies', function (Blueprint $table) {
             if (!Schema::hasColumn('agencies', 'comp_price_band_pct')) {
-                $table->decimal('comp_price_band_pct', 5, 2)
+                $col = $table->decimal('comp_price_band_pct', 5, 2)
                     ->nullable()->default(25.00)
-                    ->after('cma_compute_iqr_multiplier')
                     ->comment('AT-22 §1 — comp price band ± % around the cleaned-pool CMA anchor (not asking). Null → CompPoolBuilder constant.');
+                // This migration's filename sorts BEFORE 2026_06_17_160000, which
+                // creates cma_compute_iqr_multiplier. On a fresh/behind DB the
+                // anchor doesn't exist yet, so only position after it when present
+                // (incrementally-migrated envs) and otherwise append at the end —
+                // column order is cosmetic and the app never depends on it.
+                if (Schema::hasColumn('agencies', 'cma_compute_iqr_multiplier')) {
+                    $col->after('cma_compute_iqr_multiplier');
+                }
             }
             if (!Schema::hasColumn('agencies', 'comp_erf_band_pct')) {
                 $table->decimal('comp_erf_band_pct', 5, 2)
