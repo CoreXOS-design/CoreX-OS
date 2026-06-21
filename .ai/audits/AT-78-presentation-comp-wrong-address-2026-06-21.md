@@ -6,6 +6,151 @@
 > **Investigation went through 3 passes** (each corrected the prior). Pass 1 wrongly assumed manual
 > entry; pass 2 found the generator backfill; pass 3 ruled out the contact-link suspect and confirmed
 > the backfill. **Confirmed root cause is §0.**
+> **Pass 4 (2026-06-21, NEW EVIDENCE — screenshot of 557's Internal Address modal): see §A below.**
+> The screenshot shows a THIRD field — `unit_section_block = "Elizabeth Reichel"` (a PERSON'S name in
+> an address field) — that the §0 backfill does NOT explain. Pass 4 is a full-DB contamination hunt for
+> that name + the Nautilus/14/Elizabeth-Reichel trio. **It splits the symptom into TWO independent
+> writes and revises the model: §0 (backfill) still explains Nautilus/14; a separate client-side write
+> explains "Elizabeth Reichel".**
+
+---
+
+## §A. PASS 4 — full-DB hunt for "Elizabeth Reichel" + the 14/Nautilus/Reichel trio (LIVE)
+
+**Method:** generated per-table `LIKE` queries across **all 1,961 char/varchar/text/json/enum columns in
+all 366 text-bearing tables** of live `nexus_os` (collation-normalised). Exhaustive, not sampled.
+
+### A.1 The symptom is TWO independent contaminations layered onto property 557 — not one
+
+| # | Field on 557 | Value | When written | Source | Emits event? | Audited? |
+|---|--------------|-------|--------------|--------|--------------|----------|
+| 1 | `unit_section_block` | **"Elizabeth Reichel"** | **at INSERT, 17:07:38** | **NOT any CoreX record** (see A.3) — client-side form entry/autofill (A.6) | yes (in `PropertyCaptured` payload) | no (only `property_created`) |
+| 2 | `complex_name` + `unit_number` | **NAUTILUS / 14** | **after creation** (generator backfill) | `market_reports` id **81** (§0) | **no** | **no** |
+
+Proof of ordering (live `domain_event_log`, the only audit trail that caught any of it):
+- Property 557 has exactly **two** domain events, both at creation:
+  `PropertyCaptured` (id 80555, 17:07:38.731) and `PropertySuburbLinked` (id 80557, 17:07:39.057).
+- **Both payloads contain "Elizabeth Reichel" and NEITHER contains "NAUTILUS".** So at the moment of
+  the INSERT, `unit_section_block` was already "Elizabeth Reichel" while `complex_name`/`unit_number`
+  were still NULL. Nautilus/14 arrived **later**, written silently by the §0 backfill (no event, no
+  audit row — confirms §0's "bypasses the audit observer" note).
+- `property_audit_log` for 557 = **one row** (id 574, `property_created`, 17:07:38, NULL value
+  snapshots). The Nautilus/14 backfill write and the later clears (557 `updated_at` moved 17:33→17:45)
+  left **no** audit trace.
+
+### A.2 Every DB location of "Nautilus" (case-insensitive, all tables)
+
+18 tables contain "Nautilus". **All are legitimate references to the real NAUTILUS sectional scheme at
+75 Marine Drive, Uvongo Beach** — none is a source for 557's value except the backfill's report 81:
+
+`geocoding_cache`(4), `document_library_items`(1), `contacts`(10 — all in the free-text **`address`**
+column, i.e. people who *live* in Nautilus; **zero** in `complex_name`/name fields),
+`presentation_snapshots`(2), **`market_reports`(1 = id 81 — the §0 backfill source)**,
+`presentation_uploads`(10), `prospecting_listings`(6), `presentations`(1), `tracked_properties`(1),
+`portal_captures`(3), `tracked_property_addresses`(1), `presentation_sold_comps`(12),
+`market_report_comp_rows`(8), `pp_suburbs`(1), `p24_suburbs`(1), `document_filing_register`(2),
+`presentation_versions`(2), `domain_event_log`(19). Report 81: `subject_scheme_name='NAUTILUS'`,
+`subject_section_number='14'`, `subject_address='75 MARINE DRIVE'`, `source_suburb='UVONGO BEACH'` —
+**no "Reichel" anywhere in it.** Confirms §0: the backfill copied the *string* NAUTILUS/14 (no FK link).
+
+### A.3 Every DB location of "Elizabeth Reichel" — it exists NOWHERE as source data
+
+Exact-phrase scan of the entire DB: **"Elizabeth Reichel" appears in exactly ONE table — `domain_event_log`
+— in exactly 3 rows, ALL of which are property 557's own creation/link events:**
+
+| event id | event_name | subject |
+|----------|-----------|---------|
+| 80555 | `PropertyCaptured` | Property 557 (payload snapshot) |
+| 80557 | `PropertySuburbLinked` | Property 557 (payload snapshot) |
+| 80559 | `ContactLinkedToProperty` | Contact 16062 (payload embeds the 557 property snapshot) |
+
+There is **no contact, no user, no tracked_property, no listing, no scheme, no comp row** anywhere in the
+DB — **including soft-deleted/trashed rows** — that carries "Elizabeth Reichel". The name entered CoreX
+**once**, at 557's INSERT, and is found *only* as the value it became on 557 (echoed into 557's own event
+payloads). It is **not** copied from any record.
+
+Closest real records (all unrelated to 557's address):
+- **`users` id 23 "Elize Reichel"** (`elize@hfcoastal.co.za`); also id 42 "Elize Reichel Ballito".
+- **`contacts` id 10298 "Elize Reichel"**, agency 1 — structured address all NULL; free-text
+  `address = "Clarendon Road 19a, Uvongo"` (NOT Garden Avenue; `unit_section_block` NULL).
+- **The creating agent is user 41 = "Elize *Southbroom*"** (`elizesouthbroom@hfcoastal.co.za`) — *not*
+  Reichel. "Elize" is short for "Elizabeth", so "Elizabeth Reichel" is the formal form of Elize Reichel
+  (Johan's wife / agency principal), but that formal string is stored on **no** record — it is a
+  human/profile rendering, which is the tell for client-side autofill (A.6).
+
+### A.4 Is there a single source record carrying the trio 14 + Elizabeth Reichel + Nautilus? — NO
+
+There is **no contact, scheme, tracked_property, unit listing, or any row anywhere** that carries
+`unit_number=14` + `unit_section_block/section="Elizabeth Reichel"` + `complex="Nautilus"` as a set. The
+trio never existed as a source; it is an **artifact of the two independent writes in A.1** colliding on
+one property. (Searched: properties, contacts, tracked_properties, tracked_property_addresses,
+prospecting_listings, market_reports, market_report_comp_rows, presentation_sold_comps — none holds the
+combination.)
+
+### A.5 Property 557 address columns — current state + write history
+
+Current (all sectional fields cleared): `address`=NULL, `street_number`='55', `street_name`='Garden
+Avenue', `suburb`='Uvongo Beach', `complex_name`=NULL, `unit_number`=NULL, **`unit_section_block`=NULL**,
+`title_type`='full_title', `created_at`=17:07:38, `updated_at`=**17:45:37**. Write history:
+1. **17:07:38 INSERT** — `unit_section_block="Elizabeth Reichel"` already present; `complex_name`/
+   `unit_number` NULL. (Captured in `PropertyCaptured` payload; only `property_created` audit row.)
+2. **after creation** — §0 backfill writes `complex_name='NAUTILUS'`, `unit_number='14'`. No event, no
+   audit row.
+3. **17:33:12 then 17:45:37** — manual clears of the sectional fields (per §1 / `updated_at` movement).
+   No event, no audit row. The backfill *re-stamps* Nautilus/14 on any regenerate (§0); the
+   "Elizabeth Reichel" write does **not** re-occur (it has no server source).
+
+### A.6 Code-path check — can a contact/user NAME field land in a property address column? — NO server path does
+
+Every server write to `properties.unit_section_block` was traced:
+- **Create-prefill — `PropertyController::create()` (`PropertyController.php:401-409`)** copies the
+  contact's structured address **field-for-field** when `?contact_id=` is present:
+  `$property->unit_section_block = $contact->unit_section_block;` (`:403`). This is **field-aligned**
+  (block→block) — there is **no name→address collision**. And it is **inert here**: a DB-wide check
+  shows **not a single contact in `nexus_os` has any non-NULL `unit_section_block`**, so this prefill can
+  only ever copy NULL. **RULED OUT** as the source of "Elizabeth Reichel" (this also independently
+  re-confirms §0.1's contact-link exoneration — the linked contact 16062 "Johan Maree" is empty).
+- **Store — `PropertyController::store()` (`:493`)** and **wizard `createDraft()` (`:85`)** validate
+  `unit_section_block` as a plain `nullable|string` and persist whatever the **form submitted**. They do
+  not synthesize it from any name/contact/user field.
+- **Form field — `resources/views/corex/properties/show.blade.php:2823`** (show.blade is the live "New
+  Property" form; create-edit is dead): the input is
+  `<input name="unit_section_block" value="{{ old(...,$property->unit_section_block) }}" autocomplete="off">`
+  — a **plain, un-bound text input** (not Alpine `x-model`), label **"Name of Unit, Section or Block"**,
+  sitting inside the "Complex or Estate" address group. For a new property the rendered value is empty.
+
+**Conclusion:** no CoreX server/data path writes a person's name into a property address column. Combined
+with A.3 (the string exists nowhere in the DB as source), the **only remaining vector for
+"Elizabeth Reichel" is client-side entry into that text input** — overwhelmingly **browser/profile
+autofill** (Chrome routinely ignores `autocomplete="off"` on inputs whose label/name read as a *name*
+field — "**Name** of Unit, Section or Block" is exactly such bait — and fills them from the saved profile,
+here "Elizabeth Reichel"), with manual mis-keying the only alternative. This fits every observed fact:
+the agent "did not enter" it (autofill did), it is a person's name in an address field (autofill
+profiles hold names), it is **non-reproducible** (autofill is opportunistic/one-off), and **557 is the
+only property in the entire DB that has ever held a person-name in `unit_section_block`** (DB-wide
+regex scan for a two-word capitalised value returned only — now-cleared — 557).
+
+### A.7 Is "Nautilus" a real scheme, and was 557 linked to it? (re-confirm §0/§6)
+
+Yes — NAUTILUS is a real sectional scheme at 75 Marine Drive, Uvongo Beach (its CMA = `market_reports`
+81). Property 557 was **not** FK-linked/match-or-created onto it; the §0 backfill copied the scheme-name
+**string** into `complex_name`. No relational association exists.
+
+### A.8 Revised root cause (supersedes the single-cause framing)
+
+The "Unit 14, NAUTILUS — Elizabeth Reichel" the user saw on 557 is **two unrelated defects on one
+record**, not one:
+1. **"Elizabeth Reichel" → `unit_section_block`** = **client-side write** (browser autofill of a
+   name-baited, un-bound text field; manual entry the only alternative). **Not** sourced from any CoreX
+   record or server code path (A.3, A.6). Fix surface = the form field, not a service: set a real
+   `autocomplete` token / `name` that Chrome won't name-match (and/or split the field so a freehold has
+   no sectional inputs), plus route property writes through the audit observer so silent writes/clears
+   are traceable.
+2. **"NAUTILUS / 14" → `complex_name`/`unit_number`** = **§0 generator backfill** borrowing report 81 on
+   a suburb-only match (unchanged — see §0 for the fix shape).
+
+The earlier passes saw only #2 because the screenshot that exposed #1 ("Elizabeth Reichel") arrived in
+Pass 4. Neither is a render/join bug.
 
 ---
 
