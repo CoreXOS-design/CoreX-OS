@@ -1712,7 +1712,7 @@
     {{-- ── WIDER AREA demand (explicitly labelled — NEVER "for this property") ── --}}
     @if($bdAreaCount > 0 || $bdPreapp > 0)
     <div class="mb-2 pt-3" style="border-top: 1px dashed var(--border, #e2e8f0);">
-        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary, #1e293b);">Wider market demand@if($bdSuburb) in {{ $bdSuburb }}@endif</h3>
+        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary, #1e293b);">Wider market demand{{ $bdSuburb ? ' in ' . $bdSuburb : '' }}</h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             @if($bdAreaCount > 0)
             <div class="rounded-lg p-4 text-center" style="background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2);">
