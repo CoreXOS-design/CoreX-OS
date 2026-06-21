@@ -116,7 +116,14 @@
                                         <div class="text-[10px]" style="color: var(--text-muted);">{{ $buyer->createdBy?->name ?? 'Unassigned' }}</div>
                                     </div>
                                 </div>
-                                <div class="flex items-center justify-between text-[10px]" style="color: var(--text-muted);">
+                                @unless($buyer->hasCountableWishlist())
+                                    <div class="mt-1">
+                                        <span class="inline-block text-[9px] font-semibold px-1.5 py-0.5 rounded"
+                                              style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);"
+                                              title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                                    </div>
+                                @endunless
+                                <div class="flex items-center justify-between text-[10px] mt-1" style="color: var(--text-muted);">
                                     <span>{{ $buyer->last_activity_at ? $buyer->last_activity_at->diffForHumans() : 'No activity' }}</span>
                                     <span>{{ $buyer->buyerPropertyViews()->count() }} properties</span>
                                 </div>
@@ -162,6 +169,11 @@
                                 <a href="{{ route('command-center.buyers.show', $buyer) }}" class="text-sm font-medium no-underline" style="color: var(--text-primary);">
                                     {{ $buyer->full_name }}
                                 </a>
+                                @unless($buyer->hasCountableWishlist())
+                                    <span class="inline-block ml-2 text-[9px] font-semibold px-1.5 py-0.5 rounded align-middle"
+                                          style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);"
+                                          title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                                @endunless
                             </td>
                             <td class="px-4 py-3">
                                 <span class="ds-badge {{ $stateBadgeClass }}">

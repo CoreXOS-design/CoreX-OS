@@ -6,6 +6,7 @@ use App\Models\AgencyContactSettings;
 use App\Models\BuyerActivityLog;
 use App\Models\BuyerStateTransition;
 use App\Models\Contact;
+use Illuminate\Support\Carbon;
 
 class BuyerStateService
 {
@@ -184,12 +185,53 @@ class BuyerStateService
     /**
      * Recompute state for a contact without adding an activity.
      * Used by the daily cron to detect cold/lost transitions.
+     *
+     * AT-74 — respects a recent MANUAL placement: a buyer an agent set/moved
+     * within the protection window is left exactly where the agent put them
+     * (the nightly recompute no longer clobbers agent decisions). Genuinely
+     * stale buyers (no recent agent action) still decay normally.
      */
     public function recomputeState(Contact $contact): void
     {
+        if ($this->isManualPlacementProtected($contact)) {
+            return;
+        }
+
         $newState = $this->resolveState($contact);
         if ($newState && $newState !== $contact->buyer_state) {
             $this->transitionTo($contact, $newState, 'auto_recompute');
         }
+    }
+
+    /**
+     * AT-74 — is this buyer protected from auto-recompute because an agent
+     * manually placed/moved them recently?
+     *
+     * A manual buyer_state transition (pipeline drag / mark-lost / re-engage —
+     * the `manual_override` reason) is an agent ACTION. Per Johan's doctrine an
+     * agent action counts as activity, so a buyer the agent touched within the
+     * agency's stale window must NOT be auto-moved to a stale state that night.
+     * The protection window is the agency's `buyer_cold_days` (the "still in
+     * play" horizon) — after it lapses with no further agent action and no buyer
+     * activity, normal last_activity_at-based decay resumes.
+     *
+     * Public so the recompute command can report protected buyers in --dry-run.
+     */
+    public function isManualPlacementProtected(Contact $contact): bool
+    {
+        $manualAt = BuyerStateTransition::withoutGlobalScopes()
+            ->where('contact_id', $contact->id)
+            ->where('reason', 'manual_override')
+            ->latest('occurred_at')
+            ->value('occurred_at');
+
+        if (!$manualAt) {
+            return false;
+        }
+
+        $settings   = AgencyContactSettings::forAgency($contact->agency_id ?? 1);
+        $windowDays = (int) ($settings->buyer_cold_days ?? 30);
+
+        return (int) Carbon::parse($manualAt)->diffInDays(now()) <= $windowDays;
     }
 }

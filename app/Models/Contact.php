@@ -229,6 +229,20 @@ class Contact extends Model
         return $this->hasMany(ContactMatch::class)->latest();
     }
 
+    /**
+     * AT-74 — does this buyer have at least one COUNTABLE wishlist (AT-71
+     * isCountable())? A pipeline buyer with zero countable wishlists (criteria
+     * removed / only an empty wishlist) correctly STAYS on the pipeline but is
+     * excluded from every match figure — the "No core match" tag surfaces this.
+     *
+     * Uses the loaded `matches` relation when eager-loaded (no N+1); otherwise
+     * lazy-loads it. SoftDeletes means a deleted wishlist is already excluded.
+     */
+    public function hasCountableWishlist(): bool
+    {
+        return $this->matches->contains(fn (ContactMatch $m) => $m->isCountable());
+    }
+
     public function properties(): BelongsToMany
     {
         return $this->belongsToMany(Property::class, 'contact_property')

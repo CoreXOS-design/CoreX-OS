@@ -96,6 +96,10 @@
                             };
                         @endphp
                         <span class="ds-badge {{ $stateBadgeVariant }}">{{ ucfirst($buyer->buyer_state ?? 'New') }}</span>
+                        @unless($buyer->hasCountableWishlist())
+                            <span class="ds-badge ds-badge-warning"
+                                  title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                        @endunless
                         <span class="text-xs text-white/60">Since {{ $buyer->buyer_pipeline_entered_at?->format('d M Y') ?? 'Unknown' }}</span>
                         <span class="text-xs text-white/60">· Last activity {{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</span>
                         <span class="text-xs text-white/60">· Agent: {{ $buyer->createdBy?->name ?? 'Unassigned' }}</span>
