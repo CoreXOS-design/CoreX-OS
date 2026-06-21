@@ -358,7 +358,6 @@
                 @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']))
                 <a href="{{ route('command-center.reporting.agency') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.agency') ? 'active' : '' }}">Agency Report</a>
                 @endif
-                <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
                 @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']))
                 <a href="{{ route('command-center.lost-deals') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.lost-deals') ? 'active' : '' }}">Lost Deals</a>
                 @endif
@@ -479,6 +478,9 @@
                 <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Core Matches</a>
                 @endif
                 @endpermission
+
+                {{-- AT-76 — Buyer Pipeline lives in Real Estate (was under Dashboard/Command Center). Route unchanged. --}}
+                <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
 
                 @permission('access_portal_leads')
                 @if(\Illuminate\Support\Facades\Route::has('corex.portal-leads.index'))
