@@ -23,7 +23,9 @@ class BuyerPipelineController extends Controller
         // Layer 3: Pipeline workspace scope (independent of Layer 2 contact access)
         $pipelineScope = $request->get('scope', $this->defaultPipelineScope($user));
 
-        $query = Contact::buyers()->with('createdBy');
+        // AT-74 — eager-load wishlists so the "No core match" tag (hasCountableWishlist)
+        // is computed per card without an N+1.
+        $query = Contact::buyers()->with(['createdBy', 'matches']);
 
         // Layer 3 pipeline scope is driven by the explicit ?scope= param for
         // ALL roles. Admins still see everything BY DEFAULT because

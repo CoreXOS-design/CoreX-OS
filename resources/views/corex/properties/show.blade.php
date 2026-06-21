@@ -4841,7 +4841,9 @@
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <span class="text-[11px] font-bold px-1.5 py-0.5 rounded" title="Match strength: {{ $tierLabel }} ({{ $buyer['match_score'] }}% fit to this property)" style="background: {{ $tierColour }}20; color: {{ $tierColour }};">{{ $buyer['match_score'] }}% · {{ $tierLabel }}</span>
-                                    <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer['id'], 'prefill_class' => 'viewing']) }}"
+                                    {{-- AT-74 — pass THIS property so the viewing links to both buyer AND property
+                                         (prefill_properties → handlePrefill → subject_property link → feedback.property_id). --}}
+                                    <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer['id'], 'prefill_class' => 'viewing', 'prefill_properties' => json_encode([['id' => $property->id, 'address' => $property->title ?: trim(($property->suburb ?? 'Property'))]])]) }}"
                                        class="text-[10px] font-medium no-underline" style="color: #00d4aa;">Schedule Viewing</a>
                                 </div>
                             </div>
