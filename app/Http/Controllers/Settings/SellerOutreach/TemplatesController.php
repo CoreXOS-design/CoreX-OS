@@ -30,36 +30,14 @@ final class TemplatesController extends Controller
 
     public function index(Request $request)
     {
-        $agencyId = $this->resolveAgencyId($request);
-
-        $whatsappTemplates = SellerOutreachTemplate::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->where('channel', SellerOutreachTemplate::CHANNEL_WHATSAPP)
-            ->whereNull('deleted_at')
-            ->orderByDesc('is_default_for_channel')
-            ->orderByDesc('is_active')
-            ->orderBy('name')
-            ->get();
-
-        $emailTemplates = SellerOutreachTemplate::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->where('channel', SellerOutreachTemplate::CHANNEL_EMAIL)
-            ->whereNull('deleted_at')
-            ->orderByDesc('is_default_for_channel')
-            ->orderByDesc('is_active')
-            ->orderBy('name')
-            ->get();
-
-        $tab = $request->query('tab', 'whatsapp');
-        $activeTab = in_array($tab, ['whatsapp', 'email'], true) ? $tab : 'whatsapp';
-
-        return view('settings.outreach-templates.index', [
-            'whatsappTemplates' => $whatsappTemplates,
-            'emailTemplates'    => $emailTemplates,
-            'mergeFields'       => SellerOutreachTemplateValidator::KNOWN_MERGE_FIELDS,
-            'activeTab'         => $activeTab,
-            'agencyId'          => $agencyId,
-        ]);
+        // Outreach Templates now live embedded in the unified Settings hub
+        // (Operations → Outreach Templates). Keep this legacy URL working —
+        // and the per-tab redirects from the CRUD actions — by forwarding
+        // into the hub section, preserving the active channel tab.
+        return redirect()->route('corex.settings', array_filter([
+            's'   => 'outreach-templates',
+            'tab' => $request->query('tab'),
+        ]));
     }
 
     public function store(Request $request)

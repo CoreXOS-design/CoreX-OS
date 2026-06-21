@@ -2045,6 +2045,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::middleware('owner_only')->prefix('admin/dev-settings')->name('admin.dev-settings.')->group(function () {
         Route::get('/',  [\App\Http\Controllers\Admin\DevSettingsController::class, 'index'])->name('index');
         Route::put('/', [\App\Http\Controllers\Admin\DevSettingsController::class, 'update'])->name('update');
+        // Demo sidebar curation — which sidebar items demo-agency members see.
+        Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar');
     });
 
     // Developer Users — System Owner / Developer roster, visible across all

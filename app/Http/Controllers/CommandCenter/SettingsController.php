@@ -15,13 +15,10 @@ class SettingsController extends Controller
      */
     public function index()
     {
-        $automationRules = AutomationRule::orderBy('sort_order')->get();
-        $docExpectations = DocumentExpectation::orderBy('property_type')->orderBy('sort_order')->get();
-
-        return view('command-center.settings.index', [
-            'automationRules'  => $automationRules,
-            'docExpectations'  => $docExpectations,
-        ]);
+        // Command Center settings now live embedded in the unified Settings
+        // hub (Operations → Command Center Rules). Keep this legacy URL
+        // working by redirecting to the hub section.
+        return redirect()->route('corex.settings', ['s' => 'command-center']);
     }
 
     /**
