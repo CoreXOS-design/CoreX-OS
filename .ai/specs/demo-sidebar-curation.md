@@ -76,11 +76,13 @@ Default `[]` (everything visible).
 
 ### Curator UI
 
-New section on `/admin/dev-settings` (owner-only page), directly under the demo
-mode toggle. Client-side it calls `CorexNavSearch.build()`, groups entries
-(expandable sections with their sub-items, plus standalone pages), renders a
-checkbox per entry (checked = hidden), pre-checks from the saved set, and on
-submit posts the hidden keys to `PUT admin.dev-settings.demo-sidebar`.
+Its own owner-only page at `GET /admin/dev-settings/demo-sidebar`
+(`admin.dev-settings.demo-sidebar`), linked from `/admin/dev-settings` via a
+button directly under the demo-mode toggle. Client-side it calls
+`CorexNavSearch.build()`, groups entries (expandable sections with their
+sub-items, plus standalone pages), renders a checkbox per entry (checked =
+hidden), pre-checks from the saved set, and on submit posts the hidden keys to
+`PUT admin.dev-settings.demo-sidebar.update` (which redirects back to the page).
 
 ### Enforcement (presentation)
 

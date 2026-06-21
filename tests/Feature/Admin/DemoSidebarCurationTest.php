@@ -63,8 +63,8 @@ class DemoSidebarCurationTest extends TestCase
         $keys = ['g:real-estate', 'p:/corex/properties'];
 
         $this->actingAs($owner)
-            ->put(route('admin.dev-settings.demo-sidebar'), ['keys' => $keys])
-            ->assertRedirect(route('admin.dev-settings.index'))
+            ->put(route('admin.dev-settings.demo-sidebar.update'), ['keys' => $keys])
+            ->assertRedirect(route('admin.dev-settings.demo-sidebar'))
             ->assertSessionHas('success');
 
         $this->assertEqualsCanonicalizing($keys, DevSetting::demoHiddenSidebar());
@@ -76,8 +76,8 @@ class DemoSidebarCurationTest extends TestCase
         $owner = $this->ownerUser();
 
         $this->actingAs($owner)
-            ->put(route('admin.dev-settings.demo-sidebar'), [])
-            ->assertRedirect(route('admin.dev-settings.index'));
+            ->put(route('admin.dev-settings.demo-sidebar.update'), [])
+            ->assertRedirect(route('admin.dev-settings.demo-sidebar'));
 
         $this->assertSame([], DevSetting::demoHiddenSidebar());
     }
@@ -87,18 +87,39 @@ class DemoSidebarCurationTest extends TestCase
         $user = User::factory()->create(['role' => 'agent']);
 
         $this->actingAs($user)
-            ->put(route('admin.dev-settings.demo-sidebar'), ['keys' => ['g:compliance']])
+            ->put(route('admin.dev-settings.demo-sidebar.update'), ['keys' => ['g:compliance']])
             ->assertForbidden();
     }
 
-    public function test_dev_settings_index_renders_curator_section(): void
+    public function test_non_owner_cannot_view_demo_sidebar_page(): void
+    {
+        $user = User::factory()->create(['role' => 'agent']);
+
+        $this->actingAs($user)
+            ->get(route('admin.dev-settings.demo-sidebar'))
+            ->assertForbidden();
+    }
+
+    public function test_dev_settings_index_links_to_demo_sidebar_page(): void
     {
         $owner = $this->ownerUser();
 
         $this->actingAs($owner)
             ->get(route('admin.dev-settings.index'))
             ->assertOk()
-            ->assertSee('Demo sidebar');
+            ->assertSee('Demo sidebar settings')
+            ->assertSee(route('admin.dev-settings.demo-sidebar'), false);
+    }
+
+    public function test_demo_sidebar_page_renders_curator(): void
+    {
+        $owner = $this->ownerUser();
+
+        $this->actingAs($owner)
+            ->get(route('admin.dev-settings.demo-sidebar'))
+            ->assertOk()
+            ->assertSee('Demo sidebar visibility')
+            ->assertSee('Save Demo Sidebar');
     }
 
     public function test_enabling_demo_mode_requires_correct_password(): void

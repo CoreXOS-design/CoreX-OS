@@ -20,10 +20,19 @@ class DevSettingsController extends Controller
             'complianceChecksDisabled' => DevSetting::bool('compliance_checks_disabled'),
             'demoModeEnabled'          => DevSetting::bool('demo_mode_enabled'),
             'isProduction'             => app()->environment('production'),
-            // Saved demo-sidebar curation — JSON array of hidden nav keys
-            // (g:<group> | p:<path>). The curator UI builds its checklist
-            // client-side from the live sidebar and pre-checks these.
-            'demoHiddenNav'            => DevSetting::demoHiddenSidebar(),
+        ]);
+    }
+
+    /**
+     * Dedicated demo-sidebar curation page (linked from Dev Settings, under
+     * the demo-mode toggle). The curator builds its checklist client-side
+     * from the live sidebar and pre-checks the saved hidden keys
+     * (g:<group> | p:<path>).
+     */
+    public function demoSidebar()
+    {
+        return view('admin.dev-settings.demo-sidebar', [
+            'demoHiddenNav' => DevSetting::demoHiddenSidebar(),
         ]);
     }
 
@@ -71,7 +80,7 @@ class DevSettingsController extends Controller
 
         DevSetting::set('demo_hidden_sidebar', json_encode($keys));
 
-        return redirect()->route('admin.dev-settings.index')
+        return redirect()->route('admin.dev-settings.demo-sidebar')
             ->with('success', 'Demo sidebar visibility updated.');
     }
 }

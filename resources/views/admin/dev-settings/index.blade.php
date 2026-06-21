@@ -128,174 +128,20 @@
         </div>
     </form>
 
-    {{-- ═══════════════════════════════════════════════════════════════
-         DEMO SIDEBAR CURATION
-         Hide sidebar items / sub-pages for demo-agency members only.
-         The checklist is built client-side from the live sidebar
-         (window.CorexNavSearch) so it always mirrors what renders —
-         no hand-maintained registry. Checked = hidden.
-         See .ai/specs/demo-sidebar-curation.md
-         ═══════════════════════════════════════════════════════════════ --}}
-    <form method="POST" action="{{ route('admin.dev-settings.demo-sidebar') }}"
-          class="rounded-md p-6 space-y-5"
-          style="background: var(--surface); border: 1px solid var(--border);"
-          x-data="demoSidebarCurator(@js($demoHiddenNav))" x-init="init()">
-        @csrf
-        @method('PUT')
-
-        <div>
+    {{-- Demo sidebar curation lives on its own page, linked here directly
+         under the demo-mode toggle. See .ai/specs/demo-sidebar-curation.md --}}
+    <div class="rounded-md p-6 flex items-start justify-between gap-6"
+         style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="flex-1">
             <h2 class="font-semibold" style="color: var(--text-primary);">Demo sidebar</h2>
             <p class="text-sm mt-1" style="color: var(--text-secondary);">
-                Choose which sidebar items and sub-pages a <strong>demo agency</strong> shows. Ticked items are
-                <strong>hidden</strong> from users whose agency is flagged as a demo agency. System Owners and all
-                real users always see the full sidebar — this never affects production accounts.
-            </p>
-            <p class="text-xs mt-2" style="color: var(--text-muted);">
-                The list is read live from your own sidebar, so it always matches what renders. Hiding a whole
-                section also hides its sub-pages; hiding every sub-page collapses the section.
+                Choose which sidebar items and sub-pages a demo agency shows. Affects demo-agency members
+                only — System Owners and real users always see the full sidebar.
             </p>
         </div>
-
-        <div class="flex items-center gap-3 text-xs">
-            <button type="button" @click="setAll(true)"
-                    class="px-3 py-1.5 rounded-md" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">Hide all</button>
-            <button type="button" @click="setAll(false)"
-                    class="px-3 py-1.5 rounded-md" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">Show all</button>
-            <span class="ml-auto" style="color: var(--text-muted);"><span x-text="hiddenCount()"></span> hidden</span>
-        </div>
-
-        {{-- JS-rendered checklist --}}
-        <div id="demo-sidebar-list" class="space-y-4">
-            <template x-if="!ready">
-                <p class="text-sm" style="color: var(--text-muted);">Reading sidebar…</p>
-            </template>
-
-            {{-- Standalone top-level pages --}}
-            <template x-if="ready && standalone.length">
-                <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                    <div class="text-[0.6875rem] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Pages</div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        <template x-for="entry in standalone" :key="entry.navKey">
-                            <label class="flex items-center gap-2 cursor-pointer text-sm py-0.5" style="color: var(--text-primary);">
-                                <input type="checkbox" name="keys[]" :value="entry.navKey"
-                                       x-model="hidden[entry.navKey]"
-                                       class="h-4 w-4 rounded" style="accent-color: var(--brand-button, #0ea5e9);">
-                                <span x-text="entry.label"></span>
-                            </label>
-                        </template>
-                    </div>
-                </div>
-            </template>
-
-            {{-- Expandable sections + their sub-pages --}}
-            <template x-for="section in sections" :key="section.navKey">
-                <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                    <label class="flex items-center gap-2 cursor-pointer font-semibold text-sm" style="color: var(--text-primary);">
-                        <input type="checkbox" name="keys[]" :value="section.navKey"
-                               x-model="hidden[section.navKey]"
-                               class="h-4 w-4 rounded" style="accent-color: var(--brand-button, #0ea5e9);">
-                        <span x-text="section.label"></span>
-                        <span class="text-[0.6875rem] font-normal" style="color: var(--text-muted);">(whole section)</span>
-                    </label>
-                    <div class="mt-2 pl-6 grid grid-cols-1 sm:grid-cols-2 gap-1.5" x-show="section.children.length">
-                        <template x-for="child in section.children" :key="child.navKey">
-                            <label class="flex items-center gap-2 cursor-pointer text-sm py-0.5"
-                                   :style="hidden[section.navKey] ? 'color: var(--text-muted); opacity:0.55;' : 'color: var(--text-secondary);'">
-                                <input type="checkbox" name="keys[]" :value="child.navKey"
-                                       x-model="hidden[child.navKey]" :disabled="hidden[section.navKey]"
-                                       class="h-4 w-4 rounded" style="accent-color: var(--brand-button, #0ea5e9);">
-                                <span x-text="child.label"></span>
-                            </label>
-                        </template>
-                    </div>
-                </div>
-            </template>
-        </div>
-
-        <div class="flex justify-end pt-4" style="border-top: 1px solid var(--border);">
-            <button type="submit" class="corex-btn-primary">Save Demo Sidebar</button>
-        </div>
-    </form>
+        <a href="{{ route('admin.dev-settings.demo-sidebar') }}"
+           class="corex-btn-primary whitespace-nowrap self-center">Demo sidebar settings →</a>
+    </div>
 
 </div>
-
-<script>
-function demoSidebarCurator(savedKeys) {
-    return {
-        ready: false,
-        hidden: {},          // navKey -> bool (true = hidden/checked)
-        standalone: [],      // top-level page links
-        sections: [],        // { navKey, label, children: [{navKey,label}] }
-
-        init() {
-            (savedKeys || []).forEach(k => { this.hidden[k] = true; });
-            const run = () => this.build();
-            if (window.CorexNavSearch) run();
-            else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
-            else run();
-        },
-
-        navKeyFor(entry) {
-            if (entry.group) return 'g:' + entry.group;
-            if (entry.href) {
-                try { return 'p:' + new URL(entry.href, location.origin).pathname; }
-                catch (e) { return null; }
-            }
-            return null;
-        },
-
-        build() {
-            if (!window.CorexNavSearch) return;
-            const entries = window.CorexNavSearch.build();
-            const sectionMap = {};   // label -> section object
-            const standalone = [];
-            const sections = [];
-
-            // First pass — expandable group toggles become sections.
-            entries.forEach(e => {
-                if (!e.group) return;
-                const navKey = this.navKeyFor(e);
-                if (!navKey) return;
-                const sec = { navKey, label: e.label, children: [] };
-                sectionMap[e.label] = sec;
-                sections.push(sec);
-                if (!(navKey in this.hidden)) this.hidden[navKey] = false;
-            });
-
-            // Second pass — links: sub-items nest under their parent section,
-            // parent-less links are standalone pages.
-            entries.forEach(e => {
-                if (e.group) return;
-                const navKey = this.navKeyFor(e);
-                if (!navKey) return;
-                if (!(navKey in this.hidden)) this.hidden[navKey] = false;
-                const target = { navKey, label: e.label };
-                if (e.parent && sectionMap[e.parent]) {
-                    if (!sectionMap[e.parent].children.some(c => c.navKey === navKey && c.label === e.label)) {
-                        sectionMap[e.parent].children.push(target);
-                    }
-                } else if (!e.parent) {
-                    if (!standalone.some(s => s.navKey === navKey)) standalone.push(target);
-                }
-            });
-
-            standalone.sort((a, b) => a.label.localeCompare(b.label));
-            sections.sort((a, b) => a.label.localeCompare(b.label));
-            sections.forEach(s => s.children.sort((a, b) => a.label.localeCompare(b.label)));
-
-            this.standalone = standalone;
-            this.sections = sections;
-            this.ready = true;
-        },
-
-        setAll(state) {
-            Object.keys(this.hidden).forEach(k => { this.hidden[k] = state; });
-        },
-
-        hiddenCount() {
-            return Object.values(this.hidden).filter(Boolean).length;
-        },
-    };
-}
-</script>
 @endsection
