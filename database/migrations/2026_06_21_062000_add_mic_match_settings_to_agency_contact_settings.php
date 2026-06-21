@@ -17,8 +17,13 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // NOTE: anchored to `buyer_lost_days` (not `min_countable_criteria`)
+        // because on a fresh apply this migration (2026_06_21) runs BEFORE the
+        // AT-71 migration (2026_07_01) that creates `min_countable_criteria` —
+        // so `->after('min_countable_criteria')` would 1054-fail. `buyer_lost_days`
+        // pre-exists on every install; column position is cosmetic anyway.
         Schema::table('agency_contact_settings', function (Blueprint $table) {
-            $table->unsignedTinyInteger('mic_match_threshold')->default(75)->after('min_countable_criteria');
+            $table->unsignedTinyInteger('mic_match_threshold')->default(75)->after('buyer_lost_days');
             $table->unsignedTinyInteger('mic_price_band_pct')->default(10)->after('mic_match_threshold');
         });
     }
