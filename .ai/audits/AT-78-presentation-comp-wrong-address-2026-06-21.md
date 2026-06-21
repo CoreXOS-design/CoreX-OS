@@ -1,5 +1,47 @@
 # AT-78 — Presentation comp shows wrong address (55 Garden Ave → R13m "14 Nautilus")
 
+> **Status: In Progress — FIXES BUILT (branch `feature/AT-78-generator-address-fixes`, off Staging).
+> Investigation below; the build is summarised in the BUILD LANDED block.**
+
+---
+
+## BUILD LANDED (2026-06-21, commit on `feature/AT-78-generator-address-fixes`)
+
+Four fixes, all to CoreX code. The "Elizabeth Reichel" contamination (§A) was confirmed **browser
+autofill, not CoreX** — addressed by FIX 4 hardening only.
+
+- **FIX 1 — generator no longer borrows a different property's identity.**
+  `SubjectReportResolver::resolveReportIds` now REQUIRES a street-needle match; the suburb may only
+  CONFIRM, never select alone — the exact discipline `AddressResolverService::resolveFromMarketReports`
+  already uses (bug-class fixed in both). `PresentationGeneratorService::backfillSubjectSectionalIdentity`
+  now (a) builds the LIVE street address (`buildDisplayAddress`) instead of the empty legacy `address`
+  column, (b) only stamps complex/unit from a report whose `subject_address` contains THIS property's
+  FULL street (number + name) — a same-suburb / same-street sibling is rejected, (c) writes NOTHING when
+  there's no confident match (better blank than wrong), (d) **audits** the write via `PropertyAuditService`
+  (`event_type=sectional_identity_backfilled`) — previously a silent `save()`. **No `title_type` gate** —
+  an estate freehold legitimately has a complex/unit; the gate is match-confidence, never field-removal.
+  The `:226` exemption caller was also switched off the empty `address` column.
+- **FIX 2 — corrected address shows on regenerate.** `AnalysisDataService::compileSubjectProperty` now
+  prefers the live `property_address` (re-hydrated from the Property every generate) over the frozen
+  extracted `subject.address` field, which previously took precedence and pinned a stale address.
+  (Regenerate already creates a fresh snapshot/version reading the live property; the published PDF still
+  serves the last *published* version, so the agent must re-confirm the new draft — intended AT-27 flow.)
+- **FIX 3 — display comps table honours the valuation outlier cut.** `CmaComputeService::cleanPool`
+  exposes the IQR price-outlier comp IDs; `compileComparableSales` hides them from the rendered table
+  (so a R13m sale doesn't sit in a R2.5m CMA). Agency-toggleable `agencies.cma_hide_display_outliers`
+  (default true; migration `2026_06_22_090000`); the threshold is the existing
+  `cma_compute_iqr_multiplier`. Count remains visible in `pool_stats.excluded_by_outlier` (not silent).
+- **FIX 4 — autofill hardening (no fields removed).** The address-modal unit/floor/section/complex
+  inputs get a scoped, non-personal `autocomplete` token (`section-corex-prop-addr address-line2`) +
+  `data-1p-ignore`/`data-lpignore` so the browser stops matching "Name of Unit, Section or Block" as a
+  person-name field. Fields stay fully editable.
+
+Tests: `tests/Feature/Presentations/GeneratorAddressFixesTest.php` — **9/9** (resolver no-borrow,
+empty-address, backfill no-sibling-stamp, confident-match-stamps+audits, no-street→nothing,
+no-clobber, FIX 2 precedence, FIX 3 hide-when-on, FIX 3 show-when-off).
+
+---
+
 > **Status: In Progress — INVESTIGATION ONLY. No code changed.**
 > Date: 2026-06-21 · DB: production `nexus_os` (`/mnt/HC_Volume_103099143/corex`) · all records `is_demo=0` (LIVE)
 > Reported by: Johan, off Elize's real CMA for 55 Garden Avenue.

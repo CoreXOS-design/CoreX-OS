@@ -2811,20 +2811,26 @@
                                         <div class="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Unit Number</label>
-                                                <input type="text" name="unit_number" x-model="unitNumber" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="unit_number" x-model="unitNumber" autocomplete="section-corex-prop-addr address-line2" data-1p-ignore data-lpignore="true" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Floor Number</label>
-                                                <input type="text" name="floor_number" value="{{ old('floor_number', $property->floor_number) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="floor_number" value="{{ old('floor_number', $property->floor_number) }}" autocomplete="section-corex-prop-addr address-line2" data-1p-ignore data-lpignore="true" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Unit, Section or Block</label>
-                                            <input type="text" name="unit_section_block" value="{{ old('unit_section_block', $property->unit_section_block) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            {{-- AT-78 FIX 4 — autofill hardening. The label "Name of…" made browsers
+                                                 stuff a person's name here (the "Elizabeth Reichel" contamination, which
+                                                 was browser autofill, not CoreX). A scoped section + an address-line2
+                                                 token tells the browser this is a property-address detail, not a contact
+                                                 name, so it won't autofill personal data. data-1p/lp-ignore deter
+                                                 password managers. Field is NOT removed — it stays fully editable. --}}
+                                            <input type="text" name="unit_section_block" value="{{ old('unit_section_block', $property->unit_section_block) }}" autocomplete="section-corex-prop-addr address-line2" data-1p-ignore data-lpignore="true" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Complex or Estate</label>
-                                            <input type="text" name="complex_name" x-model="complexName" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="complex_name" x-model="complexName" autocomplete="section-corex-prop-addr address-line2" data-1p-ignore data-lpignore="true" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                     </div>
                                 </div>
