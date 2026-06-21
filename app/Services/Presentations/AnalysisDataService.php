@@ -110,6 +110,13 @@ class AnalysisDataService
                 $presentation->property_address,
                 (bool) ($presentation->agency?->ss_show_complex_section ?? true),
                 $presentation->property?->complex_name,
+                // AT-78 FIX 3 — hide from the DISPLAY comps table the exact comps
+                // the valuation engine already rejected as price outliers (IQR
+                // R/m² fence), so an agent doesn't have to manually untick a
+                // R13m sale on a R2.5m CMA. Agency-toggleable; the threshold is
+                // the agency's existing cma_compute_iqr_multiplier.
+                array_map('intval', $cmaComputed['outlier_excluded_comp_ids'] ?? []),
+                (bool) ($presentation->agency?->cma_hide_display_outliers ?? true),
             ),
             'cma_valuation'      => $cmaValuation,
             'cma_computed'       => $cmaComputed,
@@ -158,7 +165,14 @@ class AnalysisDataService
         // so the format ("Unit 17, Brock Manor, Margate") is one source of truth.
         // Computed here so it freezes into snapshot_payload at publish, never
         // recomputed at render. Falls back to the flat street address otherwise.
-        $address        = $fields->get('subject.address')?->final_value ?? $p->property_address;
+        // AT-78 FIX 2 — the LIVE property_address wins. It is re-hydrated from
+        // the Property (buildDisplayAddress) on every generate, so an agent who
+        // corrects a wrong address and regenerates sees the correction. The
+        // extracted `subject.address` field is frozen at CMA-import time and was
+        // previously taking precedence, so a corrected address never showed on
+        // regenerate. Fall back to the extracted field only when the property
+        // carries no address at all.
+        $address        = $p->property_address ?: ($fields->get('subject.address')?->final_value);
         $property       = $p->property;
         $displayAddress = $address;
         if ($property && filled($property->complex_name) && filled($property->unit_number)) {
@@ -213,7 +227,7 @@ class AnalysisDataService
      *   iff its scheme_name matches this (case-insensitive, trimmed). A sectional
      *   comp from a DIFFERENT scheme is a vicinity sale, never a complex sale.
      */
-    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null, bool $separateComplex = true, ?string $subjectScheme = null): array
+    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null, bool $separateComplex = true, ?string $subjectScheme = null, array $excludedOutlierIds = [], bool $hideOutliers = true): array
     {
         $groups = [
             'vicinity'     => [],
@@ -225,7 +239,17 @@ class AnalysisDataService
         // Normalise subject address for exclusion matching
         $normalSubject = $subjectAddress ? strtolower(trim($subjectAddress)) : null;
 
+        // AT-78 FIX 3 — the valuation engine's price-outlier set, hidden from
+        // the display table when the agency toggle is on. Not silent: the count
+        // is reported in cma_computed.pool_stats.excluded_by_outlier.
+        $outlierSet     = ($hideOutliers && !empty($excludedOutlierIds)) ? array_flip($excludedOutlierIds) : [];
+        $hiddenOutliers = 0;
+
         foreach ($soldComps as $comp) {
+            if (!empty($outlierSet) && isset($outlierSet[(int) $comp->id])) {
+                $hiddenOutliers++;
+                continue;
+            }
             $raw    = is_string($comp->raw_row_json) ? json_decode($comp->raw_row_json, true) : ($comp->raw_row_json ?? []);
             $source = $raw['source'] ?? 'unknown';
             $sizeM2 = $comp->size_m2 ?: ($raw['extent_m2'] ?? null);
@@ -343,6 +367,12 @@ class AnalysisDataService
                 'avg_price'        => count($prices) > 0 ? (int) round(array_sum($prices) / count($prices)) : null,
                 'avg_price_per_m2' => count($ppm2) > 0 ? (int) round(array_sum($ppm2) / count($ppm2)) : null,
             ];
+        }
+
+        if ($hiddenOutliers > 0) {
+            \Illuminate\Support\Facades\Log::info('[PRES] hid valuation-outlier comps from display table', [
+                'hidden_count' => $hiddenOutliers,
+            ]);
         }
 
         return $result;

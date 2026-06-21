@@ -23,10 +23,12 @@ use App\Models\MarketReports\MarketReport;
  *     selection rule; the hydrator is the source of truth and this helper is
  *     how the badge mirrors it.
  *
- * Resolution is by address-fragment OR suburb match against
- * market_reports.subject_address / source_suburb. It is intentionally NOT
- * date-bounded: an analyst's CMA full of 2019–2024 sectional sales is still
- * evidence FOR this subject today.
+ * Resolution REQUIRES an address-fragment (street) match against
+ * market_reports.subject_address; source_suburb may only CONFIRM/disambiguate
+ * that match, never select a report on its own (AT-78 — suburb-alone borrowed a
+ * different property's report; same GPS-borrow bug-class as
+ * AddressResolverService). It is intentionally NOT date-bounded: an analyst's
+ * CMA full of 2019–2024 sectional sales is still evidence FOR this subject today.
  *
  * Spec: .ai/specs/presentation-data-lineage.md §2.3 / §2.6;
  *       .ai/audits/cma-comp-gps-axis-investigation-2026-06-17.md §6.
@@ -78,24 +80,40 @@ final class SubjectReportResolver
             return [];
         }
 
-        $suburb  = trim((string) $suburb);
+        $suburb  = mb_strtolower(trim((string) $suburb));
         $needles = self::extractAddressNeedles((string) $subjectAddress);
 
-        if (empty($needles) && $suburb === '') {
+        // GPS-BORROW-FIX PARITY (AT-78) — this resolver had the SAME bug-class
+        // AddressResolverService::resolveFromMarketReports was already fixed for:
+        // it OR-ed an address-needle match with a bare suburb match, so ANY
+        // report in the same suburb matched and the caller borrowed a DIFFERENT
+        // property's report (report 81 NAUTILUS / 75 Marine Drive was stamped
+        // onto 55 Garden Avenue). The rule is now identical in both: an
+        // address-needle (street) match is REQUIRED; the suburb may only
+        // CONFIRM/disambiguate it, never select alone. No street needles → no
+        // match (suburb alone is never enough to claim a report is the subject's).
+        if (empty($needles)) {
             return [];
         }
 
         return MarketReport::query()
             ->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
-            ->where(function ($q) use ($needles, $suburb) {
+            // REQUIRED: the report's subject_address must contain a street needle.
+            ->where(function ($q) use ($needles) {
                 foreach ($needles as $n) {
                     $q->orWhereRaw('LOWER(subject_address) LIKE ?', ['%' . $n . '%']);
                 }
-                if ($suburb !== '') {
-                    $q->orWhereRaw('LOWER(source_suburb) = ?', [mb_strtolower($suburb)]);
-                    $q->orWhereRaw('LOWER(subject_address) LIKE ?', ['%' . mb_strtolower($suburb) . '%']);
-                }
+            })
+            // OPTIONAL CONFIRM: when the suburb is known, require the report's
+            // suburb to match it (or be blank) so a same-street-name report from
+            // another suburb can't be borrowed. This narrows, never widens.
+            ->when($suburb !== '', function ($q) use ($suburb) {
+                $q->where(function ($w) use ($suburb) {
+                    $w->whereRaw('LOWER(source_suburb) = ?', [$suburb])
+                      ->orWhereNull('source_suburb')
+                      ->orWhere('source_suburb', '');
+                });
             })
             ->pluck('id')
             ->map(static fn ($id) => (int) $id)

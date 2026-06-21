@@ -225,7 +225,12 @@ class PresentationGeneratorService
             try {
                 $subjectReportIds = \App\Support\Presentations\SubjectReportResolver::resolveReportIds(
                     (int) $property->agency_id,
-                    (string) ($property->address ?? ''),
+                    // AT-78 — pass the LIVE street address (buildDisplayAddress),
+                    // not the legacy `address` column which is usually NULL (the
+                    // address lives in street_number/street_name). The resolver
+                    // now requires a street-needle match, so an empty string
+                    // would resolve nothing.
+                    (string) $property->buildDisplayAddress(),
                     (string) ($property->suburb ?? ''),
                 );
                 $this->compRowGeocoder->backfillForSubject(
@@ -367,41 +372,101 @@ class PresentationGeneratorService
             return false;
         }
 
+        // AT-78 FIX 1 — the legacy `address` column is usually NULL (the real
+        // address lives in street_number / street_name), which is exactly why
+        // the resolver used to fall back to a suburb-only borrow and stamped a
+        // DIFFERENT property's scheme/unit onto this one. Build the street
+        // address so the resolver has a real street to match. (complex/unit are
+        // blank here by definition, so buildDisplayAddress() is just street +
+        // suburb — no scheme noise.)
+        $streetAddress = (string) $property->buildDisplayAddress();
+        $streetKey     = trim(
+            ($property->street_number ? $property->street_number . ' ' : '')
+            . (string) ($property->street_name ?? '')
+        );
+        if (trim($streetAddress) === '' || $streetKey === '') {
+            // No street to confirm against — never borrow a suburb sibling's
+            // identity. Better blank than wrong.
+            return false;
+        }
+
         $reportIds = \App\Support\Presentations\SubjectReportResolver::resolveReportIds(
             (int) $property->agency_id,
-            (string) ($property->address ?? ''),
+            $streetAddress,
             (string) ($property->suburb ?? ''),
         );
         if (empty($reportIds)) {
             return false;
         }
 
-        // Most recent report that carries a full sectional identity.
+        // CONFIDENCE GATE (AT-78) — copying a COMPLEX/UNIT identity demands the
+        // report be THIS exact property, not a same-street sibling: 45 Garden
+        // Avenue's scheme must never land on 55 Garden Avenue. Require the
+        // report's subject_address to contain the subject's FULL street (number
+        // + name). No confident sectional-bearing match → write NOTHING.
+        //
+        // Domain note (Johan): this is a MATCH-CONFIDENCE gate, NOT a title_type
+        // gate. An estate freehold (a house inside a named estate) legitimately
+        // has a complex_name + unit_number — when its own CMA confirms them we
+        // DO fill them. We never gate on or strip fields by title_type.
         $report = \App\Models\MarketReports\MarketReport::whereIn('id', $reportIds)
             ->whereNotNull('subject_scheme_name')
             ->whereNotNull('subject_section_number')
             ->where('subject_scheme_name', '!=', '')
             ->where('subject_section_number', '!=', '')
+            ->whereRaw('LOWER(subject_address) LIKE ?', ['%' . mb_strtolower($streetKey) . '%'])
             ->orderByDesc('id')
             ->first();
         if (!$report) {
             return false;
         }
 
-        $dirty = false;
+        $oldComplex = $property->complex_name;
+        $oldUnit    = $property->unit_number;
+        $new = [];
         if ($needsComplex) {
             $property->complex_name = trim((string) $report->subject_scheme_name);
-            $dirty = true;
+            $new['complex_name'] = $property->complex_name;
         }
         if ($needsUnit) {
             $property->unit_number = trim((string) $report->subject_section_number);
-            $dirty = true;
+            $new['unit_number'] = $property->unit_number;
         }
-        if ($dirty) {
-            $property->save();
+        if (empty($new)) {
+            return false;
+        }
+        $property->save();
+
+        // FIX 1d — AUDIT the generator write. This used to be a silent
+        // $property->save() with no event/audit row, which is why the wrong
+        // identity was hard to trace. Route it through the property audit log.
+        try {
+            app(\App\Services\Audit\PropertyAuditService::class)->log(
+                $property,
+                'property',
+                'sectional_identity_backfilled',
+                null,
+                array_filter([
+                    'complex_name' => array_key_exists('complex_name', $new) ? $oldComplex : null,
+                    'unit_number'  => array_key_exists('unit_number', $new) ? $oldUnit : null,
+                ], static fn ($v) => $v !== null) ?: null,
+                $new,
+                [
+                    'source'           => 'presentation_generator',
+                    'market_report_id' => $report->id,
+                    'subject_address'  => $report->subject_address,
+                ],
+                'Complex/unit auto-filled from matched CMA report #' . $report->id
+                    . ' — ' . trim(($property->complex_name ?? '') . ' ' . ($property->unit_number ?? '')),
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Sectional-identity backfill audit failed', [
+                'property_id' => $property->id,
+                'err'         => $e->getMessage(),
+            ]);
         }
 
-        return $dirty;
+        return true;
     }
 
     /**

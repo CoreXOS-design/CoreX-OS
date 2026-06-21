@@ -161,6 +161,9 @@ final class CmaComputeService
         return [
             'cma_info_stated_middle' => $cmaInfoStatedMiddle,
             'pool_stats'             => $poolStats,
+            // AT-78 FIX 3 — comp IDs the IQR fence rejected as price outliers,
+            // for the display table to hide (same exclusion as the valuation).
+            'outlier_excluded_comp_ids' => $cleaning['outlier_excluded_ids'] ?? [],
             'method_median' => array_merge(
                 $this->methodMedian($cleanedPrices, $conditionPct),
                 ['preclean' => $this->methodMedian($preCleanPrices, $conditionPct)],
@@ -222,29 +225,44 @@ final class CmaComputeService
         $afterOutlier  = $this->applyIqrFences($afterRecency, $iqrMultiplier);
         $nAfterOutlier = $afterOutlier->count();
 
+        // AT-78 FIX 3 — the IDs the IQR fence rejected as PRICE outliers (NOT
+        // recency). Only meaningful when the outlier cut was actually kept
+        // (fallback null); when we fell back we kept the outliers, so nothing is
+        // hidden from the display. Recency-excluded comps are NOT listed here —
+        // an old sale is still a real comp worth showing, just not a valuation
+        // input. The display layer hides exactly this set.
+        $outlierExcludedIds = $afterRecency->pluck('id')
+            ->diff($afterOutlier->pluck('id'))
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+
         // Min-n fallback ladder.
         if ($nAfterOutlier >= self::MIN_VIABLE_N) {
             return [
-                'cleaned_comps'   => $afterOutlier,
-                'n_after_recency' => $nAfterRecency,
-                'n_after_outlier' => $nAfterOutlier,
-                'fallback'        => null,
+                'cleaned_comps'       => $afterOutlier,
+                'n_after_recency'     => $nAfterRecency,
+                'n_after_outlier'     => $nAfterOutlier,
+                'fallback'            => null,
+                'outlier_excluded_ids' => $outlierExcludedIds,
             ];
         }
         if ($nAfterRecency >= self::MIN_VIABLE_N) {
             return [
-                'cleaned_comps'   => $afterRecency,
-                'n_after_recency' => $nAfterRecency,
-                'n_after_outlier' => $nAfterOutlier,
-                'fallback'        => 'outlier_too_thin',
+                'cleaned_comps'       => $afterRecency,
+                'n_after_recency'     => $nAfterRecency,
+                'n_after_outlier'     => $nAfterOutlier,
+                'fallback'            => 'outlier_too_thin',
+                'outlier_excluded_ids' => [], // outliers kept (cut too thin) — don't hide
             ];
         }
         // Both cuts too aggressive — fall back to the unfiltered pool.
         return [
-            'cleaned_comps'   => $allComps->values(),
-            'n_after_recency' => $nAfterRecency,
-            'n_after_outlier' => $nAfterOutlier,
-            'fallback'        => $allComps->count() > 0 ? 'recency_too_thin' : null,
+            'cleaned_comps'       => $allComps->values(),
+            'n_after_recency'     => $nAfterRecency,
+            'n_after_outlier'     => $nAfterOutlier,
+            'fallback'            => $allComps->count() > 0 ? 'recency_too_thin' : null,
+            'outlier_excluded_ids' => [], // full pool kept — don't hide
         ];
     }
 
