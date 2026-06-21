@@ -123,6 +123,11 @@ class DatabaseSeeder extends Seeder
             DevSetting::set('demo_mode_enabled', '1');
 
             $this->call([
+                // Permanent System Owner login (Demo@corexos.co.za) — restored
+                // on every demo/local reseed so the "System Owner" sidebar
+                // entry always works after a wipe. Gated here, never on
+                // staging/production. See .ai/specs/demo-sidebar-curation.md.
+                SystemOwnerSeeder::class,
                 MultiDemoSeeder::class,
                 DemoSeeder::class,
                 RichDemoSeeder::class,

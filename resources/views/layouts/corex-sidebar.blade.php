@@ -162,6 +162,14 @@
     )) {
         $activeGroup = 'communication';
     }
+
+    // ── Demo sidebar curation (presentation-only) ──
+    // Hide curated sidebar items for demo-agency members only. Owners and all
+    // real users are never affected. The saved key list is always exposed so
+    // the Dev Settings curator can pre-check it; the live hide pass only runs
+    // when $_demoNavApply is true. See .ai/specs/demo-sidebar-curation.md.
+    $_demoHiddenNav = \App\Models\DevSetting::demoHiddenSidebar();
+    $_demoNavApply  = $user && $_userAgency && $_userAgency->is_demo && !$user->isEffectiveOwner();
 @endphp
 
 <div class="corex-sidebar">
@@ -1723,6 +1731,68 @@
 </div>
 
 <script>
+// ── Demo sidebar curation (presentation-only) ──────────────────────────
+// Exposed always so the Dev Settings curator can pre-check; the removal pass
+// below only acts for demo-agency members. See .ai/specs/demo-sidebar-curation.md
+window.__demoNavApply  = @json($_demoNavApply);
+window.__demoNavHidden = @json($_demoHiddenNav);
+(function () {
+    if (!window.__demoNavApply) return;
+    var hidden = window.__demoNavHidden || [];
+    if (!hidden.length) return;
+
+    function run() {
+        var root = document.querySelector('.corex-sidebar .corex-nav-root');
+        if (!root) return;
+
+        var groupKeys = {}, pathKeys = {};
+        hidden.forEach(function (k) {
+            if (typeof k !== 'string') return;
+            if (k.indexOf('g:') === 0) groupKeys[k.slice(2)] = true;
+            else if (k.indexOf('p:') === 0) pathKeys[k.slice(2)] = true;
+        });
+
+        // Remove whole expandable sections (g:<groupKey>). The toggle button's
+        // Alpine @click carries push('<groupKey>'); its wrapper <div> holds both
+        // the button and its slide panel.
+        root.querySelectorAll('button.corex-nav-group-toggle').forEach(function (btn) {
+            var click = btn.getAttribute('@click') || btn.getAttribute('x-on:click') || '';
+            var m = click.match(/push\(\s*'([^']+)'\s*\)/);
+            if (m && groupKeys[m[1]]) {
+                var wrap = btn.closest('div');
+                if (wrap) wrap.remove();
+            }
+        });
+
+        // Remove individual pages / sub-pages (p:<pathname>), tracking which
+        // panels we emptied so only those can collapse.
+        var touchedPanels = [];
+        root.querySelectorAll('a.corex-nav-item, a.corex-nav-subitem').forEach(function (a) {
+            var href = a.getAttribute('href');
+            if (!href) return;
+            var path;
+            try { path = new URL(href, location.origin).pathname; } catch (e) { return; }
+            if (!pathKeys[path]) return;
+            var panel = a.closest('.corex-nav-panel');
+            if (panel && touchedPanels.indexOf(panel) === -1) touchedPanels.push(panel);
+            a.remove();
+        });
+
+        // Collapse a section only if WE removed its last sub-item.
+        touchedPanels.forEach(function (panel) {
+            if (!panel.querySelector('a.corex-nav-subitem')) {
+                var wrap = panel.parentElement; // group wrapper (button + panel)
+                if (wrap) wrap.remove();
+            }
+        });
+
+        // Drop the stale search cache so search mirrors the curated nav.
+        if (window.CorexNavSearch && window.CorexNavSearch.refresh) window.CorexNavSearch.refresh();
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+    else run();
+})();
 (function () {
     function sortKey(el) {
         // Use the first text node's content so a trailing badge (e.g. "Invitations [3]")
