@@ -755,7 +755,7 @@
             </div>
         @else
             <p class="text-xs mb-2" style="color: var(--text-muted);">
-                Active listings your property competes against — scored on price, suburb, type and bedrooms, type-gated and sold-excluded.
+                Active listings your property competes against — scored by comparability to your property (price, beds, baths, type, size), type-gated and sold-excluded.
                 @if($canCurate)<strong>Untick a comp to exclude it</strong> from the set.@else Curate which comps appear on the review screen.@endif
             </p>
         @endif

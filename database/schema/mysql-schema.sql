@@ -282,6 +282,7 @@ CREATE TABLE `agencies` (
   `pp_locations_last_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `competitor_stock_min_same_type` tinyint unsigned NOT NULL DEFAULT '5' COMMENT 'Competitor Stock — minimum exact-property-type matches before stepping up to same-family-other-type. Level 1 (FH/SS) is never crossed.',
   `competitor_stock_default_display_count` tinyint unsigned NOT NULL DEFAULT '10' COMMENT 'Competitor Stock — top-N display cap on the review screen + auto-tick floor. Rest live in the manual-picker modal.',
+  `competitor_stock_weights` json DEFAULT NULL,
   `presentations_map_provider` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'svg_radial' COMMENT 'Presentation PDF map renderer: svg_radial (polar diagram, self-contained) or static_image (Google Static Maps PNG, requires API key).',
   `website_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `website_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -11973,3 +11974,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (844,'2026_06_30_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (845,'2026_07_01_000001_add_min_countable_criteria_to_agency_contact_settings',158);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (846,'2026_06_21_041100_add_autoland_reasons_to_buyer_state_transitions',159);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (847,'2026_06_21_062000_add_mic_match_settings_to_agency_contact_settings',160);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (848,'2026_06_21_072800_add_competitor_stock_weights_to_agencies',161);

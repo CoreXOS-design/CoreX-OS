@@ -2686,8 +2686,8 @@ if (!empty($visibleCompetitors)):
 ?>
 <h3 style="margin-top:18px;margin-bottom:8px;">Scored Competitor Stock (<?= count($visibleCompetitors) ?>)</h3>
 <p class="keep-with-next" style="margin:0 0 10px 0;font-size:11px;color:#64748b;"><?php /* Fix C — glue heading+intro to the first card row. */ ?>
-    Active listings the property competes against, scored by Core Matches.
-    Match % reflects proximity by price, suburb, type, and bedrooms.
+    Active listings the property competes against.
+    Match % reflects how comparable each listing is to your property — price, beds, baths, type, and size.
 </p>
 
 <!-- Photo-card grid — same visual as the review-screen Active Competition
