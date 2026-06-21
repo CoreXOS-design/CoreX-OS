@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Scopes\AgencyScope;
 use App\Models\User;
 use Illuminate\Console\Command;
 
@@ -40,8 +39,10 @@ class SetUserDisplayEmail extends Command
             return self::INVALID;
         }
 
-        // Match across all agencies (console has no tenant context).
-        $user = User::withoutGlobalScope(AgencyScope::class)
+        // Match across all agencies/branches (console has no tenant context;
+        // drop ALL global scopes so agency + branch + any visibility scope
+        // can't hide the target user).
+        $user = User::withoutGlobalScopes()
             ->where('email', $login)
             ->first();
 
