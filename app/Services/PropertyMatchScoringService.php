@@ -11,6 +11,7 @@ use App\Models\Property;
 use App\Models\PropertyBuyerMatch;
 use App\Models\ProspectingBuyerMatch;
 use App\Models\ProspectingListing;
+use App\Models\AgencyContactSettings;
 use App\Services\Matching\MatchingService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -468,10 +469,13 @@ class PropertyMatchScoringService
             return 0;
         }
 
+        $bandPct = AgencyContactSettings::forAgency((int) $listing->agency_id)->micPriceBandFraction();
+        $target  = $this->wrapCaptureAsProperty($listing);
+
         $rows = [];
         $now  = now();
         foreach ($matchesByContact as $contactId => $matches) {
-            $best = $this->bestResultAcross($matches, $this->wrapCaptureAsProperty($listing));
+            $best = $this->canonicalBestAcross($matches, $target, $bandPct);
             if (!$best || $best['score'] < self::MIN_SCORE_TO_CACHE) {
                 continue;
             }
@@ -534,10 +538,12 @@ class PropertyMatchScoringService
             ->whereNull('deleted_at')
             ->get();
 
+        $bandPct = AgencyContactSettings::forAgency((int) $contact->agency_id)->micPriceBandFraction();
+
         $rows = [];
         $now  = now();
         foreach ($listings as $listing) {
-            $best = $this->bestResultAcross($matches, $this->wrapCaptureAsProperty($listing));
+            $best = $this->canonicalBestAcross($matches, $this->wrapCaptureAsProperty($listing), $bandPct);
             if (!$best || $best['score'] < self::MIN_SCORE_TO_CACHE) {
                 continue;
             }
@@ -593,6 +599,67 @@ class PropertyMatchScoringService
             }
         }
         return $best;
+    }
+
+    /**
+     * AT-75 — best CANONICAL score across a buyer's wishlists for one listing.
+     *
+     * Uses the shared canonical engine (MatchingService::score, the same scorer
+     * Core Matches / the Intelligence tab use): it scores ONLY the criteria the
+     * buyer actually specified, so a near-empty wishlist no longer inflates to
+     * ~85 on everything. Price drift decays the % (band widened by the agency's
+     * configurable tolerance), never hard-excludes. Only genuine DEAL-BREAKERS
+     * hard-exclude (bedrooms are scored soft, per Johan's rule b). This is what
+     * makes the MIC % reconcile with the pipeline / Core Matches truth.
+     */
+    private function canonicalBestAcross(iterable $matches, Property $target, float $bandPct): ?array
+    {
+        $best = null;
+        foreach ($matches as $m) {
+            if (!$m->isCountable()) {
+                continue; // AT-71 gate — uncountable wishlists never match
+            }
+            if ($this->violatesDealBreakers($m, $target)) {
+                continue; // only deal-breakers hard-exclude
+            }
+            $score = $this->matcher()->score($target, $m, $bandPct);
+            if ($best === null || $score > $best['score']) {
+                $best = [
+                    'score'            => $score,
+                    'tier'             => $this->determineTier($score),
+                    'breakdown'        => ['engine' => 'canonical', 'price_band_pct' => $bandPct],
+                    'missing_features' => [],
+                ];
+            }
+        }
+        return $best;
+    }
+
+    /** Shared canonical matching engine (resolved once per instance). */
+    private ?MatchingService $matcher = null;
+    private function matcher(): MatchingService
+    {
+        return $this->matcher ??= app(MatchingService::class);
+    }
+
+    /** AT-75 — per-request lowercased p24 suburb-name → id map (one query). */
+    private ?array $suburbNameToId = null;
+    private function resolveSuburbId(?string $name): ?int
+    {
+        if (!$name) {
+            return null;
+        }
+        if ($this->suburbNameToId === null) {
+            $this->suburbNameToId = [];
+            foreach (DB::table('p24_suburbs')->select('id', 'name')->get() as $r) {
+                $key = strtolower(trim((string) $r->name));
+                // First id wins for a given name (good enough for soft area scoring).
+                if ($key !== '' && !isset($this->suburbNameToId[$key])) {
+                    $this->suburbNameToId[$key] = (int) $r->id;
+                }
+            }
+        }
+        return $this->suburbNameToId[strtolower(trim($name))] ?? null;
     }
 
     private function violatesBedroomFilter(ContactMatch $match, Property $property): bool
@@ -784,7 +851,14 @@ class PropertyMatchScoringService
         $p->suburb        = $data->suburb ?? null;
         $p->property_type = $data->property_type ?? null;
         $p->beds          = $data->beds ?? ($data->bedrooms ?? null);
+        $p->baths         = $data->bathrooms ?? ($data->baths ?? null);
+        $p->garages       = $data->garages ?? null;
+        $p->size_m2       = $data->property_size_m2 ?? ($data->size_m2 ?? null);
+        $p->erf_size_m2   = $data->erf_size_m2 ?? null;
         $p->features_json = $data->features_json ?? null;
+        // AT-75 — prospecting listings store only a suburb NAME; resolve it to a
+        // p24_suburb_id so the canonical area scorer (suburbFitRatio) works.
+        $p->p24_suburb_id = $this->resolveSuburbId($data->suburb ?? null);
         return $p;
     }
 }

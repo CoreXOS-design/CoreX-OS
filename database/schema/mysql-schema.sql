@@ -433,6 +433,8 @@ CREATE TABLE `agency_contact_settings` (
   `buyer_cold_days` int unsigned NOT NULL DEFAULT '30',
   `buyer_lost_days` int unsigned NOT NULL DEFAULT '60',
   `min_countable_criteria` json DEFAULT NULL,
+  `mic_match_threshold` tinyint unsigned NOT NULL DEFAULT '75',
+  `mic_price_band_pct` tinyint unsigned NOT NULL DEFAULT '10',
   `contact_retention_years` int unsigned NOT NULL DEFAULT '5',
   `consent_retention_years` int unsigned NOT NULL DEFAULT '5',
   `access_log_retention_years` int unsigned NOT NULL DEFAULT '5',
@@ -11970,3 +11972,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (843,'2026_06_30_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (844,'2026_06_30_000002_register_property_feedback_captured_notification_type',158);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (845,'2026_07_01_000001_add_min_countable_criteria_to_agency_contact_settings',158);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (846,'2026_06_21_041100_add_autoland_reasons_to_buyer_state_transitions',159);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (847,'2026_06_21_062000_add_mic_match_settings_to_agency_contact_settings',160);

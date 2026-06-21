@@ -25,6 +25,9 @@ class AgencyContactSettings extends Model
         // AT-71 — agency-configurable minimum criteria for a "countable" buyer
         // wishlist. JSON array of required criteria groups; ['any'] = default.
         'min_countable_criteria',
+        // AT-75 — MIC buyer-match knobs (agency-configurable, never hardcoded).
+        'mic_match_threshold',
+        'mic_price_band_pct',
         'contact_retention_years',
         'consent_retention_years',
         'access_log_retention_years',
@@ -36,10 +39,17 @@ class AgencyContactSettings extends Model
         'buyer_cold_days' => 'integer',
         'buyer_lost_days' => 'integer',
         'min_countable_criteria' => 'array',
+        'mic_match_threshold' => 'integer',
+        'mic_price_band_pct' => 'integer',
         'contact_retention_years' => 'integer',
         'consent_retention_years' => 'integer',
         'access_log_retention_years' => 'integer',
     ];
+
+    /** AT-75 — MIC tile/slider threshold floor (%) when the column is null. */
+    public const DEFAULT_MIC_MATCH_THRESHOLD = 75;
+    /** AT-75 — price-band drift tolerance (%) past the stated band before decay. */
+    public const DEFAULT_MIC_PRICE_BAND_PCT = 10;
 
     /**
      * AT-71 — default countable-buyer bar. ['any'] = a wishlist is countable if
@@ -70,11 +80,27 @@ class AgencyContactSettings extends Model
                 'buyer_cold_days' => 30,
                 'buyer_lost_days' => 60,
                 'min_countable_criteria' => self::DEFAULT_MIN_COUNTABLE_CRITERIA,
+                'mic_match_threshold' => self::DEFAULT_MIC_MATCH_THRESHOLD,
+                'mic_price_band_pct' => self::DEFAULT_MIC_PRICE_BAND_PCT,
                 'contact_retention_years' => 5,
                 'consent_retention_years' => 5,
                 'access_log_retention_years' => 5,
             ]
         );
+    }
+
+    /** AT-75 — resolved MIC match threshold (%), clamped 1-100. */
+    public function micMatchThreshold(): int
+    {
+        $v = (int) ($this->mic_match_threshold ?? self::DEFAULT_MIC_MATCH_THRESHOLD);
+        return max(1, min(100, $v));
+    }
+
+    /** AT-75 — resolved MIC price-band drift tolerance as a fraction (e.g. 0.10). */
+    public function micPriceBandFraction(): float
+    {
+        $pct = (int) ($this->mic_price_band_pct ?? self::DEFAULT_MIC_PRICE_BAND_PCT);
+        return max(0, min(100, $pct)) / 100;
     }
 
     /**
