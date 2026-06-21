@@ -9,6 +9,7 @@ use App\Models\P24Listing;
 use App\Models\P24PriceChange;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\ProspectingClaim;
+use App\Models\AgencyContactSettings;
 use App\Models\ProspectingListing;
 use App\Models\User;
 use App\Services\AI\AnthropicGateway;
@@ -288,7 +289,19 @@ class MarketIntelligenceController extends Controller
             return $primary;
         })->values();
 
-        // Buyer match counts per listing
+        // AT-75 — %-match band from the slider/tile (default: agency threshold → 100).
+        // The band lower bound also lowers the per-listing count floor so the
+        // badges + counts agree with the slider.
+        $agencyThreshold = AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
+        $bandActive = $request->filled('score_min') || $request->filled('score_max');
+        $scoreMin = (int) $request->get('score_min', $bandActive ? 0 : 0);
+        $scoreMax = (int) $request->get('score_max', 100);
+        $scoreMin = max(0, min(100, $scoreMin));
+        $scoreMax = max($scoreMin, min(100, $scoreMax));
+        // Count floor: respect a band that dips below the default 50 "is-a-match" floor.
+        $countFloor = $bandActive ? $scoreMin : 50;
+
+        // Buyer match counts per listing (distinct buyers within the active band).
         $listingIds = $rows->pluck('id')->toArray();
         $matchCounts = collect();
         $matchTopScores = collect();
@@ -297,7 +310,8 @@ class MarketIntelligenceController extends Controller
                 ->whereIn('prospecting_listing_id', $listingIds)
                 ->where('agency_id', $agencyId)
                 ->whereNull('dismissed_at')
-                ->where('score', '>=', 50)
+                ->where('score', '>=', $countFloor)
+                ->where('score', '<=', $scoreMax)
                 ->select(
                     'prospecting_listing_id',
                     DB::raw('COUNT(DISTINCT contact_id) as match_count'),
@@ -313,12 +327,24 @@ class MarketIntelligenceController extends Controller
             $row->buyer_match_top_score = isset($matchTopScores[$row->id]) ? (int) $matchTopScores[$row->id] : null;
         }
 
+        // AT-75 — when a %-band is active, keep only listings whose top match is
+        // in the band, and sort strongest-first (weak matches to the bottom).
+        if ($bandActive) {
+            $rows = $rows->filter(fn ($r) => $r->buyer_match_top_score !== null
+                && $r->buyer_match_top_score >= $scoreMin
+                && $r->buyer_match_top_score <= $scoreMax)->values();
+            $rows = $rows->sortByDesc('buyer_match_top_score')->values();
+        }
+
         if ($request->filled('matched_only') && $request->matched_only === '1') {
             $rows = $rows->filter(fn($r) => $r->buyer_match_count > 0)->values();
         }
 
         if ($request->get('sort') === 'buyer_matches') {
             $rows = $rows->sortByDesc('buyer_match_count')->values();
+        }
+        if ($request->get('sort') === 'match_score') {
+            $rows = $rows->sortByDesc('buyer_match_top_score')->values();
         }
 
         $page = $request->get('page', 1);
@@ -1742,12 +1768,21 @@ class MarketIntelligenceController extends Controller
 
         $active = (clone $baseQuery)->count();
 
-        $buyerMatched = (clone $baseQuery)
-            ->whereIn('id', DB::table('prospecting_buyer_matches')
-                ->where('agency_id', $agencyId)
-                ->whereNull('dismissed_at')
-                ->select('prospecting_listing_id'))
-            ->count();
+        // AT-75 — threshold-anchored, two honest units (NOT "any match ≥1%").
+        //   buyers_matched     = distinct countable buyers with a real canonical
+        //                        match ≥ threshold (reconciles with the pipeline).
+        //   properties_matched = distinct canvass listings matched ≥ threshold.
+        // Only countable buyers are ever cached (AT-71), so distinct contact_id
+        // here is the distinct-countable-buyer truth.
+        $threshold = AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
+        $matchAtThreshold = DB::table('prospecting_buyer_matches')
+            ->where('agency_id', $agencyId)
+            ->whereNull('dismissed_at')
+            ->where('score', '>=', $threshold)
+            ->whereIn('prospecting_listing_id', (clone $baseQuery)->select('id'));
+
+        $buyersMatched     = (clone $matchAtThreshold)->distinct()->count('contact_id');
+        $propertiesMatched = (clone $matchAtThreshold)->distinct()->count('prospecting_listing_id');
 
         $inStock = ProspectingListing::where('agency_id', $agencyId)
             ->where('is_active', true)
@@ -1777,11 +1812,14 @@ class MarketIntelligenceController extends Controller
             ->count();
 
         return [
-            'active'        => $active,
-            'buyer_matched' => $buyerMatched,
-            'in_stock'      => $inStock,
-            'new_today'     => $newToday,
-            'cross_listed'  => $crossListed,
+            'active'             => $active,
+            'buyers_matched'     => $buyersMatched,      // AT-75 distinct countable buyers ≥ threshold
+            'properties_matched' => $propertiesMatched,  // AT-75 distinct canvass listings ≥ threshold
+            'match_threshold'    => $threshold,
+            'buyer_matched'      => $propertiesMatched,  // back-compat key (listings) — superseded by the two above
+            'in_stock'           => $inStock,
+            'new_today'          => $newToday,
+            'cross_listed'       => $crossListed,
         ];
     }
 

@@ -213,6 +213,7 @@
                         title="Buyer matches for this listing — green dot = strong-tier (high likelihood of conversion, score ≥ 80). Amber = mid-tier (50–79). Top score {{ $tiers['top_score'] ?? '?' }}%. Click for the full buyer list. Hover for Ellie's read.">
                     @if($tiers['strong'] > 0)<span style="color: var(--ds-green, #10b981);">●</span> {{ $tiers['strong'] }}@endif
                     @if($tiers['mid'] > 0)<span style="color: var(--ds-amber, #f59e0b); margin-left: 4px;">●</span> {{ $tiers['mid'] }}@endif
+                    @if(($tiers['top_score'] ?? null) !== null)<span style="margin-left: 5px; font-weight: 700; color: var(--text-secondary, #6b7280);">{{ $tiers['top_score'] }}%</span>@endif
                 </button>
                 <span x-show="tooltip || loading" x-cloak
                       style="position: absolute; top: 100%; left: 0; margin-top: 4px; z-index: 20;
