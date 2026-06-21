@@ -39,12 +39,12 @@
 <div class="card">
     <h1>{{ $heading }}</h1>
     <p>{{ $copy }}</p>
-    @if($agent && ($agent->email || $agent->phone))
+    @if($agent && ($agent->outward_email || $agent->phone))
         <div class="agent-contact">
             Contact your agent
             @if($agent->name)<strong style="color:#0f172a;display:block;margin-top:4px;">{{ $agent->name }}</strong>@endif
             @if($agent->phone)<div>{{ $agent->phone }}</div>@endif
-            @if($agent->email)<div><a href="mailto:{{ $agent->email }}" style="color:#00b594;">{{ $agent->email }}</a></div>@endif
+            @if($agent->outward_email)<div><a href="mailto:{{ $agent->outward_email }}" style="color:#00b594;">{{ $agent->outward_email }}</a></div>@endif
         </div>
     @endif
 </div>

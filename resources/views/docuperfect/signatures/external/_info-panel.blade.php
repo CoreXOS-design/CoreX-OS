@@ -25,7 +25,7 @@
         ?? $agentUser?->mobile
         ?? $agentUser?->contact_number
         ?? null;
-    $agentEmail = $agentUser?->email ?? null;
+    $agentEmail = $agentUser?->outward_email ?? null; // AT-79 outward override
 
     // Signing-as label resolution: prefer the B1 indexed identity. Falls
     // back to a humanised party_role when only the legacy column is set.

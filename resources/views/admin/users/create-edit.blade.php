@@ -131,6 +131,17 @@
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                     </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">
+                            Display Email <span style="color:var(--text-muted); font-weight:400;">(optional — shown to clients instead of the login email)</span>
+                        </label>
+                        <input type="email" name="display_email" value="{{ old('display_email', $isEdit ? $user->display_email : '') }}"
+                               autocomplete="off" placeholder="Leave blank to use the login email"
+                               class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        <p class="mt-1 text-xs" style="color:var(--text-muted);">Used on presentations, e-sign documents, outreach &amp; portals. Login &amp; password reset always use the real email.</p>
+                    </div>
                     @if($isEdit)
                     <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">

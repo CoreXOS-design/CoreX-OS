@@ -41,7 +41,10 @@ abstract class BaseSignatureMail extends Mailable
         }
 
         $companyDomain = config('signatures.emails.company_domain', 'hfcoastal.co.za');
-        $agentEmail = $this->sendingAgent->email;
+        // AT-79 — outward-facing identity: use the display_email override when
+        // set (falls back to the real email). Same company domain, so the
+        // domain check below is unaffected.
+        $agentEmail = $this->sendingAgent->outward_email;
         $agentName = $this->sendingAgent->name;
 
         if (str_ends_with(strtolower($agentEmail), '@' . $companyDomain)) {
@@ -56,7 +59,9 @@ abstract class BaseSignatureMail extends Mailable
     }
 
     /**
-     * Get Reply-To — always the agent's actual email so replies go to them.
+     * Get Reply-To — the agent's outward-facing email so replies go to the
+     * address the recipient sees (display_email override when set, else the
+     * real email). AT-79.
      */
     protected function getReplyTo(): array
     {
@@ -64,7 +69,7 @@ abstract class BaseSignatureMail extends Mailable
             return [];
         }
 
-        return [new Address($this->sendingAgent->email, $this->sendingAgent->name)];
+        return [new Address($this->sendingAgent->outward_email, $this->sendingAgent->name)];
     }
 
     /**
@@ -111,7 +116,7 @@ abstract class BaseSignatureMail extends Mailable
 
         return [
             'name'             => $agent->name,
-            'email'            => $agent->email,
+            'email'            => $agent->outward_email, // AT-79 outward override
             'phone'            => $agent->phone ?? null,
             'designation'      => $agent->designation ?? null,
             'cell'             => $agent->cell ?? null,

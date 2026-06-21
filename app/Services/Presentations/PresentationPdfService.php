@@ -502,7 +502,7 @@ class PresentationPdfService
         // Get the agent who created this presentation
         $agent = \App\Models\User::find($presentation->created_by_user_id);
         $agentName = $agent->name ?? 'Agent';
-        $agentEmail = $agent->email ?? '';
+        $agentEmail = $agent->outward_email ?? ''; // AT-79 outward override
         $agentPhone = $agent->cell ?? $agent->phone ?? '';
         $agentDesignation = $agent->designation ?? 'Property Practitioner';
         $agentPhotoPath = null;
