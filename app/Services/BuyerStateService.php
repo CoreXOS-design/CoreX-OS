@@ -50,6 +50,12 @@ class BuyerStateService
         $contact->updateQuietly(['buyer_state' => $newState]);
 
         BuyerStateTransition::create([
+            // agency_id is NOT-NULL (2026_05_23_030800) with no DB default.
+            // Set it explicitly from the contact — relying on the BelongsToAgency
+            // auto-stamp only works in single-agency DBs; in a multi-agency DB
+            // the unstamped insert 1364-fails. Fixes the whole transition class
+            // (this path + markActivity + the daily recompute cron).
+            'agency_id' => $contact->agency_id ?? 1,
             'contact_id' => $contact->id,
             'from_state' => $oldState,
             'to_state' => $newState,
@@ -124,6 +130,55 @@ class BuyerStateService
             $reason = $contact->buyer_state === null ? 'first_activity' : 'auto_recompute';
             $this->transitionTo($contact, $newState, $reason, $userId);
         }
+    }
+
+    /**
+     * AT-72 — Auto-land a contact on the Buyer Pipeline as "New".
+     *
+     * The pipeline board (BuyerPipelineController) lists Contacts by
+     * `is_buyer` + `buyer_state`. Until AT-72 those flags were only ever set
+     * by first ACTIVITY (markActivity), so a buyer created purely by adding a
+     * countable wishlist (ContactMatch) had is_buyer=false / buyer_state=NULL
+     * and was invisible on the pipeline and every surface that reads it.
+     *
+     * This method makes a buyer LAND on the pipeline:
+     *   1. Ensure is_buyer=true and stamp buyer_pipeline_entered_at (once).
+     *   2. If — and only if — the buyer has no state yet, transition to 'new'
+     *      with an audited row in buyer_state_transitions.
+     *
+     * It NEVER overwrites an existing state: a buyer already Warm/Cold/Lost
+     * stays exactly where they are when another wishlist is added. It is
+     * idempotent — calling it repeatedly on an already-landed buyer is a
+     * no-op after the first landing.
+     *
+     * @param  string  $reason  Audit reason for the 'new' transition (e.g.
+     *                          'wishlist_created', 'auto_landed').
+     * @return bool  true iff a transition to 'new' was recorded this call.
+     */
+    public function landOnPipeline(Contact $contact, string $reason = 'wishlist_created', ?int $userId = null): bool
+    {
+        // 1. Ensure the buyer flag and pipeline-entry stamp. updateQuietly so
+        //    we don't re-enter Contact observers / state machinery here.
+        $updates = [];
+        if (!$contact->is_buyer) {
+            $updates['is_buyer'] = true;
+        }
+        if (!$contact->buyer_pipeline_entered_at) {
+            $updates['buyer_pipeline_entered_at'] = now();
+        }
+        if ($updates) {
+            $contact->updateQuietly($updates);
+            $contact->refresh();
+        }
+
+        // 2. Land on 'new' ONLY if the buyer has no state yet. An existing
+        //    Warm/Cold/Lost buyer adding another wishlist must NOT be reset.
+        if ($contact->buyer_state !== null) {
+            return false;
+        }
+
+        $this->transitionTo($contact, 'new', $reason, $userId);
+        return true;
     }
 
     /**
