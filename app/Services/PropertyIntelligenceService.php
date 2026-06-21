@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventFeedback;
 use App\Models\Property;
+use App\Services\Matching\MatchingService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -60,29 +61,59 @@ class PropertyIntelligenceService
     }
 
     /**
-     * Buyers in the system whose profile matches this property.
+     * Buyers whose wishlist genuinely matches this property, scored by the
+     * CANONICAL engine (AT-73).
+     *
+     * Previously this stamped a hardcoded match_score=75 onto the first 10
+     * is_buyer contacts in the agency with NO actual matching — a fabricated
+     * count that lied on the Intelligence tab (and contradicted the Core
+     * Matches tab on the same page). It now delegates to the SAME engine the
+     * property-page Core Matches tab uses — MatchingService::matchesForProperty
+     * (Engine A / "Path 1") — so the Intelligence tab shows the real buyers at
+     * their real % and tier.
+     *
+     * Inherited automatically from the canonical engine:
+     *   - AT-71 countable gate (empty / below-bar wishlists are excluded —
+     *     matchesForProperty calls ->countable()), and
+     *   - the same hard filters (listing_type / price / beds / suburb / status).
+     *
+     * Definition of "a buyer match" here = the canonical floor: score >=
+     * MatchingService::MIN_SCORE_TO_DISPLAY (50) → tierFor() != null. A buyer
+     * with several matching wishlists is counted ONCE (best score), so the card
+     * is an honest BUYER count, not a wishlist count.
+     *
+     * @return Collection<int,array{id:int,name:string,state:?string,last_activity:mixed,match_score:int,tier:?string}>
      */
     public function getBuyerInterestSignals(int $propertyId): Collection
     {
         $property = Property::withoutGlobalScopes()->find($propertyId);
-        if (!$property) return collect();
+        if (!$property) {
+            return collect();
+        }
 
-        // Basic matching: same suburb/area + price within range
-        $buyers = DB::table('contacts')
-            ->where('is_buyer', true)
-            ->where('agency_id', $property->agency_id)
-            ->whereNull('deleted_at')
-            ->whereNull('purged_at')
-            ->limit(10)
-            ->get(['id', 'first_name', 'last_name', 'buyer_state', 'last_activity_at']);
+        return app(MatchingService::class)->matchesForProperty($property)
+            // Canonical floor — below 50 is "not a match" (tierFor() === null).
+            ->filter(fn ($m) => (int) $m->match_score >= MatchingService::MIN_SCORE_TO_DISPLAY)
+            // One row per buyer — keep their best-scoring wishlist.
+            ->groupBy('contact_id')
+            ->map(fn (Collection $group) => $group->sortByDesc('match_score')->first())
+            ->map(function ($m) {
+                $contact = $m->contact;
+                $score   = (int) $m->match_score;
 
-        return collect($buyers)->map(fn($b) => [
-            'id' => $b->id,
-            'name' => trim(($b->first_name ?? '') . ' ' . ($b->last_name ?? '')),
-            'state' => $b->buyer_state,
-            'last_activity' => $b->last_activity_at,
-            'match_score' => 75, // Placeholder — full scoring in Module 8
-        ]);
+                return [
+                    'id'            => (int) $m->contact_id,
+                    'name'          => $contact
+                        ? trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''))
+                        : 'Buyer',
+                    'state'         => $contact?->buyer_state,
+                    'last_activity' => $contact?->last_activity_at,
+                    'match_score'   => $score,
+                    'tier'          => MatchingService::tierFor($score),
+                ];
+            })
+            ->sortByDesc('match_score')
+            ->values();
     }
 
     /**
