@@ -81,13 +81,15 @@
             [
                 'label' => 'Operations',
                 'items' => array_values(array_filter([
-                    ['key'=>'commission',            'label'=>'Commission & Revenue Share','type'=>'link', 'href'=>route('corex.settings.commission'), 'keywords'=>'splits caps fees tiers'],
-                    ['key'=>'command-center',        'label'=>'Command Center Rules',  'type'=>'link', 'href'=>route('command-center.settings'), 'keywords'=>'expectations reminders'],
+                    ['key'=>'commission',            'label'=>'Commission & Revenue Share','type'=>'section', 'keywords'=>'splits caps fees tiers revenue share mentor flqa'],
+                    $can('command_center.settings')
+                        ? ['key'=>'command-center', 'label'=>'Command Center Rules', 'type'=>'section', 'keywords'=>'expectations reminders automation rules document event classes thresholds']
+                        : null,
                     $can('prospecting_setup.manage')
-                        ? ['key'=>'prospecting-setup', 'label'=>'Prospecting Setup', 'type'=>'link', 'href'=>route('settings.prospecting.index'), 'keywords'=>'towns suburbs property types bedroom segments price bands prospecting']
+                        ? ['key'=>'prospecting-setup', 'label'=>'Prospecting Setup', 'type'=>'section', 'keywords'=>'towns suburbs property types bedroom segments price bands prospecting buyer match tiers']
                         : null,
                     $can('outreach_templates.manage')
-                        ? ['key'=>'outreach-templates', 'label'=>'Outreach Templates', 'type'=>'link', 'href'=>route('settings.outreach-templates.index'), 'keywords'=>'seller outreach whatsapp email template merge fields pitch']
+                        ? ['key'=>'outreach-templates', 'label'=>'Outreach Templates', 'type'=>'section', 'keywords'=>'seller outreach whatsapp email template merge fields pitch tracking link']
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
@@ -103,10 +105,12 @@
             ],
             [
                 'label' => 'System',
-                'items' => [
+                'items' => array_values(array_filter([
                     ['key'=>'system',                'label'=>'System Info & Tools',   'type'=>'section', 'keywords'=>'environment debug'],
-                    ['key'=>'p24-suburbs',           'label'=>'P24 Suburbs',           'type'=>'link', 'href'=>route('admin.p24-suburbs.index'), 'keywords'=>'property24 mapping'],
-                ],
+                    $can('manage_p24')
+                        ? ['key'=>'p24-suburbs', 'label'=>'P24 Suburbs', 'type'=>'section', 'keywords'=>'property24 mapping suburb id region surrounding']
+                        : null,
+                ])),
             ],
         ];
     @endphp
@@ -444,6 +448,659 @@
             </form>
         </div>
         @endif
+
+        {{-- ============================================================
+             COMMISSION & REVENUE SHARE — embedded Operations section
+             Mirrors the standalone /settings/commission page, rendered
+             inline in the hub like the other settings sections.
+             ============================================================ --}}
+        <div x-show="activeSection === 'commission'" x-cloak class="p-6 space-y-5"
+             x-data="commissionSettings()">
+
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">Commission &amp; Revenue Share</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Configure commission splits, caps, fees, and revenue share tiers.</p>
+            </div>
+
+            <form method="POST" action="{{ route('corex.settings.commission.update') }}" class="space-y-5">
+                @csrf
+
+                {{-- Commission Split --}}
+                <div class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Commission Split</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">How gross commission (excl. VAT) is divided between agent and agency before the annual cap is reached.</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Agent Split %</label>
+                            <input type="number" name="commission_split_agent" x-model="agentSplit" min="0" max="100" step="1"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Agency Split %</label>
+                            <input type="text" :value="100 - agentSplit" disabled
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Annual Cap (R)</label>
+                            <input type="number" name="annual_cap" value="{{ old('annual_cap', $commissionSettings->annual_cap) }}" min="0" step="0.01"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                    </div>
+                    <div class="text-xs" style="color:var(--text-secondary);">
+                        Agent receives <span class="font-bold" style="color:var(--brand-icon);" x-text="agentSplit + '%'"></span>
+                        of commission excl. VAT before capping. After cap, agent receives 100% minus transaction fees.
+                    </div>
+                </div>
+
+                {{-- Post-Cap Fees --}}
+                <div class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Post-Cap Fees</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Fees charged once an agent has reached their annual cap.</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Transaction Fee (R)</label>
+                            <input type="number" name="post_cap_transaction_fee" value="{{ old('post_cap_transaction_fee', $commissionSettings->post_cap_transaction_fee) }}" min="0" step="0.01"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Post-Cap Fee Cap (R)</label>
+                            <input type="number" name="post_cap_fee_cap" value="{{ old('post_cap_fee_cap', $commissionSettings->post_cap_fee_cap) }}" min="0" step="0.01"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Reduced Fee After Cap (R)</label>
+                            <input type="number" name="post_cap_reduced_fee" value="{{ old('post_cap_reduced_fee', $commissionSettings->post_cap_reduced_fee) }}" min="0" step="0.01"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Monthly Fees --}}
+                <div class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Monthly Fees</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Recurring platform and risk-management charges.</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Platform Fee (R/month)</label>
+                            <input type="number" name="monthly_platform_fee" value="{{ old('monthly_platform_fee', $commissionSettings->monthly_platform_fee) }}" min="0" step="0.01"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Risk Management Fee (R/tx)</label>
+                            <input type="number" name="risk_management_fee" value="{{ old('risk_management_fee', $commissionSettings->risk_management_fee) }}" min="0" step="0.01"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Risk Mgmt Annual Cap (R)</label>
+                            <input type="number" name="risk_management_cap" value="{{ old('risk_management_cap', $commissionSettings->risk_management_cap) }}" min="0" step="0.01"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Mentor Program --}}
+                <div class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Mentor Program</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Extra split applied while a new agent is being mentored, and how long it lasts.</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Extra Split % (mentored transactions)</label>
+                            <input type="number" name="mentor_extra_split" value="{{ old('mentor_extra_split', $commissionSettings->mentor_extra_split) }}" min="0" max="100" step="1"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Transactions Before Graduation</label>
+                            <input type="number" name="mentor_transactions" value="{{ old('mentor_transactions', $commissionSettings->mentor_transactions) }}" min="1" max="50" step="1"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                    </div>
+                    <div class="text-xs" style="color:var(--text-secondary);">
+                        New agents under a mentor pay an extra {{ $commissionSettings->mentor_extra_split }}% on their first {{ $commissionSettings->mentor_transactions }} transactions. Split between mentor and agency.
+                    </div>
+                </div>
+
+                {{-- Revenue Share --}}
+                <div class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="flex items-center justify-between gap-4">
+                        <div>
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Revenue Share</div>
+                            <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Distribute a pool of the company dollar across sponsorship tiers.</div>
+                        </div>
+                        <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;">
+                            <input type="hidden" name="revenue_share_enabled" value="0">
+                            <input type="checkbox" name="revenue_share_enabled" value="1" x-model="revShareEnabled" class="sr-only">
+                            <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                  style="background:var(--border-hover);"
+                                  :style="revShareEnabled ? 'background: var(--brand-button, #0ea5e9)' : ''"></span>
+                            <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                  :style="revShareEnabled ? 'transform:translateX(20px)' : ''"></span>
+                        </label>
+                    </div>
+
+                    <div x-show="revShareEnabled" x-cloak class="space-y-4 pt-1" style="border-top:1px solid var(--border);">
+                        {{-- Pool percentage --}}
+                        <div class="max-w-xs pt-3">
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Pool % (of Company Dollar)</label>
+                            <input type="number" name="revenue_share_pool_percent" value="{{ old('revenue_share_pool_percent', $commissionSettings->revenue_share_pool_percent) }}" min="0" max="100" step="1"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+
+                        {{-- Tier table --}}
+                        <div class="overflow-x-auto rounded-md" style="border:1px solid var(--border);">
+                            <table class="w-full text-sm" style="border-collapse:separate; border-spacing:0;">
+                                <thead>
+                                    <tr style="background:var(--surface); border-bottom:1px solid var(--border);">
+                                        <th class="text-left text-xs font-semibold uppercase tracking-wider px-3 py-2" style="color:var(--text-muted);">Tier</th>
+                                        <th class="text-left text-xs font-semibold uppercase tracking-wider px-3 py-2" style="color:var(--text-muted);">Relationship</th>
+                                        <th class="text-left text-xs font-semibold uppercase tracking-wider px-3 py-2" style="color:var(--text-muted);">Share %</th>
+                                        <th class="text-left text-xs font-semibold uppercase tracking-wider px-3 py-2" style="color:var(--text-muted);">FLQA Required</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @php
+                                        $tierLabels = [
+                                            1 => 'Directly sponsored',
+                                            2 => 'Tier 1 recruits',
+                                            3 => 'Tier 2 recruits',
+                                            4 => 'Tier 3 recruits',
+                                            5 => 'Tier 4 recruits',
+                                            6 => 'Tier 5 recruits',
+                                            7 => 'Tier 6 recruits',
+                                        ];
+                                    @endphp
+                                    @for($t = 1; $t <= 7; $t++)
+                                    <tr style="border-bottom:1px solid var(--border);">
+                                        <td class="px-3 py-2 font-semibold" style="color:var(--text-primary);">Tier {{ $t }}</td>
+                                        <td class="px-3 py-2" style="color:var(--text-secondary);">{{ $tierLabels[$t] }}</td>
+                                        <td class="px-3 py-2">
+                                            <input type="number" name="tier_{{ $t }}_percent"
+                                                   value="{{ old("tier_{$t}_percent", $commissionSettings->{"tier_{$t}_percent"}) }}"
+                                                   min="0" max="100" step="0.01"
+                                                   class="w-24 rounded-md px-2 py-1 text-sm"
+                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            @if($t <= 3)
+                                                <span class="text-xs font-medium px-2 py-1 rounded" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">Automatic</span>
+                                            @else
+                                                <input type="number" name="tier_{{ $t }}_flqa_requirement"
+                                                       value="{{ old("tier_{$t}_flqa_requirement", $commissionSettings->{"tier_{$t}_flqa_requirement"}) }}"
+                                                       min="0" step="1"
+                                                       class="w-24 rounded-md px-2 py-1 text-sm"
+                                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            @endif
+                                        </td>
+                                    </tr>
+                                    @endfor
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="text-xs" style="color:var(--text-secondary);">
+                            FLQA = First Line Qualifying Agent: a Tier 1 agent with 2+ transactions or R50,000+ GCI in the last 6 months.
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Save button --}}
+                <div class="flex justify-end">
+                    <button type="submit" class="corex-btn-primary text-sm px-6 py-2.5">
+                        Save Commission Settings
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        {{-- ============================================================
+             COMMAND CENTER RULES — embedded Operations section
+             Mirrors the standalone /command-center/settings page, rendered
+             inline in the hub like the other settings sections.
+             ============================================================ --}}
+        @permission('command_center.settings')
+        <div x-show="activeSection === 'command-center'" x-cloak class="p-6 space-y-5"
+             x-data="{ showAddExpectation: false }">
+
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">Command Center Rules</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Automation rules, document expectations, and calendar event-class thresholds.</p>
+            </div>
+
+            {{-- Automation Rules --}}
+            <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="flex items-center justify-between gap-4">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Automation Rules</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Toggle the system rules that drive Command Center automations.</div>
+                    </div>
+                    <span class="text-xs flex-shrink-0" style="color:var(--text-muted);">{{ $automationRules->where('is_active', true)->count() }} active / {{ $automationRules->count() }} total</span>
+                </div>
+
+                @if($automationRules->isEmpty())
+                    <div class="py-6 text-center rounded-md" style="background:var(--surface);">
+                        <p class="text-sm" style="color:var(--text-muted);">No automation rules configured. Run the seeder to load defaults.</p>
+                        <p class="text-xs mt-1" style="color:var(--text-muted);">
+                            <code class="font-mono text-[11px]" style="background:var(--surface-2); padding:2px 6px; border-radius:4px;">php artisan db:seed --class=CommandCenterAutomationSeeder</code>
+                        </p>
+                    </div>
+                @else
+                    <div class="rounded-md divide-y" style="background:var(--surface); border:1px solid var(--border); border-color:var(--border);">
+                        @foreach($automationRules as $rule)
+                            <div class="flex items-center gap-4 px-3 py-3">
+                                <form method="POST" action="{{ route('command-center.settings.toggle-rule', $rule) }}" class="flex-shrink-0">
+                                    @csrf @method('PATCH')
+                                    <button type="submit"
+                                            class="w-10 h-5 rounded-full relative transition-colors duration-200"
+                                            style="background:{{ $rule->is_active ? 'var(--brand-button, #0ea5e9)' : 'var(--border-hover)' }};"
+                                            title="{{ $rule->is_active ? 'Active — click to deactivate' : 'Inactive — click to activate' }}">
+                                        <span class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
+                                              style="{{ $rule->is_active ? 'transform:translateX(1.25rem);' : 'transform:translateX(0.125rem);' }}"></span>
+                                    </button>
+                                </form>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm font-medium" style="color:var(--text-primary);">
+                                        {{ $rule->name }}
+                                        @if($rule->is_system)
+                                            <span class="text-[10px] px-1.5 py-0.5 rounded ml-1" style="background:var(--surface-2); color:var(--text-muted);">System</span>
+                                        @endif
+                                    </p>
+                                    @if($rule->description)
+                                        <p class="text-xs mt-0.5 truncate" style="color:var(--text-muted);">{{ $rule->description }}</p>
+                                    @endif
+                                </div>
+                                <div class="flex items-center gap-2 text-xs flex-shrink-0" style="color:var(--text-muted);">
+                                    <span class="px-2 py-0.5 rounded" style="background:var(--surface-2);">{{ $rule->trigger_model }}</span>
+                                    <span class="px-2 py-0.5 rounded" style="background:var(--surface-2);">{{ $rule->trigger_event }}</span>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+
+            {{-- Document Expectations --}}
+            <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="flex items-center justify-between gap-4">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Document Expectations</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Which documents are expected when a property of each type is listed. Tasks are auto-created for the listing agent.</div>
+                    </div>
+                    <button @click="showAddExpectation = true" class="corex-btn-primary text-sm px-4 py-2 flex-shrink-0">+ Add</button>
+                </div>
+
+                @if($docExpectations->isEmpty())
+                    <div class="py-4 text-center text-sm rounded-md" style="background:var(--surface); color:var(--text-muted);">
+                        No document expectations configured. Default tasks will be created for new listings.
+                    </div>
+                @else
+                    <div class="overflow-x-auto rounded-md" style="border:1px solid var(--border);">
+                        <table class="w-full text-sm" style="border-collapse:separate; border-spacing:0;">
+                            <thead>
+                                <tr style="background:var(--surface); border-bottom:1px solid var(--border);">
+                                    <th class="text-left py-2 px-3 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Property Type</th>
+                                    <th class="text-left py-2 px-3 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Document</th>
+                                    <th class="text-left py-2 px-3 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Due</th>
+                                    <th class="text-left py-2 px-3 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Required</th>
+                                    <th class="py-2 px-3"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($docExpectations as $exp)
+                                    <tr style="border-bottom:1px solid var(--border);">
+                                        <td class="py-2 px-3" style="color:var(--text-primary);">{{ ucfirst($exp->property_type) }}</td>
+                                        <td class="py-2 px-3" style="color:var(--text-primary);">{{ $exp->label }}</td>
+                                        <td class="py-2 px-3 text-xs" style="color:var(--text-muted);">{{ $exp->due_offset_hours }}h</td>
+                                        <td class="py-2 px-3">
+                                            @if($exp->required)
+                                                <span class="text-xs px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson);">Required</span>
+                                            @else
+                                                <span class="text-xs" style="color:var(--text-muted);">Optional</span>
+                                            @endif
+                                        </td>
+                                        <td class="py-2 px-3 text-right">
+                                            <form method="POST" action="{{ route('command-center.settings.destroy-expectation', $exp) }}">
+                                                @csrf @method('DELETE')
+                                                <button type="submit" class="text-xs px-2 py-1 rounded hover:bg-red-500/10" style="color:var(--ds-crimson);" onclick="return confirm('Remove this expectation?')">Remove</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
+            </div>
+
+            {{-- Event Classes --}}
+            <div class="p-4 rounded-md flex items-center justify-between gap-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div>
+                    <div class="text-sm font-semibold" style="color:var(--text-primary);">Event Classes</div>
+                    <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Configure thresholds, visibility, and notifications for the 38 calendar event classes.</div>
+                </div>
+                <a href="{{ route('command-center.settings.event-classes') }}"
+                   class="corex-btn-primary text-sm px-4 py-2 no-underline flex-shrink-0">Configure</a>
+            </div>
+
+            {{-- Add Expectation modal --}}
+            <div x-show="showAddExpectation" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.5);" @keydown.escape.window="showAddExpectation = false">
+                <div class="w-full max-w-md rounded-md shadow-xl" style="background:var(--surface); border:1px solid var(--border);" @click.outside="showAddExpectation = false">
+                    <form method="POST" action="{{ route('command-center.settings.store-expectation') }}">
+                        @csrf
+                        <div class="px-6 py-4" style="border-bottom:1px solid var(--border);">
+                            <h3 class="text-base font-bold" style="color:var(--text-primary);">Add Document Expectation</h3>
+                        </div>
+                        <div class="px-6 py-4 space-y-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Property Type</label>
+                                <select name="property_type" required class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="sale">Sale</option>
+                                    <option value="rental">Rental</option>
+                                    <option value="commercial">Commercial</option>
+                                    <option value="vacant_land">Vacant Land</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Document Label</label>
+                                <input type="text" name="label" required placeholder="e.g. Signed Mandate" class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Due (hours)</label>
+                                    <input type="number" name="due_offset_hours" value="72" min="1" required class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                </div>
+                                <div class="flex items-end pb-2">
+                                    <label class="flex items-center gap-2 text-sm" style="color:var(--text-secondary);">
+                                        <input type="checkbox" name="required" value="1" checked class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
+                                        Required
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="px-6 py-4 flex justify-end gap-2" style="border-top:1px solid var(--border);">
+                            <button type="button" @click="showAddExpectation = false" class="px-4 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-secondary);">Cancel</button>
+                            <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Add</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        @endpermission
+
+        {{-- ============================================================
+             PROSPECTING SETUP — embedded Operations section
+             Mirrors the standalone /settings/prospecting page by including
+             the shared _panel partial inline in the hub.
+             ============================================================ --}}
+        @permission('prospecting_setup.manage')
+        <div x-show="activeSection === 'prospecting-setup'" x-cloak class="p-6 space-y-5">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">Prospecting Setup</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Towns, property types, bedroom segments and price bands for your agency's prospecting.</p>
+            </div>
+
+            @include('settings.prospecting._panel', [
+                'activeTab'         => $prospectingActiveTab ?? 'towns',
+                'towns'             => $towns ?? collect(),
+                'propertyTypes'     => $propertyTypes ?? collect(),
+                'bedroomSegments'   => $bedroomSegments ?? collect(),
+                'priceBandsSale'    => $priceBandsSale ?? collect(),
+                'priceBandsRental'  => $priceBandsRental ?? collect(),
+                'suggestionRegions' => $suggestionRegions ?? [],
+                'unmappedSuburbs'   => $unmappedSuburbs ?? collect(),
+                'buyerMatchTier'    => $buyerMatchTier ?? null,
+                'context'           => 'page',
+            ])
+        </div>
+        @endpermission
+
+        {{-- ============================================================
+             OUTREACH TEMPLATES — embedded Operations section
+             Mirrors the standalone /settings/outreach-templates page,
+             rendering the shared channel panels inline in the hub.
+             ============================================================ --}}
+        @permission('outreach_templates.manage')
+        <div x-show="activeSection === 'outreach-templates'" x-cloak class="p-6 space-y-5"
+             x-data="{ outreachTab: '{{ $outreachActiveTab ?? 'whatsapp' }}' }">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">Seller Outreach Templates</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">
+                    Pre-written templates agents use to pitch sellers via WhatsApp and email. Every template must include the
+                    <code class="font-mono text-[11px]" style="background:var(--surface-2); padding:1px 4px; border-radius:4px;">{{ '{tracking_link}' }}</code> merge field and the opt-out word
+                    <code class="font-mono text-[11px]" style="background:var(--surface-2); padding:1px 4px; border-radius:4px;">STOP</code>.
+                </p>
+            </div>
+
+            {{-- Tabs --}}
+            <div class="flex overflow-x-auto" style="border-bottom: 1px solid var(--border);">
+                <button type="button" @click="outreachTab = 'whatsapp'"
+                        :class="outreachTab === 'whatsapp' ? 'border-b-2' : 'border-b-2 border-transparent'"
+                        :style="outreachTab === 'whatsapp' ? 'color: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-secondary);'"
+                        class="px-4 py-3 text-xs font-semibold whitespace-nowrap">
+                    WhatsApp Templates ({{ ($whatsappTemplates ?? collect())->count() }})
+                </button>
+                <button type="button" @click="outreachTab = 'email'"
+                        :class="outreachTab === 'email' ? 'border-b-2' : 'border-b-2 border-transparent'"
+                        :style="outreachTab === 'email' ? 'color: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-secondary);'"
+                        class="px-4 py-3 text-xs font-semibold whitespace-nowrap">
+                    Email Templates ({{ ($emailTemplates ?? collect())->count() }})
+                </button>
+            </div>
+
+            {{-- WhatsApp panel --}}
+            <div x-show="outreachTab === 'whatsapp'" x-cloak>
+                @include('settings.outreach-templates._channel-panel', [
+                    'channel'     => 'whatsapp',
+                    'templates'   => $whatsappTemplates ?? collect(),
+                    'mergeFields' => $mergeFields ?? [],
+                ])
+            </div>
+
+            {{-- Email panel --}}
+            <div x-show="outreachTab === 'email'" x-cloak>
+                @include('settings.outreach-templates._channel-panel', [
+                    'channel'     => 'email',
+                    'templates'   => $emailTemplates ?? collect(),
+                    'mergeFields' => $mergeFields ?? [],
+                ])
+            </div>
+        </div>
+        @endpermission
+
+        {{-- ============================================================
+             P24 SUBURBS — embedded System section
+             Mirrors the standalone /settings/p24-suburbs page, rendered
+             inline in the hub like the other settings sections.
+             ============================================================ --}}
+        @permission('manage_p24')
+        @php $p24Suburbs = $p24Suburbs ?? collect(); @endphp
+        <div x-show="activeSection === 'p24-suburbs'" x-cloak class="p-6 space-y-5"
+             x-data="{
+                 search: '',
+                 regionFilter: '',
+                 confirmedFilter: '',
+             }"
+             x-effect="
+                 document.querySelectorAll('#p24-suburbs-table tbody tr.suburb-row').forEach(row => {
+                     const name = (row.dataset.name || '').toLowerCase();
+                     const p24id = (row.dataset.p24id || '');
+                     const region = (row.dataset.region || '');
+                     const confirmed = (row.dataset.confirmed || '');
+                     const s = search.toLowerCase();
+                     let show = true;
+                     if (s && !name.includes(s) && !p24id.includes(s)) show = false;
+                     if (regionFilter && region !== regionFilter) show = false;
+                     if (confirmedFilter !== '' && confirmed !== confirmedFilter) show = false;
+                     row.style.display = show ? '' : 'none';
+                 });
+                 const visCount = document.querySelectorAll('#p24-suburbs-table tbody tr.suburb-row:not([style*=\'display: none\'])').length;
+                 const countEl = document.getElementById('p24-suburb-count');
+                 if (countEl) countEl.textContent = 'Showing ' + visCount + ' of {{ $p24Suburbs->count() }}';
+             ">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">P24 Suburb Mappings</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Map Property24 suburb IDs so CoreX can pull listings and alerts for your areas.</p>
+            </div>
+
+            {{-- Filter bar --}}
+            <div class="p-4 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="relative flex-1 min-w-[12rem] max-w-sm">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                        </svg>
+                        <input type="text"
+                               x-model.debounce.300ms="search"
+                               placeholder="Search name or P24 ID..."
+                               class="w-full pl-10 pr-3 py-2 text-sm rounded-md focus:outline-none transition-all duration-300"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    </div>
+
+                    @php $regions = $p24Suburbs->pluck('region')->filter()->unique()->sort()->values(); @endphp
+                    <select x-model="regionFilter" class="list-header-filter">
+                        <option value="">All regions</option>
+                        @foreach($regions as $r)
+                        <option value="{{ $r }}">{{ $r }}</option>
+                        @endforeach
+                    </select>
+
+                    <select x-model="confirmedFilter" class="list-header-filter">
+                        <option value="">All</option>
+                        <option value="1">Confirmed</option>
+                        <option value="0">Unconfirmed</option>
+                    </select>
+
+                    <span id="p24-suburb-count" class="text-sm ml-auto" style="color: var(--text-muted);">Showing {{ $p24Suburbs->count() }} of {{ $p24Suburbs->count() }}</span>
+                </div>
+            </div>
+
+            {{-- Add New Suburb --}}
+            <div class="p-4 rounded-md space-y-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="text-sm font-semibold" style="color: var(--text-primary);">Add New Suburb</div>
+                <form method="POST" action="{{ route('admin.p24-suburbs.store') }}" class="flex flex-wrap items-end gap-3">
+                    @csrf
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Suburb Name</label>
+                        <input type="text" name="name" required class="rounded-md px-3 py-2 text-sm w-44"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Margate">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">P24 ID</label>
+                        <input type="number" name="p24_id" class="rounded-md px-3 py-2 text-sm w-28"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 6348">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Region</label>
+                        <input type="text" name="region" value="kzn-south-coast" class="rounded-md px-3 py-2 text-sm w-36"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Surrounding IDs</label>
+                        <input type="text" name="surrounding_ids" class="rounded-md px-3 py-2 text-sm w-36"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="6357,6358">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="hidden" name="confirmed" value="0">
+                        <label class="inline-flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
+                            <input type="checkbox" name="confirmed" value="1" class="rounded"
+                                   style="border: 1px solid var(--border); accent-color: var(--brand-button, #0ea5e9);">
+                            Confirmed
+                        </label>
+                    </div>
+                    <button type="submit" class="corex-btn-primary text-sm">Add</button>
+                </form>
+            </div>
+
+            {{-- Suburbs Table --}}
+            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="overflow-x-auto">
+                    <table id="p24-suburbs-table" class="min-w-full text-sm ds-table">
+                        <thead>
+                            <tr>
+                                <th class="text-left px-4 py-2.5">Name</th>
+                                <th class="text-left px-4 py-2.5">Slug</th>
+                                <th class="text-right px-4 py-2.5">P24 ID</th>
+                                <th class="text-left px-4 py-2.5">Region</th>
+                                <th class="text-left px-4 py-2.5">Surrounding</th>
+                                <th class="text-center px-4 py-2.5">Confirmed</th>
+                                <th class="text-right px-4 py-2.5">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($p24Suburbs as $suburb)
+                            <tr class="suburb-row"
+                                id="p24-row-{{ $suburb->id }}"
+                                data-name="{{ strtolower($suburb->name) }}"
+                                data-p24id="{{ $suburb->p24_id }}"
+                                data-region="{{ $suburb->region }}"
+                                data-confirmed="{{ $suburb->confirmed ? '1' : '0' }}">
+                                <form method="POST" action="{{ route('admin.p24-suburbs.update', $suburb) }}">
+                                    @csrf
+                                    @method('PUT')
+                                    <td class="px-4 py-3">
+                                        <input type="text" name="name" value="{{ $suburb->name }}" class="rounded-md px-2 py-1 text-sm w-full"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </td>
+                                    <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $suburb->slug }}</td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" name="p24_id" value="{{ $suburb->p24_id }}" class="rounded-md px-2 py-1 text-sm w-20 text-right"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="text" name="region" value="{{ $suburb->region }}" class="rounded-md px-2 py-1 text-sm w-32"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="text" name="surrounding_ids" value="{{ is_array($suburb->surrounding_ids) ? implode(',', $suburb->surrounding_ids) : '' }}" class="rounded-md px-2 py-1 text-sm w-28"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="6357,6358">
+                                    </td>
+                                    <td class="px-4 py-3 text-center">
+                                        <input type="hidden" name="confirmed" value="0">
+                                        <input type="checkbox" name="confirmed" value="1" {{ $suburb->confirmed ? 'checked' : '' }} class="rounded"
+                                               style="border: 1px solid var(--border); accent-color: var(--brand-button, #0ea5e9);">
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <div class="flex items-center justify-end gap-2">
+                                            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+                                </form>
+                                            <form method="POST" action="{{ route('admin.p24-suburbs.destroy', $suburb) }}" class="inline" onsubmit="return confirm('Delete {{ $suburb->name }}?')">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors"
+                                                        style="color: var(--ds-crimson, #c41e3a); border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 35%, transparent); background: transparent;">Delete</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                            </tr>
+                            @empty
+                            <tr>
+                                <td colspan="7" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No suburbs configured. Add one above or run the seeder.</td>
+                            </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        @endpermission
 
         {{-- ============================================================
              USER SETTINGS TAB
@@ -2980,9 +3637,10 @@
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                     </a>
 
-                    <a href="{{ route('corex.settings.commission') }}"
-                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
-                       style="border:1px solid var(--border);">
+                    <button type="button"
+                       @click="activeSection = 'commission'; $nextTick(() => window.scrollTo({top:0, behavior:'smooth'}))"
+                       class="w-full text-left flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
+                       style="border:1px solid var(--border); background:transparent;">
                         <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>
                         </div>
@@ -2991,7 +3649,7 @@
                             <div class="text-xs" style="color:var(--text-secondary);">Agent splits, caps, fees, and revenue share tiers</div>
                         </div>
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                    </a>
+                    </button>
                 </div>
 
             </div>
@@ -3137,6 +3795,13 @@ function settingsHub(initial) {
                 return hay.indexOf(q) !== -1;
             });
         },
+    };
+}
+
+function commissionSettings() {
+    return {
+        agentSplit: {{ old('commission_split_agent', $commissionSettings->commission_split_agent) }},
+        revShareEnabled: {{ old('revenue_share_enabled', $commissionSettings->revenue_share_enabled) ? 'true' : 'false' }},
     };
 }
 

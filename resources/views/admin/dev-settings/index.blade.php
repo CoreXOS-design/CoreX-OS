@@ -27,9 +27,22 @@
         </div>
     @endif
 
+    @if(session('warning') || $errors->has('demo_toggle_password'))
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--ds-amber, #f59e0b);">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
+            <div class="flex-1">{{ $errors->first('demo_toggle_password') ?: session('warning') }}</div>
+        </div>
+    @endif
+
     <form method="POST" action="{{ route('admin.dev-settings.update') }}"
           class="rounded-md p-6 space-y-6"
-          style="background: var(--surface); border: 1px solid var(--border);">
+          style="background: var(--surface); border: 1px solid var(--border);"
+          x-data="{ demoInit: {{ $demoModeEnabled ? 'true' : 'false' }}, demoNow: {{ $demoModeEnabled ? 'true' : 'false' }} }">
         @csrf
         @method('PUT')
 
@@ -83,16 +96,52 @@
                            id="demo_mode_enabled"
                            name="demo_mode_enabled"
                            value="1"
-                           {{ $demoModeEnabled ? 'checked' : '' }}
+                           x-model="demoNow"
                            class="w-5 h-5 rounded" style="accent-color: var(--brand-button, #0ea5e9);">
                 </label>
             </div>
+        </div>
+
+        {{-- Password gate — revealed only when the demo-mode toggle is being
+             changed (on OR off). Verified server-side in update(). --}}
+        <div x-show="demoNow !== demoInit" x-cloak class="pt-4" style="border-top: 1px solid var(--border);">
+            <label for="demo_toggle_password" class="block font-semibold" style="color: var(--text-primary);">
+                Confirm password to change demo mode
+            </label>
+            <p class="text-sm mt-1" style="color: var(--text-secondary);">
+                Turning demo mode on or off requires the demo control password.
+            </p>
+            <input type="password"
+                   id="demo_toggle_password"
+                   name="demo_toggle_password"
+                   autocomplete="off"
+                   placeholder="Demo control password"
+                   class="mt-2 w-full max-w-sm rounded-md px-3 py-2 text-sm"
+                   style="background: var(--surface-2); border: 1px solid {{ $errors->has('demo_toggle_password') ? 'var(--ds-crimson, #c41e3a)' : 'var(--border)' }}; color: var(--text-primary);">
+            @error('demo_toggle_password')
+                <p class="text-xs mt-1" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>
+            @enderror
         </div>
 
         <div class="flex justify-end pt-4" style="border-top: 1px solid var(--border);">
             <button type="submit" class="corex-btn-primary">Save Settings</button>
         </div>
     </form>
+
+    {{-- Demo sidebar curation lives on its own page, linked here directly
+         under the demo-mode toggle. See .ai/specs/demo-sidebar-curation.md --}}
+    <div class="rounded-md p-6 flex items-start justify-between gap-6"
+         style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="flex-1">
+            <h2 class="font-semibold" style="color: var(--text-primary);">Demo sidebar</h2>
+            <p class="text-sm mt-1" style="color: var(--text-secondary);">
+                Choose which sidebar items and sub-pages a demo agency shows. Affects demo-agency members
+                only — System Owners and real users always see the full sidebar.
+            </p>
+        </div>
+        <a href="{{ route('admin.dev-settings.demo-sidebar') }}"
+           class="corex-btn-primary whitespace-nowrap self-center">Demo sidebar settings →</a>
+    </div>
 
 </div>
 @endsection

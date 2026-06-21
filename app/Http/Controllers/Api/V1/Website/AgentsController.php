@@ -25,9 +25,14 @@ class AgentsController extends Controller
         $agencyId = $key->agency_id;
         $perPage = max(1, min(100, (int) $request->integer('per_page', 50)));
 
+        // is_active gate: a deactivated agent (left the agency) must never be
+        // served publicly even if show_on_website was left on — deactivation
+        // doesn't clear that flag. (Soft-deleted users are already excluded by
+        // the SoftDeletes global scope.) See syndication-bug-sweep audit WEB-1.
         $query = User::query()
             ->where('agency_id', $agencyId)
-            ->where('show_on_website', true);
+            ->where('show_on_website', true)
+            ->where('is_active', true);
 
         // Optional ?branch_id= — a branch (office) page pulls just the agents
         // that fall under it. Pairs with /branches (branches:read).
@@ -53,6 +58,7 @@ class AgentsController extends Controller
         $agent = User::query()
             ->where('agency_id', $agencyId)
             ->where('show_on_website', true)
+            ->where('is_active', true)
             ->where('id', $id)
             ->first();
 

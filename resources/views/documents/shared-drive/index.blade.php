@@ -6,6 +6,7 @@
     $currentId = $folder?->id;
     $maxBytes = $maxKilobytes * 1024;
     $acceptAttr = '.' . implode(',.', $allowedExts);
+    $canBulk = $can['download'] || $can['deleteFile'];
 @endphp
 
 <div x-data="sharedDrive()">
@@ -29,8 +30,9 @@
                     </button>
                 @endif
                 @if($can['upload'])
-                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary">
-                        Upload File
+                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary" :disabled="uploading" :style="uploading ? 'opacity:.6;' : ''">
+                        <span x-show="!uploading">Upload Files</span>
+                        <span x-show="uploading" x-cloak>Uploading…</span>
                     </button>
                 @endif
             </div>
@@ -50,17 +52,28 @@
         @endforeach
     </nav>
 
-    {{-- Hidden upload form (triggered by button / drag-drop) --}}
+    {{-- Hidden multi-file input (triggered by button / drag-drop) --}}
     @if($can['upload'])
-        <form method="POST" action="{{ route('documents.shared-drive.upload') }}" enctype="multipart/form-data" x-ref="uploadForm" class="hidden">
-            @csrf
-            <input type="hidden" name="folder_id" value="{{ $currentId }}">
-            <input type="file" name="file" x-ref="fileInput" accept="{{ $acceptAttr }}"
-                   @change="onFilePicked($event)">
-        </form>
-        @error('file')
-            <div class="rounded-md px-4 py-2 mb-4 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);">{{ $message }}</div>
-        @enderror
+        <input type="file" multiple x-ref="fileInput" accept="{{ $acceptAttr }}" class="hidden"
+               @change="onFilesPicked($event)">
+
+        {{-- Upload progress / results panel --}}
+        <div x-show="queue.length" x-cloak class="rounded-md mb-4 overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+            <div class="flex items-center justify-between px-4 py-2" style="border-bottom: 1px solid var(--border);">
+                <span class="text-sm font-medium" style="color: var(--text-primary);" x-text="uploading ? 'Uploading…' : 'Upload complete'"></span>
+                <button type="button" x-show="!uploading" @click="queue = []" class="text-xs" style="color: var(--text-secondary);">Dismiss</button>
+            </div>
+            <ul class="divide-y" style="border-color: var(--border);">
+                <template x-for="(item, i) in queue" :key="i">
+                    <li class="flex items-center justify-between px-4 py-2 text-sm gap-3">
+                        <span class="truncate" style="color: var(--text-primary);" x-text="item.name"></span>
+                        <span class="text-xs flex-shrink-0"
+                              :style="item.status === 'error' ? 'color: var(--ds-crimson);' : (item.status === 'done' ? 'color: var(--ds-emerald, #10b981);' : 'color: var(--text-secondary);')"
+                              x-text="item.message"></span>
+                    </li>
+                </template>
+            </ul>
+        </div>
     @endif
 
     {{-- Drop zone wrapper --}}
@@ -100,12 +113,31 @@
         @endif
 
         {{-- Files --}}
-        <h2 class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--text-secondary);">Files</h2>
+        <div class="flex items-center justify-between mb-2 gap-3 flex-wrap">
+            <h2 class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Files</h2>
+            @if($canBulk && $files->count())
+                <div class="flex items-center gap-2" x-show="selectedIds.length" x-cloak>
+                    <span class="text-xs" style="color: var(--text-secondary);"><span x-text="selectedIds.length"></span> selected</span>
+                    @if($can['download'])
+                        <button type="button" @click="submitBulk('download')" class="text-xs px-2.5 py-1 rounded-md" style="background: var(--brand-button, var(--brand-icon)); color:#fff;">Download</button>
+                    @endif
+                    @if($can['deleteFile'])
+                        <button type="button" @click="submitBulk('delete')" class="text-xs px-2.5 py-1 rounded-md" style="background: var(--ds-crimson); color:#fff;">Delete</button>
+                    @endif
+                    <button type="button" @click="selectedIds = []" class="text-xs px-2 py-1 rounded-md" style="border: 1px solid var(--border); color: var(--text-secondary);">Clear</button>
+                </div>
+            @endif
+        </div>
         @if($files->count())
             <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                 <table class="w-full text-sm">
                     <thead>
                         <tr style="background: var(--surface-2, var(--surface)); color: var(--text-secondary);">
+                            @if($canBulk)
+                                <th class="px-4 py-2 w-10">
+                                    <input type="checkbox" :checked="allSelected" @change="toggleAll($event)" title="Select all" style="cursor:pointer;">
+                                </th>
+                            @endif
                             <th class="text-left font-medium px-4 py-2">Name</th>
                             <th class="text-left font-medium px-4 py-2 hidden md:table-cell">Uploaded by</th>
                             <th class="text-left font-medium px-4 py-2 hidden sm:table-cell">Size</th>
@@ -115,7 +147,12 @@
                     </thead>
                     <tbody>
                         @foreach($files as $file)
-                            <tr style="border-top: 1px solid var(--border); color: var(--text-primary);">
+                            <tr style="border-top: 1px solid var(--border); color: var(--text-primary);" :class="selectedIds.includes({{ $file->id }}) ? 'is-selected' : ''">
+                                @if($canBulk)
+                                    <td class="px-4 py-2 w-10">
+                                        <input type="checkbox" :value="{{ $file->id }}" x-model.number="selectedIds" style="cursor:pointer;">
+                                    </td>
+                                @endif
                                 <td class="px-4 py-2">
                                     <div class="flex items-center gap-2 min-w-0">
                                         <span class="text-base">{!! $file->isImage() ? '🖼️' : ($file->extension === 'pdf' ? '📕' : '📄') !!}</span>
@@ -215,29 +252,125 @@ function sharedDrive() {
     return {
         showFolderModal: false,
         dragging: false,
+        uploading: false,
+        queue: [],
         viewer: { open: false, url: '', isImage: false, name: '' },
         maxBytes: {{ $maxBytes }},
-        onFilePicked(e) {
-            const file = e.target.files && e.target.files[0];
-            if (!file) return;
-            if (!this.validate(file)) { e.target.value = ''; return; }
-            this.$refs.uploadForm.submit();
+        uploadUrl: @js(route('documents.shared-drive.upload')),
+        folderId: @js($currentId),
+        csrf: document.querySelector('meta[name="csrf-token"]')?.content || '',
+
+        // Selection
+        selectedIds: [],
+        allFileIds: @js($files->pluck('id')->map(fn ($id) => (int) $id)->all()),
+        bulkDownloadUrl: @js(route('documents.shared-drive.files.bulk-download')),
+        bulkDeleteUrl: @js(route('documents.shared-drive.files.bulk-destroy')),
+
+        get allSelected() {
+            return this.allFileIds.length > 0 && this.selectedIds.length === this.allFileIds.length;
+        },
+        toggleAll(e) {
+            this.selectedIds = e.target.checked ? [...this.allFileIds] : [];
+        },
+        submitBulk(action) {
+            if (!this.selectedIds.length) return;
+            if (action === 'delete' &&
+                !confirm('Delete ' + this.selectedIds.length + ' selected file(s)? They can be recovered by an admin.')) {
+                return;
+            }
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = action === 'delete' ? this.bulkDeleteUrl : this.bulkDownloadUrl;
+            const add = (name, value) => {
+                const i = document.createElement('input');
+                i.type = 'hidden'; i.name = name; i.value = value;
+                form.appendChild(i);
+            };
+            add('_token', this.csrf);
+            if (action === 'delete') add('_method', 'DELETE');
+            if (this.folderId) add('folder_id', this.folderId);
+            this.selectedIds.forEach(id => add('ids[]', id));
+            document.body.appendChild(form);
+            form.submit();
+        },
+
+        onFilesPicked(e) {
+            this.handleFiles(e.target.files);
+            e.target.value = ''; // allow re-selecting the same file
         },
         onDrop(e) {
             this.dragging = false;
-            const file = e.dataTransfer.files && e.dataTransfer.files[0];
-            if (!file) return;
-            if (!this.validate(file)) return;
-            this.$refs.fileInput.files = e.dataTransfer.files;
-            this.$refs.uploadForm.submit();
+            this.handleFiles(e.dataTransfer.files);
         },
-        validate(file) {
-            if (file.size > this.maxBytes) {
-                alert('Files must be 50 MB or smaller.');
-                return false;
+
+        async handleFiles(fileList) {
+            const files = Array.from(fileList || []);
+            if (!files.length) return;
+
+            // Build the visible queue: oversize files are rejected up-front,
+            // valid files are uploaded one request each (partial success ok).
+            // Track each entry by its INDEX in the reactive queue array —
+            // mutating queue[idx].status updates the Alpine proxy so the UI
+            // flips to "Uploaded" the moment each file finishes.
+            const toUpload = [];
+            for (const file of files) {
+                const idx = this.queue.length;
+                if (file.size > this.maxBytes) {
+                    this.queue.push({ name: file.name, status: 'error', message: 'Too large (max 50 MB)' });
+                } else {
+                    this.queue.push({ name: file.name, status: 'pending', message: 'Waiting…' });
+                    toUpload.push({ file, idx });
+                }
             }
-            return true;
+            if (!toUpload.length) return;
+
+            this.uploading = true;
+            let anySuccess = false;
+            for (const { file, idx } of toUpload) {
+                this.queue[idx].status = 'uploading';
+                this.queue[idx].message = 'Uploading…';
+                try {
+                    const ok = await this.uploadOne(file, idx);
+                    anySuccess = anySuccess || ok;
+                } catch (err) {
+                    this.queue[idx].status = 'error';
+                    this.queue[idx].message = 'Upload failed';
+                }
+            }
+            this.uploading = false;
+
+            // Refresh to show the newly stored files, but keep the panel
+            // visible briefly so the user sees results.
+            if (anySuccess) {
+                setTimeout(() => window.location.reload(), 900);
+            }
         },
+
+        async uploadOne(file, idx) {
+            const fd = new FormData();
+            fd.append('file', file);
+            if (this.folderId) fd.append('folder_id', this.folderId);
+
+            const res = await fetch(this.uploadUrl, {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                body: fd,
+                credentials: 'same-origin',
+            });
+
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+
+            if (res.ok && data.ok) {
+                this.queue[idx].status = 'done';
+                this.queue[idx].message = 'Uploaded';
+                return true;
+            }
+            this.queue[idx].status = 'error';
+            this.queue[idx].message = data.message || ('Failed (' + res.status + ')');
+            return false;
+        },
+
         openViewer(url, isImage, name) {
             this.viewer = { open: true, url, isImage, name };
         },

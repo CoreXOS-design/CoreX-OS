@@ -56,11 +56,12 @@ final class SharedDriveTest extends TestCase
         $folder = SharedDriveFolder::where('name', 'Branch SOPs')->firstOrFail();
         $this->assertSame($user->agency_id, $folder->agency_id);
 
-        // Upload a PDF into the folder
+        // Upload a PDF into the folder (AJAX → JSON response)
         $file = UploadedFile::fake()->create('policy.pdf', 100, 'application/pdf');
         $this->actingAs($user)
             ->post(route('documents.shared-drive.upload'), ['file' => $file, 'folder_id' => $folder->id])
-            ->assertRedirect();
+            ->assertOk()
+            ->assertJson(['ok' => true]);
 
         $stored = SharedDriveFile::where('folder_id', $folder->id)->firstOrFail();
         $this->assertSame('policy.pdf', $stored->original_name);
@@ -72,17 +73,19 @@ final class SharedDriveTest extends TestCase
         Storage::fake('local');
         $user = $this->userWithPermissions(self::FULL);
 
-        // 51 MB PDF → rejected by max validation
+        // 51 MB PDF → rejected by max validation (JSON 422)
         $tooBig = UploadedFile::fake()->create('huge.pdf', 51201, 'application/pdf');
         $this->actingAs($user)
             ->post(route('documents.shared-drive.upload'), ['file' => $tooBig])
-            ->assertSessionHasErrors('file');
+            ->assertStatus(422)
+            ->assertJson(['ok' => false]);
 
-        // Disallowed extension/mime → rejected by allow-list
+        // Disallowed extension/mime → rejected by allow-list (JSON 422)
         $exe = UploadedFile::fake()->create('virus.exe', 10, 'application/x-msdownload');
         $this->actingAs($user)
             ->post(route('documents.shared-drive.upload'), ['file' => $exe])
-            ->assertSessionHas('error');
+            ->assertStatus(422)
+            ->assertJson(['ok' => false]);
 
         $this->assertSame(0, SharedDriveFile::count());
     }
@@ -104,6 +107,55 @@ final class SharedDriveTest extends TestCase
         $this->actingAs($viewer)
             ->post(route('documents.shared-drive.folders.store'), ['name' => 'Nope'])
             ->assertForbidden();
+
+        // Bulk download (needs download perm) and bulk delete blocked
+        $this->actingAs($viewer)
+            ->post(route('documents.shared-drive.files.bulk-download'), ['ids' => [1]])
+            ->assertForbidden();
+        $this->actingAs($viewer)
+            ->delete(route('documents.shared-drive.files.bulk-destroy'), ['ids' => [1]])
+            ->assertForbidden();
+    }
+
+    public function test_bulk_delete_soft_deletes_only_selected_files(): void
+    {
+        $user = $this->userWithPermissions(self::FULL);
+
+        $make = fn (string $name) => SharedDriveFile::create([
+            'agency_id' => $user->agency_id, 'folder_id' => null,
+            'original_name' => $name, 'stored_path' => 'shared_drive/x/' . $name,
+            'extension' => 'pdf', 'bytes' => 1, 'uploaded_by_user_id' => $user->id,
+        ]);
+        $a = $make('a.pdf');
+        $b = $make('b.pdf');
+        $c = $make('c.pdf');
+
+        $this->actingAs($user)
+            ->delete(route('documents.shared-drive.files.bulk-destroy'), ['ids' => [$a->id, $b->id]])
+            ->assertRedirect();
+
+        $this->assertSoftDeleted('shared_drive_files', ['id' => $a->id]);
+        $this->assertSoftDeleted('shared_drive_files', ['id' => $b->id]);
+        $this->assertNotSoftDeleted('shared_drive_files', ['id' => $c->id]);
+    }
+
+    public function test_bulk_download_of_multiple_files_returns_a_zip(): void
+    {
+        Storage::fake('local');
+        $user = $this->userWithPermissions(self::FULL);
+
+        foreach (['one.pdf', 'two.pdf'] as $name) {
+            $this->actingAs($user)->post(route('documents.shared-drive.upload'), [
+                'file' => UploadedFile::fake()->create($name, 10, 'application/pdf'),
+            ])->assertOk();
+        }
+
+        $ids = SharedDriveFile::pluck('id')->all();
+        $resp = $this->actingAs($user)->post(route('documents.shared-drive.files.bulk-download'), ['ids' => $ids]);
+
+        $resp->assertOk();
+        $disposition = (string) $resp->headers->get('content-disposition');
+        $this->assertStringContainsString('.zip', strtolower($disposition));
     }
 
     public function test_deleting_folder_soft_deletes_descendants(): void

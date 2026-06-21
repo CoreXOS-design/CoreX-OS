@@ -2045,6 +2045,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::middleware('owner_only')->prefix('admin/dev-settings')->name('admin.dev-settings.')->group(function () {
         Route::get('/',  [\App\Http\Controllers\Admin\DevSettingsController::class, 'index'])->name('index');
         Route::put('/', [\App\Http\Controllers\Admin\DevSettingsController::class, 'update'])->name('update');
+        // Demo sidebar curation — its own page (linked under the demo-mode
+        // toggle) + the save endpoint. Controls which sidebar items
+        // demo-agency members see.
+        Route::get('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'demoSidebar'])->name('demo-sidebar');
+        Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
     });
 
     // Developer Users — System Owner / Developer roster, visible across all
@@ -3174,6 +3179,10 @@ Route::middleware(['auth', 'permission:access_shared_drive'])
 
         Route::post('/upload', [\App\Http\Controllers\Documents\SharedDriveController::class, 'upload'])
             ->name('upload');
+        Route::post('/files/bulk-download', [\App\Http\Controllers\Documents\SharedDriveController::class, 'bulkDownload'])
+            ->name('files.bulk-download');
+        Route::delete('/files/bulk', [\App\Http\Controllers\Documents\SharedDriveController::class, 'destroyFilesBulk'])
+            ->name('files.bulk-destroy');
         Route::get('/files/{file}/view', [\App\Http\Controllers\Documents\SharedDriveController::class, 'view'])
             ->name('files.view');
         Route::get('/files/{file}/download', [\App\Http\Controllers\Documents\SharedDriveController::class, 'download'])

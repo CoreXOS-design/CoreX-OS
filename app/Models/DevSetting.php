@@ -31,4 +31,16 @@ class DevSetting extends Model
         $value = self::get($key, $default ? '1' : '0');
         return in_array((string) $value, ['1', 'true', 'yes', 'on'], true);
     }
+
+    /**
+     * Hidden demo-sidebar nav keys (g:<group> | p:<path>). Always an array.
+     * One global list applied to demo-agency members only — see
+     * .ai/specs/demo-sidebar-curation.md.
+     */
+    public static function demoHiddenSidebar(): array
+    {
+        $decoded = json_decode((string) self::get('demo_hidden_sidebar', '[]'), true);
+
+        return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : [];
+    }
 }

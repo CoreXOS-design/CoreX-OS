@@ -189,7 +189,7 @@ class PrivatePropertySyndicationService
     public function deactivateListing(Property $property): array
     {
         $this->client->forAgency($property->agency);
-        $listingType = in_array(strtolower($property->mandate_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
+        $listingType = PrivatePropertyListingMapper::resolveListingType($property);
         $result = $this->client->deactivateListing((string) $property->id, $listingType);
 
         if (isset($result['error']) && $result['error'] === true) {
@@ -232,6 +232,13 @@ class PrivatePropertySyndicationService
      */
     public function syncActivationStatus(Property $property): array
     {
+        // Bind the SOAP client to THIS property's agency (branch GUID + token).
+        // Without it the scheduled SyncPrivatePropertyActivations job reuses one
+        // singleton client and checks every agency's listings under the first
+        // agency's branch — so multi-agency installs never reconcile. (No auth in
+        // queue context, so AgencyScope is inert and $property->agency resolves.)
+        $this->client->forAgency($property->agency);
+
         $result = $this->client->getListingStatus((string) $property->id);
 
         if (isset($result['error']) && $result['error'] === true) {
@@ -264,7 +271,7 @@ class PrivatePropertySyndicationService
         // GetReferenceNumberByListing method (GetListingStatus does not return one).
         $ppRef = $ppRefFromStatus;
         if ($isLive && empty($property->pp_ref) && empty($ppRef)) {
-            $listingType = in_array(strtolower($property->mandate_type ?? $property->listing_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
+            $listingType = PrivatePropertyListingMapper::resolveListingType($property);
             $refResult = $this->client->getReferenceNumber((string) $property->id, $listingType);
             if (!(isset($refResult['error']) && $refResult['error'] === true)) {
                 $rawRef = $refResult['GetReferenceNumberByListingResult'] ?? null;
@@ -316,7 +323,7 @@ class PrivatePropertySyndicationService
     public function reactivateListing(Property $property): array
     {
         $this->client->forAgency($property->agency);
-        $listingType = in_array(strtolower($property->mandate_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
+        $listingType = PrivatePropertyListingMapper::resolveListingType($property);
         $result = $this->client->reactivateListing((string) $property->id, $listingType);
 
         if (isset($result['error']) && $result['error'] === true) {
@@ -606,7 +613,7 @@ class PrivatePropertySyndicationService
             ];
         }
 
-        $listingType = in_array(strtolower($property->listing_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
+        $listingType = PrivatePropertyListingMapper::resolveListingType($property);
 
         $result = $this->client->updateListingVideoOrMatterport(
             $property->pp_listing_feed_ref,
@@ -668,7 +675,7 @@ class PrivatePropertySyndicationService
      */
     public function updateUniqueListingId(Property $property, string $ppListingId): array
     {
-        $listingType = in_array(strtolower($property->listing_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
+        $listingType = PrivatePropertyListingMapper::resolveListingType($property);
 
         $result = $this->client->updateUniqueListingId($ppListingId, (string) $property->id, $listingType);
 

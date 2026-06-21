@@ -107,7 +107,13 @@ html.dark {
     color: #e5e7eb;
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    /* Fill the parent <aside>, NOT the viewport. The layout stacks the
+       env banner (24px on demo/staging/local, 0 on live) above the app
+       row, so the row is 100vh minus the banner. A hard 100vh here
+       overflowed that row and the row's overflow-hidden clipped the
+       sidebar's bottom (user/profile section). 100% adapts to the banner
+       automatically. */
+    height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
     width: 100%;

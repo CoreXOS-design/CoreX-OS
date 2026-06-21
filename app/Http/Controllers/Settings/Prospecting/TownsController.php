@@ -24,28 +24,14 @@ class TownsController extends Controller
 
     public function index(Request $request)
     {
-        $agencyId = $this->resolveAgencyId($request);
-
-        $this->config->clearCache($agencyId); // reads after a redirect should see latest writes
-        $towns = Town::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->orderBy('display_order')
-            ->orderBy('name')
-            ->with(['suburbs' => fn ($q) => $q->withoutGlobalScopes()->orderBy('suburb_name')])
-            ->get();
-
-        return view('settings.prospecting.index', [
-            'activeTab'         => $request->query('tab', 'towns'),
-            'towns'             => $towns,
-            'propertyTypes'     => $this->config->propertyTypes($agencyId, activeOnly: false),
-            'bedroomSegments'   => $this->config->bedroomSegments($agencyId),
-            'priceBandsSale'    => $this->config->priceBandsFor($agencyId, 'sale'),
-            'priceBandsRental'  => $this->config->priceBandsFor($agencyId, 'rental'),
-            'suggestionRegions' => app(RegionSuggestionService::class)->regions(),
-            'unmappedSuburbs'   => $this->config->unmappedSuburbsFor($agencyId),
-            'buyerMatchTier'    => $this->config->buyerMatchTiers($agencyId),
-            'agencyId'          => $agencyId,
-        ]);
+        // Prospecting Setup now lives embedded in the unified Settings hub
+        // (Operations → Prospecting Setup). Keep this legacy URL working —
+        // and the per-tab redirects from the CRUD controllers — by
+        // forwarding into the hub section, preserving the active tab.
+        return redirect()->route('corex.settings', array_filter([
+            's'   => 'prospecting-setup',
+            'tab' => $request->query('tab'),
+        ]));
     }
 
     // Unmapped-suburbs computation lives on ProspectingConfigurationService

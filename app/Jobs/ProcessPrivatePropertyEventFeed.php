@@ -2,9 +2,11 @@
 
 namespace App\Jobs;
 
+use App\Models\Agency;
 use App\Models\CommandCenter\CommandTask;
 use App\Models\PpEventFeedSetting;
 use App\Models\Property;
+use App\Models\Scopes\AgencyScope;
 use App\Services\PrivateProperty\PrivatePropertySoapClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -22,15 +24,51 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
 
     public function handle(PrivatePropertySoapClient $client): void
     {
+        // Every enabled PP agency gets its own feed drain, bound to its branch
+        // GUID/token, with its OWN continuation cursor. Previously this ran once
+        // with no agency bound — config fell back to the first enabled agency, so
+        // every other agency's branch was never polled (their pp_ref / feed refs
+        // never populated; image-error tasks never fired). PP-2.
+        $agencies = Agency::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('pp_enabled', true)
+            ->whereNotNull('pp_branch_guid')
+            ->get();
+
+        if ($agencies->isEmpty()) {
+            // Single-tenant / env-credential fallback: drain once with no
+            // explicit agency (config resolves env or the lone agency).
+            $client->forAgency(null);
+            $this->drainFeed($client, 'continuation_key');
+            return;
+        }
+
+        foreach ($agencies as $agency) {
+            $client->forAgency($agency);
+            // Per-branch cursor so agencies don't share/clobber one key.
+            $this->drainFeed($client, 'continuation_key:' . $agency->pp_branch_guid);
+        }
+    }
+
+    /**
+     * Drain one branch's event feed to exhaustion, advancing $cursorKey as PP
+     * issues continuation keys.
+     */
+    private function drainFeed(PrivatePropertySoapClient $client, string $cursorKey): void
+    {
         $moreToProcess = true;
         $safetyLimit   = 50; // hard cap on inner pages per run
 
         while ($moreToProcess && $safetyLimit-- > 0) {
-            $key           = PpEventFeedSetting::getValue('continuation_key');
+            $key           = PpEventFeedSetting::getValue($cursorKey);
             $startDateTime = null;
 
             if (empty($key)) {
-                $key           = '0';
+                // First poll: PP honours startDateTime ONLY when no continuation
+                // key is supplied. Send an EMPTY key (not a literal '0', which PP
+                // treats as a real key and ignores the backfill window) so the
+                // 2-day catch-up actually applies.
+                $key           = '';
                 $startDateTime = now()->subDays(2)->format('Y-m-d\TH:i:s\Z');
             }
 
@@ -52,13 +90,25 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
             $newKey = $result['ContinuationKey'] ?? $result['continuationKey'] ?? null;
             $events = $this->extractEvents($result);
 
-            if ($newKey && $newKey !== $key) {
-                PpEventFeedSetting::setValue('continuation_key', (string) $newKey);
+            // Process EVERY page that carries events, independent of whether the
+            // continuation key advanced. PP commonly repeats (or omits) the key
+            // on the final page; gating processing on key-advance silently
+            // dropped that page's activations/image-errors. processEvents is
+            // idempotent (status writes are repeat-safe; the image-error task is
+            // de-duped), so processing before persisting the cursor is safe.
+            if (!empty($events)) {
                 $this->processEvents($events);
             }
 
-            // PP returns up to 100 events per page; <100 means we've drained the feed.
-            if (count($events) < 100) {
+            // Advance the saved cursor only when PP issued a new key.
+            if ($newKey && $newKey !== $key) {
+                PpEventFeedSetting::setValue($cursorKey, (string) $newKey);
+            }
+
+            // Stop when the feed is drained (<100 = last page) OR the key did not
+            // advance (no further page to fetch — re-fetching the same key would
+            // loop on identical data).
+            if (count($events) < 100 || !$newKey || $newKey === $key) {
                 $moreToProcess = false;
             }
         }
@@ -183,6 +233,18 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
     private function createImageErrorTask(Property $property, ?string $description): void
     {
         if (!$property->agent_id) return;
+
+        // Idempotent: don't stack duplicate tasks if the same image-error event
+        // is reprocessed (e.g. the cursor save was retried). One open task per
+        // property+source is enough.
+        // SoftDeletes already excludes trashed rows; exclude closed statuses too.
+        $existing = CommandTask::where('source_type', 'private_property_event_feed')
+            ->where('source_id', $property->id)
+            ->whereNotIn('status', [CommandTask::STATUS_DONE, CommandTask::STATUS_DISMISSED])
+            ->exists();
+        if ($existing) {
+            return;
+        }
 
         CommandTask::create([
             'title'         => 'PP image upload failed — ' . ($property->title ?? "Property #{$property->id}"),

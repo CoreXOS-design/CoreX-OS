@@ -99,6 +99,12 @@ return new class extends Migration {
                 'field_edited',
                 'review_takeover',          // Build 2 robustness — concurrent reviewer notice
                 'comp_unavailable',         // Build 2 robustness — comp soft-deleted between compile+review
+                // AT-22 curation toolkit. Originally added by the backdated
+                // 2026_06_11_190000 MODIFY; folded in here so a fresh DB (whose
+                // filename order runs that MODIFY before this create) still
+                // gets the complete enum. See that migration's note.
+                'comp_bulk_set',            // price-slider / select-all / bulk-tick batch write
+                'comp_added',               // comps pulled in from the browse-beyond-the-pool panel
             ]);
 
             // Polymorphic-ish target — comp id, category id, field name, etc.
