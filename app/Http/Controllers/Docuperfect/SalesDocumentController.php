@@ -217,7 +217,7 @@ class SalesDocumentController extends Controller
                 documentName: $send->document_name,
                 uploadUrl: route('sales-documents.upload', ['token' => $recipient->token]),
                 level: 'manual',
-                agentEmail: $agent->email ?? config('mail.from.address'),
+                agentEmail: $agent->outward_email ?? config('mail.from.address'), // AT-79 outward override
                 daysSinceSent: $recipient->daysSinceSent(),
             ))->fromAgent($agent)
         );

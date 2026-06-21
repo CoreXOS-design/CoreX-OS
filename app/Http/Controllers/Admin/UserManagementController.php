@@ -121,6 +121,7 @@ class UserManagementController extends Controller
             'name'          => ['required', 'string', 'max:255'],
             'surname'       => ['required', 'string', 'max:255'],
             'email'         => ['required', 'email', 'max:255', Rule::unique('users', 'email')->whereNull('deleted_at')],
+            'display_email' => ['nullable', 'email', 'max:255'],
             'phone'         => ['nullable', 'string', 'max:50'],
             'cell'          => ['required', 'string', 'max:50'],
             'fax'           => ['nullable', 'string', 'max:50'],
@@ -160,6 +161,7 @@ class UserManagementController extends Controller
         $user = User::create([
             'name'                        => $fullName,
             'email'                       => $data['email'],
+            'display_email'               => $data['display_email'] ?: null,
             'password'                    => 'INVITE_PENDING',
             'role'                        => $data['role'],
             'branch_id'                   => $data['branch_id'] ?: null,
@@ -260,6 +262,7 @@ class UserManagementController extends Controller
             'name'          => ['required', 'string', 'max:255'],
             'surname'       => ['required', 'string', 'max:255'],
             'email'         => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'display_email' => ['nullable', 'email', 'max:255'],
             'phone'         => ['nullable', 'string', 'max:50'],
             'cell'          => ['required', 'string', 'max:50'],
             'fax'           => ['nullable', 'string', 'max:50'],
@@ -313,6 +316,8 @@ class UserManagementController extends Controller
 
         $user->name       = $fullName;
         $user->email      = $data['email'];
+        // AT-79 — outward-facing override (null = fall back to the login email).
+        $user->display_email = $data['display_email'] ?: null;
         $user->role       = $data['role'];
         $user->is_admin   = in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0;
         $user->branch_id  = $data['branch_id'] ?: null;

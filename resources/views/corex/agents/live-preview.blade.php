@@ -113,13 +113,13 @@
 
                 <div class="mt-3 flex items-center gap-4 flex-wrap text-sm" style="color:var(--text-2);">
                     @if($callNo)<span class="inline-flex items-center gap-1.5"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.37c0-.52-.35-.97-.85-1.09l-4.42-1.11c-.44-.11-.9.06-1.17.42l-.97 1.29c-.28.38-.77.54-1.21.38a12.04 12.04 0 0 1-7.14-7.14c-.16-.44 0-.93.38-1.21l1.29-.97c.36-.27.53-.73.42-1.17L6.96 3.1A1.13 1.13 0 0 0 5.87 2.25H4.5A2.25 2.25 0 0 0 2.25 4.5Z"/></svg><span class="num">{{ $callNo }}</span></span>@endif
-                    @if($agent->email)<a href="mailto:{{ $agent->email }}" class="inline-flex items-center gap-1.5" style="color:inherit; text-decoration:none;"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25H4.5a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5H4.5A2.25 2.25 0 0 0 2.25 6.75m19.5 0v.24a2.25 2.25 0 0 1-1.07 1.92l-7.5 4.61a2.25 2.25 0 0 1-2.36 0l-7.5-4.61A2.25 2.25 0 0 1 2.25 6.99v-.24"/></svg>{{ $agent->email }}</a>@endif
+                    @if($agent->outward_email)<a href="mailto:{{ $agent->outward_email }}" class="inline-flex items-center gap-1.5" style="color:inherit; text-decoration:none;"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25H4.5a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5H4.5A2.25 2.25 0 0 0 2.25 6.75m19.5 0v.24a2.25 2.25 0 0 1-1.07 1.92l-7.5 4.61a2.25 2.25 0 0 1-2.36 0l-7.5-4.61A2.25 2.25 0 0 1 2.25 6.99v-.24"/></svg>{{ $agent->outward_email }}</a>@endif
                 </div>
 
                 <div class="mt-4 flex items-center gap-2.5 flex-wrap">
                     @if($callNo)<a href="tel:{{ $callNo }}" class="btn btn-primary">Call</a>@endif
                     @if($waNumber)<a href="https://wa.me/{{ $waNumber }}" target="_blank" class="btn btn-soft">WhatsApp</a>@endif
-                    @if($agent->email)<a href="mailto:{{ $agent->email }}" class="btn btn-soft">Email</a>@endif
+                    @if($agent->outward_email)<a href="mailto:{{ $agent->outward_email }}" class="btn btn-soft">Email</a>@endif
                     @foreach($socials as $net => $url)
                         <a class="soc" target="_blank" rel="noopener" title="{{ ucfirst($net) }}" href="{{ Str::startsWith($url, ['http://','https://']) ? $url : 'https://'.$url }}">
                             <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">{!! $socialIcon[$net] !!}</svg>

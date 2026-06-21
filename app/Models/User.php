@@ -6,6 +6,7 @@ use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use App\Services\PermissionService;
 use App\Support\SaPhoneNumber;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -23,6 +24,10 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        // Optional OUTWARD-FACING email override. When set, seller/client/
+        // public surfaces show this instead of the login `email`; auth/login
+        // always use the real `email`. Interim for multi-login users (AT-80).
+        'display_email',
         'password',
         'qr_code_slug',
         'qr_reroute_user_id',
@@ -119,6 +124,29 @@ class User extends Authenticatable
         'remember_token',
         'api_token',
     ];
+
+    /**
+     * Outward-facing email address.
+     *
+     * Returns the optional `display_email` override when set, otherwise the
+     * real login `email`. Use this on EVERY seller / client / public-facing
+     * surface (presentation/CMA PDF + seller pages, e-sign documents, seller
+     * outreach, mailable From/Reply-To/footer, portal feeds, agent public
+     * profile). NEVER use it for auth, login, password reset, invitations, or
+     * internal staff screens — those use `->email` (the credential / true
+     * routing address).
+     *
+     * `display_email` is null for everyone by default, so behaviour is
+     * unchanged unless an admin explicitly sets it. Interim mechanism for a
+     * user operating multiple branch logins until proper multi-branch user
+     * support lands (AT-80).
+     */
+    protected function outwardEmail(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => filled($this->display_email) ? $this->display_email : $this->email,
+        );
+    }
 
     protected $casts = [
         'email_verified_at' => 'datetime',

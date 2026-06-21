@@ -10786,6 +10786,7 @@ CREATE TABLE `users` (
   `qr_reroute_user_id` bigint unsigned DEFAULT NULL,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `display_email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `role` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'agent',
   `risk_tier` enum('high','medium','low') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'medium',
   `screening_status` enum('never_screened','pre_employment_pending','clear','concerns_flagged','overdue','expired') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'never_screened',
@@ -11975,3 +11976,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (845,'2026_07_01_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (846,'2026_06_21_041100_add_autoland_reasons_to_buyer_state_transitions',159);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (847,'2026_06_21_062000_add_mic_match_settings_to_agency_contact_settings',160);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (848,'2026_06_21_072800_add_competitor_stock_weights_to_agencies',161);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (849,'2026_06_21_180000_add_display_email_to_users',162);

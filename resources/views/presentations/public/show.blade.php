@@ -88,7 +88,7 @@
     }
     // Build 6 — agent details for the footer card.
     $agentUser = $link?->creator;
-    $agentEmail = $agentUser?->email;
+    $agentEmail = $agentUser?->outward_email; // AT-79 outward override
     $agentPhone = $agentUser?->cell ?? $agentUser?->phone;
     $agentDesignation = $agentUser?->designation ?? 'Property Practitioner';
     $agentFfc = $agentUser?->ffc_number ?? null;
