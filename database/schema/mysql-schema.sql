@@ -1466,7 +1466,7 @@ CREATE TABLE `buyer_state_transitions` (
   `agency_id` bigint unsigned NOT NULL,
   `from_state` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `to_state` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `reason` enum('auto_recompute','manual_override','first_activity') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reason` enum('auto_recompute','manual_override','first_activity','wishlist_created','auto_landed') COLLATE utf8mb4_unicode_ci NOT NULL,
   `triggered_by_user_id` bigint unsigned DEFAULT NULL,
   `occurred_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -11969,3 +11969,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (842,'2026_06_29_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (843,'2026_06_30_000001_remove_contact_fica_missing_notifications',158);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (844,'2026_06_30_000002_register_property_feedback_captured_notification_type',158);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (845,'2026_07_01_000001_add_min_countable_criteria_to_agency_contact_settings',158);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (846,'2026_06_21_041100_add_autoland_reasons_to_buyer_state_transitions',159);
