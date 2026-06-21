@@ -3,8 +3,12 @@
 namespace App\Observers;
 
 use App\Jobs\RegenerateBuyerMatchesJob;
+use App\Models\Contact;
 use App\Models\ContactMatch;
+use App\Models\Scopes\AgencyScope;
+use App\Models\Scopes\BranchScope;
 use App\Models\User;
+use App\Services\BuyerStateService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -49,6 +53,58 @@ class ContactMatchObserver
         // client-driven changes (the FK is nullable / ON DELETE SET NULL).
         if ($m->updated_by_user_id === null && Auth::user() instanceof User) {
             $m->updated_by_user_id = Auth::id();
+        }
+    }
+
+    /**
+     * AT-72 auto-land — when a COUNTABLE wishlist (per AT-71 isCountable())
+     * is created for a contact, the contact becomes a buyer and lands on the
+     * Buyer Pipeline as "New". An empty/uncountable wishlist does NOT land a
+     * buyer (consistent with the countable-buyer gate), so the pipeline can't
+     * be inflated by empty wishlists.
+     *
+     * Runs in `created()` (insert only) so a normal wishlist edit never
+     * re-lands or resets state. BuyerStateService::landOnPipeline() handles
+     * the "don't reset an existing state" and idempotency rules. A failure
+     * here must never break the wishlist save (BUILD_STANDARD §4).
+     */
+    public function created(ContactMatch $m): void
+    {
+        if (self::$demoting) {
+            return;
+        }
+        if (!$m->contact_id) {
+            return;
+        }
+
+        try {
+            if (!$m->isCountable()) {
+                return; // Empty/uncountable wishlist: no auto-land.
+            }
+
+            // Load the wishlist's own contact directly. Drop the tenancy /
+            // branch scopes (this is a trusted internal reaction keyed on the
+            // match's own contact_id, which already carries the same agency)
+            // but keep SoftDeletes so a trashed contact is not resurrected.
+            $contact = Contact::withoutGlobalScopes([AgencyScope::class, BranchScope::class])
+                ->find((int) $m->contact_id);
+
+            if (!$contact) {
+                return;
+            }
+
+            // Only stamp the triggering user when it is a staff User (the
+            // triggered_by_user_id column FKs to `users`; client-portal
+            // requests authenticate as a ClientUser — leave it null there).
+            $userId = Auth::user() instanceof User ? Auth::id() : null;
+
+            app(BuyerStateService::class)->landOnPipeline($contact, 'wishlist_created', $userId);
+        } catch (\Throwable $e) {
+            Log::warning('ContactMatchObserver: auto-land failed', [
+                'contact_id' => $m->contact_id,
+                'match_id'   => $m->id,
+                'error'      => $e->getMessage(),
+            ]);
         }
     }
 
