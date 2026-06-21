@@ -24,8 +24,16 @@ class RecomputeBuyerStates extends Command
 
         $this->info("Processing {$buyers->count()} buyers...");
         $transitions = 0;
+        $protected = 0;
 
         foreach ($buyers as $contact) {
+            // AT-74 — never clobber a buyer an agent manually placed/moved within
+            // the protection window. Genuinely stale buyers still decay below.
+            if ($service->isManualPlacementProtected($contact)) {
+                $protected++;
+                continue;
+            }
+
             $currentState = $contact->buyer_state;
             $newState = $service->resolveState($contact);
 
@@ -39,6 +47,7 @@ class RecomputeBuyerStates extends Command
             }
         }
 
+        $this->info("{$protected} buyers protected by a recent manual placement (skipped).");
         $this->info("{$transitions} state transitions " . ($dryRun ? 'would be applied.' : 'applied.'));
         if ($dryRun) {
             $this->warn('DRY RUN — no changes made.');

@@ -46,6 +46,13 @@ class PropertyMatchScoringService
     public const MIN_SCORE_TO_CACHE = 50;
 
     /**
+     * AT-74 — buyer_state values treated as "active / working" (looking now)
+     * for the seller-facing presentation ACTIVE split. cold/lost are historic,
+     * not active. (Johan's pillar doctrine: active = looking now.)
+     */
+    public const ACTIVE_BUYER_STATES = ['new', 'warm'];
+
+    /**
      * True while RegenerateBuyerMatchesJob is rebuilding the cache tables.
      * Consumers (prospecting tab, demand-intelligence widgets) check this
      * to show a "rebuilding" banner instead of stale counts.
@@ -190,13 +197,48 @@ class PropertyMatchScoringService
      */
     public function getBuyerDemandForProperty(int $propertyId, int $agencyId): array
     {
-        $matches = DB::table('property_buyer_matches')
-            ->where('property_id', $propertyId)
-            ->where('score', '>=', self::MIN_SCORE_TO_CACHE)
-            ->orderByDesc('score')
-            ->get();
-
         $property = Property::withoutGlobalScopes()->find($propertyId);
+        if (!$property) {
+            return $this->emptyDemand();
+        }
+
+        // ── THIS-PROPERTY ACTIVE buyers ────────────────────────────────────
+        // Scored by the CANONICAL engine (Path 1, AT-73 — the same engine the
+        // Core Matches tab uses), deduped per buyer (best score), floored at the
+        // canonical display floor, restricted to buyers whose state is
+        // active/working (looking now). The AT-71 countable gate is inherited
+        // from matchesForProperty(). This replaces the old property_buyer_matches
+        // (Engine B) read so the seller panel and Core Matches never disagree.
+        $activeBuyers     = [];
+        $activeContactIds = [];
+        $canonical = app(MatchingService::class)->matchesForProperty($property)
+            ->filter(fn ($m) => (int) $m->match_score >= MatchingService::MIN_SCORE_TO_DISPLAY)
+            ->groupBy('contact_id')
+            ->map(fn ($g) => $g->sortByDesc('match_score')->first());
+        foreach ($canonical as $m) {
+            $contact = $m->contact;
+            if (!$contact || !in_array($contact->buyer_state, self::ACTIVE_BUYER_STATES, true)) {
+                continue;
+            }
+            $score              = (int) $m->match_score;
+            $activeContactIds[] = (int) $contact->id;
+            $activeBuyers[]     = ['score' => $score, 'tier' => MatchingService::tierFor($score)];
+        }
+        usort($activeBuyers, fn ($a, $b) => $b['score'] <=> $a['score']);
+
+        // ── THIS-PROPERTY HISTORIC buyers ──────────────────────────────────
+        // Buyers who physically engaged THIS property before (a buyer_property_views
+        // row — derived from calendar_event_feedback) but are NOT currently an
+        // active match. Honest per-property "past interest", never area demand.
+        $historicCount = DB::table('buyer_property_views as v')
+            ->join('contacts as c', 'c.id', '=', 'v.contact_id')
+            ->where('v.property_id', $propertyId)
+            ->where('c.agency_id', $agencyId)
+            ->where('c.is_buyer', 1)
+            ->whereNull('c.deleted_at')
+            ->when(!empty($activeContactIds), fn ($q) => $q->whereNotIn('c.id', $activeContactIds))
+            ->distinct()
+            ->count('c.id');
 
         // Pre-approved buyers (per spec D3 — preapproval lives on Contact).
         // Counted: agency buyers with a non-expired preapproval >= property price
@@ -244,18 +286,43 @@ class PropertyMatchScoringService
             $areaBuyers = $q->distinct()->count('c.id');
         }
 
+        $activeCount = count($activeBuyers);
+
         return [
-            'total_matches'      => $matches->count(),
-            'perfect'            => $matches->where('tier', 'perfect')->count(),
-            'strong'             => $matches->where('tier', 'strong')->count(),
-            'preapproved_count'  => $preapprovedCount,
-            'area_buyers'        => $areaBuyers,
-            'above_threshold'    => $matches->count() >= 3,
-            'anonymised_buyers'  => $matches->take(5)->values()->map(fn ($m, $i) => [
-                'label' => 'Buyer ' . ($i + 1),
-                'score' => $m->score,
-                'tier'  => $m->tier,
-            ])->toArray(),
+            // (this-property active) — canonical engine, buyer_state new/warm.
+            'active' => [
+                'count'             => $activeCount,
+                'anonymised_buyers' => collect($activeBuyers)->take(5)->values()->map(fn ($b, $i) => [
+                    'label' => 'Buyer ' . ($i + 1),
+                    'score' => $b['score'],
+                    'tier'  => $b['tier'],
+                ])->toArray(),
+            ],
+            // (this-property historic) — prior engagement on THIS property.
+            'historic' => [
+                'count' => $historicCount,
+            ],
+            // (area demand) — the wider area / price band. NEVER labelled as
+            // "buyers for this property"; rendered under its own explicit heading.
+            'area' => [
+                'suburb'            => $property->suburb,
+                'area_buyers'       => $areaBuyers,
+                'preapproved_count' => $preapprovedCount,
+            ],
+            'has_property_demand' => ($activeCount + $historicCount) > 0,
+        ];
+    }
+
+    /**
+     * AT-74 — empty buyer-demand shape (property not found / no signal).
+     */
+    private function emptyDemand(): array
+    {
+        return [
+            'active'              => ['count' => 0, 'anonymised_buyers' => []],
+            'historic'           => ['count' => 0],
+            'area'               => ['suburb' => null, 'area_buyers' => 0, 'preapproved_count' => 0],
+            'has_property_demand' => false,
         ];
     }
 

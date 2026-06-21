@@ -193,7 +193,8 @@ final class CountableBuyerGateTest extends TestCase
         $demand = app(PropertyMatchScoringService::class)->getBuyerDemandForProperty($property->id, $agencyId);
 
         $this->assertIsArray($demand);
-        $this->assertGreaterThanOrEqual(1, $demand['area_buyers'], 'canonical p24 area buyer counted');
+        // AT-74 — area demand now lives under the explicitly-labelled 'area' key.
+        $this->assertGreaterThanOrEqual(1, $demand['area']['area_buyers'], 'canonical p24 area buyer counted');
     }
 
     public function test_get_buyer_demand_excludes_empty_wishlist_from_area_buyers(): void
@@ -205,7 +206,7 @@ final class CountableBuyerGateTest extends TestCase
         $this->match($agencyId, $c->id, []); // empty wishlist in the same suburb name space
 
         $demand = app(PropertyMatchScoringService::class)->getBuyerDemandForProperty($property->id, $agencyId);
-        $this->assertSame(0, $demand['area_buyers'], 'empty wishlist is not an area buyer');
+        $this->assertSame(0, $demand['area']['area_buyers'], 'empty wishlist is not an area buyer');
     }
 
     // ── Freshness — recompute dispatched on wishlist save/delete ──────────
