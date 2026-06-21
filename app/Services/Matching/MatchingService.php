@@ -339,7 +339,7 @@ class MatchingService
      * Missing nice-to-haves (e.g. pool) drag the score down proportionally.
      * Returns 0 if must-haves are missing or the property is hidden.
      */
-    public function score(Property $property, ContactMatch $match): int
+    public function score(Property $property, ContactMatch $match, float $priceBandPct = 0.0): int
     {
         $mustHaves = $match->must_have_features ?? [];
         if (!empty($mustHaves) && !$this->propertyHasFeatures($property, $mustHaves)) {
@@ -349,7 +349,7 @@ class MatchingService
         $components = [];
 
         if ($match->price_min || $match->price_max) {
-            $components[] = [25, $this->priceFitRatio($property, $match)];
+            $components[] = [25, $this->priceFitRatio($property, $match, $priceBandPct)];
         }
         if (!empty($match->p24SuburbIdList())) {
             $components[] = [20, $this->suburbFitRatio($property, $match)];
@@ -403,8 +403,15 @@ class MatchingService
         return (int) round(min(100, max(0, $earned / $totalWeight * 100)));
     }
 
-    /** Price within [min,max] → 1.0; outside → linearly decays to 0 at ±50% of range. */
-    protected function priceFitRatio(Property $property, ContactMatch $match): float
+    /**
+     * Price within [min,max] → 1.0; outside → linearly decays to 0 at ±50% of range.
+     *
+     * AT-75 — `$bandPct` (e.g. 0.10) widens the full-score band by ±pct before
+     * decay begins, so a listing slightly past the stated band still scores full
+     * (Johan's agency-configurable price-band-width knob). Default 0.0 preserves
+     * the original behaviour for every existing caller (e.g. Core Matches).
+     */
+    protected function priceFitRatio(Property $property, ContactMatch $match, float $bandPct = 0.0): float
     {
         $price = (int) ($property->price ?? 0);
         if ($price <= 0) return 0.0;
@@ -412,12 +419,16 @@ class MatchingService
         $min = (int) ($match->price_min ?: 0);
         $max = (int) ($match->price_max ?: 0);
 
-        if ($min && $price < $min) {
-            $delta = $min - $price;
+        $bandPct  = max(0.0, $bandPct);
+        $minFull  = $min ? (int) floor($min * (1 - $bandPct)) : 0; // tolerated lower edge
+        $maxFull  = $max ? (int) ceil($max * (1 + $bandPct)) : 0;  // tolerated upper edge
+
+        if ($minFull && $price < $minFull) {
+            $delta = $minFull - $price;
             return max(0.0, 1 - $delta / max(1, $min * 0.5));
         }
-        if ($max && $price > $max) {
-            $delta = $price - $max;
+        if ($maxFull && $price > $maxFull) {
+            $delta = $price - $maxFull;
             return max(0.0, 1 - $delta / max(1, $max * 0.5));
         }
         return 1.0;
