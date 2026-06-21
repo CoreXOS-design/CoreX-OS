@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace App\Services\Presentations;
 
 use App\Models\Agency;
-use App\Models\ContactMatch;
 use App\Models\ListingStock;
 use App\Models\Property;
 use App\Services\Prospecting\ListingImageValidator;
-use App\Services\PropertyMatchScoringService;
 use App\Services\TitleTypeClassifier;
 use App\Support\Presentations\SuburbMatcher;
 use Illuminate\Support\Collection;
@@ -19,24 +17,27 @@ use Illuminate\Support\Facades\Storage;
 /**
  * Competitor Stock matcher for presentations.
  *
- * Reuses the Core Matches engine (PropertyMatchScoringService) by
- * synthesising a ContactMatch from the subject property's profile
- * and feeding it to scoreProspectingCapture() against
- * prospecting_listings candidates. NO engine change.
+ * Candidate FILTER: the Level-1 family gate (sectional/freehold, never crossed)
+ * + an SQL band (price ±%, suburb, beds ±) selects plausible competing stock
+ * from prospecting_listings.
  *
- * Thresholds are agency-configurable (the standing rule — never
- * hardcoded):
- *   agencies.competitor_stock_default_beds_tolerance
- *   agencies.competitor_stock_default_price_tolerance_pct
- *   agencies.competitor_stock_min_score
+ * SCORING (AT-77): scoreComparability() — how COMPARABLE each comp is to the
+ * SUBJECT by its attributes (price/beds/baths/garages/type-kind/size), graded
+ * by closeness (peak at the subject's value, decay as it differs). This is NOT
+ * the buyer membership engine (which gave every in-band comp ~97%) and NOT a
+ * geographic-distance score. The size axis flips by family: sectional → unit
+ * floor m² (heavy); freehold → erf m² (light, beds/baths carry "what's on the
+ * erf"). Offering/features are not structured on comps yet — AT-77 follow-up.
  *
- * Returns an ordered Collection of matches with score, tier
- * (perfect/strong/approximate), per-component breakdown, and HFC-
- * owned enrichment (days_on_market + portal views from PropCon).
+ * Agency-configurable (never hardcoded):
+ *   competitor_stock_default_beds_tolerance / _price_tolerance_pct
+ *   competitor_stock_min_score / _min_same_type / _default_display_count
+ *   competitor_stock_weights (JSON — per-family axis weights, AT-77)
  *
- * Spec: built on Core Matches scoring; surface is the presentation
- * review screen's "Active Competition" section (parallel to comp
- * picker with included_competitor_ids_json on the version).
+ * Returns an ordered Collection with score, tier (perfect/strong/approximate),
+ * per-axis breakdown, and HFC-owned enrichment (days_on_market + portal views).
+ *
+ * Surface: the presentation review screen's "Active Competition" section.
  */
 final class CompetitorStockMatchService
 {
@@ -80,19 +81,14 @@ final class CompetitorStockMatchService
         $threshold   = $overrideMinScore ?? (int) ($agency?->competitor_stock_min_score ?? 50);
         $minSameType = (int) ($agency?->competitor_stock_min_same_type ?? 5);
 
-        $synthMatch = $this->buildSyntheticMatch($criteria);
         $candidates = $this->loadCandidates($criteria);
         if ($candidates->isEmpty()) {
             return collect();
         }
 
         $hfcStockMap = $this->loadHfcStockMap((int) $subject->agency_id);
-        $scorer      = app(PropertyMatchScoringService::class);
 
-        $subjectFamily = $criteria['family'];
-        $subjectKind   = $criteria['subject_kind'];
-
-        return $candidates->map(function (object $listing) use ($scorer, $synthMatch, $hfcStockMap, $criteria) {
+        return $candidates->map(function (object $listing) use ($hfcStockMap, $criteria) {
             // PHP belt-and-braces: drop any candidate whose property_type
             // classifies outside the subject's Level-1 family. Catches
             // rows the SQL family-whereIn missed (new portal strings, mis-
@@ -101,7 +97,7 @@ final class CompetitorStockMatchService
             if ($candidateFamily !== $criteria['family']) {
                 return null;
             }
-            return $this->scoreAndMapRow($listing, $scorer, $synthMatch, $hfcStockMap, $criteria);
+            return $this->scoreAndMapRow($listing, $hfcStockMap, $criteria);
         })
         ->filter(fn (?array $row) => $row !== null && $row['score'] >= $threshold)
         ->values()
@@ -192,6 +188,7 @@ final class CompetitorStockMatchService
             'price_max'     => $priceMax,
             'beds_tol'      => $bedsTol,
             'price_pct'     => $pricePct,
+            'weights'       => $this->resolveWeights($agency, $family), // AT-77 comparability axis weights
         ];
     }
 
@@ -200,9 +197,9 @@ final class CompetitorStockMatchService
      * as loadCandidates (whereIn family_types + whereNotIn commercial/
      * industrial), but accepts agent-loosened filters on top (wider
      * price band, different suburb, looser beds, free-text search).
-     * Scores every result via the same scoreProspectingCapture pipeline
-     * so the modal can sort by score DESC and the cards render with the
-     * same shape the review screen uses.
+     * Scores every result via the same scoreComparability pipeline so the
+     * modal can sort by score DESC and the cards render with the same shape
+     * the review screen uses.
      *
      * The Level-1 family gate is NEVER loosened — even if the agent
      * submits a tampered request, the SQL whereIn + PHP belt-and-braces
@@ -257,16 +254,14 @@ final class CompetitorStockMatchService
             return collect();
         }
 
-        $synthMatch  = $this->buildSyntheticMatch($criteria);  // base (unloosened) synth — scoring rules stay anchored to subject
         $hfcStockMap = $this->loadHfcStockMap((int) $subject->agency_id);
-        $scorer      = app(PropertyMatchScoringService::class);
 
-        return $candidates->map(function (object $listing) use ($scorer, $synthMatch, $hfcStockMap, $criteria) {
+        return $candidates->map(function (object $listing) use ($hfcStockMap, $criteria) {
             $candidateFamily = $this->candidateFamilyFor($listing);
             if ($candidateFamily !== $criteria['family']) {
                 return null;
             }
-            return $this->scoreAndMapRow($listing, $scorer, $synthMatch, $hfcStockMap, $criteria);
+            return $this->scoreAndMapRow($listing, $hfcStockMap, $criteria);
         })
         ->filter()
         ->sortByDesc('score')
@@ -289,11 +284,9 @@ final class CompetitorStockMatchService
         $candidateFamily = $this->candidateFamilyFor($listing);
         if ($candidateFamily !== $criteria['family']) return null;
 
-        $synthMatch  = $this->buildSyntheticMatch($criteria);
         $hfcStockMap = $this->loadHfcStockMap((int) $subject->agency_id);
-        $scorer      = app(PropertyMatchScoringService::class);
 
-        return $this->scoreAndMapRow($listing, $scorer, $synthMatch, $hfcStockMap, $criteria);
+        return $this->scoreAndMapRow($listing, $hfcStockMap, $criteria);
     }
 
     /**
@@ -344,77 +337,19 @@ final class CompetitorStockMatchService
 
         if ($rows->isEmpty()) return collect();
 
-        $synthMatch  = $this->buildSyntheticMatch($criteria);
         $hfcStockMap = $this->loadHfcStockMap((int) $subject->agency_id);
-        $scorer      = app(PropertyMatchScoringService::class);
 
-        return $rows->map(function (object $listing) use ($scorer, $synthMatch, $hfcStockMap, $criteria) {
+        return $rows->map(function (object $listing) use ($hfcStockMap, $criteria) {
             $candidateFamily = $this->candidateFamilyFor($listing);
             if ($candidateFamily !== $criteria['family']) {
                 return null;
             }
-            return $this->scoreAndMapRow($listing, $scorer, $synthMatch, $hfcStockMap, $criteria);
+            return $this->scoreAndMapRow($listing, $hfcStockMap, $criteria);
         })
         ->filter()
         ->values();
     }
 
-    /**
-     * Build an unsaved ContactMatch from the criteria struct. The Core
-     * Matches scorer reads attributes + p24SuburbIdList() +
-     * propertyTypeList(); a freshly-instantiated ContactMatch with the
-     * right attribute values exposes both methods unchanged (they read
-     * $this->p24_suburb_ids and $this->property_types via the array
-     * casts).
-     *
-     * `propertyTypeList` is set to the SET of same-family property_type
-     * strings (NOT just the subject's literal value). This fixes the
-     * literal-string brittleness — a subject "Sectional Title" no
-     * longer fails to type-match a candidate "Apartment" just because
-     * the strings differ. The scorer's `in_array` check now returns
-     * true for any candidate in the Level-1 family → 10/10 type
-     * points. Level-2 (exact-kind preference) is layered on top in
-     * findCompetitors() via the +5 bonus, NOT here.
-     *
-     * No must-haves or deal-breakers — scoring is soft for the
-     * competitor view (we're identifying "near competitors", not
-     * filtering for a buyer's hard rules).
-     */
-    private function buildSyntheticMatch(array $criteria): ContactMatch
-    {
-        $subject = $criteria['subject'];
-
-        $match = new ContactMatch();
-        $match->agency_id = $criteria['agency_id'];
-        $match->status    = ContactMatch::STATUS_ACTIVE;
-        $match->price_min = $criteria['price_min'];
-        $match->price_max = $criteria['price_max'];
-
-        if ($criteria['beds_min'] !== null) {
-            $match->beds_min     = $criteria['beds_min'];
-            $match->bedrooms_max = $criteria['beds_max'];
-        }
-        if ($subject->p24_suburb_id) {
-            $match->p24_suburb_ids = [(int) $subject->p24_suburb_id];
-        }
-
-        // Preferred types = Level-1 family set. Includes the subject's
-        // own property_type string so a literal-match candidate
-        // (subject=House → candidate=House) still satisfies in_array.
-        $preferred = $criteria['family_types'];
-        if ($criteria['property_type'] !== null && !in_array($criteria['property_type'], $preferred, true)) {
-            $preferred[] = $criteria['property_type'];
-        }
-        if (!empty($preferred)) {
-            $match->property_types = array_values($preferred);
-            $match->property_type  = $criteria['property_type'] ?? $preferred[0];
-        }
-        // Soft scoring — leave must_have_features + deal_breakers empty.
-        $match->must_have_features = [];
-        $match->deal_breakers      = [];
-
-        return $match;
-    }
 
     /**
      * Resolve the subject's Level-1 family. Returns:
@@ -531,17 +466,153 @@ final class CompetitorStockMatchService
         return 'other';
     }
 
+    /** Size-axis decay span as a fraction of the subject's size (±35% → 0). */
+    private const SIZE_SPAN_FRACTION = 0.35;
+
     /**
-     * Recompute the tier label after the Level-2 bonus has been added —
-     * keep parity with PropertyMatchScoringService::determineTier
-     * boundaries so the rich-card colour palette stays consistent.
+     * AT-77 — COMPARABILITY score: how comparable is this comp to the SUBJECT
+     * by its attributes (NOT band membership, NOT geographic distance). Each
+     * axis is a 0..1 closeness that peaks when the comp equals the subject and
+     * decays as it differs; the score is the weighted average over the axes the
+     * comp actually has (a missing attribute drops out of the denominator —
+     * graded gracefully, never a silent 0 or full).
+     *
+     * Replaces the old reuse of the buyer MEMBERSHIP engine
+     * (scoreProspectingCapture → calculateScore), which gave full/binary points
+     * to anything already inside the candidate band → every comp ~97%.
+     *
+     * Size axis FLIPS by family (Johan's domain rule):
+     *   sectional → UNIT floor m² (property_size_m2), weighted HEAVY
+     *   freehold  → ERF m², weighted LIGHT (what's ON the erf — beds/baths/
+     *               offering — matters more; offering isn't structured on comps
+     *               yet, AT-77 follow-up, so beds/baths carry that weight).
+     *
+     * @return array{score:int, tier:string, breakdown:array}
      */
-    private function retier(int $score): string
+    public function scoreComparability(object $comp, array $criteria): array
     {
-        if ($score >= 90) return 'perfect';
+        $subject = $criteria['subject'];
+        $weights = $criteria['weights'] ?? self::defaultComparabilityWeights()[$criteria['family']] ?? [];
+        $family  = $criteria['family'];
+
+        $axes = [];
+
+        // Price — closeness over a span of subject_price × price-band fraction
+        // (a comp at the band edge → 0 on price; exact price → 1). Graded, not binary.
+        $sp = (float) ($subject->price ?? 0);
+        $cp = (float) ($comp->price ?? 0);
+        if ($sp > 0 && $cp > 0 && ($weights['price'] ?? 0) > 0) {
+            $span = $sp * max(0.01, ((int) ($criteria['price_pct'] ?? 20)) / 100);
+            $axes['price'] = [$weights['price'], $this->closeness($sp, $cp, $span)];
+        }
+
+        // Beds — span = beds tolerance + 1 (so the ±tol filter window grades > 0).
+        if ($subject->beds !== null && ($comp->beds ?? null) !== null && ($weights['beds'] ?? 0) > 0) {
+            $span = max(1, (int) ($criteria['beds_tol'] ?? 1) + 1);
+            $axes['beds'] = [$weights['beds'], $this->closeness((float) $subject->beds, (float) $comp->beds, (float) $span)];
+        }
+
+        // Baths
+        if ($subject->baths !== null && ($comp->bathrooms ?? null) !== null && ($weights['baths'] ?? 0) > 0) {
+            $axes['baths'] = [$weights['baths'], $this->closeness((float) $subject->baths, (float) $comp->bathrooms, 2.0)];
+        }
+
+        // Garages
+        if ($subject->garages !== null && ($comp->garages ?? null) !== null && ($weights['garages'] ?? 0) > 0) {
+            $axes['garages'] = [$weights['garages'], $this->closeness((float) $subject->garages, (float) $comp->garages, 2.0)];
+        }
+
+        // Type-kind — exact kind (apartment/townhouse/house/…) = 1.0, same-family-
+        // other-kind = 0.5 (cross-family is already filtered out before scoring).
+        if (($weights['type'] ?? 0) > 0) {
+            $sk = $this->normalizeTypeKind($subject->property_type ?? null);
+            $ck = $this->normalizeTypeKind($comp->property_type ?? null);
+            $axes['type'] = [$weights['type'], ($sk !== null && $ck !== null) ? ($sk === $ck ? 1.0 : 0.5) : 0.5];
+        }
+
+        // Size — family-flipped axis.
+        if (($weights['size'] ?? 0) > 0) {
+            if ($family === 'sectional') {
+                $ss = (float) ($subject->size_m2 ?? 0);
+                $cs = (float) ($comp->property_size_m2 ?? 0);
+            } else {
+                $ss = (float) ($subject->erf_size_m2 ?? 0);
+                $cs = (float) ($comp->erf_size_m2 ?? 0);
+            }
+            if ($ss > 0 && $cs > 0) {
+                $axes['size'] = [$weights['size'], $this->closeness($ss, $cs, $ss * self::SIZE_SPAN_FRACTION)];
+            }
+        }
+
+        if (empty($axes)) {
+            return ['score' => 0, 'tier' => 'none', 'breakdown' => ['reason' => 'no comparable attributes on this listing']];
+        }
+
+        $sumW = 0.0; $earned = 0.0; $breakdown = [];
+        foreach ($axes as $key => [$w, $c]) {
+            $sumW   += $w;
+            $earned += $w * $c;
+            $breakdown[$key] = ['weight' => (int) $w, 'closeness' => round($c, 3)];
+        }
+        $score = (int) round($earned / max(0.0001, $sumW) * 100);
+
+        return ['score' => $score, 'tier' => $this->comparabilityTier($score), 'breakdown' => $breakdown];
+    }
+
+    /** 0..1 closeness: 1 at equal, decaying linearly to 0 at ±span. */
+    private function closeness(float $subjectVal, float $compVal, float $span): float
+    {
+        if ($span <= 0) {
+            return $subjectVal === $compVal ? 1.0 : 0.0;
+        }
+        return max(0.0, 1.0 - abs($compVal - $subjectVal) / $span);
+    }
+
+    /**
+     * AT-77 — comparability tier. Recalibrated for a real proximity spread so
+     * comps are NOT all "perfect": exact-ish ≥85, close ≥70, loose ≥50.
+     */
+    private function comparabilityTier(int $score): string
+    {
+        if ($score >= 85) return 'perfect';
         if ($score >= 70) return 'strong';
         if ($score >= 50) return 'approximate';
         return 'none';
+    }
+
+    /**
+     * Default per-family axis weights. SECTIONAL: unit floor size HEAVY (a 58m²
+     * unit genuinely sells below a 70m²). FREEHOLD: erf size LIGHT — beds/baths
+     * carry the "what's on the erf" weight until offering is structured on comps
+     * (AT-77 follow-up). Weights are relative; the scorer normalises by the axes
+     * present, so absolute totals need not equal 100.
+     *
+     * @return array{sectional:array<string,int>, freehold:array<string,int>}
+     */
+    public static function defaultComparabilityWeights(): array
+    {
+        return [
+            'sectional' => ['price' => 25, 'beds' => 20, 'baths' => 10, 'garages' => 5, 'type' => 15, 'size' => 30],
+            'freehold'  => ['price' => 25, 'beds' => 25, 'baths' => 15, 'garages' => 5, 'type' => 20, 'size' => 10],
+        ];
+    }
+
+    /**
+     * Resolve a family's axis weights: agency override (competitor_stock_weights
+     * JSON) merged over the code defaults; null/absent → defaults.
+     *
+     * @return array<string,int>
+     */
+    private function resolveWeights(?Agency $agency, string $family): array
+    {
+        $defaults  = self::defaultComparabilityWeights();
+        $famDefault = $defaults[$family] ?? $defaults['freehold'];
+
+        $configured = $agency?->competitor_stock_weights;
+        if (is_array($configured) && isset($configured[$family]) && is_array($configured[$family])) {
+            return array_merge($famDefault, array_map('intval', $configured[$family]));
+        }
+        return $famDefault;
     }
 
     /**
@@ -555,25 +626,20 @@ final class CompetitorStockMatchService
      */
     private function scoreAndMapRow(
         object $listing,
-        PropertyMatchScoringService $scorer,
-        ContactMatch $synthMatch,
         array $hfcStockMap,
         array $criteria,
     ): array {
-        $result = $scorer->scoreProspectingCapture($synthMatch, $listing);
+        // AT-77 — COMPARABILITY score (attribute proximity to the subject),
+        // replacing the buyer MEMBERSHIP engine that scored every in-band comp
+        // ~97%. The type axis already grades exact-kind (1.0) above same-family-
+        // other-kind (0.5), so there is NO separate +5 bonus.
+        $result = $this->scoreComparability($listing, $criteria);
 
-        // LEVEL 2 — preference bonus for exact subject-kind match.
-        // Scorer already gives 10/10 type points to anything in the
-        // family set (synth match's propertyTypeList = familyTypes).
-        // The Level-2 bonus lifts exact-kind matches above same-
-        // family-other-kind so apartments rank above townhouses for
-        // an apartment subject. Capped at 100 total.
+        // Level-2 exact-kind flag is still computed for the section step-up
+        // (findCompetitors prefers exact-kind when plentiful) — display only,
+        // it does NOT alter the score.
         $candidateKind = $this->normalizeTypeKind($listing->property_type ?? null);
         $isExactKind = $criteria['subject_kind'] !== null && $candidateKind === $criteria['subject_kind'];
-        if ($isExactKind) {
-            $result['score'] = min(100, (int) $result['score'] + 5);
-            $result['tier']  = $this->retier((int) $result['score']);
-        }
 
         $stock = $hfcStockMap[$this->stockKey($listing)] ?? null;
 
@@ -778,9 +844,9 @@ final class CompetitorStockMatchService
         // Google calls for unresolvable addresses.
         $this->geocodeMissingCompetitionRows($rows);
 
-        // Adapt each row to the loose shape scoreProspectingCapture
-        // expects (price / suburb / property_type / beds; everything
-        // else passes through for the card).
+        // Adapt each row to the loose shape scoreComparability + the card
+        // mapper expect (price / suburb / property_type / beds / baths /
+        // sizes; everything else passes through for the card).
         return $rows->map(fn ($row) => $this->adaptCandidateRow($row));
     }
 
