@@ -363,10 +363,17 @@ class MatchingService
         if ($match->garages_min) {
             $components[] = [5, $this->minMetRatio((int) $property->garages, (int) $match->garages_min)];
         }
-        if ($match->category) {
+        // String criteria: a NULL value on the PROPERTY side means the listing is
+        // incomplete, not a mismatch — "incomplete listings shouldn't be
+        // penalised" (the same rule propertiesForMatch applies in SQL). Skip the
+        // component (neutral) when the property has no value; only a present-but-
+        // different value scores 0. (AT-75 — prospecting listings carry no
+        // category, so without this a category-specifying wishlist was unfairly
+        // dragged down on every canvass listing.)
+        if ($match->category && $property->category) {
             $components[] = [5, $property->category === $match->category ? 1.0 : 0.0];
         }
-        if ($match->property_type) {
+        if ($match->property_type && $property->property_type) {
             $components[] = [5, $property->property_type === $match->property_type ? 1.0 : 0.0];
         }
         if ($match->floor_size_min || $match->floor_size_max) {

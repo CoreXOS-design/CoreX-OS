@@ -75,6 +75,22 @@ final class MicCanonicalScoringTest extends TestCase
         $this->assertLessThan(75, (int) $drift, 'drift decays it below the strong threshold (sorts to bottom)');
     }
 
+    public function test_missing_listing_category_does_not_penalise_the_buyer(): void
+    {
+        // Buyer specified a category prospecting listings can't carry — the
+        // listing's missing category must NOT drag the score down.
+        [$agencyId, $agent] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $this->match($agencyId, $buyer->id, ['beds_min' => 2, 'category' => 'Residential']);
+
+        $lid = $this->listing($agencyId, $agent->id, ['bedrooms' => 2, 'property_type' => 'House']); // no category column
+
+        app(PropertyMatchScoringService::class)->recomputeProspectingMatchesForBuyer($buyer->id);
+
+        $score = (int) DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->where('prospecting_listing_id', $lid)->value('score');
+        $this->assertSame(100, $score, 'beds met + category we cannot verify on the listing → full, not penalised');
+    }
+
     public function test_kpi_counts_distinct_countable_buyers_at_threshold(): void
     {
         [$agencyId, $agent] = $this->fixture();
