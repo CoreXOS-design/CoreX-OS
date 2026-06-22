@@ -7,6 +7,7 @@ namespace App\Services\SellerOutreach;
 use App\Events\SellerOutreach\PitchSent;
 use App\Mail\SellerOutreach\OutreachEmail;
 use App\Models\SellerOutreach\SellerOutreachSend;
+use App\Services\Communications\OutboundProvisionalLogger;
 use App\Support\SellerOutreach\OutreachContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -35,6 +36,15 @@ final class SellerOutreachSenderService
      * it must be unguessable, not merely human-typable.
      */
     private const OPT_OUT_TOKEN_LENGTH = 48;
+
+    public function __construct(
+        // AT-80 — every outreach send mirrors into the D2 Communications archive
+        // through the SAME provisional logger the contact comms tile quick-send
+        // buttons use (ContactController@incrementChannel). Reusing AT-59's
+        // provisional→confirmed reconciliation means the real Sent message,
+        // ingested later, promotes this row in place instead of double-counting.
+        private readonly OutboundProvisionalLogger $provisionalLogger,
+    ) {}
 
     public function send(OutreachContext $context): SellerOutreachSend
     {
@@ -79,7 +89,7 @@ final class SellerOutreachSenderService
         }
 
         $send = DB::transaction(function () use ($context, $shortCode, $optOutToken, $finalBody, $finalSubject, $factsSnapshot) {
-            return SellerOutreachSend::create([
+            $send = SellerOutreachSend::create([
                 'agency_id' => $context->agencyId,
                 'contact_id' => $context->contact->id,
                 // AT-61 — null in address-only mode (no Property linked). The
@@ -104,6 +114,29 @@ final class SellerOutreachSenderService
                 'sent_at' => now(),
                 'outcome' => SellerOutreachSend::OUTCOME_SENT,
             ]);
+
+            // AT-80 — mirror this send into the D2 Communications archive so the
+            // contact comms tiles (AT-59: LAST CONTACTED / WHATSAPP / EMAIL)
+            // reflect outreach. We pass the ACTUAL rendered body/subject for this
+            // recipient on this channel — post merge-field substitution AND post
+            // tracking/opt-out link substitution ($finalBody/$finalSubject) — so
+            // the text_hash matches what later Sent-folder / WA ingestion sees and
+            // ProvisionalReconciler promotes this row in place (no double count).
+            //
+            // Inside the SAME per-recipient transaction as the SellerOutreachSend
+            // create: if the send row rolls back, the archive row rolls back too
+            // (the logger's own DB::transaction nests as a savepoint). One compose
+            // → many recipients calls send() once per recipient, so this fires
+            // exactly once per recipient with that recipient's own contact + body.
+            $this->provisionalLogger->log(
+                $context->contact,
+                $context->channel,
+                $finalSubject,
+                $finalBody,
+                $context->agent->id,
+            );
+
+            return $send;
         });
 
         event(new PitchSent(
