@@ -133,6 +133,67 @@ final class ContactTypeAssignmentTest extends TestCase
         $this->assertSame($seller->id, (int) $contact->contact_type_id);
     }
 
+    public function test_normalise_maps_owner_to_seller_keeping_name_as_subtag(): void
+    {
+        $agencyId = $this->seedAgency();
+        $seller   = ContactType::where('esign_role', 'seller')->firstOrFail();
+
+        // "Owner" — a transaction synonym for Seller; no esign_role set (the old
+        // name-pattern migration never matched it).
+        $ownerTypeId = (int) DB::table('contact_types')->insertGetId([
+            'name' => 'Owner', 'esign_role' => null, 'color' => '#fff',
+            'sort_order' => 9, 'is_active' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $contact = $this->makeContact($agencyId);
+        DB::table('contacts')->where('id', $contact->id)->update(['contact_type_id' => $ownerTypeId]);
+
+        $this->artisan('contacts:normalise-types', ['--force' => true])->assertSuccessful();
+
+        $contact->refresh();
+        $this->assertSame($seller->id, (int) $contact->contact_type_id, 'mirror remapped to Seller');
+        $this->assertSame([$seller->id], $contact->parentTypes()->pluck('contact_types.id')->all());
+        $this->assertNotNull(DB::table('contact_types')->where('id', $ownerTypeId)->value('deleted_at'), 'Owner type soft-deleted');
+
+        $tag = DB::table('contact_tag')
+            ->join('contact_tags', 'contact_tags.id', '=', 'contact_tag.contact_tag_id')
+            ->where('contact_tag.contact_id', $contact->id)
+            ->first(['contact_tags.name', 'contact_tags.contact_type_id']);
+        $this->assertSame('Owner', $tag->name);
+        $this->assertSame($seller->id, (int) $tag->contact_type_id, 'name kept as sub-tag under Seller');
+    }
+
+    public function test_normalise_preserves_non_transaction_type_as_unsorted_tag(): void
+    {
+        $agencyId = $this->seedAgency();
+
+        $attorneyId = (int) DB::table('contact_types')->insertGetId([
+            'name' => 'Attorney', 'esign_role' => null, 'color' => '#fff',
+            'sort_order' => 9, 'is_active' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $contact = $this->makeContact($agencyId);
+        DB::table('contacts')->where('id', $contact->id)->update(['contact_type_id' => $attorneyId]);
+
+        // Without the flag it must ABORT and change nothing.
+        $this->artisan('contacts:normalise-types', ['--force' => true])->assertFailed();
+        $contact->refresh();
+        $this->assertSame($attorneyId, (int) $contact->contact_type_id, 'aborted — unchanged');
+
+        // With the flag: kept as an unsorted (parent-less) tag, transaction type cleared.
+        $this->artisan('contacts:normalise-types', ['--force' => true, '--preserve-unmappable' => true])->assertSuccessful();
+
+        $contact->refresh();
+        $this->assertNull($contact->contact_type_id, 'transaction type cleared');
+        $this->assertSame([], $contact->parentTypes()->pluck('contact_types.id')->all());
+        $this->assertNotNull(DB::table('contact_types')->where('id', $attorneyId)->value('deleted_at'), 'Attorney type soft-deleted');
+
+        $tag = DB::table('contact_tag')
+            ->join('contact_tags', 'contact_tags.id', '=', 'contact_tag.contact_tag_id')
+            ->where('contact_tag.contact_id', $contact->id)
+            ->first(['contact_tags.name', 'contact_tags.contact_type_id']);
+        $this->assertSame('Attorney', $tag->name);
+        $this->assertNull($tag->contact_type_id, 'kept as an unsorted (parent-less) tag');
+    }
+
     public function test_clearing_all_assignments_nulls_the_mirror(): void
     {
         $agencyId = $this->seedAgency();
