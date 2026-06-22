@@ -789,7 +789,7 @@ class Contact extends Model
                 : [
                     'key'   => self::COMM_MARKETING_OPTED_OUT,
                     'label' => 'Marketing opted out',
-                    'class' => 'ds-badge-warning',
+                    'class' => 'ds-badge-orange',
                     'title' => 'The contact opted out of marketing messages.',
                 ],
             // Opted-in master state — fan out the three opted-in sub-states so
@@ -805,7 +805,7 @@ class Contact extends Model
                     ? [
                         'key'   => self::OUTREACH_PENDING,
                         'label' => 'Awaiting reply',
-                        'class' => 'ds-badge-info',
+                        'class' => 'ds-badge-orange',
                         'title' => 'Consent request sent — awaiting their reply.',
                     ]
                     : [
