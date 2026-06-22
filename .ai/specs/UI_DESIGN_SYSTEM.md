@@ -85,6 +85,7 @@ That combination resolves the background to `transparent` (the initial value), l
 |---|---|---|---|
 | Success | `--ds-green` | `#059669` | "Granted", "Paid", "On track", positive trends |
 | Warning | `--ds-amber` | `#f59e0b` | "Pending", "Needs attention", near-deadline |
+| Outreach (orange) | `--ds-orange` | `#ea580c` | Outreach-consent suppression/awaiting states — "Awaiting reply" (consent sent, unanswered) and "Marketing opted out" (explicit decline). Distinct from amber (`--ds-amber` = silence-lapse "No response") so a sent-but-unanswered pitch or an explicit opt-out never reads as the same shade as a passive lapse. Badge class: `.ds-badge-orange`. |
 | Danger | `--ds-crimson` | `#c41e3a` | "Declined", "Loss", destructive confirmations only |
 | Info | `--ds-navy` | `#0b2a4a` | "Registered", neutral informational badges |
 

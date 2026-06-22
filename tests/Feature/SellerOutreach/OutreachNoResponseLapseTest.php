@@ -278,7 +278,7 @@ final class OutreachNoResponseLapseTest extends TestCase
 
         $this->assertSame(Contact::OUTREACH_PENDING,     $meta['PENDING']['key']);
         $this->assertSame('Awaiting reply',              $meta['PENDING']['label']);
-        $this->assertSame('ds-badge-info',               $meta['PENDING']['class']);
+        $this->assertSame('ds-badge-orange',             $meta['PENDING']['class']);
         $this->assertStringContainsStringIgnoringCase('awaiting their reply', $meta['PENDING']['title']);
 
         $this->assertSame(Contact::OUTREACH_CONFIRMED,   $meta['CONFIRMED']['key']);
@@ -287,9 +287,17 @@ final class OutreachNoResponseLapseTest extends TestCase
 
         $this->assertSame(Contact::OUTREACH_NO_RESPONSE, $meta['NO_RESPONSE']['key']);
         $this->assertSame('No response — lapsed',        $meta['NO_RESPONSE']['label']);
+        // NO_RESPONSE (silence-lapse) stays AMBER — a passive lapse, not an
+        // explicit refusal or an awaiting-reply pitch.
+        $this->assertSame('ds-badge-warning',            $meta['NO_RESPONSE']['class']);
 
         $this->assertSame(Contact::COMM_MARKETING_OPTED_OUT, $meta['DECLINED']['key']);
         $this->assertSame('Marketing opted out',         $meta['DECLINED']['label']);
+        // DECLINED + PENDING share the ORANGE token (Johan's call) — visually one
+        // shade, still separable by label ("Marketing opted out" vs "Awaiting
+        // reply"). Both distinct from NO_RESPONSE's amber.
+        $this->assertSame('ds-badge-orange',             $meta['DECLINED']['class']);
+        $this->assertSame($meta['PENDING']['class'],     $meta['DECLINED']['class'], 'PENDING and DECLINED share the orange badge token');
 
         // All five keys and all five labels are distinct (no two states collapse).
         $keys   = array_map(fn ($m) => $m['key'],   $meta);

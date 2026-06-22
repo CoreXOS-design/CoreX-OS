@@ -1115,6 +1115,7 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     --ds-cyan:    #00b4d8;
     --ds-crimson: #c41e3a;
     --ds-amber:   #f59e0b;
+    --ds-orange:  #ea580c;
     --ds-green:   #059669;
     --ds-label:   #64748b;
     --ds-value:   #0f172a;
@@ -1334,6 +1335,7 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
 .ds-badge-success    { background: var(--ds-green); color: #fff; }
 .ds-badge-danger     { background: var(--ds-crimson); color: #fff; }
 .ds-badge-warning    { background: var(--ds-amber); color: #fff; }
+.ds-badge-orange     { background: var(--ds-orange); color: #fff; }
 .ds-badge-info       { background: var(--ds-navy); color: #fff; }
 .ds-badge-paid       { background: var(--ds-green); color: #fff; }
 .ds-badge-notpaid    { background: var(--ds-amber); color: #fff; }

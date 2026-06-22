@@ -62,9 +62,9 @@
                         $commTint = match ($commMeta['key']) {
                             \App\Models\Contact::COMM_TRANSACTION_ONLY     => 'rgba(217,119,6,0.85)',
                             \App\Models\Contact::COMM_ALL_BLOCKED          => 'rgba(220,38,38,0.85)',
-                            \App\Models\Contact::COMM_MARKETING_OPTED_OUT  => 'rgba(234,88,12,0.85)', // declined
+                            \App\Models\Contact::COMM_MARKETING_OPTED_OUT  => 'var(--ds-orange, #ea580c)', // declined
                             \App\Models\Contact::OUTREACH_NO_RESPONSE      => 'var(--ds-amber, #f59e0b)',
-                            \App\Models\Contact::OUTREACH_PENDING          => 'var(--ds-navy, #4f7cff)',
+                            \App\Models\Contact::OUTREACH_PENDING          => 'var(--ds-orange, #ea580c)',
                             \App\Models\Contact::OUTREACH_CONFIRMED        => 'var(--ds-green, #059669)',
                             \App\Models\Contact::OUTREACH_INITIAL          => 'rgba(22,163,74,0.85)',
                             default                                        => 'rgba(22,163,74,0.85)',
