@@ -12,8 +12,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * AT-83 — public (unauthenticated) endpoint serving the composite agent
- * business-card PNG used as the WhatsApp link-preview og:image on the opt-in
- * landing page.
+ * business-card JPEG used as the WhatsApp link-preview og:image on the
+ * communication-preferences page.
  *
  * Public by design: WhatsApp's preview crawler fetches this with no session,
  * and Johan eyeballs it directly in a browser. It exposes only the agent's
@@ -21,6 +21,10 @@ use Symfony\Component\HttpFoundation\Response;
  * information an agency publishes on its website — so no permission gate
  * applies, mirroring the other unauthenticated outreach routes (opt-in /
  * opt-out / landing). Generate-on-miss; cached on the public disk thereafter.
+ *
+ * The route is registered WITHOUT session/cookie middleware: Facebook/WhatsApp's
+ * crawler refuses an og:image that responds with a Set-Cookie header, so this
+ * endpoint must answer cookie-free (see routes/web.php).
  */
 final class AgentCardController extends Controller
 {
@@ -28,7 +32,7 @@ final class AgentCardController extends Controller
         private readonly AgentCardImageService $cards,
     ) {}
 
-    /** GET /outreach/agent-card/{user}.png */
+    /** GET /outreach/agent-card/{user}.jpg */
     public function show(int $user): Response
     {
         $agent = User::withoutGlobalScopes()
@@ -46,7 +50,7 @@ final class AgentCardController extends Controller
             ->setPublic()               // changed card has a new URL (cache-safe)
             ->setAutoEtag()
             ->setAutoLastModified();
-        $response->headers->set('Content-Type', 'image/png');
+        $response->headers->set('Content-Type', 'image/jpeg');
 
         return $response;
     }

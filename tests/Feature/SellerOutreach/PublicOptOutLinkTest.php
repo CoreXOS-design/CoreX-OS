@@ -48,7 +48,7 @@ final class PublicOptOutLinkTest extends TestCase
 
         $resp->assertStatus(200);
         $resp->assertSee('property="og:image"', false);
-        $resp->assertSee('/outreach/agent-card/' . $userId . '.png', false);
+        $resp->assertSee('/outreach/agent-card/' . $userId . '.jpg', false);
         $resp->assertSee('summary_large_image', false);
         // og:title resolves to the AGENT card (designation default), not the
         // agency-only fallback — proves the agent path fired.
