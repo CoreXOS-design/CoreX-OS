@@ -57,28 +57,25 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 ### Documents & E-Sign
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| DocuPerfect (templates/packs/clauses) | docuperfect.md | TODO | `docuperfect.*` |
-| E-Sign (signing pipeline) | esign.md | TODO | `docuperfect.esign.*`; P0 signing-view invariant; pipeline gate |
-| Document Library / Filing Register | documents.md | TODO | `documents.library.index`, `filing-register.index` |
+| **E-Sign / DocuPerfect** | [esign-docuperfect.md](esign-docuperfect.md) | **DONE** | 6-step wizard, P0 signing-view invariant, FICA gate, pipeline moat, pack filing; V2→V3 reconciliation |
+| Document Library / Filing Register | documents.md | TODO | `documents.library.index`, `filing-register.index` (signed docs filed by esign-docuperfect.md) |
 
 ### Compliance
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
 | **Compliance (FICA/POPIA/PPRA)** | [compliance.md](compliance.md) | **DONE** | FICA (24-mo validity), POPIA/CPA opt-in/out engine (AT-45→50), Whistleblower, RMCP/screening/policy, IO/CO registers, retention |
-| Communications Capture / Archive | communications.md | TODO | `communications.*`, `compliance.comm-*`, WA capture |
+| **Communications Capture / Archive** | [communications-capture.md](communications-capture.md) | **DONE** | **LIVE** WA IndexedDB ingest (AT-44), email IMAP, device-token gate, provisional/reconcile, AT-59 tiles, consent send-gate |
 
 ### Calendar & Command Center
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| Calendar | calendar.md | TODO | `command-center.calendar`, visibility resolver |
-| Command Center (today/tasks/reporting) | command-center.md | TODO | `command-center.*` |
+| **Calendar / Command Center** | [calendar-command-center.md](calendar-command-center.md) | **DONE** | ~47 event-class system, Threshold/Visibility/Notification resolvers, viewing-feedback arc (AT-66/69/70), 8 sources, View-As gotcha |
 | Performance / Targets | performance.md | TODO | `admin.performance`, `admin.targets`, `command-center.performance` |
 
 ### HR / Payroll
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| Leave | leave.md | TODO | `payroll.leave.*` |
-| Payroll (runs/employees/types) | payroll.md | TODO | `payroll.*` |
+| **Payroll + Leave** | [payroll-leave.md](payroll-leave.md) | **DONE** | BCEA accrual engine, take-on wizard, 4 leave reports, SARS PAYE/UIF/SDL engine; confirms the PAYE duality |
 | Staff Take-On / Onboarding | onboarding.md | TODO | `staff-take-on.index`, `onboarding.index`, agent QR |
 
 ### Rentals
@@ -111,11 +108,11 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 
 ## Progress
 
-- **DONE:** 9 — Presentations, Properties, Prospecting/Tracked Properties, Market Intelligence Centre,
-  CMA Report Import, Contacts, Buyer Pipeline, Deal Register/Commission, Compliance.
-  This closes BOTH halves of the MIC/matching loop (Property side + Contact/Buyer side) and the
-  Deal + Compliance clusters that consume them.
-- **Next queued:** DocuPerfect / E-Sign (signing pipeline — FICA-gated, consumes Contacts as recipients) →
-  Calendar / Command Center → Communications Capture/Archive → Payroll/Leave. Rationale: E-Sign is the
-  next-densest cross-reference (FICA gate, contact parties, deal-document linkage) and has a standing P0
-  signing-view invariant worth documenting precisely.
+- **DONE:** 13 — Presentations, Properties, Prospecting/Tracked Properties, Market Intelligence Centre,
+  CMA Report Import, Contacts, Buyer Pipeline, Deal Register/Commission, Compliance, E-Sign/DocuPerfect,
+  Calendar/Command Center, Communications Capture, Payroll+Leave.
+  The document/comms/calendar layer is now covered, including the live WhatsApp/email capture system.
+- **Next queued:** Rentals/Leases → Document Library/Filing Register → Ellie (AI assistant) + AI cost
+  ledger → Syndication (DOC-ONLY, Andre's code) → Multi-tenancy/Admin/Domain Events. Rationale: Rentals is
+  the last major operational pillar undocumented; the platform/admin docs (multi-tenancy, domain events)
+  are cross-cutting and best done last once every feature's reads/writes are mapped.

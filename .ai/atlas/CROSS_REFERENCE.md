@@ -132,6 +132,74 @@ Legend: **R** = reads · **W** = writes · file:line points to the canonical acc
 
 ---
 
+## E-Sign / Document tables
+
+| Table | READERS | WRITERS |
+|-------|---------|---------|
+| `docuperfect_templates` (party_mode, allowed_delivery_modes, is_esign, signing_parties) | **E-Sign** wizard + signing | `TemplateController` (CDS builder) |
+| `docuperfect_documents` (+`signed_paginated_html`) | **E-Sign** signing/PDF | wizard `store`; signing pipeline |
+| `signature_requests` (fica_required, fica_submission_id, role_index) | **E-Sign** signing + FICA gate (`SigningController.php:124`) | `SignatureService`; FICA gate links `fica_submission_id` |
+| `signature_markers` / `signature_zones` | signing-view rendering | `SignatureController` setup/saveMarkers |
+| `document_amendments` / `document_conditions` | signing P0 inline mutations | `SigningController::addCondition` (`:3166`), `AmendmentController` |
+| `esign_consent_log` | compliance/audit | **E-Sign** — **IMMUTABLE** (throws on update `ESignConsentLog.php:61-66`) |
+| `documents` + `document_contacts`/`document_properties` (plural unified pivots) | Document Library; Contacts; Properties | **E-Sign** `autoFileSignedDocument` (`:2091`, `syncWithoutDetaching`) ⚠ also a legacy `document_contact` singular pivot exists |
+| `agency_signing_parties` | signature-block party names | `DocumentImporterController` |
+| `contact_types.esign_role` | **E-Sign** wizard recipient filter (`ESignWizardController.php:509-514`) | Settings → Contact Types |
+| `fica_submissions` ← (read by esign gate) | **E-Sign** gate; Compliance | Compliance `FicaController` (see compliance.md) |
+
+---
+
+## Calendar tables
+
+| Table | READERS | WRITERS |
+|-------|---------|---------|
+| `calendar_events` (`category` = event-class slug, `colour`, morph `source`) | **Calendar** UI; Threshold/Visibility resolvers | `ReconcileCalendarEvents` (sources, upsert `:96-104`); `CalendarController::store` (manual) |
+| `calendar_event_links` (morph pivot) | `linkedProperties/Contacts/Deals` | `CalendarController::syncEventLinks` (`:1460`) |
+| `calendar_event_feedback` (per-contact/per-property) | viewing-feedback display; buyer arc | **Calendar** `storeFeedback` (`:702`, `updateOrCreate` keyed event+contact+property) |
+| `calendar_event_audit_log` (append-only) | audit | `CalendarController` (`CalendarEventAuditEntry::create`) |
+| `buyer_property_views` | **MIC** match scoring (`PropertyMatchScoringService.php:231-234`); buyer demand | **Calendar** `storeFeedback` (`:836-845`); `RecomputeBuyerPropertyViews` cmd (source of truth) |
+| `calendar_event_class_settings` | the three resolvers (RAG/visibility/notify) | `SettingsController::updateEventClass` (upsert agency_id+event_class) |
+
+Calendar **fed by** 8 sources (`AppServiceProvider.php:155-163`): Deal, Compliance (FFC/PI/tax/FICA),
+Payroll, People (birthdays), Property, Rental, Document, Recurring. **Notifies via** two dispatchers
+(`CalendarNotificationDispatcher` = RAG transitions, no push; generic `NotificationDispatcher` = feedback
+arc, FCM push, open-hours-droppable).
+
+---
+
+## Communications tables (LIVE)
+
+| Table | READERS | WRITERS |
+|-------|---------|---------|
+| `communications` (external_id unique per agency, provisional_at, text_hash, purged_at) | **AT-59 tiles** (`Contact::outboundCommCount` `:721`); archive viewer; triage | WA ingest (`WaArchiveIngestor`), email ingest (`EmailArchiveIngestor`), provisional log (`OutboundProvisionalLogger`), reconcile (`ProvisionalReconciler`) |
+| `communication_links` (morph pivot, link_method/confirmed_at) | `Contact::communications()` (`:700`) | ingestors + provisional logger (Contact only; no Deal links) |
+| `communication_wa_devices` (device_token SHA-256, active) | `AuthenticateWaCapture` middleware (`:24-29`) | `WaDeviceController` (register/revoke active=false) |
+| `communication_mailboxes` (+credential reveals) | `ImapMailboxPoller` | mailbox config UI (write-only creds; audited reveal) |
+| `communication_pending` (grace buffer, expires_at) | reconcile/triage | ingestors when no contact match |
+| `communication_flags` / `_flag_alerts` | BM flag register | triage |
+| `marketing_suppressions` | comms send gate (`isContactSuppressed`) + Compliance | `MarketingConsentService::writeSuppression` (see compliance.md) |
+
+---
+
+## Payroll / Leave tables
+
+| Table | READERS | WRITERS |
+|-------|---------|---------|
+| `leave_transactions` (the ledger — append-only, no SoftDeletes) | `LeaveBalanceService::getBalance` (ledger-derived) | `LeaveAccrualService` (accrual/rollover/manual), `LeaveApplicationController::approve` (application_approved), take-on wizard |
+| `leave_applications` (SoftDeletes) | balances (pending derived); calendar | `MyPortalLeaveController::store`; approve/reject |
+| `leave_entitlements` (cache, rebuildable) | balance display | `LeaveBalanceService::refreshEntitlement`; `corex:leave:recalculate` |
+| `leave_types` (per-type BCEA config: cycle_months/accrual_method/rate) | accrual engine; calendar colours | Leave Types CRUD; `LeaveTypeSeeder` |
+| `public_holidays` (country-level) | working-days calc (`PublicHolidayService`) | `PublicHolidayService::generateHolidaysForYear` |
+| `payroll_payslips.paye_amount` | EMP201/IRP5 (manual); finalise totals | `PayrollCalculator::calculatePaye` (SARS engine) |
+| `payroll_runs` | runs UI; calendar `payroll_run` event; SDL obligation calc | `PayrollRunController::store`/`finalise` |
+| `payroll_tax_tables` / `payroll_tax_rebates` (reference, no SoftDeletes) | `PayrollCalculator` (`forTaxYear`) | seeders |
+
+> **⚠ PAYE duality:** `payroll_payslips.paye_amount` (SARS engine) and `deal_money_lines.paye_amount`
+> (`DealMoneyLineRebuilder:202-210`, flat per-deal) are **two unreconciled PAYE figures** — never summed for
+> SARS. See `payroll-leave.md` §5 and `deals-commission.md` §6.
+
+---
+
 ## Agency settings (`agencies` + `agency_contact_settings` columns)
 
 | Setting | Default | READERS | WRITERS |
@@ -187,6 +255,10 @@ Legend: **R** = reads · **W** = writes · file:line points to the canonical acc
 | `MarketReportParsed` | CMA Import — `ParseMarketReportJob.php:232-240` | GPS backfill + spot-check dispatch (TODO enumerate) |
 | `OptOutRecorded` | Compliance/outreach — public link + agent-marked | `RecordOptOutOnContact` → `MarketingConsentService::optOutContact` (`:28-46`) |
 | buyer state transitions (`BuyerStateTransition` rows, not an event) | Buyer Pipeline — `BuyerStateService::transitionTo` (`:53`) | append-only audit (reasons: wishlist_created/auto_landed/manual_override/auto_recompute/first_activity) |
+| `property.feedback_captured` (notification key) | Calendar feedback arc — `CalendarController::storeFeedback` (`:900-910`) | listing agent notified (cross-agent, skip-if-self `:889-890`); migration `2026_06_30_000002` |
+| `EventDueReminderNotification` | Calendar `CalendarNotificationDispatcher::onColourTransition` (`:26`) | role recipients per class config (no push) |
+| `PillarEventNotification` (generic, FCM) | `CommandCenter/NotificationDispatcher::fire` (`:28`) | per-user prefs; open-hours-droppable (`:44`) |
+| `MarketReportParsed`, `PresentationGenerated`, `OptOutRecorded` | (see rows above) | — |
 
 ---
 
