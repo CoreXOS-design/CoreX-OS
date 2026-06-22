@@ -12,6 +12,24 @@
 
 @section('title', 'Marketing preferences — ' . $agencyName)
 
+{{-- AT-83 — WhatsApp link-preview (Open Graph): the sending agent's composite
+     business-card image is the og:image, so a seller who receives the consent
+     WhatsApp sees a branded agent card (the opt-in link leads in the body, so
+     WhatsApp renders THIS card). All values come from $og (PublicOptInController). --}}
+@push('head')
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ $og['title'] }}">
+<meta property="og:description" content="{{ $og['description'] }}">
+<meta property="og:url" content="{{ $og['url'] }}">
+@if(!empty($og['image']))
+<meta property="og:image" content="{{ $og['image'] }}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{ $og['image'] }}">
+@endif
+@endpush
+
 @section('public-content')
 
 <div class="text-center mb-6">
