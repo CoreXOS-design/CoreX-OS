@@ -10,6 +10,7 @@ use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -23,6 +24,36 @@ use Tests\TestCase;
 final class PublicOptOutLinkTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // AT-83 — the page now pre-warms the agent-card image (og:image); keep
+        // those writes in a temp disk so the suite leaves no real artefacts.
+        Storage::fake('public');
+    }
+
+    /**
+     * AT-83 — this preference page is the SINGLE outreach link, so it hosts the
+     * WhatsApp agent-card OG tags. A bot GET must see the agent-card og:image
+     * (no opt-in page split anymore).
+     */
+    public function test_get_emits_agent_card_og_tags(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $contact = $this->seedContact($agencyId);
+        $send = $this->seedSend($agencyId, $userId, $contact);
+
+        $resp = $this->get(route('seller-outreach.public.opt-out.show', $send->opt_out_token));
+
+        $resp->assertStatus(200);
+        $resp->assertSee('property="og:image"', false);
+        $resp->assertSee('/outreach/agent-card/' . $userId . '.png', false);
+        $resp->assertSee('summary_large_image', false);
+        // og:title resolves to the AGENT card (designation default), not the
+        // agency-only fallback — proves the agent path fired.
+        $resp->assertSee('Property Practitioner at', false);
+    }
 
     public function test_get_is_preview_safe_and_does_not_opt_out(): void
     {

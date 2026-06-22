@@ -7,8 +7,6 @@ namespace App\Http\Controllers\SellerOutreach;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\SellerOutreach\SellerOutreachSend;
-use App\Models\User;
-use App\Services\SellerOutreach\AgentCardImageService;
 use App\Services\SellerOutreach\MarketingConsentService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
@@ -27,7 +25,6 @@ final class PublicOptInController extends Controller
 {
     public function __construct(
         private readonly MarketingConsentService $consent,
-        private readonly AgentCardImageService $cards,
     ) {}
 
     private const OPT_IN_REASON = 'Self-service opt-in link';
@@ -95,53 +92,7 @@ final class PublicOptInController extends Controller
                 'token'         => $send->opt_out_token,
                 'alreadyOptedIn'=> $alreadyOptedIn,
                 'done'          => $done,
-                'og'            => $this->ogCard($send, $agencyName),
             ])
             ->header('X-Robots-Tag', 'noindex, nofollow');
-    }
-
-    /**
-     * AT-83 — Open-Graph link-preview tags for the WhatsApp card: the sending
-     * agent's composite business-card image as og:image, with the agent's name
-     * + title + agency in the text. Resolved off the send's agent. Degrades
-     * gracefully — a deactivated/absent agent simply yields no card image (the
-     * page still renders), never an error.
-     *
-     * @return array{title:string,description:string,image:?string,url:string}
-     */
-    private function ogCard(SellerOutreachSend $send, string $agencyName): array
-    {
-        $url = route('seller-outreach.public.opt-in.show', $send->opt_out_token);
-
-        $agent = User::withoutGlobalScopes()
-            ->whereNull('deleted_at')
-            ->find($send->agent_id);
-
-        $image = null;
-        $title = "Marketing updates from {$agencyName}";
-
-        if ($agent) {
-            $designation = trim((string) ($agent->designation ?? '')) ?: 'Property Practitioner';
-            $title = trim((string) $agent->name) !== ''
-                ? "{$agent->name} — {$designation} at {$agencyName}"
-                : $title;
-
-            // Pre-warm the cache so the crawler's og:image fetch hits a ready
-            // file; the hash in the URL cache-busts WhatsApp when the card changes.
-            try {
-                $this->cards->resolve($agent);
-                $image = route('seller-outreach.public.agent-card', $agent->id)
-                    . '?v=' . $this->cards->cacheKey($agent);
-            } catch (\Throwable) {
-                $image = null; // never break the page over a card-render failure
-            }
-        }
-
-        return [
-            'title'       => $title,
-            'description' => "Live buyer demand, recent sales and property values from {$agencyName}. Tap to receive area market updates — opt out anytime.",
-            'image'       => $image,
-            'url'         => $url,
-        ];
     }
 }

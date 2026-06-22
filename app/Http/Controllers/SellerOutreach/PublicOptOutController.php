@@ -8,6 +8,8 @@ use App\Events\SellerOutreach\OptOutRecorded;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\SellerOutreach\SellerOutreachSend;
+use App\Models\User;
+use App\Services\SellerOutreach\AgentCardImageService;
 use App\Services\SellerOutreach\MarketingConsentService;
 use App\Services\SellerOutreach\SellerOutreachOptOutService;
 use App\Services\SellerOutreach\TransactionStateService;
@@ -41,6 +43,7 @@ final class PublicOptOutController extends Controller
         private readonly SellerOutreachOptOutService $optOut,
         private readonly MarketingConsentService $consent,
         private readonly TransactionStateService $transactions,
+        private readonly AgentCardImageService $cards,
     ) {}
 
     private const OPT_OUT_REASON     = 'Self-service opt-out link';
@@ -185,7 +188,62 @@ final class PublicOptOutController extends Controller
                 'inLiveTransaction' => $inLiveTransaction,
                 'liveTransactions'  => $liveTransactions,
                 'done'              => $done,
+                'og'                => $this->ogCard($send, $branding),
             ])
             ->header('X-Robots-Tag', 'noindex, nofollow');
+    }
+
+    /**
+     * AT-83 — Open-Graph link-preview for the WhatsApp card. This preference page
+     * is the SINGLE link in the outreach body (the opt-in/opt-out split was
+     * reverted), so its og:image is the only preview WhatsApp can render — the
+     * sending agent's composite business-card. Resolved off the send's agent;
+     * degrades to the agency logo + generic title if the agent is gone, so the
+     * preview is never broken.
+     *
+     * @param  array{name:string,logoUrl:?string,colors:array}  $branding
+     * @return array{title:string,description:string,image:?string,url:string}
+     */
+    private function ogCard(SellerOutreachSend $send, array $branding): array
+    {
+        $agencyName = (string) $branding['name'];
+        $url = route('seller-outreach.public.opt-out.show', $send->opt_out_token);
+
+        $agent = User::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->find($send->agent_id);
+
+        // Default to the agency logo card (pre-AT-83 behaviour) when there is no
+        // resolvable agent. $isCard tracks whether $image is the 1200×630 agent
+        // card (so the blade only claims those dims for the real card).
+        $title = "{$agencyName} — Communication preferences";
+        $image = $branding['logoUrl'] ?? null;
+        $isCard = false;
+
+        if ($agent) {
+            $designation = trim((string) ($agent->designation ?? '')) ?: 'Property Practitioner';
+            $title = trim((string) $agent->name) !== ''
+                ? "{$agent->name} — {$designation} at {$agencyName}"
+                : $title;
+
+            // Pre-warm the cache so the crawler's og:image fetch hits a ready file;
+            // the hash in the URL cache-busts WhatsApp when the card changes.
+            try {
+                $this->cards->resolve($agent);
+                $image = route('seller-outreach.public.agent-card', $agent->id)
+                    . '?v=' . $this->cards->cacheKey($agent);
+                $isCard = true;
+            } catch (\Throwable) {
+                // keep the agency-logo fallback — never break the page over a card render
+            }
+        }
+
+        return [
+            'title'       => $title,
+            'description' => "Live buyer demand, recent sales and property values from {$agencyName}. Manage your area-update preferences — opt in or out anytime.",
+            'image'       => $image,
+            'card'        => $isCard,
+            'url'         => $url,
+        ];
     }
 }

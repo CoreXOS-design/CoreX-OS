@@ -147,9 +147,9 @@ final class HfcConsentTemplatesSeeder extends Seeder
 Hi {seller_name}, this is {agent_name} from {agency_name} — a registered estate agency on the KZN South Coast.
 We track live buyer demand, recent sales and property values for {property_suburb}. With your permission, we'd send you these area updates so you always know what your property could be worth and who's looking to buy near you.
 May we contact you with {property_suburb} market and buyer-demand updates via WhatsApp?
-- Reply YES — or tap to confirm here: {opt_in_link}
+- Reply YES to opt in
 - Reply NO, or just ignore this, and we won't contact you again
-Tap to stop marketing messages: {opt_out_link} — or reply STOP.
+Manage your preferences or stop messages anytime: {opt_out_link} — or reply STOP.
 {agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
 TXT,
             ],
@@ -162,9 +162,9 @@ TXT,
 Hi {seller_name}, I saw your property in {property_suburb} on the market. I'm {agent_name} from {agency_name} — a registered estate agency.
 I have a buyer active in {property_suburb} and your property may suit them. With your permission, I'd like to send you the details and discuss your property with you.
 May I contact you about this via WhatsApp?
-- Reply YES — or tap to confirm here: {opt_in_link} — and I'll share what my buyer is looking for
+- Reply YES and I'll share what my buyer is looking for
 - Reply NO, or just ignore this, and I won't contact you again
-Tap to stop marketing messages: {opt_out_link} — or reply STOP.
+Manage your preferences or stop messages anytime: {opt_out_link} — or reply STOP.
 {agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
 TXT,
             ],
