@@ -33,11 +33,11 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
 | **Presentations (incl. CMA generation)** | [presentations.md](presentations.md) | **DONE** | Generator → snapshot → version → PDF; CMA compute engine; draft-vs-published freeze |
-| Properties (Agency Stock) | properties.md | TODO | `properties` table, address fragmentation, condition_level_id, title_type |
-| Tracked Properties / Prospecting | prospecting.md | TODO | `tracked_properties`, Match-or-Create, source_chain, promotion to stock |
-| Market Intelligence Centre (MIC) | market-intelligence.md | TODO | `market-intelligence.work`, MicSnapshotHydrator, canonical MatchingService scoring |
-| Core Matches | core-matches.md | TODO | `corex.core-matches.index`, Engine A/B, buyer-property matching |
-| CMA Report Import (Phase F) | cma-import.md | TODO | `admin.importer.*`, parse → market_reports → comp_rows; structured import (AT-81) |
+| **Properties (Agency Stock)** | [properties.md](properties.md) | **DONE** | `properties` table (the spine), address fragmentation, condition_level_id, title_type, status, write-backs |
+| **Tracked Properties / Prospecting** | [prospecting-tracked-properties.md](prospecting-tracked-properties.md) | **DONE** | `tracked_properties`, Match-or-Create (5 strategies), source_chain, promoteToStock, three import islands (AT-81) |
+| **Market Intelligence Centre (MIC)** | [market-intelligence.md](market-intelligence.md) | **DONE** | `market-intelligence.work`, Engine A/B, canonical scoring (AT-75), tile + %-slider, recompute jobs |
+| Core Matches | core-matches.md | TODO | `corex.core-matches.index` surface (scoring engines documented in market-intelligence.md) |
+| **CMA Report Import** | [cma-report-import.md](cma-report-import.md) | **DONE** | `market-intelligence.reports.*`, parse → market_reports → comp_rows; two pipelines; parsed-benchmark bypass (AT-82) |
 | Map | map.md | TODO | `corex.map.index` |
 | Commercial Evaluations | commercial-evaluations.md | TODO | `commercial-evaluations.index`, `evaluation.index` |
 
@@ -112,7 +112,9 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 
 ## Progress
 
-- **DONE:** 1 (Presentations)
-- **Next queued:** Properties → Prospecting/Tracked Properties → Market Intelligence Centre → CMA Report Import.
-  (Rationale: these four are the upstream sources Presentations depends on, so documenting them next
-  closes the loop on the Presentations cross-references already seeded.)
+- **DONE:** 5 — Presentations, Properties, Prospecting/Tracked Properties, Market Intelligence Centre, CMA Report Import.
+  This closes the Presentations cross-reference loops: every upstream source it depends on (property
+  columns, the canvass pool, the scoring engines, the report parser) is now documented.
+- **Next queued:** Contacts (the Contact pillar — buyer wishlists feed the MIC) → Buyer Pipeline (AT-72
+  auto-land) → Deals v2 → Compliance. Rationale: Contacts is the other half of the MIC matching equation
+  and the next-densest cross-reference after Property.
