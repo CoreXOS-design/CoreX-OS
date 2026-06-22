@@ -52,6 +52,16 @@ Route::post('/outreach/opt-in/{token}', [\App\Http\Controllers\SellerOutreach\Pu
     ->middleware('throttle:10,1')
     ->name('seller-outreach.public.opt-in.confirm');
 
+// ── Agent business-card image (no auth) — AT-83 ──
+// Composite PNG (agent photo + HFC logo + name/title/FFC) used as the WhatsApp
+// link-preview og:image on the opt-in page. Public by design — WhatsApp's
+// crawler fetches it sessionless and it shows only public business-card facts.
+// Generate-on-miss, then served from the public-disk cache.
+Route::get('/outreach/agent-card/{user}.png', [\App\Http\Controllers\SellerOutreach\AgentCardController::class, 'show'])
+    ->where('user', '[0-9]+')
+    ->middleware('throttle:60,1')
+    ->name('seller-outreach.public.agent-card');
+
 // ── Generic marketing unsubscribe page (no auth) — AT-49 ──
 // The agency-id is the only path segment (the email-signature footer embeds it).
 // The recipient enters their email or phone; MarketingConsentService resolves a
