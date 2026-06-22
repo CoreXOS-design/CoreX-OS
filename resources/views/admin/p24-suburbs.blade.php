@@ -2,36 +2,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5"
-     x-data="{
-         search: '',
-         regionFilter: '',
-         confirmedFilter: '',
-         get filteredCount() {
-             return document.querySelectorAll('#suburbs-table tbody tr.suburb-row:not([style*=\'display: none\'])').length;
-         }
-     }"
-     x-effect="
-         document.querySelectorAll('#suburbs-table tbody tr.suburb-row').forEach(row => {
-             const name = (row.dataset.name || '').toLowerCase();
-             const p24id = (row.dataset.p24id || '');
-             const region = (row.dataset.region || '');
-             const confirmed = (row.dataset.confirmed || '');
-             const s = search.toLowerCase();
-
-             let show = true;
-             if (s && !name.includes(s) && !p24id.includes(s)) show = false;
-             if (regionFilter && region !== regionFilter) show = false;
-             if (confirmedFilter !== '' && confirmed !== confirmedFilter) show = false;
-
-             row.style.display = show ? '' : 'none';
-         });
-         // Update visible count
-         const visCount = document.querySelectorAll('#suburbs-table tbody tr.suburb-row:not([style*=\'display: none\'])').length;
-         const countEl = document.getElementById('suburb-count');
-         if (countEl) countEl.textContent = 'Showing ' + visCount + ' of {{ $suburbs->count() }}';
-     "
->
+<div class="w-full space-y-5">
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -67,37 +38,49 @@
         </div>
     @endif
 
-    {{-- Filter bar (§3.8) --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    {{-- Filter bar (§3.8) — server-side: the table can hold the full ~27k-row
+         national P24 location tree, so filtering and paging happen in SQL. --}}
+    <form method="GET" action="{{ route('admin.p24-suburbs.index') }}"
+          class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex flex-wrap items-center gap-3">
             <div class="relative flex-1 min-w-[12rem] max-w-sm">
                 <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
-                <input type="text"
-                       x-model.debounce.300ms="search"
+                <input type="text" name="q" value="{{ $search }}"
                        placeholder="Search name or P24 ID..."
                        class="w-full pl-10 pr-3 py-2 text-sm rounded-md focus:outline-none transition-all duration-300"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
 
-            @php $regions = $suburbs->pluck('region')->filter()->unique()->sort()->values(); @endphp
-            <select x-model="regionFilter" class="list-header-filter">
+            <select name="region" onchange="this.form.submit()" class="list-header-filter">
                 <option value="">All regions</option>
                 @foreach($regions as $r)
-                <option value="{{ $r }}">{{ $r }}</option>
+                <option value="{{ $r }}" {{ $selectedRegion === $r ? 'selected' : '' }}>{{ $r }}</option>
                 @endforeach
             </select>
 
-            <select x-model="confirmedFilter" class="list-header-filter">
+            <select name="confirmed" onchange="this.form.submit()" class="list-header-filter">
                 <option value="">All</option>
-                <option value="1">Confirmed</option>
-                <option value="0">Unconfirmed</option>
+                <option value="1" {{ $selectedStatus === '1' ? 'selected' : '' }}>Confirmed</option>
+                <option value="0" {{ $selectedStatus === '0' ? 'selected' : '' }}>Unconfirmed</option>
             </select>
 
-            <span id="suburb-count" class="text-sm ml-auto" style="color: var(--text-muted);">Showing {{ $suburbs->count() }} of {{ $suburbs->count() }}</span>
+            <button type="submit" class="corex-btn-primary text-sm">Search</button>
+
+            @if($search !== '' || $selectedRegion !== '' || $selectedStatus !== '')
+            <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline text-sm">Clear</a>
+            @endif
+
+            <span class="text-sm ml-auto" style="color: var(--text-muted);">
+                @if($suburbs->total() > 0)
+                    Showing {{ number_format($suburbs->firstItem()) }}–{{ number_format($suburbs->lastItem()) }} of {{ number_format($suburbs->total()) }}
+                @else
+                    No matching suburbs
+                @endif
+            </span>
         </div>
-    </div>
+    </form>
 
     {{-- Add New Suburb --}}
     <div class="ds-status-card p-5">
@@ -154,12 +137,7 @@
                 </thead>
                 <tbody>
                     @forelse($suburbs as $suburb)
-                    <tr class="suburb-row"
-                        id="row-{{ $suburb->id }}"
-                        data-name="{{ strtolower($suburb->name) }}"
-                        data-p24id="{{ $suburb->p24_id }}"
-                        data-region="{{ $suburb->region }}"
-                        data-confirmed="{{ $suburb->confirmed ? '1' : '0' }}">
+                    <tr id="row-{{ $suburb->id }}">
                         <form method="POST" action="{{ route('admin.p24-suburbs.update', $suburb) }}">
                             @csrf
                             @method('PUT')
@@ -200,12 +178,45 @@
                     </tr>
                     @empty
                     <tr>
-                        <td colspan="7" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No suburbs configured. Add one above or run the seeder.</td>
+                        <td colspan="7" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
+                            @if($search !== '' || $selectedRegion !== '' || $selectedStatus !== '')
+                                No suburbs match your filters. <a href="{{ route('admin.p24-suburbs.index') }}" style="color: var(--brand-icon, #0ea5e9);">Clear filters</a>.
+                            @else
+                                No suburbs configured. Add one above or run the seeder.
+                            @endif
+                        </td>
                     </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
+
+        {{-- Pagination --}}
+        @if($suburbs->hasPages())
+        <div class="flex items-center justify-between gap-3 px-4 py-3"
+             style="border-top: 1px solid var(--border);">
+            <span class="text-xs" style="color: var(--text-muted);">
+                Page {{ number_format($suburbs->currentPage()) }} of {{ number_format($suburbs->lastPage()) }}
+            </span>
+            <div class="flex items-center gap-2">
+                @if($suburbs->onFirstPage())
+                    <span class="px-3 py-1 rounded-md text-xs font-semibold opacity-40"
+                          style="border: 1px solid var(--border); color: var(--text-muted);">Previous</span>
+                @else
+                    <a href="{{ $suburbs->previousPageUrl() }}" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors"
+                       style="border: 1px solid var(--border); color: var(--text-primary);">Previous</a>
+                @endif
+
+                @if($suburbs->hasMorePages())
+                    <a href="{{ $suburbs->nextPageUrl() }}" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors"
+                       style="border: 1px solid var(--border); color: var(--text-primary);">Next</a>
+                @else
+                    <span class="px-3 py-1 rounded-md text-xs font-semibold opacity-40"
+                          style="border: 1px solid var(--border); color: var(--text-muted);">Next</span>
+                @endif
+            </div>
+        </div>
+        @endif
     </div>
 </div>
 @endsection
