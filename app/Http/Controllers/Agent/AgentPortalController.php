@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\ProfileUpdateRequest;
 use App\Models\AgentApplication;
 use App\Models\AgentCapPeriod;
+use App\Models\Branch;
 use App\Models\AgentSocialAccount;
 use App\Models\CommissionLedger;
 use App\Models\Compliance\AgencyComplianceProvision;
@@ -198,6 +199,24 @@ class AgentPortalController extends Controller
         // AT-29 — outstanding agency-policy acknowledgements (any active policy not 'valid')
         $outstandingPolicies = $user->outstandingPolicyAcknowledgements();
 
+        // Admin Multi-Branch Manager — data for the "Branches I Manage" panel.
+        // Only computed for users who hold the self-assign permission; everyone
+        // else gets empty collections and the panel is hidden in the view.
+        $canSelfAssignBranches   = $user->hasPermission('branches.self_assign_managed');
+        $selfAssignAgencyBranches = collect();
+        $managedBranchIds        = collect();
+        $defaultManagedBranchId  = null;
+        if ($canSelfAssignBranches && $user->effectiveAgencyId()) {
+            $selfAssignAgencyBranches = Branch::where('agency_id', $user->effectiveAgencyId())
+                ->orderBy('name')->get();
+            $managedRows = \DB::table('user_managed_branches')
+                ->where('user_id', $user->id)
+                ->get(['branch_id', 'is_default']);
+            $managedBranchIds       = $managedRows->pluck('branch_id')->map(fn ($v) => (int) $v);
+            $defaultManagedBranchId = optional($managedRows->firstWhere('is_default', 1))->branch_id;
+            $defaultManagedBranchId = $defaultManagedBranchId !== null ? (int) $defaultManagedBranchId : null;
+        }
+
         return view('agent.portal', compact(
             'user',
             'documents',
@@ -221,7 +240,11 @@ class AgentPortalController extends Controller
             'needsAttention',
             'latestPayslip',
             'payslipCount',
-            'presentationStats'
+            'presentationStats',
+            'canSelfAssignBranches',
+            'selfAssignAgencyBranches',
+            'managedBranchIds',
+            'defaultManagedBranchId'
         ));
     }
 
@@ -249,6 +272,43 @@ class AgentPortalController extends Controller
         }
 
         return redirect()->route('agent.portal')->withFragment('profile')->with('success', 'Profile updated.');
+    }
+
+    /**
+     * Admin Multi-Branch Manager — save which branches the admin manages and
+     * which is their login default. Self-service, gated by the route's
+     * branches.self_assign_managed middleware. Rebuilds the pivot atomically.
+     *
+     * Only branches in the user's own effective agency are accepted (a forged
+     * branch_id from another agency is silently dropped). Exactly one row is
+     * flagged is_default; if the chosen default isn't among the managed set,
+     * the first managed branch becomes the default.
+     */
+    public function updateManagedBranches(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('branches.self_assign_managed'), 403);
+
+        $data = $request->validate([
+            'managed_branches'   => ['array'],
+            'managed_branches.*' => ['integer'],
+            'default_branch_id'  => ['nullable', 'integer'],
+        ]);
+
+        // Self-service: the user's own (session) agency context is correct here.
+        $validBranchIds = $user->syncManagedBranches(
+            $data['managed_branches'] ?? [],
+            $data['default_branch_id'] ?? null,
+            $user->effectiveAgencyId()
+        );
+
+        // If they're currently acting as a branch they no longer manage, exit it.
+        $acting = (int) session('acting_branch_manager_id', 0);
+        if ($acting && !$validBranchIds->contains($acting)) {
+            session()->forget('acting_branch_manager_id');
+        }
+
+        return redirect()->route('agent.portal')->withFragment('profile')->with('success', 'Managed branches updated.');
     }
 
     public function uploadDocument(Request $request)

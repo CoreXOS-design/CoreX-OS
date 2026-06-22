@@ -493,6 +493,11 @@ return [
         ['key' => 'branches.view_all',               'label' => 'View Across All Branches',      'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 1],
         ['key' => 'branches.switch',                 'label' => 'Switch Branch View',            'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 2],
         ['key' => 'branches.edit_all',               'label' => 'Edit Across All Branches',      'section' => 'branches',        'type' => 'action',  'module' => 'branches',         'sort_order' => 3],
+        // self_assign_managed = an admin self-assigns which branches they
+        // manage (+ a default) on their own profile, and may "act as" the
+        // branch manager of those branches. Identity only — does NOT change
+        // data scope. See .ai/specs/admin-multi-branch-manager.md.
+        ['key' => 'branches.self_assign_managed',    'label' => 'Self-Assign Managed Branches',  'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 4],
 
         // ── Sidebar — section visibility (entire sidebar groups) ──
         // When OFF, the sidebar heading and every item under it (until the

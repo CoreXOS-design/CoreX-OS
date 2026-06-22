@@ -9,6 +9,7 @@ use App\Support\SaPhoneNumber;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -327,6 +328,112 @@ class User extends Authenticatable
         }
 
         return $this->branch_id ? (int) $this->branch_id : null;
+    }
+
+    // --- Admin Multi-Branch Manager (spec: admin-multi-branch-manager.md) ---
+    //
+    // These describe which branches an admin MANAGES and which one they are
+    // currently "acting as" manager of. This is an identity/representation
+    // layer only. None of it feeds effectiveBranchId(), effectiveRole(),
+    // BranchScope, or PermissionService::getDataScope() — so an admin acting
+    // as a branch keeps full agency-wide visibility.
+
+    /** Branches this user manages (the user_managed_branches pivot). */
+    public function managedBranches(): BelongsToMany
+    {
+        return $this->belongsToMany(Branch::class, 'user_managed_branches')
+            ->withPivot('is_default')
+            ->withTimestamps();
+    }
+
+    /** The branch flagged as the login default, if any. Pivot-direct (scope-safe). */
+    public function defaultManagedBranchId(): ?int
+    {
+        $id = \DB::table('user_managed_branches')
+            ->where('user_id', $this->id)
+            ->where('is_default', true)
+            ->value('branch_id');
+
+        return $id ? (int) $id : null;
+    }
+
+    /** True if this user is a self-assigned manager of the given branch. */
+    public function isManagerOfBranch(int $branchId): bool
+    {
+        if ($branchId <= 0) {
+            return false;
+        }
+
+        return \DB::table('user_managed_branches')
+            ->where('user_id', $this->id)
+            ->where('branch_id', $branchId)
+            ->exists();
+    }
+
+    /**
+     * The branch the user is currently acting as manager of, from the session.
+     * Defensive: a stale/forged value not in the user's managed set is ignored.
+     */
+    public function actingBranchManagerId(): ?int
+    {
+        $id = session('acting_branch_manager_id');
+        if ($id === null || $id === '') {
+            return null;
+        }
+
+        $id = (int) $id;
+
+        return $this->isManagerOfBranch($id) ? $id : null;
+    }
+
+    /**
+     * Rebuild this user's managed-branch set in one transaction. Shared by the
+     * self-service profile panel and the admin user-edit screen.
+     *
+     * Only branches belonging to $agencyId are accepted (a forged / foreign
+     * branch id is silently dropped). Exactly one row is flagged is_default;
+     * if the chosen default isn't in the accepted set, the first accepted
+     * branch becomes the default. Returns the accepted branch-id collection.
+     *
+     * $agencyId is passed explicitly (NOT read from effectiveAgencyId(), which
+     * is session-scoped) so it stays correct when an admin edits another user.
+     */
+    public function syncManagedBranches(array $branchIds, ?int $defaultId, ?int $agencyId): \Illuminate\Support\Collection
+    {
+        $submitted = collect($branchIds)->map(fn ($v) => (int) $v)->unique();
+
+        $validBranchIds = $agencyId
+            ? Branch::where('agency_id', $agencyId)
+                ->whereIn('id', $submitted->all())
+                ->pluck('id')
+                ->map(fn ($v) => (int) $v)
+                ->values()
+            : collect();
+
+        $defaultId = (int) ($defaultId ?? 0);
+        if (!$validBranchIds->contains($defaultId)) {
+            $defaultId = (int) ($validBranchIds->first() ?? 0);
+        }
+
+        \DB::transaction(function () use ($validBranchIds, $defaultId, $agencyId) {
+            \DB::table('user_managed_branches')->where('user_id', $this->id)->delete();
+
+            $now  = now();
+            $rows = $validBranchIds->map(fn ($bid) => [
+                'user_id'    => $this->id,
+                'branch_id'  => $bid,
+                'agency_id'  => $agencyId,
+                'is_default' => $bid === $defaultId,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])->all();
+
+            if (!empty($rows)) {
+                \DB::table('user_managed_branches')->insert($rows);
+            }
+        });
+
+        return $validBranchIds;
     }
 
     public function effectiveAgencyId(): ?int

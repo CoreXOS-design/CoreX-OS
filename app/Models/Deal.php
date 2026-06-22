@@ -89,6 +89,10 @@ class Deal extends Model
 
         'file_no',
         'branch_id',
+        // Admin Multi-Branch Manager — the manager named on this deal,
+        // captured at registration when an admin acts as the branch's
+        // manager. See branchManager() + spec admin-multi-branch-manager.md.
+        'managed_by_user_id',
         'property_address',
         'seller_name',
         'buyer_name',
@@ -150,6 +154,46 @@ class Deal extends Model
     public function presentation()
     {
         return $this->belongsTo(\App\Models\Presentation::class, 'presentation_id');
+    }
+
+    /** The user explicitly recorded as the branch manager for this deal. */
+    public function managedBy()
+    {
+        return $this->belongsTo(User::class, 'managed_by_user_id');
+    }
+
+    /**
+     * The branch manager named on this deal.
+     *
+     * Resolution order (spec admin-multi-branch-manager.md §6.1):
+     *   1. managed_by_user_id — the manager captured at registration
+     *      (e.g. an admin acting as this branch's manager).
+     *   2. Fallback — the first branch_manager-role user assigned to the
+     *      deal's branch (today's role-based behaviour, unchanged for every
+     *      deal that has no captured manager).
+     *
+     * The fallback query bypasses BranchScope so the manager resolves
+     * regardless of the viewing user's own branch context; AgencyScope still
+     * applies (the manager is always in the deal's agency).
+     */
+    public function branchManager(): ?User
+    {
+        if ($this->managed_by_user_id) {
+            $captured = $this->managedBy;
+            if ($captured) {
+                return $captured;
+            }
+        }
+
+        if (!$this->branch_id) {
+            return null;
+        }
+
+        return User::queryWithoutBranchScope()
+            ->where('role', 'branch_manager')
+            ->where('branch_id', $this->branch_id)
+            ->orderBy('id')
+            ->first();
     }
 
     public function agents()

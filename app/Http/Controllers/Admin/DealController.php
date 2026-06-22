@@ -187,7 +187,11 @@ public function index(Request $request)
 
         $user = auth()->user();
         $scope = PermissionService::getDataScope($user, 'deals');
-        $defaultBranchId = $user?->effectiveBranchId();
+        // Admin Multi-Branch Manager — when the admin is acting as a branch's
+        // manager, default the new deal to that branch. Falls back to their
+        // home branch otherwise. Identity only; scope is unchanged.
+        $actingBranchId = $user?->actingBranchManagerId();
+        $defaultBranchId = $actingBranchId ?: $user?->effectiveBranchId();
 
         $agents = User::orderBy('name')->get();
 
@@ -379,6 +383,19 @@ $financialLocked = ($deal->exists && $this->isLocked($deal));
             }
             if (empty($data['commission_status'])) {
                 $data['commission_status'] = 'Not Paid';
+            }
+
+            // Admin Multi-Branch Manager — capture the acting manager at
+            // registration. Only when the admin is explicitly acting as the
+            // deal's branch AND genuinely manages it. Set directly on the model
+            // (NOT via the fill arrays) so editing a deal never overwrites it.
+            // See .ai/specs/admin-multi-branch-manager.md §6.
+            if ($user) {
+                $acting       = $user->actingBranchManagerId();
+                $chosenBranch = (int) ($data['branch_id'] ?? 0);
+                if ($acting && $chosenBranch === $acting && $user->isManagerOfBranch($chosenBranch)) {
+                    $deal->managed_by_user_id = $user->id;
+                }
             }
         }
 
