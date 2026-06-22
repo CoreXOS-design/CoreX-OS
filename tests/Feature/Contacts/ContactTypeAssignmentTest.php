@@ -35,6 +35,23 @@ final class ContactTypeAssignmentTest extends TestCase
         }
     }
 
+    public function test_canonical_excludes_rogue_types_sharing_an_esign_role(): void
+    {
+        // Un-normalised installs carry legacy types the old name-pattern migration
+        // stamped with a canonical esign_role (e.g. "Buyer, Lead", "Tenant").
+        // canonical() must still return ONLY the 4 true parents — never these.
+        DB::table('contact_types')->insert([
+            ['name' => 'Buyer, Lead',   'esign_role' => 'buyer',  'color' => '#fff', 'sort_order' => 9, 'is_active' => 1, 'created_at' => now(), 'updated_at' => now()],
+            ['name' => 'Seller, Owner', 'esign_role' => 'seller', 'color' => '#fff', 'sort_order' => 9, 'is_active' => 1, 'created_at' => now(), 'updated_at' => now()],
+            ['name' => 'Tenant',        'esign_role' => 'lessee', 'color' => '#fff', 'sort_order' => 9, 'is_active' => 1, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $parents = ContactType::query()->canonical()->get();
+
+        $this->assertCount(4, $parents);
+        $this->assertEqualsCanonicalizing(['Seller', 'Buyer', 'Lessor', 'Lessee'], $parents->pluck('name')->all());
+    }
+
     public function test_sync_assigns_multiple_parents_and_derives_primary_mirror(): void
     {
         $agencyId = $this->seedAgency();

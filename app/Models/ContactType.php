@@ -56,10 +56,18 @@ class ContactType extends Model
         return $query->where('esign_role', $role);
     }
 
-    /** The four canonical parents, in display order. */
+    /**
+     * The four canonical parents, in display order. Matched on the canonical
+     * NAME per role — NOT merely a canonical esign_role: un-normalised installs
+     * carry rogue legacy types (e.g. "Buyer, Lead", "Seller, Owner") that the
+     * old name-pattern migration also stamped with a canonical esign_role.
+     * Those collapse into sub-tags only once `contacts:normalise-types` runs;
+     * until then this scope still returns exactly the 4 true parents.
+     */
     public function scopeCanonical($query)
     {
         return $query->whereIn('esign_role', array_keys(self::CANONICAL))
+                     ->whereIn('name', array_values(self::CANONICAL))
                      ->orderBy('sort_order')->orderBy('id');
     }
 

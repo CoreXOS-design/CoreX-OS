@@ -88,7 +88,7 @@ class ContactController extends Controller
         $contacts     = $query->with(['tags', 'parentTypes'])->paginate($perPage)->withQueryString();
         // The four fixed parents, each with its agency-scoped sub-tags — feeds
         // the type/tag pop-up picker on the contact forms (AT-79).
-        $contactTypes = ContactType::canonical()->with('subTags')->get();
+        $contactTypes = ContactType::canonical()->with('subTags')->get()->unique('esign_role')->values();
 
         $agentList     = $canPickAgent ? $this->agentList()->values() : collect();
         $selectedAgent = ($canPickAgent && $filterAgentId !== '')
@@ -123,7 +123,7 @@ class ContactController extends Controller
             ->where('is_active', true)
             ->orderBy('name')
             ->get(['id', 'name']);
-        $contactTypes     = ContactType::canonical()->with('subTags')->get();
+        $contactTypes     = ContactType::canonical()->with('subTags')->get()->unique('esign_role')->values();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $matchCategories  = PropertySettingItem::group('category')->get();
         $matchTypes       = PropertySettingItem::group('property_type')->where('active', true)->get();

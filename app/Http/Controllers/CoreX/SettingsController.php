@@ -85,7 +85,7 @@ class SettingsController extends Controller
         // Feature Settings tab: Contacts — the 4 fixed parents, each with its
         // agency-scoped sub-tags eager-loaded (AT-79). Any legacy tag without a
         // parent is surfaced separately so it can be re-homed.
-        $data['contactTypes']    = ContactType::canonical()->with('subTags')->get();
+        $data['contactTypes']    = ContactType::canonical()->with('subTags')->get()->unique('esign_role')->values();
         $data['contactSources']  = ContactSource::orderBy('sort_order')->orderBy('name')->get();
         // Legacy tags awaiting a parent (pre-normalisation). BOUNDED: on an
         // un-normalised install EVERY tag is unassigned, so an unbounded render
