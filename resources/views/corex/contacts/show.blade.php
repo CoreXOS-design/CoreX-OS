@@ -464,16 +464,10 @@
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Type</label>
-                            <select name="contact_type_id"
-                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— No type —</option>
-                                @foreach($contactTypes as $type)
-                                    <option value="{{ $type->id }}" {{ $contact->contact_type_id == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
-                                @endforeach
-                            </select>
+                        <div class="sm:col-span-2 lg:col-span-3">
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Type <span class="text-red-500">*</span></label>
+                            @include('corex.contacts._type_picker', ['contactTypes' => $contactTypes, 'contact' => $contact])
+                            @error('parent_type_ids')<p class="mt-1 text-[11px]" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone <span class="text-red-500">*</span></label>
@@ -509,34 +503,6 @@
                                    placeholder="e.g. 21 Dee Road, Uvongo"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-
-                        {{-- Tags --}}
-                        <div class="sm:col-span-2 lg:col-span-3">
-                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Tags</label>
-                            @php $contactTagIds = $contact->tags->pluck('id')->toArray(); @endphp
-                            @if($contactTags->isNotEmpty())
-                            <div class="flex flex-wrap gap-2">
-                                @foreach($contactTags as $tag)
-                                <label class="inline-flex items-center gap-1.5 cursor-pointer text-xs font-medium px-3 py-1.5 rounded-md transition-all duration-300"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);"
-                                       x-data="{ checked: {{ in_array($tag->id, $contactTagIds) ? 'true' : 'false' }} }"
-                                       :style="checked ? 'background:color-mix(in srgb, {{ $tag->color }} 12%, transparent); border-color:color-mix(in srgb, {{ $tag->color }} 40%, transparent); color:{{ $tag->color }};' : ''">
-                                    <input type="checkbox" name="tag_ids[]" value="{{ $tag->id }}"
-                                           {{ in_array($tag->id, $contactTagIds) ? 'checked' : '' }}
-                                           @change="checked = $el.checked"
-                                           class="sr-only">
-                                    <span class="w-2.5 h-2.5 rounded-full flex-shrink-0 transition-all duration-300"
-                                          :style="checked ? 'background:{{ $tag->color }};' : 'background:var(--text-muted); opacity:0.3;'"></span>
-                                    {{ $tag->name }}
-                                </label>
-                                @endforeach
-                            </div>
-                            @else
-                            <p class="text-xs" style="color:var(--text-muted);">No tags configured — add them in
-                                <a href="{{ route('corex.settings', ['tab'=>'feature','fsec'=>'contacts']) }}" class="underline" style="color:var(--brand-icon, #0ea5e9);">Settings → Contacts</a>.
-                            </p>
-                            @endif
                         </div>
 
                         {{-- Loaded / Modified dates --}}

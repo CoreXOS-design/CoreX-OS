@@ -104,6 +104,63 @@ class Contact extends Model
                     ->withTimestamps();
     }
 
+    /**
+     * The parent contact types this contact belongs to (AT-79 multi-parent
+     * model). A person can be Seller AND Buyer. The single `type()`/
+     * contact_type_id above is a denormalised "primary parent" mirror kept in
+     * sync by syncTypeAssignments() for legacy readers + e-sign reverse-mapping.
+     */
+    public function parentTypes(): BelongsToMany
+    {
+        return $this->belongsToMany(ContactType::class, 'contact_contact_type')
+                    ->withTimestamps();
+    }
+
+    /**
+     * Single source of truth for writing a contact's type/tag assignments.
+     * Syncs the multi-parent pivot and the sub-tag pivot, then re-derives the
+     * primary-parent mirror (contacts.contact_type_id = lowest-sort assigned
+     * parent, or null). Returns the tag IDs newly attached this call so the
+     * caller can fire ContactTagged events.
+     *
+     * @param  int[]  $parentTypeIds  parent contact_type IDs to assign
+     * @param  int[]  $tagIds         sub-tag IDs to assign
+     * @return int[]  newly-attached tag IDs
+     */
+    public function syncTypeAssignments(array $parentTypeIds, array $tagIds): array
+    {
+        $parentTypeIds = array_values(array_unique(array_map('intval', $parentTypeIds)));
+        $tagIds        = array_values(array_unique(array_map('intval', $tagIds)));
+
+        // A chosen sub-tag implies its parent — fold those parents in so parent
+        // membership is never implicit-only.
+        if (!empty($tagIds)) {
+            $impliedParents = ContactTag::whereIn('id', $tagIds)
+                ->whereNotNull('contact_type_id')
+                ->pluck('contact_type_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+            $parentTypeIds = array_values(array_unique(array_merge($parentTypeIds, $impliedParents)));
+        }
+
+        $previousTagIds = $this->tags()->pluck('contact_tags.id')->map(fn ($id) => (int) $id)->all();
+
+        $this->parentTypes()->sync($parentTypeIds);
+        $this->tags()->sync($tagIds);
+
+        // Re-derive the primary mirror: lowest-sort parent currently assigned.
+        $primaryId = empty($parentTypeIds) ? null : ContactType::whereIn('id', $parentTypeIds)
+            ->orderBy('sort_order')->orderBy('id')
+            ->value('id');
+
+        if ((int) $this->contact_type_id !== (int) $primaryId) {
+            $this->contact_type_id = $primaryId;
+            $this->save();
+        }
+
+        return array_values(array_diff($tagIds, $previousTagIds));
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');

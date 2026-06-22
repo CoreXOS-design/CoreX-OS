@@ -6,48 +6,35 @@ use App\Http\Controllers\Controller;
 use App\Models\ContactType;
 use Illuminate\Http\Request;
 
+/**
+ * Contact types are LOCKED to the four fixed e-sign parents
+ * (Seller/Buyer/Lessor/Lessee) — AT-79. There is no add/rename/delete of a
+ * parent type; that guarantees the 1:1 esign_role mapping the signing wizard
+ * relies on. Custom categorisation happens via sub-tags (ContactTagController),
+ * nested under these parents. These endpoints stay registered but reject writes
+ * so any stale form or tampered POST is a no-op rather than a silent mutation.
+ */
 class ContactTypeController extends Controller
 {
+    private function locked()
+    {
+        return redirect()
+            ->route('corex.settings', ['tab' => 'feature', 'fsec' => 'contacts'])
+            ->with('error', 'Contact types are fixed to the four signing roles (Seller, Buyer, Lessor, Lessee). Add custom sub-tags under a role instead.');
+    }
+
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'name'       => 'required|string|max:100',
-            'color'      => 'nullable|string|max:7',
-            'sort_order' => 'nullable|integer|min:0',
-            'esign_role' => 'nullable|string|in:seller,buyer,lessor,lessee',
-        ]);
-
-        $data['color']      = $data['color'] ?? '#6366f1';
-        $data['sort_order'] = $data['sort_order'] ?? 0;
-
-        ContactType::create($data);
-
-        return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'contacts'])->with('success', 'Contact type added.');
+        return $this->locked();
     }
 
     public function update(Request $request, ContactType $contactType)
     {
-        $data = $request->validate([
-            'name'       => 'required|string|max:100',
-            'color'      => 'nullable|string|max:7',
-            'sort_order' => 'nullable|integer|min:0',
-            'esign_role' => 'nullable|string|in:seller,buyer,lessor,lessee',
-        ]);
-
-        $contactType->update($data);
-
-        return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'contacts'])->with('success', 'Contact type updated.');
+        return $this->locked();
     }
 
     public function destroy(ContactType $contactType)
     {
-        if ($contactType->contacts()->count() > 0) {
-            return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'contacts'])
-                ->with('error', 'Cannot delete — contacts are using this type.');
-        }
-
-        $contactType->delete();
-
-        return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'contacts'])->with('success', 'Contact type deleted.');
+        return $this->locked();
     }
 }
