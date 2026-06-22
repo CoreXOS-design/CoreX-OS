@@ -12,6 +12,24 @@
 
 ---
 
+## Atlas status — feature-complete
+
+The atlas covers **18 features + the cross-cutting platform foundations** — the four pillars (Property,
+Contact, Deal, Agent), both halves of the MIC/matching loop, the e-Sign/document/comms/calendar/HR layer,
+rentals, syndication (doc-only, Andre's domain), and the tenancy/event/audit spine. The core
+"how does X work / what breaks if I change Y" coverage is done.
+
+**[FRAGILITY_REGISTER.md](FRAGILITY_REGISTER.md) is the "what to harden" backlog** — every §9 fragility from
+all 18 docs, consolidated and prioritised: **9 × P0 · 38 × P1 · 46 × P2**. None of the P0s gate the Thursday
+portal go-live (per AT-81, the import/MIC layer is isolated from the syndication publish path).
+
+**Minor surfaces still TODO** (thin — mostly sub-features of DONE docs or low-traffic tools; addable on
+demand): Core Matches *surface*, Portal Leads, finance calculators (Revenue Share / Deposit Interest), Map,
+Commercial Evaluations, Performance/Targets, Staff Take-On / Onboarding, misc Tools (CMA tool, calculators,
+PDF suite, image converter) / TV Display / Training-Help, and the Agency Public API.
+
+---
+
 ## How to use the Atlas
 
 - **One file per feature** in `.ai/atlas/<feature>.md`, all using the same 9-section structure
