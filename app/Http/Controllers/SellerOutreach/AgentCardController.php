@@ -45,6 +45,14 @@ final class AgentCardController extends Controller
 
         $path = $this->cards->resolve($agent);
 
+        // Defensive: if the card could not be written (e.g. the cache dir is not
+        // writable), degrade to a clean 404 instead of a 500 stack trace to the
+        // public crawler. The OG pre-warm path already falls back to the agency
+        // logo, so a missing card never breaks the preference page itself.
+        if (!is_file($path)) {
+            abort(404);
+        }
+
         $response = (new BinaryFileResponse($path))
             ->setMaxAge(86400)          // 1 day; URL carries the content hash, so a
             ->setPublic()               // changed card has a new URL (cache-safe)
