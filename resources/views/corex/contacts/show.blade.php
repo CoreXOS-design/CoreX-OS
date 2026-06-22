@@ -55,18 +55,23 @@
                         {{ $contact->type->name }}
                     </span>
                     @endif
-                    {{-- AT-50 — derived communication status (Opted in / Marketing opted out / Transaction-only) --}}
+                    {{-- AT-50/AT-81 — derived communication status. All five outreach-consent
+                         states are visibly distinct; tint is keyed off $commMeta['key']. --}}
                     @php
                         $commMeta = $contact->communicationStatusMeta();
                         $commTint = match ($commMeta['key']) {
                             \App\Models\Contact::COMM_TRANSACTION_ONLY     => 'rgba(217,119,6,0.85)',
                             \App\Models\Contact::COMM_ALL_BLOCKED          => 'rgba(220,38,38,0.85)',
-                            \App\Models\Contact::COMM_MARKETING_OPTED_OUT  => 'rgba(234,88,12,0.85)',
+                            \App\Models\Contact::COMM_MARKETING_OPTED_OUT  => 'rgba(234,88,12,0.85)', // declined
+                            \App\Models\Contact::OUTREACH_NO_RESPONSE      => 'var(--ds-amber, #f59e0b)',
+                            \App\Models\Contact::OUTREACH_PENDING          => 'var(--ds-navy, #4f7cff)',
+                            \App\Models\Contact::OUTREACH_CONFIRMED        => 'var(--ds-green, #059669)',
+                            \App\Models\Contact::OUTREACH_INITIAL          => 'rgba(22,163,74,0.85)',
                             default                                        => 'rgba(22,163,74,0.85)',
                         };
                     @endphp
                     <span class="text-xs px-2.5 py-1 rounded-md font-semibold text-white"
-                          title="Marketing can always be switched off; transactional comms continue during a live sale."
+                          title="{{ $commMeta['title'] ?? '' }}"
                           style="background:{{ $commTint }}; border:1px solid rgba(255,255,255,0.35);">
                         {{ $commMeta['label'] }}
                     </span>
