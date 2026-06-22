@@ -53,6 +53,10 @@ final class SellerOutreachSenderService
             if ($context->optOutBlocks) {
                 $reasons['opt_out_blocks'] = 'Contact has messaging_opt_out_at set.';
             }
+            // AT-81 — re-send blocked while a consent-request awaits a reply.
+            if ($context->pendingBlocks) {
+                $reasons['pending_blocks'] = 'A consent request is already awaiting a reply.';
+            }
             throw new \DomainException(
                 'Outreach context is not sendable: ' . json_encode($reasons)
             );
@@ -135,6 +139,13 @@ final class SellerOutreachSenderService
                 $finalBody,
                 $context->agent->id,
             );
+
+            // AT-81 — a consent-request send moves an INITIAL contact to PENDING
+            // and starts the no-response clock. markOutreachPending() is a no-op
+            // for an already-pending / confirmed / opted-out contact, so a repeat
+            // send never resets the window and a consented contact gets no clock.
+            // Inside the same per-recipient transaction as the send + archive row.
+            $context->contact->markOutreachPending();
 
             return $send;
         });
