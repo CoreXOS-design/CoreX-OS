@@ -62,6 +62,27 @@ class ContactTagController extends Controller
         return $this->redirect('Sub-tag deleted.');
     }
 
+    /** Delete several sub-tags at once. Agency-scoped via BelongsToAgency. */
+    public function bulkDestroy(Request $request)
+    {
+        $data = $request->validate([
+            'tag_ids'   => 'required|array|min:1',
+            'tag_ids.*' => 'integer',
+        ]);
+
+        // Only this agency's tags are visible (global scope), so a tampered id
+        // for another agency simply won't be found.
+        $tags = ContactTag::whereIn('id', $data['tag_ids'])->get();
+        foreach ($tags as $tag) {
+            $tag->contacts()->detach();
+            $tag->delete();
+        }
+
+        $count = $tags->count();
+
+        return $this->redirect($count === 1 ? 'Sub-tag deleted.' : "{$count} sub-tags deleted.");
+    }
+
     private function redirect(string $msg)
     {
         return redirect()

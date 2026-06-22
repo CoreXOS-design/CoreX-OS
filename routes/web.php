@@ -2441,6 +2441,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/',              [\App\Http\Controllers\CoreX\ContactTagController::class, 'store'])->name('store');
         Route::put('/{contactTag}',   [\App\Http\Controllers\CoreX\ContactTagController::class, 'update'])->name('update');
         Route::delete('/{contactTag}', [\App\Http\Controllers\CoreX\ContactTagController::class, 'destroy'])->name('destroy');
+        Route::delete('/',            [\App\Http\Controllers\CoreX\ContactTagController::class, 'bulkDestroy'])->name('bulk-destroy');
     });
 
     // Property Setting Items (settings)

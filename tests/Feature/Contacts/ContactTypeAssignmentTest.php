@@ -7,6 +7,7 @@ namespace Tests\Feature\Contacts;
 use App\Models\Contact;
 use App\Models\ContactTag;
 use App\Models\ContactType;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -206,6 +207,25 @@ final class ContactTypeAssignmentTest extends TestCase
 
         $this->assertNull($contact->contact_type_id);
         $this->assertSame([], $contact->parentTypes()->pluck('contact_types.id')->all());
+    }
+
+    public function test_bulk_destroy_deletes_only_the_selected_subtags(): void
+    {
+        $agencyId = $this->seedAgency();
+        $admin = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'super_admin']);
+        $seller = ContactType::where('esign_role', 'seller')->firstOrFail();
+
+        $a = $this->subTag($agencyId, $seller->id, 'AAA');
+        $b = $this->subTag($agencyId, $seller->id, 'BBB');
+        $c = $this->subTag($agencyId, $seller->id, 'CCC');
+
+        $this->actingAs($admin)
+            ->delete(route('corex.settings.contact-tags.bulk-destroy'), ['tag_ids' => [$a->id, $b->id]])
+            ->assertRedirect();
+
+        $this->assertNotNull(DB::table('contact_tags')->where('id', $a->id)->value('deleted_at'));
+        $this->assertNotNull(DB::table('contact_tags')->where('id', $b->id)->value('deleted_at'));
+        $this->assertNull(DB::table('contact_tags')->where('id', $c->id)->value('deleted_at'), 'unselected sub-tag kept');
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

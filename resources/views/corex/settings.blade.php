@@ -1742,7 +1742,7 @@
                     {{-- Four fixed parents, each with nested sub-tags --}}
                     <div class="space-y-3">
                         @foreach($contactTypes as $parent)
-                        <div x-data="{ openP: false, addOpen: false, editTagId: null }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                        <div x-data="{ openP: false, addOpen: false, editTagId: null, selected: [], allIds: {{ Js::from($parent->subTags->pluck('id')->map(fn ($i) => (int) $i)->values()) }} }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
                             <button type="button" @click="openP = !openP"
                                     class="w-full flex items-center justify-between px-4 py-3 transition-colors"
                                     style="background:var(--surface-2);">
@@ -1755,11 +1755,33 @@
                                 <svg class="w-4 h-4 transition-transform" :class="openP ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </button>
                             <div x-show="openP" x-cloak style="border-top:1px solid var(--border);" class="p-4 space-y-2">
+                                {{-- Bulk actions --}}
+                                @if($parent->subTags->isNotEmpty())
+                                <div class="flex items-center justify-between pb-1">
+                                    <label class="inline-flex items-center gap-2 text-xs cursor-pointer" style="color:var(--text-muted);">
+                                        <input type="checkbox" class="rounded"
+                                               :checked="allIds.length > 0 && selected.length === allIds.length"
+                                               @change="selected = $el.checked ? [...allIds] : []">
+                                        Select all
+                                    </label>
+                                    <form x-show="selected.length > 0" x-cloak method="POST"
+                                          action="{{ route('corex.settings.contact-tags.bulk-destroy') }}"
+                                          onsubmit="return confirm('Delete the selected sub-tags?');">
+                                        @csrf @method('DELETE')
+                                        <template x-for="id in selected" :key="id"><input type="hidden" name="tag_ids[]" :value="id"></template>
+                                        <button type="submit" class="text-xs font-semibold px-2.5 py-1 rounded-md"
+                                                style="color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 35%, transparent);">
+                                            Delete selected (<span x-text="selected.length"></span>)
+                                        </button>
+                                    </form>
+                                </div>
+                                @endif
                                 {{-- Sub-tag list --}}
                                 @forelse($parent->subTags as $tag)
                                 <div style="border-bottom:1px solid var(--border);">
                                     <div x-show="editTagId !== {{ $tag->id }}" class="py-2 flex items-center justify-between gap-4">
                                         <div class="flex items-center gap-3">
+                                            <input type="checkbox" class="rounded" :value="{{ $tag->id }}" x-model.number="selected">
                                             <span class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: {{ $tag->color }}"></span>
                                             <span class="text-sm" style="color:var(--text-primary);">{{ $tag->name }}</span>
                                             <span class="text-xs" style="color:var(--text-muted);">{{ $tag->contacts()->count() }} contact{{ $tag->contacts()->count() !== 1 ? 's' : '' }}</span>
