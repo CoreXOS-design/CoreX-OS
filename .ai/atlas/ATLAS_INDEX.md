@@ -58,7 +58,7 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
 | **E-Sign / DocuPerfect** | [esign-docuperfect.md](esign-docuperfect.md) | **DONE** | 6-step wizard, P0 signing-view invariant, FICA gate, pipeline moat, pack filing; V2→V3 reconciliation |
-| Document Library / Filing Register | documents.md | TODO | `documents.library.index`, `filing-register.index` (signed docs filed by esign-docuperfect.md) |
+| **Document Library / Filing Register** | [document-library-filing.md](document-library-filing.md) | **DONE** | unified `documents` auto-link + Library + metadata-only Filing Register; the two pivot lineages; storage/recovery |
 
 ### Compliance
 | Feature | Doc | Status | Notes |
@@ -81,18 +81,18 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 ### Rentals
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| Rentals / Leases | rentals.md | TODO | `rental.*`, `rentals.index`, active/expired leases |
+| **Rentals / Leases** | [rentals-leases.md](rentals-leases.md) | **DONE** | TWO disconnected systems (commission `Rental` + eSign `LeaseRecord`); pillar-island + no agency_id; built-vs-roadmap |
 
 ### Syndication & Advertising
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| Syndication / Ad Manager | syndication.md | TODO | **DOC-ONLY — Andre's code; do not touch.** `tools.ad-manager`, `admin.listings.*` |
+| **Syndication / Ad Manager** | [syndication-overview.md](syndication-overview.md) | **DONE** | **DOC-ONLY — Andre's domain.** P24 ExDev REST + PP SOAP, trigger/feed/payload, location lookups, AT-81 taxonomy |
 | Agency Public API | public-api.md | TODO | `.ai/specs/agency-public-api.md` |
 
 ### AI & Tools
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| Ellie (AI assistant) | ellie.md | TODO | `ellie.index`, AI cost ledger |
+| **Ellie / AI + AI Cost Ledger** | [ai-tools-cost-ledger.md](ai-tools-cost-ledger.md) | **DONE** | Ellie chat/voice, all AI call sites, `ai_usage_events` ledger + per-agency budget cap; unmetered gaps |
 | Tools (CMA tool, calculators, PDF suite, image converter) | tools.md | TODO | `tools.*`, `calculators.index` |
 | TV Display | tv-display.md | TODO | `admin.tv-messages`, `bm.tv-messages` |
 | Training / Help / Knowledge | training-help.md | TODO | `training.*`, `training-help.index`, `admin.knowledge.index`, help-tour engine |
@@ -100,19 +100,31 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 ### Platform / Admin
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| Multi-tenancy / Agency isolation | multi-tenancy.md | TODO | AgencyScope, branch switcher, View-As vs Switch-User |
-| Admin / Settings / API catalog | admin.md | TODO | `admin.*`, `corex.settings`, `admin.api.catalog` |
-| Domain Events (cross-pillar) | domain-events.md | TODO | `domain_event_log`, event/listener catalogue (architectural spine) |
+| **Platform Foundations** (multi-tenancy · branch · domain events · soft-delete · audit) | [platform-multitenancy.md](platform-multitenancy.md) | **DONE** | AgencyScope/BranchScope, `effectiveAgencyId`, domain-event spine, soft-delete registry, audit observer; the agency_id-null class |
+| Admin / Settings / API catalog | admin.md | TODO | `admin.*`, `corex.settings`, `admin.api.catalog` (largely covered by platform-multitenancy.md) |
 
 ---
 
 ## Progress
 
-- **DONE:** 13 — Presentations, Properties, Prospecting/Tracked Properties, Market Intelligence Centre,
+- **DONE: 18** — Presentations, Properties, Prospecting/Tracked Properties, Market Intelligence Centre,
   CMA Report Import, Contacts, Buyer Pipeline, Deal Register/Commission, Compliance, E-Sign/DocuPerfect,
-  Calendar/Command Center, Communications Capture, Payroll+Leave.
-  The document/comms/calendar layer is now covered, including the live WhatsApp/email capture system.
-- **Next queued:** Rentals/Leases → Document Library/Filing Register → Ellie (AI assistant) + AI cost
-  ledger → Syndication (DOC-ONLY, Andre's code) → Multi-tenancy/Admin/Domain Events. Rationale: Rentals is
-  the last major operational pillar undocumented; the platform/admin docs (multi-tenancy, domain events)
-  are cross-cutting and best done last once every feature's reads/writes are mapped.
+  Calendar/Command Center, Communications Capture, Payroll+Leave, Rentals/Leases, Document Library/Filing,
+  Ellie/AI+Cost Ledger, Syndication (doc-only), Platform Foundations.
+- **The atlas now covers every major operational pillar and the cross-cutting platform foundations.**
+  The four pillars (Property, Contact, Deal, Agent), both halves of the MIC/matching loop, the document/
+  comms/calendar/HR layer, syndication, and the tenancy/event/audit spine are all documented.
+
+### Remaining minor TODO surfaces (thin — covered indirectly or low-traffic)
+These are small surfaces, mostly sub-features of DONE docs or low-complexity tools; documented here as
+honest gaps rather than left implied-complete:
+- **Core Matches** — the `corex.core-matches.index` *surface* (scoring engines fully in `market-intelligence.md`).
+- **Portal Leads** — `corex.portal-leads.index` (lead capture → Contact).
+- **Finance tools** — Revenue Share / Deposit Interest calculators (`revenue-share.calculator`, `deposit-interest-calculator.*`).
+- **Map** — `corex.map.index`; **Commercial Evaluations** — `commercial-evaluations.index`.
+- **Performance / Targets** — `admin.performance`, `admin.targets`, activity definitions.
+- **Staff Take-On / Onboarding** — `staff-take-on.index`, agent QR (lease/payroll take-on covered in payroll-leave.md).
+- **Tools** (CMA tool, calculators, PDF suite, image converter), **TV Display**, **Training/Help/Knowledge** (help-tour engine).
+- **Agency Public API** (`.ai/specs/agency-public-api.md`); **Admin / Settings / API catalog** (foundations in platform-multitenancy.md).
+
+These can be added on demand; the core "how does X work / what breaks if I change Y" coverage is complete.

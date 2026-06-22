@@ -7,8 +7,8 @@
 > feed it** — a feature not yet in `ATLAS_INDEX.md` as DONE may also touch these values without
 > appearing here yet. Treat absence as "not yet documented", not "nothing else touches it".
 >
-> Last updated: 2026-06-22 · Seeded from: **Presentations, Properties, Prospecting/Tracked Properties,
-> Market Intelligence Centre, CMA Report Import**.
+> Last updated: 2026-06-22 · Covers all 18 DONE feature docs (Property/Contact/Deal/Agent pillars, MIC,
+> e-Sign, calendar, comms, HR, rentals, documents, AI ledger, syndication, and the platform foundations).
 
 Legend: **R** = reads · **W** = writes · file:line points to the canonical access site.
 
@@ -200,6 +200,70 @@ arc, FCM push, open-hours-droppable).
 
 ---
 
+## Rental / Lease tables
+
+| Table | READERS | WRITERS |
+|-------|---------|---------|
+| `rentals` (System A — address string, branch_id only, **no property/contact/agency FK**) | rental commission UI; worksheet; calendar `rent_due`/`rent_escalation` | `RentalsController::store` (`:309`) |
+| `rental_amount_versions` | rent/commission history; calendar `rent_escalation` | `RentalsController` |
+| `lease_records` (System B — tenant/landlord strings, `property_id` nullable) | Rental Division active/expired views; calendar `lease_expiry` (joins to `properties`) | **E-Sign** `SignatureService::createLeaseRecord` (`:2561`); `LeaseController` renew/terminate |
+| `rental_properties` (**standalone island, no FK to `properties`**) | Rental Division settings | `RentalPropertyController` |
+| `properties.deposit_amount` / rental columns | documents/CMA | Properties edit (NOT read by Rental models) |
+
+> ⚠ `lease_records.property_id` ID-space collision: joined to real `properties` in `RentalCalendarSource:51`
+> but set from `rental_properties.id` in `RentalDivisionController:104-107`. See `rentals-leases.md` §9.
+
+---
+
+## Document / Filing tables
+
+| Table | READERS | WRITERS |
+|-------|---------|---------|
+| `documents` (unified, `source_type`, `storage_path`) | Document Library; contact drive (`Contact::documents()`); property files tab | **E-Sign** (`SignatureService:1870/1979`), **FICA** (`FicaController:827`), **Payroll** (`PayrollFinaliseService:76`), manual uploads, PDF splitter, leave docs |
+| `document_contacts` / `document_properties` (plural, unified pivots) | `Document::contacts()/properties()` | `linkFiledDocumentToContactsAndProperty` (`:2094`, syncWithoutDetaching) |
+| `document_contact` (singular, legacy, → `docuperfect_documents`) ⚠ | `Contact::signedDocuments()`/`ficaDocuments()` | `SignatureService::linkDocumentToContacts` (raw `updateOrInsert` `:1783`) |
+| `document_filing_register` (metadata-only, no file) | Filing Register UI | **manual entry only** `DocumentFilingController::store` (`:116`) |
+| `document_library_items` | Presentation attachment | `DocumentLibraryController` |
+
+> ⚠ Two pivot lineages (singular vs plural) both written on one e-sign completion against different records.
+> See `document-library-filing.md` §9.1 and `esign-docuperfect.md` §6.
+
+---
+
+## AI cost ledger
+
+| Table / column | READERS | WRITERS |
+|----------------|---------|---------|
+| `ai_usage_events` (model, tokens, `cost_zar`, source, agency_id; append-only, no SoftDeletes) | `AiUsageController` dashboard; `AICostAggregator`; `Agency::aiBudgetUsedZar` (budget cap) | `AiUsageRecorder::record` (`:45`) — gateway + 7 direct callers (Anthropic only; **OpenAI/Ellie-chat/Whisper unmetered**) |
+| `Agency.ai_monthly_budget_zar` / `ai_budget_*_pct` | budget cap (`AnthropicGateway::loadCappedAgency:552`) | `AiUsageController::updateBudget` (super_admin) |
+| `Agency.ai_image_recognition_enabled` / `ai_voice_enabled` | Properties AI photos; Ellie voice gate | Settings UI |
+
+---
+
+## Syndication columns (Andre's domain — reads/writes for cross-reference)
+
+| Column / table | READ BY (syndication) | WRITTEN BY (syndication) |
+|----------------|----------------------|--------------------------|
+| `properties.features_json` / `spaces_json` | **P24 mapper** (`Property24ListingMapper:130-132`, own inline vocab); PP mapper does NOT read them | — (written by Properties — see Property columns table) |
+| `properties.p24_*` (ref/status/enabled/timestamps/suburb_id) | P24 submit/sync | `Property24SyndicationService::submitListing` (`:137-162`) |
+| `properties.pp_*` (ref/status/enabled/timestamps/suburb_id/hide) | PP submit/sync | `PrivatePropertySyndicationService::submitListing` (`:86-124`) |
+| `p24_suburbs` / `pp_suburbs` | suburb-id resolution (both mappers) | `SyncP24Locations` / `SyncPpLocations` (location import) |
+| `p24_syndication_logs` | audit | `Property24ApiClient::logToDb` (`:325`) |
+
+---
+
+## Platform foundations (what every feature depends on)
+
+| Mechanism | Enforced by | Notes |
+|-----------|-------------|-------|
+| Agency isolation | `AgencyScope` (`WHERE agency_id = effective`, NULL = orphan) + `BelongsToAgency` (auto-stamp on create) | 208 models; `effectiveAgencyId` `User.php:332` |
+| Branch isolation | `BranchScope` (gated on `split_branches_enabled` + `branches.view_all`) + `BelongsToBranch` | 20 models; data-scope all/branch/own via `PermissionService::getDataScope:59` |
+| Domain-event audit | `domain_event_log` + wildcard `RecordDomainEvent` (`AppServiceProvider:172`) | only catches `AbstractDomainEvent` subclasses ⚠ |
+| Soft-delete-everywhere | `SoftDeletes` (238 models) + `SoftDeleteRegistryService` (restore-only) | only hard-delete = console `db:purge-soft-deleted` |
+| Audit observer | `PropertyAuditService` via `PropertyObserver` → `property_audit_log` | `DB::table()->update()` bypasses it ⚠ |
+
+---
+
 ## Agency settings (`agencies` + `agency_contact_settings` columns)
 
 | Setting | Default | READERS | WRITERS |
@@ -249,7 +313,8 @@ arc, FCM push, open-hours-droppable).
 
 | Event | EMITTED BY | LISTENERS |
 |-------|-----------|-----------|
-| `PresentationGenerated` | Presentations — `PresentationGeneratorService.php:348` | (see `.ai/specs/corex-domain-events-spec.md` — TODO) |
+| `PresentationGenerated` | Presentations — `PresentationGeneratorService.php:348` | ⚠ does NOT extend `AbstractDomainEvent` → writes **no** `domain_event_log` row (`platform-multitenancy.md` §7.5) |
+| `domain_event_log` (the audit sink) | audit/forensics (e.g. AT-78 used it) | wildcard `RecordDomainEvent` for every `AbstractDomainEvent` subclass (`AppServiceProvider:172`) |
 | `PropertySuburbLinked` | Properties — store/update (`PropertyController.php:600-607,941-950`) | `LogContactEvent` / suburb link listeners (TODO) |
 | `ContactLinkedToProperty` | Properties / contact-link path | `LogContactEvent` (logging only, `AppServiceProvider.php:380`) |
 | `MarketReportParsed` | CMA Import — `ParseMarketReportJob.php:232-240` | GPS backfill + spot-check dispatch (TODO enumerate) |
