@@ -503,16 +503,35 @@ class ESignWizardController extends Controller
 
                     // Agent is always first recipient (added by JS), so just add linked contacts
                     foreach ($prop->contacts as $contact) {
-                        // Role comes from the contact's contact_type (source of truth)
-                        $ctRow = DB::table('contact_types')->where('id', $contact->contact_type_id)->first();
-                        $recipientRole = strtolower(trim($ctRow->name ?? ''));
-                        $esignRole = $ctRow->esign_role ?? null;
+                        // AT-79: a contact can hold MULTIPLE parent types (Seller AND
+                        // Buyer). Resolve the role from the contact_contact_type pivot,
+                        // preferring the parent whose esign_role the template needs.
+                        // Falls back to the legacy single mirror for pre-migration data.
+                        $parentRows = DB::table('contact_contact_type as cct')
+                            ->join('contact_types as ct', 'ct.id', '=', 'cct.contact_type_id')
+                            ->where('cct.contact_id', $contact->id)
+                            ->whereNull('ct.deleted_at')
+                            ->orderBy('ct.sort_order')
+                            ->get(['ct.name', 'ct.esign_role']);
 
-                        // Filter by esign_role if template has signing_parties set
-                        if (!empty($allowedEsignRoles) && (empty($esignRole) || !in_array($esignRole, $allowedEsignRoles))) {
-                            continue; // Skip: contact type doesn't match template's required roles
+                        if ($parentRows->isEmpty() && $contact->contact_type_id) {
+                            $legacy = DB::table('contact_types')->where('id', $contact->contact_type_id)->first(['name', 'esign_role']);
+                            if ($legacy) {
+                                $parentRows = collect([$legacy]);
+                            }
                         }
 
+                        // Choose the parent matching the template's allowed roles.
+                        if (!empty($allowedEsignRoles)) {
+                            $chosen = $parentRows->first(fn ($r) => $r->esign_role && in_array($r->esign_role, $allowedEsignRoles));
+                            if (!$chosen) {
+                                continue; // Contact has no role this template needs.
+                            }
+                        } else {
+                            $chosen = $parentRows->first();
+                        }
+
+                        $recipientRole = $chosen ? strtolower(trim($chosen->name)) : '';
                         if (empty($recipientRole)) {
                             $recipientRole = $defaultOwnerRole;
                         }
@@ -1025,11 +1044,13 @@ class ESignWizardController extends Controller
                 })
                 ->first();
 
-            // Fallback: match by contact_type esign_role (for NULL pivot roles)
+            // Fallback: match by contact_type esign_role (for NULL pivot roles).
+            // AT-79: check the primary mirror AND the multi-parent pivot.
             if (!$lessor) {
                 $lessor = $p->contacts()
-                    ->whereHas('type', function ($q) {
-                        $q->whereIn('esign_role', ['seller', 'lessor']);
+                    ->where(function ($w) {
+                        $w->whereHas('type', fn ($q) => $q->whereIn('esign_role', ['seller', 'lessor']))
+                          ->orWhereHas('parentTypes', fn ($q) => $q->whereIn('esign_role', ['seller', 'lessor']));
                     })
                     ->first();
             }
@@ -1147,7 +1168,9 @@ class ESignWizardController extends Controller
                     // either the (rare) typed contacts OR the canonical column.
                     $query->where(function ($w) use ($typeIds, $wantsBuyer, $wantsSeller) {
                         if ($typeIds->isNotEmpty()) {
+                            // Legacy single mirror OR the AT-79 multi-parent pivot.
                             $w->orWhereIn('contact_type_id', $typeIds);
+                            $w->orWhereHas('parentTypes', fn ($q) => $q->whereIn('contact_types.id', $typeIds));
                         }
                         if ($wantsBuyer) {
                             $w->orWhere('is_buyer', 1);
@@ -1157,7 +1180,10 @@ class ESignWizardController extends Controller
                         }
                     });
                 } elseif ($typeIds->isNotEmpty()) {
-                    $query->whereIn('contact_type_id', $typeIds);
+                    $query->where(function ($w) use ($typeIds) {
+                        $w->whereIn('contact_type_id', $typeIds)
+                          ->orWhereHas('parentTypes', fn ($q) => $q->whereIn('contact_types.id', $typeIds));
+                    });
                 }
             } else {
                 // Fallback: match by contact_type name directly (for witness, spouse, etc.)

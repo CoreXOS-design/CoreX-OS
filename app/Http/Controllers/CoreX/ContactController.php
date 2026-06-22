@@ -84,8 +84,11 @@ class ContactController extends Controller
         // stored value to a sane range so a missing/invalid value can't break paging.
         $perPage = (int) PerformanceSetting::get('contacts_per_page', 25);
         $perPage = $perPage > 0 ? min($perPage, 200) : 25;
-        $contacts     = $query->paginate($perPage)->withQueryString();
-        $contactTypes = ContactType::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
+        // Eager-load picker relations so the inline edit-row pickers don't N+1.
+        $contacts     = $query->with(['tags', 'parentTypes'])->paginate($perPage)->withQueryString();
+        // The four fixed parents, each with its agency-scoped sub-tags — feeds
+        // the type/tag pop-up picker on the contact forms (AT-79).
+        $contactTypes = ContactType::canonical()->with('subTags')->get();
 
         $agentList     = $canPickAgent ? $this->agentList()->values() : collect();
         $selectedAgent = ($canPickAgent && $filterAgentId !== '')
@@ -111,7 +114,7 @@ class ContactController extends Controller
             ]);
         }
 
-        $contact->load(['type', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications']);
+        $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications']);
 
         // Agents in this contact's agency — for the "agent this testimonial is
         // about" selector on the Notes & Testimonials tab.
@@ -120,7 +123,7 @@ class ContactController extends Controller
             ->where('is_active', true)
             ->orderBy('name')
             ->get(['id', 'name']);
-        $contactTypes     = ContactType::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
+        $contactTypes     = ContactType::canonical()->with('subTags')->get();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $matchCategories  = PropertySettingItem::group('category')->get();
         $matchTypes       = PropertySettingItem::group('property_type')->where('active', true)->get();
@@ -375,7 +378,8 @@ class ContactController extends Controller
             'last_name'       => 'required|string|max:100',
             'phone'           => 'required|string|max:30',
             'email'           => 'nullable|email|max:150',
-            'contact_type_id' => 'nullable|exists:contact_types,id',
+            // Type/tag assignments arrive via the pop-up picker and are applied
+            // after creation (applyTypeAssignments) — not a single column.
             'notes'           => 'nullable|string|max:1000',
             // Optional SA ID number, captured with a POPIA audit trail.
             'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
@@ -485,9 +489,75 @@ class ContactController extends Controller
             ?? \DB::table('branches')->where('agency_id', $agencyId)->min('id')
             ?? 1;
 
-        $contact = Contact::create($data);
+        // Wrapped so a failed type-assignment validation (contact type is
+        // required) rolls the just-created contact back — no orphan record.
+        $contact = \DB::transaction(function () use ($data, $request) {
+            $contact = Contact::create($data);
+            $this->applyTypeAssignments($contact, $request);
+            return $contact;
+        });
 
         return redirect()->route('corex.contacts.index')->with('success', 'Contact added successfully.');
+    }
+
+    /**
+     * Apply the pop-up picker's type/tag selections (AT-79). Creates any
+     * inline-new sub-tags under their parent, then delegates to
+     * Contact::syncTypeAssignments() which keeps the multi-parent pivot, the
+     * sub-tag pivot and the primary-type mirror consistent. Fires ContactTagged
+     * for newly attached sub-tags. Shared by store() and update().
+     */
+    private function applyTypeAssignments(Contact $contact, Request $request): void
+    {
+        $canonical = array_keys(ContactType::CANONICAL);
+
+        $validated = $request->validate([
+            'parent_type_ids'      => 'required|array|min:1',
+            'parent_type_ids.*'    => ['integer', \Illuminate\Validation\Rule::exists('contact_types', 'id')->whereIn('esign_role', $canonical)],
+            'tag_ids'              => 'nullable|array',
+            'tag_ids.*'            => 'integer|exists:contact_tags,id',
+            'new_tags'             => 'nullable|array',
+            'new_tags.*.name'      => 'nullable|string|max:100',
+            'new_tags.*.parent_id' => ['nullable', 'required_with:new_tags.*.name', \Illuminate\Validation\Rule::exists('contact_types', 'id')->whereIn('esign_role', $canonical)],
+        ], [
+            'parent_type_ids.required' => 'Please assign at least one contact type.',
+            'parent_type_ids.min'      => 'Please assign at least one contact type.',
+        ]);
+
+        $parentIds = array_map('intval', $validated['parent_type_ids'] ?? []);
+        $tagIds    = array_map('intval', $validated['tag_ids'] ?? []);
+
+        // Inline-created sub-tags: reuse an existing same-name tag under the same
+        // parent (agency-scoped) if present, otherwise create one.
+        foreach ($validated['new_tags'] ?? [] as $nt) {
+            $name = trim((string) ($nt['name'] ?? ''));
+            if ($name === '' || empty($nt['parent_id'])) {
+                continue;
+            }
+            $parentId = (int) $nt['parent_id'];
+            $tag = ContactTag::where('contact_type_id', $parentId)->where('name', $name)->first()
+                ?? ContactTag::create([
+                    'contact_type_id' => $parentId,
+                    'name'            => $name,
+                    'color'           => '#6366f1',
+                    'sort_order'      => 0,
+                    'is_active'       => true,
+                ]);
+            $tagIds[] = $tag->id;
+        }
+
+        $newlyAttached = $contact->syncTypeAssignments($parentIds, $tagIds);
+
+        if (!empty($newlyAttached)) {
+            $tagNames = ContactTag::whereIn('id', $newlyAttached)->pluck('name', 'id');
+            foreach ($newlyAttached as $tagId) {
+                event(new \App\Events\Contact\ContactTagged(
+                    contact: $contact,
+                    tag: (string) ($tagNames[$tagId] ?? $tagId),
+                    actorUserId: auth()->id(),
+                ));
+            }
+        }
     }
 
     public function update(Request $request, Contact $contact)
@@ -497,7 +567,7 @@ class ContactController extends Controller
             'last_name'       => 'required|string|max:100',
             'phone'           => 'required|string|max:30',
             'email'           => 'nullable|email|max:150',
-            'contact_type_id' => 'nullable|exists:contact_types,id',
+            // Type/tag assignments handled by applyTypeAssignments (the picker).
             'notes'           => 'nullable|string|max:1000',
             // Agent assignment — primary (reassignable) + optional co-agent.
             // Constrained to active members of this contact's agency so a
@@ -523,8 +593,6 @@ class ContactController extends Controller
             'address'         => 'nullable|string|max:500',
             'loaded_at'       => 'nullable|date',
             'modified_at'     => 'nullable|date',
-            'tag_ids'         => 'nullable|array',
-            'tag_ids.*'       => 'integer|exists:contact_tags,id',
             'bank_name'           => 'nullable|string|max:255',
             'bank_account_name'   => 'nullable|string|max:255',
             'bank_account_number' => 'nullable|string|max:100',
@@ -537,34 +605,18 @@ class ContactController extends Controller
             'preapproval_institution' => 'nullable|string|max:100',
         ]);
 
-        $tagIds = $data['tag_ids'] ?? [];
-        unset($data['tag_ids']);
-
         // A co-agent without a primary is meaningless — collapse it.
         if (array_key_exists('agent_id', $data) && empty($data['agent_id'])) {
             $data['second_agent_id'] = null;
         }
 
-        // Transaction-wrapped so a partial failure (e.g. tag sync) rolls the
-        // whole address save back cleanly — no half-written record.
-        \DB::transaction(function () use ($contact, $data, $tagIds) {
+        // Transaction-wrapped so a partial failure (e.g. assignment sync) rolls
+        // the whole save back cleanly — no half-written record. The picker's
+        // type/tag selections are applied via the shared helper, which keeps the
+        // multi-parent pivot, sub-tag pivot and primary-type mirror consistent.
+        \DB::transaction(function () use ($contact, $data, $request) {
             $contact->update($data);
-            $previousTagIds = $contact->tags()->pluck('contact_tags.id')->all();
-            $contact->tags()->sync($tagIds);
-
-            // Domain event — ContactTagged for each newly attached tag.
-            // Spec: .ai/specs/corex-domain-events-spec.md
-            $newlyAttached = array_diff(array_map('intval', $tagIds), array_map('intval', $previousTagIds));
-            if (!empty($newlyAttached)) {
-                $tagNames = ContactTag::whereIn('id', $newlyAttached)->pluck('name', 'id');
-                foreach ($newlyAttached as $tagId) {
-                    event(new \App\Events\Contact\ContactTagged(
-                        contact: $contact,
-                        tag: (string) ($tagNames[$tagId] ?? $tagId),
-                        actorUserId: auth()->id(),
-                    ));
-                }
-            }
+            $this->applyTypeAssignments($contact, $request);
         });
 
         // Redirect to show page if coming from there, otherwise index
@@ -825,6 +877,7 @@ class ContactController extends Controller
         // BelongsToMany pivots keyed on the contact.
         $pivotRelations = [
             $proto->tags(),
+            $proto->parentTypes(),
             $proto->documents(),
             $proto->signedDocuments(),
             $proto->properties(),
@@ -875,11 +928,14 @@ class ContactController extends Controller
         ]);
 
         $newTagIds = $data['tag_ids'] ?? [];
-        $previousTagIds = $contact->tags()->pluck('contact_tags.id')->all();
-        $contact->tags()->sync($newTagIds);
+
+        // AT-79: route through the shared sync so the multi-parent pivot + the
+        // primary-type mirror stay consistent (a sub-tag implies its parent).
+        // Existing parent assignments are preserved.
+        $existingParentIds = $contact->parentTypes()->pluck('contact_types.id')->all();
+        $newlyAttached = $contact->syncTypeAssignments($existingParentIds, $newTagIds);
 
         // Domain event — ContactTagged for each newly attached tag.
-        $newlyAttached = array_diff(array_map('intval', $newTagIds), array_map('intval', $previousTagIds));
         if (!empty($newlyAttached)) {
             $tagNames = ContactTag::whereIn('id', $newlyAttached)->pluck('name', 'id');
             foreach ($newlyAttached as $tagId) {

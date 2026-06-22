@@ -1914,134 +1914,118 @@
                     </button>
                     <div x-show="open" x-cloak style="border-top:1px solid var(--border);">
                     <div class="p-4 space-y-4">
-                    <p class="text-xs" style="color:var(--text-muted);">Types appear in the contact form when creating or editing a contact.</p>
+                    <p class="text-xs" style="color:var(--text-muted);">The four signing roles are fixed. Add custom <span style="color:var(--text-secondary);">sub-tags</span> under each to categorise contacts — they flow into the contact form and e-sign.</p>
 
-                    {{-- Add Contact Type --}}
-                    <div class="p-4 rounded-md mb-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Contact Type</div>
-                        <form method="POST" action="{{ route('corex.settings.contact-types.store') }}"
-                              class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                            @csrf
-                            <div class="md:col-span-4">
-                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Name</label>
-                                <input name="name" required placeholder="e.g. Buyer, Seller, Tenant"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Color</label>
-                                <input type="color" name="color" value="#6366f1"
-                                       class="w-full h-9 rounded-md cursor-pointer border"
-                                       style="border-color:var(--border); background:var(--surface);">
-                            </div>
-                            <div class="md:col-span-1">
-                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort</label>
-                                <input name="sort_order" type="number" step="1" min="0" placeholder="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div class="md:col-span-3">
-                                <label class="block text-xs mb-1" style="color:var(--text-muted);">E-Sign Role</label>
-                                <select name="esign_role"
-                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    <option value="">(none)</option>
-                                    <option value="seller">Seller</option>
-                                    <option value="buyer">Buyer</option>
-                                    <option value="lessor">Lessor</option>
-                                    <option value="lessee">Lessee</option>
-                                </select>
-                            </div>
-                            <div class="md:col-span-2">
-                                <button class="w-full corex-btn-primary text-sm">Add</button>
-                            </div>
-                        </form>
-                    </div>
-
-                    {{-- Contact Types list --}}
-                    <div class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
-                        <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
-                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Current Types</div>
-                            <div class="text-xs" style="color:var(--text-muted);">{{ count($contactTypes) }} total</div>
-                        </div>
-                        <div x-data="{ editCTId: null }">
-                            @forelse($contactTypes as $cType)
-                            <div style="border-bottom:1px solid var(--border);">
-                                {{-- View row --}}
-                                <div x-show="editCTId !== {{ $cType->id }}"
-                                     class="p-4 flex items-center justify-between gap-4">
-                                    <div class="flex items-center gap-3">
-                                        <span class="w-4 h-4 rounded-full flex-shrink-0"
-                                              style="background-color: {{ $cType->color }}"></span>
-                                        <span class="text-sm font-medium" style="color:var(--text-primary);">{{ $cType->name }}</span>
-                                        @if($cType->esign_role)
-                                            <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ ucfirst($cType->esign_role) }}</span>
-                                        @endif
-                                        <span class="text-xs" style="color:var(--text-muted);">{{ $cType->contacts()->count() }} contact{{ $cType->contacts()->count() !== 1 ? 's' : '' }}</span>
+                    {{-- Four fixed parents, each with nested sub-tags --}}
+                    <div class="space-y-3">
+                        @foreach($contactTypes as $parent)
+                        <div x-data="{ openP: false, addOpen: false, editTagId: null }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                            <button type="button" @click="openP = !openP"
+                                    class="w-full flex items-center justify-between px-4 py-3 transition-colors"
+                                    style="background:var(--surface-2);">
+                                <div class="flex items-center gap-3">
+                                    <span class="w-3.5 h-3.5 rounded-full flex-shrink-0" style="background-color: {{ $parent->color }}"></span>
+                                    <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $parent->name }}</span>
+                                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ ucfirst($parent->esign_role) }}</span>
+                                    <span class="text-xs" style="color:var(--text-muted);">{{ $parent->subTags->count() }} sub-tag{{ $parent->subTags->count() !== 1 ? 's' : '' }}</span>
+                                </div>
+                                <svg class="w-4 h-4 transition-transform" :class="openP ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <div x-show="openP" x-cloak style="border-top:1px solid var(--border);" class="p-4 space-y-2">
+                                {{-- Sub-tag list --}}
+                                @forelse($parent->subTags as $tag)
+                                <div style="border-bottom:1px solid var(--border);">
+                                    <div x-show="editTagId !== {{ $tag->id }}" class="py-2 flex items-center justify-between gap-4">
+                                        <div class="flex items-center gap-3">
+                                            <span class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: {{ $tag->color }}"></span>
+                                            <span class="text-sm" style="color:var(--text-primary);">{{ $tag->name }}</span>
+                                            <span class="text-xs" style="color:var(--text-muted);">{{ $tag->contacts()->count() }} contact{{ $tag->contacts()->count() !== 1 ? 's' : '' }}</span>
+                                        </div>
+                                        <div class="flex items-center gap-3">
+                                            <button type="button" @click="editTagId = {{ $tag->id }}" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">Edit</button>
+                                            <form method="POST" action="{{ route('corex.settings.contact-tags.destroy', $tag) }}" onsubmit="return confirm('Delete this sub-tag?');">
+                                                @csrf @method('DELETE')
+                                                <button class="text-xs font-semibold" style="color: var(--ds-crimson);">Delete</button>
+                                            </form>
+                                        </div>
                                     </div>
-                                    <div class="flex items-center gap-3">
-                                        <button @click="editCTId = {{ $cType->id }}"
-                                                class="text-xs font-semibold font-semibold" style="color: var(--brand-icon, #0ea5e9);">Edit</button>
-                                        <form method="POST" action="{{ route('corex.settings.contact-types.destroy', $cType) }}"
-                                              onsubmit="return confirm('Delete this contact type?');">
-                                            @csrf @method('DELETE')
-                                            <button class="text-xs font-semibold" style="color: var(--ds-crimson);"
-                                                    {{ $cType->contacts()->count() > 0 ? 'disabled title=Cannot delete — contacts assigned' : '' }}>
-                                                Delete
-                                            </button>
+                                    <div x-show="editTagId === {{ $tag->id }}" x-cloak class="py-3">
+                                        <form method="POST" action="{{ route('corex.settings.contact-tags.update', $tag) }}" class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                                            @csrf @method('PUT')
+                                            <input type="hidden" name="contact_type_id" value="{{ $parent->id }}">
+                                            <div class="md:col-span-6">
+                                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Name</label>
+                                                <input name="name" value="{{ $tag->name }}" required class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Color</label>
+                                                <input type="color" name="color" value="{{ $tag->color }}" class="w-full h-9 rounded-md cursor-pointer border" style="border-color:var(--border); background:var(--surface);">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort</label>
+                                                <input name="sort_order" type="number" step="1" min="0" value="{{ (int)$tag->sort_order }}" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            </div>
+                                            <div class="md:col-span-2 flex gap-2">
+                                                <button type="submit" class="flex-1 corex-btn-primary text-sm">Save</button>
+                                                <button type="button" @click="editTagId = null" class="flex-1 text-sm rounded-md" style="border:1px solid var(--border); color:var(--text-secondary);">Cancel</button>
+                                            </div>
                                         </form>
                                     </div>
                                 </div>
-                                {{-- Edit row --}}
-                                <div x-show="editCTId === {{ $cType->id }}" x-cloak
-                                     class="p-4" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent); border-top:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent);">
-                                    <form method="POST" action="{{ route('corex.settings.contact-types.update', $cType) }}"
-                                          class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                                        @csrf @method('PUT')
-                                        <div class="md:col-span-4">
-                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Name</label>
-                                            <input name="name" value="{{ $cType->name }}" required
-                                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                @empty
+                                <p class="text-xs py-1" style="color:var(--text-muted);">No sub-tags under {{ $parent->name }} yet.</p>
+                                @endforelse
+
+                                {{-- Add sub-tag --}}
+                                <div class="pt-1">
+                                    <button type="button" x-show="!addOpen" @click="addOpen = true" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">+ Add sub-tag</button>
+                                    <form x-show="addOpen" x-cloak method="POST" action="{{ route('corex.settings.contact-tags.store') }}" class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end mt-2">
+                                        @csrf
+                                        <input type="hidden" name="contact_type_id" value="{{ $parent->id }}">
+                                        <div class="md:col-span-6">
+                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Sub-tag name</label>
+                                            <input name="name" required placeholder="e.g. Cash seller, First-time buyer" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
-                                        <div class="md:col-span-1">
+                                        <div class="md:col-span-2">
                                             <label class="block text-xs mb-1" style="color:var(--text-muted);">Color</label>
-                                            <input type="color" name="color" value="{{ $cType->color }}"
-                                                   class="w-full h-9 rounded-md cursor-pointer border"
-                                                   style="border-color:var(--border); background:var(--surface);">
+                                            <input type="color" name="color" value="{{ $parent->color }}" class="w-full h-9 rounded-md cursor-pointer border" style="border-color:var(--border); background:var(--surface);">
                                         </div>
-                                        <div class="md:col-span-1">
+                                        <div class="md:col-span-2">
                                             <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort</label>
-                                            <input name="sort_order" type="number" step="1" min="0" value="{{ (int)$cType->sort_order }}"
-                                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input name="sort_order" type="number" step="1" min="0" placeholder="0" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
-                                        <div class="md:col-span-3">
-                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">E-Sign Role</label>
-                                            <select name="esign_role"
-                                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                                <option value="" {{ empty($cType->esign_role) ? 'selected' : '' }}>(none)</option>
-                                                <option value="seller" {{ $cType->esign_role === 'seller' ? 'selected' : '' }}>Seller</option>
-                                                <option value="buyer" {{ $cType->esign_role === 'buyer' ? 'selected' : '' }}>Buyer</option>
-                                                <option value="lessor" {{ $cType->esign_role === 'lessor' ? 'selected' : '' }}>Lessor</option>
-                                                <option value="lessee" {{ $cType->esign_role === 'lessee' ? 'selected' : '' }}>Lessee</option>
-                                            </select>
-                                        </div>
-                                        <div class="md:col-span-3 flex gap-2">
-                                            <button type="submit" class="flex-1 corex-btn-primary text-sm">Save</button>
-                                            <button type="button" @click="editCTId = null"
-                                                    class="flex-1 text-sm rounded-md"
-                                                    style="border:1px solid var(--border); color:var(--text-secondary);">Cancel</button>
+                                        <div class="md:col-span-2 flex gap-2">
+                                            <button type="submit" class="flex-1 corex-btn-primary text-sm">Add</button>
+                                            <button type="button" @click="addOpen = false" class="flex-1 text-sm rounded-md" style="border:1px solid var(--border); color:var(--text-secondary);">Cancel</button>
                                         </div>
                                     </form>
                                 </div>
                             </div>
-                            @empty
-                            <div class="p-5 text-sm" style="color:var(--text-muted);">No contact types yet. Add one above.</div>
-                            @endforelse
                         </div>
+                        @endforeach
                     </div>
+
+                    {{-- Legacy tags awaiting a parent (re-home so nothing is lost) --}}
+                    @if(isset($unassignedTags) && $unassignedTags->isNotEmpty())
+                    <div class="p-4 rounded-md mt-3" style="background: color-mix(in srgb, var(--ds-amber) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
+                        <div class="text-xs font-semibold mb-2" style="color:var(--text-primary);">Unsorted tags — assign each to a signing role</div>
+                        @foreach($unassignedTags as $tag)
+                        <form method="POST" action="{{ route('corex.settings.contact-tags.update', $tag) }}" class="flex items-center gap-2 mb-2">
+                            @csrf @method('PUT')
+                            <input type="hidden" name="name" value="{{ $tag->name }}">
+                            <input type="hidden" name="color" value="{{ $tag->color }}">
+                            <span class="text-sm flex-1" style="color:var(--text-primary);">{{ $tag->name }}</span>
+                            <select name="contact_type_id" required class="rounded-md px-2 py-1 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <option value="">— role —</option>
+                                @foreach($contactTypes as $p)
+                                <option value="{{ $p->id }}">{{ $p->name }}</option>
+                                @endforeach
+                            </select>
+                            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+                        </form>
+                        @endforeach
+                    </div>
+                    @endif
                 </div>
                     </div>{{-- /x-show open (Contact Types) --}}
                 </div>{{-- /x-data accordion (Contact Types) --}}
@@ -2161,122 +2145,6 @@
                 </div>
                     </div>{{-- /x-show open (Contact Sources) --}}
                 </div>{{-- /x-data accordion (Contact Sources) --}}
-
-                {{-- ── Contact Tags (accordion) ── --}}
-                <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
-                    <button type="button" @click="open = !open"
-                            class="w-full flex items-center justify-between px-4 py-3 transition-colors"
-                            style="background:var(--surface-2);"
-                            onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon, #0ea5e9) 4%, transparent)'" onmouseout="this.style.background='var(--surface-2)'">
-                        <div class="flex items-center gap-3">
-                            <span class="text-sm font-semibold" style="color:var(--text-primary);">Contact Tags</span>
-                            <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">{{ count($contactTags) }}</span>
-                        </div>
-                        <svg class="w-4 h-4 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    </button>
-                    <div x-show="open" x-cloak style="border-top:1px solid var(--border);">
-                    <div class="p-4 space-y-4">
-                    <p class="text-xs" style="color:var(--text-muted);">Tags help categorise contacts (e.g. VIP, Hot Lead, Investor). Tags can be assigned to multiple contacts and are auto-created during imports.</p>
-
-                    {{-- Add Tag --}}
-                    <div class="p-4 rounded-md mb-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Contact Tag</div>
-                        <form method="POST" action="{{ route('corex.settings.contact-tags.store') }}"
-                              class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                            @csrf
-                            <div class="md:col-span-6">
-                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Name</label>
-                                <input name="name" required placeholder="e.g. VIP, Hot Lead, Investor"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Color</label>
-                                <input type="color" name="color" value="#6366f1"
-                                       class="w-full h-9 rounded-md cursor-pointer border"
-                                       style="border-color:var(--border); background:var(--surface);">
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort order</label>
-                                <input name="sort_order" type="number" step="1" min="0" placeholder="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div class="md:col-span-2">
-                                <button class="w-full corex-btn-primary text-sm">Add</button>
-                            </div>
-                        </form>
-                    </div>
-
-                    {{-- Tags list --}}
-                    <div class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
-                        <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
-                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Current Tags</div>
-                            <div class="text-xs" style="color:var(--text-muted);">{{ count($contactTags) }} total</div>
-                        </div>
-                        <div x-data="{ editTagId: null }">
-                            @forelse($contactTags as $cTag)
-                            <div style="border-bottom:1px solid var(--border);">
-                                <div x-show="editTagId !== {{ $cTag->id }}"
-                                     class="p-4 flex items-center justify-between gap-4">
-                                    <div class="flex items-center gap-3">
-                                        <span class="w-4 h-4 rounded-full flex-shrink-0"
-                                              style="background-color: {{ $cTag->color }}"></span>
-                                        <span class="text-sm font-medium" style="color:var(--text-primary);">{{ $cTag->name }}</span>
-                                        <span class="text-xs" style="color:var(--text-muted);">{{ $cTag->contacts()->count() }} contact{{ $cTag->contacts()->count() !== 1 ? 's' : '' }}</span>
-                                    </div>
-                                    <div class="flex items-center gap-3">
-                                        <button @click="editTagId = {{ $cTag->id }}"
-                                                class="text-xs font-semibold font-semibold" style="color: var(--brand-icon, #0ea5e9);">Edit</button>
-                                        <form method="POST" action="{{ route('corex.settings.contact-tags.destroy', $cTag) }}"
-                                              onsubmit="return confirm('Delete this contact tag?');">
-                                            @csrf @method('DELETE')
-                                            <button class="text-xs font-semibold" style="color: var(--ds-crimson);">
-                                                Delete
-                                            </button>
-                                        </form>
-                                    </div>
-                                </div>
-                                <div x-show="editTagId === {{ $cTag->id }}" x-cloak
-                                     class="p-4" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent); border-top:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent);">
-                                    <form method="POST" action="{{ route('corex.settings.contact-tags.update', $cTag) }}"
-                                          class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                                        @csrf @method('PUT')
-                                        <div class="md:col-span-6">
-                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Name</label>
-                                            <input name="name" value="{{ $cTag->name }}" required
-                                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                        </div>
-                                        <div class="md:col-span-2">
-                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Color</label>
-                                            <input type="color" name="color" value="{{ $cTag->color }}"
-                                                   class="w-full h-9 rounded-md cursor-pointer border"
-                                                   style="border-color:var(--border); background:var(--surface);">
-                                        </div>
-                                        <div class="md:col-span-2">
-                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort order</label>
-                                            <input name="sort_order" type="number" step="1" min="0" value="{{ (int)$cTag->sort_order }}"
-                                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                        </div>
-                                        <div class="md:col-span-2 flex gap-2">
-                                            <button type="submit" class="flex-1 corex-btn-primary text-sm">Save</button>
-                                            <button type="button" @click="editTagId = null"
-                                                    class="flex-1 text-sm rounded-md"
-                                                    style="border:1px solid var(--border); color:var(--text-secondary);">Cancel</button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                            @empty
-                            <div class="p-5 text-sm" style="color:var(--text-muted);">No contact tags yet. Add one above or import contacts to auto-create them.</div>
-                            @endforelse
-                        </div>
-                    </div>
-                    </div>
-                    </div>
-                </div>
 
             </div>{{-- /contacts --}}
 

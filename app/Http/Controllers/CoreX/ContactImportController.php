@@ -578,18 +578,28 @@ class ContactImportController extends Controller
         if ($s === '') return null;
 
         $key = strtolower($s);
-        if (isset($cache[$key])) return $cache[$key];
+        if (array_key_exists($key, $cache)) return $cache[$key];
 
-        // Auto-create the type. Set is_active explicitly so it always appears in
-        // the type filter/dropdowns (ContactType::where('is_active', true)).
-        $type = ContactType::create([
-            'name'       => $s,
-            'color'      => '#6366f1',
-            'sort_order' => 0,
-            'is_active'  => true,
-        ]);
-        $cache[$key] = $type->id;
-        return $type->id;
+        // AT-79: contact types are LOCKED to the 4 canonical parents — import may
+        // NOT create new types. Map the spreadsheet value to a parent by role
+        // name; unrecognised values resolve to null (no type, brought in via the
+        // tags column instead) rather than a rogue 5th parent.
+        $roleMap = [
+            'seller' => 'seller', 'vendor' => 'seller', 'owner' => 'seller',
+            'buyer'  => 'buyer',  'purchaser' => 'buyer',
+            'lessor' => 'lessor', 'landlord' => 'lessor',
+            'lessee' => 'lessee', 'tenant' => 'lessee',
+        ];
+        $role = $roleMap[$key] ?? null;
+        if (!$role) {
+            foreach ($roleMap as $fragment => $r) {
+                if (str_contains($key, $fragment)) { $role = $r; break; }
+            }
+        }
+
+        $id = $role ? ContactType::where('esign_role', $role)->value('id') : null;
+        $cache[$key] = $id;
+        return $id;
     }
 
     private function resolveSource(mixed $sourceCell, array &$cache): ?int
