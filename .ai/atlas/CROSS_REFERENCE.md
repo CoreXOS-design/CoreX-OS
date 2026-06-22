@@ -81,7 +81,54 @@ Legend: **R** = reads · **W** = writes · file:line points to the canonical acc
 |-------|---------|---------|
 | `prospecting_buyer_matches` (tier perfect/strong/approximate) | **MIC tile** `buyers_matched` (`MarketIntelligenceController.php:1778-1784`, canonical); prospecting buyer panels (`BuyerMatchTierService`) | **canonical (Engine A)** `recomputeProspectingMatches[ForBuyer]` (`PropertyMatchScoringService.php:449-579`); cmd `prospecting:recompute-matches` (04:00) |
 | `property_buyer_matches` (tier varchar) | Presentations buyer demand (some paths); buyer portal `getMatchesForBuyer` | **legacy (Engine B)** `recomputeForBuyer` (`:384-442`); cmd `matches:recompute` (04:30) ⚠ scored by different engine than prospecting table |
-| `contact_matches` (buyer wishlists) | **MIC** both engines (canonical criteria source); Core Matches | Contacts feature (wishlist editor — TODO); `ContactMatchObserver` triggers recompute (`:185-189`) |
+| `contact_matches` (buyer wishlists) | **MIC** both engines (canonical criteria source); Core Matches; **Buyer Pipeline** countable gate (`ContactMatch.php:354-462`) | **Contacts** — `ContactMatchController::store/update`; `ContactMatchObserver::created` triggers auto-land (`:71-101`) + `saved/deleted` trigger `RegenerateBuyerMatchesJob` (`:118,151`) |
+
+---
+
+## Contact (`contacts`) columns
+
+| Column | READERS | WRITERS |
+|--------|---------|---------|
+| `is_buyer` | **MIC** demand (`PropertyMatchScoringService.php:238,252,276`); **Buyer Pipeline** (`Contact::buyers()`) | **Buyer Pipeline** — `BuyerStateService::markActivity/landOnPipeline` (`:103-109,163`); Contacts edit |
+| `buyer_state` | **Buyer Pipeline** board (`BuyerPipelineController.php:87-92`) | **Buyer Pipeline** — `BuyerStateService::transitionTo` (`:51`); cron `RecomputeBuyerStates` |
+| `last_activity_at` | **Buyer Pipeline** `resolveState` (`BuyerStateService.php:29`) | `BuyerStateService::markActivity` (`:125`) |
+| `buyer_pipeline_entered_at` / `_notes` | Buyer Pipeline display | `landOnPipeline` (`:163-173`); Contacts |
+| structured address (`unit_number`,`complex_name`,`street_*`,`suburb`,`p24_*_id`) | **Properties** create prefill (`PropertyController.php:393-412`, one-way) | **Contacts** — `updatePropertyAddress` (`ContactController.php:584`) |
+| residential `address` | display only | Contacts edit (independent of structured address) |
+| `messaging_opt_out_*` / `messaging_all_blocked` / `messaging_opted_in_*` | **Compliance** comm status (`Contact.php:583-601`) | **Compliance** — `MarketingConsentService::optOut/optInContact` (`:72-85,165-203`) |
+| `opt_out_email/sms/whatsapp/call` | `canSendVia` (`Contact.php:487-510`); outreach gate | `MarketingConsentService` (`:97`); `recomputeChannelConsent` (`Contact.php:516`) |
+| `preapproval_amount/expires_at/institution` | MIC preapproval gating (`hasValidPreapproval` `Contact.php:79`) | Contacts edit |
+| `whatsapp_count` / `email_count` / `last_contacted_at` | comms tiles (AT-59, `outboundCommCount` `:721`) | comms ingest; `touchLastContacted` (`:743`) |
+| `client_user_id` | portal login link (`hasClientLogin` `:129`) | `Contacts\ClientLoginController::create` (`:50`) |
+
+---
+
+## Contact / Buyer / Compliance support tables
+
+| Table | READERS | WRITERS |
+|-------|---------|---------|
+| `buyer_state_transitions` (agency_id NOT NULL post-`2026_05_23_030800`) | `isManualPlacementProtected` (`BuyerStateService.php:222`); audit | `BuyerStateService::transitionTo` (`:53-66`, explicit agency_id `:59`) |
+| `buyer_lost_records` | lost reporting | `BuyerStateService.php:70-87` (auto→lost) |
+| `BuyerActivityLog` | activity audit | `BuyerStateService::markActivity` (`:112-122`) |
+| `contact_consent_records` (tri-state) | `Contact::consentDecision/canSendVia`; `recomputeChannelConsent` (`:516`) | `setConsent/revokeConsent` (`Contact.php:412-474`); `MarketingConsentService` (`:91-95`) |
+| `marketing_suppressions` (agency_id + identifier) | outreach gate (`isContactSuppressed` `:216-227`); admin list | `MarketingConsentService::writeSuppression` (`:244-274`); admin `lift` = opt-in |
+| `fica_submissions` | e-Sign gate (`SignatureRequest.fica_submission_id`); marketing readiness (`:115-119`) | `FicaController::complianceApprove` (`:326-347`, stamps 24-mo expiry); `FicaPublicController::submit` |
+| `whistleblow_complaints` / `_subjects` | `WhistleblowController` index/show; lawyer pack | `WhistleblowController::store` (`:79-177`); `sendToPpra` |
+| `contact_property` (pivot, role) | Properties; Contacts; Presentations seller link | Properties store/link; `ContactPropertyController` |
+| `client_users` (cross-agency portal credential) | portal auth | `ClientLoginController::create` (`:42`) |
+
+---
+
+## Deal / Commission tables
+
+| Table | READERS | WRITERS |
+|-------|---------|---------|
+| `deals` (V1) | `Admin/Agent DealController`; `Api\V1\DealsController`; finance audit | **Deals V1** — `DealController::store` (`:231`) / `saveSettlement` (`:622-750`) |
+| `deal_user` (pivot: side/splits/PAYE) | V1 settlement allocations (`Deal::agents()` `:155`) | V1 settlement |
+| `deal_money_lines` (canonical computed money) | settlement print/payslip; finance | **both** V1 (`DealMoneyLineRebuilder`) AND V2 (`DealV2SettlementController`) ⚠ |
+| `deals_v2` + `deal_v2_contacts`/`_agents`/step tables | `DealV2Controller`; pipeline service | **Deals V2** — `DealPipelineService::createDeal` (`:18`) + step lifecycle |
+| `commission_ledger` / `revenue_share_ledger` / `agent_cap_periods` | `CommissionController` dashboards (read-only `:29-207`) | **ORPHANED** — `CommissionCalculationService` never invoked ⚠ BACKLOG |
+| `presentations.presentation_id` ← `deals` | deal↔presentation link (Phase 3i) | `DealPropertyLinkService` |
 
 ---
 
@@ -105,7 +152,13 @@ Legend: **R** = reads · **W** = writes · file:line points to the canonical acc
 | `matches_enabled` / `matches_show_on_properties` | `PerformanceSetting` | Properties Core Matches tab (`show.blade.php:1392`) | Settings UI |
 | `ai_image_recognition_enabled` | bool | Properties AI photo suggestions (`PropertyController.php:360`) | Settings UI |
 | `address_match_mode` | `'standard'` | Properties create-from-contact guard (`ContactAddressPropertyGuard.php:76`) | Settings UI |
+| `buyer_warm_days` / `buyer_cold_days` / `buyer_lost_days` | 14 / 30 / 60 | **Buyer Pipeline** `BuyerStateService` (`:31,34`); protection window = cold_days (`:232`); `lost_days` defined but unused in `resolveState` | Settings UI |
+| `min_countable_criteria` (AT-71) | `['any']` | **Buyer Pipeline / MIC** countable gate (`ContactMatch.php:380,414`) | Settings UI |
+| `buyer_pipeline_default_scope` | `'own'` | **Buyer Pipeline** scope (`BuyerPipelineController.php:135-138`) | Settings UI |
+| `contact_retention_years` / `consent_retention_years` / `access_log_retention_years` | 5 / 5 / 5 | **Compliance** `PurgeContactRetention` cron (`:31,67,85`) | Contact Governance UI (`min:5\|max:99`) |
+| `whistleblow_approver_user_ids` | admin/BM/super_admin fallback | **Compliance** approver gate (`WhistleblowController.php:257-271`) | agency settings |
 | per-report-type `auto_approve` | bool | CMA Import spot-check skip (`ParseMarketReportJob.php:253`) | report-type settings |
+| `vat_rate` (PerformanceSetting) | 15 | **Deals/Commission** inc→ex VAT (`Finance/CommissionCalculator.php:11-13`) | Settings UI |
 
 > Note: **no agency setting is keyed `mic_`** in the *Presentations* path. `mic_snapshot_v1` is a parser
 > source-tag; `mic.*` are permissions. The `mic_match_threshold`/`mic_price_band_pct` knobs belong to the
@@ -132,6 +185,8 @@ Legend: **R** = reads · **W** = writes · file:line points to the canonical acc
 | `PropertySuburbLinked` | Properties — store/update (`PropertyController.php:600-607,941-950`) | `LogContactEvent` / suburb link listeners (TODO) |
 | `ContactLinkedToProperty` | Properties / contact-link path | `LogContactEvent` (logging only, `AppServiceProvider.php:380`) |
 | `MarketReportParsed` | CMA Import — `ParseMarketReportJob.php:232-240` | GPS backfill + spot-check dispatch (TODO enumerate) |
+| `OptOutRecorded` | Compliance/outreach — public link + agent-marked | `RecordOptOutOnContact` → `MarketingConsentService::optOutContact` (`:28-46`) |
+| buyer state transitions (`BuyerStateTransition` rows, not an event) | Buyer Pipeline — `BuyerStateService::transitionTo` (`:53`) | append-only audit (reasons: wishlist_created/auto_landed/manual_override/auto_recompute/first_activity) |
 
 ---
 

@@ -44,15 +44,14 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 ### Contact & Buyer
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| Contacts | contacts.md | TODO | `Contact` pillar, structured address, consent/status |
-| Buyer Pipeline | buyer-pipeline.md | TODO | `command-center.buyers.pipeline`, auto-land (AT-72), state transitions |
+| **Contacts** | [contacts.md](contacts.md) | **DONE** | `Contact` pillar, structured address (AT-60), comms tiles (AT-59), wishlist, derived comm status, ClientUser distinction |
+| **Buyer Pipeline** | [buyer-pipeline.md](buyer-pipeline.md) | **DONE** | `command-center.buyers.pipeline`, countable gate (AT-71), auto-land (AT-72), staleness + manual-protection (AT-74), nav AT-76 |
 | Portal Leads | portal-leads.md | TODO | `corex.portal-leads.index` |
 
 ### Deal & Commission
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| Deals v2 | deals.md | TODO | `deals-v2.*`, pipeline, deal register |
-| Commission / Agency Tracker | commission.md | TODO | `commission.*`, commission engine |
+| **Deal Register / Commission** | [deals-commission.md](deals-commission.md) | **DONE** | V1 (live money path) + V2 pipeline + orphaned cap/rev-share engine; settlement, PAYE; built-vs-backlog |
 | Revenue Share / Deposit Interest | finance-tools.md | TODO | `revenue-share.calculator`, `deposit-interest-calculator.*` |
 
 ### Documents & E-Sign
@@ -65,7 +64,7 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 ### Compliance
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
-| Compliance (FICA/POPIA/PPRA) | compliance.md | TODO | `compliance.*`, RMCP, screening, whistleblow, seller-info |
+| **Compliance (FICA/POPIA/PPRA)** | [compliance.md](compliance.md) | **DONE** | FICA (24-mo validity), POPIA/CPA opt-in/out engine (AT-45→50), Whistleblower, RMCP/screening/policy, IO/CO registers, retention |
 | Communications Capture / Archive | communications.md | TODO | `communications.*`, `compliance.comm-*`, WA capture |
 
 ### Calendar & Command Center
@@ -112,9 +111,11 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 
 ## Progress
 
-- **DONE:** 5 — Presentations, Properties, Prospecting/Tracked Properties, Market Intelligence Centre, CMA Report Import.
-  This closes the Presentations cross-reference loops: every upstream source it depends on (property
-  columns, the canvass pool, the scoring engines, the report parser) is now documented.
-- **Next queued:** Contacts (the Contact pillar — buyer wishlists feed the MIC) → Buyer Pipeline (AT-72
-  auto-land) → Deals v2 → Compliance. Rationale: Contacts is the other half of the MIC matching equation
-  and the next-densest cross-reference after Property.
+- **DONE:** 9 — Presentations, Properties, Prospecting/Tracked Properties, Market Intelligence Centre,
+  CMA Report Import, Contacts, Buyer Pipeline, Deal Register/Commission, Compliance.
+  This closes BOTH halves of the MIC/matching loop (Property side + Contact/Buyer side) and the
+  Deal + Compliance clusters that consume them.
+- **Next queued:** DocuPerfect / E-Sign (signing pipeline — FICA-gated, consumes Contacts as recipients) →
+  Calendar / Command Center → Communications Capture/Archive → Payroll/Leave. Rationale: E-Sign is the
+  next-densest cross-reference (FICA gate, contact parties, deal-document linkage) and has a standing P0
+  signing-view invariant worth documenting precisely.
