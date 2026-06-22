@@ -36,11 +36,16 @@ final class OutreachContext
         public readonly array $validationIssues,
         public readonly bool $optOutBlocks,
         public readonly ?array $cooldownSignal,
+        // AT-81 — a consent-request is already out and awaiting a reply. A HARD
+        // block on re-sending (distinct from optOutBlocks so the agent message is
+        // honest: "awaiting reply", not "opted out"). Cleared the moment the
+        // contact engages or the no-response window lapses them to opted-out.
+        public readonly bool $pendingBlocks = false,
     ) {}
 
     public function isSendable(): bool
     {
-        return empty($this->validationIssues) && !$this->optOutBlocks;
+        return empty($this->validationIssues) && !$this->optOutBlocks && !$this->pendingBlocks;
     }
 
     /** AT-61 — true when composed off a contact address with no linked Property. */

@@ -170,6 +170,16 @@ final class SellerOutreachLandingService
                 'first_clicked_at' => $click->clicked_at,
                 'outcome' => SellerOutreachSend::OUTCOME_CLICKED,
             ]);
+
+            // AT-81 — a click is engagement: clear any pending consent-request so
+            // the no-response timeout never lapses a contact who interacted. Public
+            // (unauthenticated) path → resolve the contact agency-scoped.
+            $contact = \App\Models\Contact::withoutGlobalScopes()
+                ->whereNull('deleted_at')
+                ->where('id', $send->contact_id)
+                ->where('agency_id', $send->agency_id)
+                ->first();
+            $contact?->clearOutreachPending();
         }
 
         event(new PitchClicked(

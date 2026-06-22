@@ -22,6 +22,9 @@ class AgencyContactSettings extends Model
         'buyer_warm_days',
         'buyer_cold_days',
         'buyer_lost_days',
+        // AT-81 — days a contact may sit PENDING (consent-request sent, no reply)
+        // before being lapsed to a no_response opt-out.
+        'outreach_no_response_days',
         // AT-71 — agency-configurable minimum criteria for a "countable" buyer
         // wishlist. JSON array of required criteria groups; ['any'] = default.
         'min_countable_criteria',
@@ -38,6 +41,7 @@ class AgencyContactSettings extends Model
         'buyer_warm_days' => 'integer',
         'buyer_cold_days' => 'integer',
         'buyer_lost_days' => 'integer',
+        'outreach_no_response_days' => 'integer',
         'min_countable_criteria' => 'array',
         'mic_match_threshold' => 'integer',
         'mic_price_band_pct' => 'integer',
@@ -45,6 +49,9 @@ class AgencyContactSettings extends Model
         'consent_retention_years' => 'integer',
         'access_log_retention_years' => 'integer',
     ];
+
+    /** AT-81 — default no-response window (days) before a pending contact lapses. */
+    public const DEFAULT_OUTREACH_NO_RESPONSE_DAYS = 7;
 
     /** AT-75 — MIC tile/slider threshold floor (%) when the column is null. */
     public const DEFAULT_MIC_MATCH_THRESHOLD = 75;
@@ -79,6 +86,7 @@ class AgencyContactSettings extends Model
                 'buyer_warm_days' => 14,
                 'buyer_cold_days' => 30,
                 'buyer_lost_days' => 60,
+                'outreach_no_response_days' => self::DEFAULT_OUTREACH_NO_RESPONSE_DAYS,
                 'min_countable_criteria' => self::DEFAULT_MIN_COUNTABLE_CRITERIA,
                 'mic_match_threshold' => self::DEFAULT_MIC_MATCH_THRESHOLD,
                 'mic_price_band_pct' => self::DEFAULT_MIC_PRICE_BAND_PCT,
@@ -87,6 +95,13 @@ class AgencyContactSettings extends Model
                 'access_log_retention_years' => 5,
             ]
         );
+    }
+
+    /** AT-81 — resolved no-response window (days), null-safe, clamped to ≥1. */
+    public function outreachNoResponseDays(): int
+    {
+        $v = (int) ($this->outreach_no_response_days ?? self::DEFAULT_OUTREACH_NO_RESPONSE_DAYS);
+        return max(1, $v);
     }
 
     /** AT-75 — resolved MIC match threshold (%), clamped 1-100. */

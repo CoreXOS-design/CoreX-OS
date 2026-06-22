@@ -66,8 +66,9 @@ class MarketingConsentService
         ?int $actorUserId = null,
         ?SellerOutreachSend $send = null,
         bool $blockAll = true,
+        string $kind = Contact::OPT_OUT_KIND_DECLINED,
     ): void {
-        DB::transaction(function () use ($contact, $reason, $source, $actorUserId, $send, $blockAll) {
+        DB::transaction(function () use ($contact, $reason, $source, $actorUserId, $send, $blockAll, $kind) {
             // (2) messaging opt-out triplet — set once, preserve the original.
             if ($contact->messaging_opt_out_at === null) {
                 $contact->forceFill([
@@ -75,8 +76,19 @@ class MarketingConsentService
                     'messaging_opt_out_reason'              => $reason,
                     'messaging_opt_out_recorded_by_user_id' => $actorUserId,
                     'messaging_opt_out_source'              => $source,
+                    'messaging_opt_out_kind'                => $kind, // AT-81 sub-state
                 ])->save();
+            } elseif ($kind === Contact::OPT_OUT_KIND_DECLINED
+                && $contact->messaging_opt_out_kind === Contact::OPT_OUT_KIND_NO_RESPONSE) {
+                // AT-81 — an explicit decline always WINS over a silence-lapse:
+                // a contact auto-lapsed to no_response who then taps "stop" is
+                // upgraded to a permanent decline (the timestamp is preserved).
+                $contact->forceFill(['messaging_opt_out_kind' => Contact::OPT_OUT_KIND_DECLINED])->save();
             }
+
+            // AT-81 — opting out resolves any pending consent-request, so the
+            // no-response timeout can never fire afterwards.
+            $contact->clearOutreachPending();
 
             // AT-50 — the all-blocked latch. Raised by a stop-all (even when
             // marketing was already off); never lowered here (optInContact does).
@@ -187,9 +199,14 @@ class MarketingConsentService
                 'messaging_opt_out_reason'              => null,
                 'messaging_opt_out_recorded_by_user_id' => null,
                 'messaging_opt_out_source'              => null,
+                'messaging_opt_out_kind'                => null, // AT-81 — clear sub-state
                 'messaging_all_blocked'                 => false,
             ])->save();
             $contact->recordOptIn($reason, $actor);
+
+            // AT-81 — a confirmed opt-in resolves any pending consent-request
+            // (PENDING → CONFIRMED) so the no-response timeout never fires.
+            $contact->clearOutreachPending();
 
             // (4) lift every active suppression for this contact's identifiers.
             foreach ($this->contactIdentifiers($contact) as [$type, $value]) {
