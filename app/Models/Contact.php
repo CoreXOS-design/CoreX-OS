@@ -751,14 +751,18 @@ class Contact extends Model
     }
 
     /**
-     * Badge metadata for the derived status — plain-English label + a CoreX
-     * design-system badge class. Safe for list and detail views.
+     * Badge metadata for the derived status — plain-English label, a CoreX
+     * design-system badge class, and a state-specific tooltip. THE single source
+     * for both the contact header pill and the Outreach-tab status badge.
      *
-     * AT-81 — a marketing opt-out caused by SILENCE (no_response) is labelled
-     * distinctly from an explicit decline so no surface mislabels a lapse as a
-     * refusal. The master gating (communicationStatus) is identical for both.
+     * AT-81 — surfaces all FIVE outreach-consent states distinctly (the doctrine):
+     * the opted-IN master case fans out into INITIAL / PENDING / CONFIRMED, and
+     * the opted-OUT marketing case into NO_RESPONSE (silence) vs DECLINED
+     * (explicit) — so no surface ever mislabels a lapse as a refusal, or a
+     * sent-but-unanswered pitch as plain opted-in. Master gating
+     * (communicationStatus) is unchanged; this is the richer display layer.
      *
-     * @return array{key:string, label:string, class:string}
+     * @return array{key:string, label:string, class:string, title:string}
      */
     public function communicationStatusMeta(): array
     {
@@ -767,28 +771,49 @@ class Contact extends Model
                 'key'   => self::COMM_TRANSACTION_ONLY,
                 'label' => 'Transaction-only',
                 'class' => 'ds-badge-warning',
+                'title' => 'Marketing is off, but messages about an active sale continue until it concludes.',
             ],
             self::COMM_ALL_BLOCKED => [
                 'key'   => self::COMM_ALL_BLOCKED,
                 'label' => 'All messages stopped',
                 'class' => 'ds-badge-danger',
+                'title' => 'The contact asked to stop all messages.',
             ],
             self::COMM_MARKETING_OPTED_OUT => $this->messaging_opt_out_kind === self::OPT_OUT_KIND_NO_RESPONSE
                 ? [
                     'key'   => self::OUTREACH_NO_RESPONSE,
                     'label' => 'No response — lapsed',
                     'class' => 'ds-badge-warning',
+                    'title' => 'No reply to the consent request within the window — suppressed, but not an explicit opt-out.',
                 ]
                 : [
                     'key'   => self::COMM_MARKETING_OPTED_OUT,
                     'label' => 'Marketing opted out',
                     'class' => 'ds-badge-warning',
+                    'title' => 'The contact opted out of marketing messages.',
                 ],
-            default => [
-                'key'   => self::COMM_OPTED_IN,
-                'label' => 'Opted in',
-                'class' => 'ds-badge-success',
-            ],
+            // Opted-in master state — fan out the three opted-in sub-states so
+            // INITIAL, PENDING and CONFIRMED are each visibly distinct (AT-81).
+            default => $this->messaging_opted_in_at !== null
+                ? [
+                    'key'   => self::OUTREACH_CONFIRMED,
+                    'label' => 'Opted in · confirmed',
+                    'class' => 'ds-badge-success',
+                    'title' => 'The contact confirmed they want to hear from you.',
+                ]
+                : ($this->outreach_permission_asked_at !== null
+                    ? [
+                        'key'   => self::OUTREACH_PENDING,
+                        'label' => 'Awaiting reply',
+                        'class' => 'ds-badge-info',
+                        'title' => 'Consent request sent — awaiting their reply.',
+                    ]
+                    : [
+                        'key'   => self::OUTREACH_INITIAL,
+                        'label' => 'Opted in · not contacted',
+                        'class' => 'ds-badge-success',
+                        'title' => 'Opted in by default — no outreach has been sent yet.',
+                    ]),
         };
     }
 

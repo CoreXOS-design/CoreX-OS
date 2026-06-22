@@ -238,6 +238,71 @@ final class OutreachNoResponseLapseTest extends TestCase
         $this->assertSame(Contact::OUTREACH_DECLINED, $contact->outreachConsentState());
     }
 
+    /** Badge model — all FIVE states return distinct, plain-English meta (key/label/class/title). */
+    public function test_all_five_states_render_distinct_badge_meta(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+
+        $initial = $this->seedContactWithAddress($agencyId, 'Ada');
+
+        $pending = $this->seedContactWithAddress($agencyId, 'Ben');
+        $pending->markOutreachPending();
+
+        $confirmed = $this->seedContactWithAddress($agencyId, 'Cara');
+        app(MarketingConsentService::class)->optInContact($confirmed, 'replied yes', $userId);
+
+        $noResponse = $this->seedContactWithAddress($agencyId, 'Dan');
+        app(MarketingConsentService::class)->optOutContact(
+            contact: $noResponse, reason: 'No response', source: 'system:no_response', blockAll: false,
+            kind: Contact::OPT_OUT_KIND_NO_RESPONSE,
+        );
+
+        $declined = $this->seedContactWithAddress($agencyId, 'Eve');
+        app(MarketingConsentService::class)->optOutContact(
+            contact: $declined, reason: 'Self-service opt-out link', source: 'self_service_link', blockAll: false,
+            kind: Contact::OPT_OUT_KIND_DECLINED,
+        );
+
+        $meta = [
+            'INITIAL'     => $initial->fresh()->communicationStatusMeta(),
+            'PENDING'     => $pending->fresh()->communicationStatusMeta(),
+            'CONFIRMED'   => $confirmed->fresh()->communicationStatusMeta(),
+            'NO_RESPONSE' => $noResponse->fresh()->communicationStatusMeta(),
+            'DECLINED'    => $declined->fresh()->communicationStatusMeta(),
+        ];
+
+        // Exact keys + labels + classes per the doctrine.
+        $this->assertSame(Contact::OUTREACH_INITIAL,     $meta['INITIAL']['key']);
+        $this->assertSame('Opted in · not contacted',    $meta['INITIAL']['label']);
+        $this->assertSame('ds-badge-success',            $meta['INITIAL']['class']);
+
+        $this->assertSame(Contact::OUTREACH_PENDING,     $meta['PENDING']['key']);
+        $this->assertSame('Awaiting reply',              $meta['PENDING']['label']);
+        $this->assertSame('ds-badge-info',               $meta['PENDING']['class']);
+        $this->assertStringContainsStringIgnoringCase('awaiting their reply', $meta['PENDING']['title']);
+
+        $this->assertSame(Contact::OUTREACH_CONFIRMED,   $meta['CONFIRMED']['key']);
+        $this->assertSame('Opted in · confirmed',        $meta['CONFIRMED']['label']);
+        $this->assertSame('ds-badge-success',            $meta['CONFIRMED']['class']);
+
+        $this->assertSame(Contact::OUTREACH_NO_RESPONSE, $meta['NO_RESPONSE']['key']);
+        $this->assertSame('No response — lapsed',        $meta['NO_RESPONSE']['label']);
+
+        $this->assertSame(Contact::COMM_MARKETING_OPTED_OUT, $meta['DECLINED']['key']);
+        $this->assertSame('Marketing opted out',         $meta['DECLINED']['label']);
+
+        // All five keys and all five labels are distinct (no two states collapse).
+        $keys   = array_map(fn ($m) => $m['key'],   $meta);
+        $labels = array_map(fn ($m) => $m['label'], $meta);
+        $this->assertCount(5, array_unique($keys), 'all five badge keys are distinct');
+        $this->assertCount(5, array_unique($labels), 'all five badge labels are distinct');
+
+        // Every state carries a tooltip (no bare badge).
+        foreach ($meta as $name => $m) {
+            $this->assertNotEmpty($m['title'] ?? '', "{$name} has a tooltip");
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:int} */
