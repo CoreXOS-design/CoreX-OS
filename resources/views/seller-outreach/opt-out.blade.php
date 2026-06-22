@@ -37,10 +37,26 @@
 {{-- BUG A — present as the SENDING AGENCY, not CoreX: override the public
      layout's pinned CoreX :root with the agency's own colours, and brand the
      WhatsApp link preview (og) with the agency. --}}
+{{-- AT-83 — WhatsApp link-preview (Open Graph). This preference page is the
+     SINGLE outreach link, so its og:image is the sending agent's composite
+     business-card (the only preview WhatsApp can render). Values come from $og
+     (PublicOptOutController::ogCard), with an agency-logo fallback. --}}
 @push('head')
-<meta property="og:title" content="{{ $agencyName }} — Communication preferences">
-<meta property="og:description" content="Manage how {{ $agencyName }} contacts you.">
-@if($agencyLogoUrl)<meta property="og:image" content="{{ $agencyLogoUrl }}">@endif
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ $og['title'] ?? ($agencyName . ' — Communication preferences') }}">
+<meta property="og:description" content="{{ $og['description'] ?? ('Manage how ' . $agencyName . ' contacts you.') }}">
+<meta property="og:url" content="{{ $og['url'] ?? url()->current() }}">
+@if(!empty($og['image']))
+<meta property="og:image" content="{{ $og['image'] }}">
+@if(!empty($og['card']))
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+@else
+<meta name="twitter:card" content="summary">
+@endif
+<meta name="twitter:image" content="{{ $og['image'] }}">
+@endif
 <style>
     :root {
         --brand-sidebar: {{ $brand['sidebar'] ?? '#0b2a4a' }};
