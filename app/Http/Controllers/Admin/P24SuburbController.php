@@ -18,10 +18,13 @@ class P24SuburbController extends Controller
     {
         $this->ensureAccess();
 
-        // P24 Suburb mappings now live embedded in the unified Settings hub
-        // (System → P24 Suburbs). Keep this legacy URL working by redirecting
-        // to the hub section.
-        return redirect()->route('corex.settings', ['s' => 'p24-suburbs']);
+        // Rendered as its own dedicated page (NOT inline in the settings hub):
+        // the mapping table can run to thousands of rows, and the hub renders
+        // every section's HTML at once, which exhausted PHP memory. On its own
+        // page only this one table renders, so it stays well within budget.
+        $suburbs = P24Suburb::orderBy('name')->get();
+
+        return view('admin.p24-suburbs', compact('suburbs'));
     }
 
     public function store(Request $request)

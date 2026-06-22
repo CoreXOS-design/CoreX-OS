@@ -46,7 +46,7 @@ class SettingsController extends Controller
             'feature-documents', 'feature-rentals', 'feature-contacts',
             'feature-properties', 'feature-presentations', 'feature-matches', 'feature-dashboard',
             'leave-visibility', 'remote-access', 'commission', 'command-center', 'prospecting-setup',
-            'outreach-templates', 'p24-suburbs',
+            'outreach-templates',
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
@@ -196,13 +196,11 @@ class SettingsController extends Controller
             $data['outreachActiveTab'] = in_array($outreachTab, ['whatsapp', 'email'], true) ? $outreachTab : 'whatsapp';
         }
 
-        // System tab: P24 Suburb mappings. Gated to the same permission the
-        // mutation routes require.
-        if ($user?->hasPermission('manage_p24')) {
-            $data['p24Suburbs'] = \App\Models\P24Suburb::orderBy('name')->get();
-        } else {
-            $data['p24Suburbs'] = collect();
-        }
+        // P24 Suburb mappings are NOT loaded here anymore. The mapping table can
+        // run to thousands of rows; rendering it inline in the settings hub (which
+        // renders every section's HTML at once) exhausted PHP memory. The section
+        // now lives on its dedicated page (admin.p24-suburbs.index), linked from
+        // the settings rail.
 
         // Agents list for email signature preview selector
         $data['agents'] = User::agencyMembers()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
