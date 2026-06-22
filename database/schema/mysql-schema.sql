@@ -238,6 +238,7 @@ CREATE TABLE `agencies` (
   `range_upper_pct` tinyint unsigned DEFAULT '75' COMMENT 'AT-22 §5 — upper percentile for the recommended range. Default 75 (P75). Null → constant.',
   `cma_band_lower_pct` decimal(5,2) DEFAULT '10.00' COMMENT 'PRES-CMA-REALFIX — recommended-band LOWER half-width: lower = middle × (1 − pct/100). Null → constant 7.',
   `cma_band_upper_pct` decimal(5,2) DEFAULT '13.00' COMMENT 'PRES-CMA-REALFIX — recommended-band UPPER half-width: upper = middle × (1 + pct/100). Null → constant 7.',
+  `cma_hide_display_outliers` tinyint(1) NOT NULL DEFAULT '1',
   `competitor_stock_default_beds_tolerance` tinyint unsigned NOT NULL DEFAULT '1' COMMENT 'Competitor Stock — ± beds window for synthetic ContactMatch (Core Matches scorer).',
   `competitor_stock_default_price_tolerance_pct` tinyint unsigned NOT NULL DEFAULT '20' COMMENT 'Competitor Stock — ± percent price band for synthetic match (e.g. 20 = ±20%).',
   `competitor_stock_min_score` tinyint unsigned NOT NULL DEFAULT '50' COMMENT 'Competitor Stock — minimum match score (Core Matches 0-100) to include in section. 50 = Approximate tier floor.',
@@ -11977,3 +11978,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (846,'2026_06_21_04
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (847,'2026_06_21_062000_add_mic_match_settings_to_agency_contact_settings',160);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (848,'2026_06_21_072800_add_competitor_stock_weights_to_agencies',161);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (849,'2026_06_21_180000_add_display_email_to_users',162);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (850,'2026_06_22_090000_add_cma_hide_display_outliers_to_agencies',163);

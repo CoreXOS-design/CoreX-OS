@@ -194,6 +194,16 @@ final class ComposerController extends Controller
                 : back()->with('error', $msg);
         }
 
+        // AT-81 — hard block while a consent-request is awaiting a reply. Not an
+        // opt-out: explain why and offer the way forward (No Silent Locks).
+        if ($context->pendingBlocks) {
+            $msg = 'A consent request was already sent to this contact and is awaiting their reply. '
+                . 'You can send again once they respond, or after the no-response window lapses them.';
+            return $request->wantsJson()
+                ? response()->json(['message' => $msg], 422)
+                : back()->with('error', $msg);
+        }
+
         // Hard block: validation issues (no phone, no email, missing tracking_link, etc.)
         if (!empty($context->validationIssues)) {
             $msg = 'Cannot send: ' . implode(' ', $context->validationIssues);

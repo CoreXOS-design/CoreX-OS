@@ -207,6 +207,24 @@
             </div>
         </div>
 
+        {{-- ═══════ OUTREACH — NO-RESPONSE WINDOW (AT-81) ═══════ --}}
+        <div class="corex-panel mb-6">
+            <div class="corex-panel-header">
+                <h3 class="corex-panel-title">Seller Outreach</h3>
+            </div>
+            <div class="corex-panel-body space-y-4">
+                <p class="text-xs" style="color:var(--text-muted);">When a consent-request is sent the contact is marked <strong>awaiting reply</strong> and cannot be messaged again. If there is no reply, click, opt-in or opt-out within this many days, they are automatically lapsed to <strong>no response</strong> &mdash; suppressed from further outreach, but kept distinct from someone who explicitly opted out.</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">No-response window (days)</label>
+                        <input type="number" name="outreach_no_response_days" value="{{ $settings->outreach_no_response_days }}" min="1" max="365"
+                               class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         {{-- ═══════ RETENTION POLICY ═══════ --}}
         <div class="corex-panel mb-6">
             <div class="corex-panel-header">

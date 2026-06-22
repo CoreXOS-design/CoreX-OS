@@ -100,6 +100,9 @@ final class SellerOutreachComposerService
         // (the latter catches a re-imported contact with no flag set yet).
         $optOutBlocks = $contact->messaging_opt_out_at !== null
             || $this->marketingConsent->isContactSuppressed($contact);
+        // AT-81 — a consent-request already sent and awaiting a reply blocks a
+        // re-blast until the contact engages or the no-response window lapses.
+        $pendingBlocks = $contact->isOutreachPending();
         $cooldownSignal = $this->cooldownSignal($agencyId, $contact);
 
         $factsSnapshot = [
@@ -130,6 +133,7 @@ final class SellerOutreachComposerService
             validationIssues: $validationIssues,
             optOutBlocks: $optOutBlocks,
             cooldownSignal: $cooldownSignal,
+            pendingBlocks: $pendingBlocks,
         );
     }
 

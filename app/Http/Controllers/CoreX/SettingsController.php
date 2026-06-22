@@ -46,7 +46,7 @@ class SettingsController extends Controller
             'feature-documents', 'feature-rentals', 'feature-contacts',
             'feature-properties', 'feature-presentations', 'feature-matches', 'feature-dashboard',
             'leave-visibility', 'remote-access', 'commission', 'command-center', 'prospecting-setup',
-            'outreach-templates', 'p24-suburbs',
+            'outreach-templates',
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
@@ -82,10 +82,19 @@ class SettingsController extends Controller
         $data['rentalDocTypes']         = RentalDocumentType::orderBy('sort_order')->get();
         $data['rentalReminderSettings'] = RentalReminderSetting::current();
 
-        // Feature Settings tab: Contacts
-        $data['contactTypes']   = ContactType::orderBy('sort_order')->orderBy('name')->get();
-        $data['contactSources'] = ContactSource::orderBy('sort_order')->orderBy('name')->get();
-        $data['contactTags']    = ContactTag::orderBy('sort_order')->orderBy('name')->get();
+        // Feature Settings tab: Contacts — the 4 fixed parents, each with its
+        // agency-scoped sub-tags eager-loaded (AT-79). Any legacy tag without a
+        // parent is surfaced separately so it can be re-homed.
+        $data['contactTypes']    = ContactType::canonical()->with('subTags')->get()->unique('esign_role')->values();
+        $data['contactSources']  = ContactSource::orderBy('sort_order')->orderBy('name')->get();
+        // Legacy tags awaiting a parent (pre-normalisation). BOUNDED: on an
+        // un-normalised install EVERY tag is unassigned, so an unbounded render
+        // would OOM the settings page — cap the rendered forms and surface the
+        // true total so the admin knows to run `contacts:normalise-types`.
+        $unassignedTagsQuery = ContactTag::whereNull('contact_type_id')
+            ->orderBy('sort_order')->orderBy('name');
+        $data['unassignedTagsCount'] = (clone $unassignedTagsQuery)->count();
+        $data['unassignedTags']      = $unassignedTagsQuery->limit(50)->get();
 
         // Feature Settings: list page sizes (how many rows show per page)
         $data['contactsPerPage']   = (int) PerformanceSetting::get('contacts_per_page', 25);
@@ -187,13 +196,11 @@ class SettingsController extends Controller
             $data['outreachActiveTab'] = in_array($outreachTab, ['whatsapp', 'email'], true) ? $outreachTab : 'whatsapp';
         }
 
-        // System tab: P24 Suburb mappings. Gated to the same permission the
-        // mutation routes require.
-        if ($user?->hasPermission('manage_p24')) {
-            $data['p24Suburbs'] = \App\Models\P24Suburb::orderBy('name')->get();
-        } else {
-            $data['p24Suburbs'] = collect();
-        }
+        // P24 Suburb mappings are NOT loaded here anymore. The mapping table can
+        // run to thousands of rows; rendering it inline in the settings hub (which
+        // renders every section's HTML at once) exhausted PHP memory. The section
+        // now lives on its dedicated page (admin.p24-suburbs.index), linked from
+        // the settings rail.
 
         // Agents list for email signature preview selector
         $data['agents'] = User::agencyMembers()->where('is_active', true)->orderBy('name')->get(['id', 'name']);

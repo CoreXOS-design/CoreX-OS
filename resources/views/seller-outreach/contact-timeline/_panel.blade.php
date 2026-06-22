@@ -22,7 +22,7 @@
     {{-- AT-50 — derived 3-state communication status --}}
     <div class="flex items-center gap-2 flex-wrap">
         <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Communication status</span>
-        <span class="ds-badge {{ $commMeta['class'] }}" title="Marketing can always be switched off; transactional comms continue during a live sale.">
+        <span class="ds-badge {{ $commMeta['class'] }}" title="{{ $commMeta['title'] ?? 'Marketing can always be switched off; transactional comms continue during a live sale.' }}">
             {{ $commMeta['label'] }}
         </span>
     </div>

@@ -50,8 +50,10 @@ class Contact extends Model
         'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
         'preapproval_amount', 'preapproval_expires_at', 'preapproval_institution',
         'messaging_opt_out_at', 'messaging_opt_out_reason', 'messaging_opt_out_recorded_by_user_id', 'messaging_opt_out_source',
+        'messaging_opt_out_kind', // AT-81 — declined | no_response sub-state
         'messaging_all_blocked',
         'messaging_opted_in_at', 'messaging_opt_in_reason', 'messaging_opt_in_recorded_by_user_id',
+        'outreach_permission_asked_at', // AT-81 — PENDING marker + no-response clock
     ];
 
     protected $casts = [
@@ -69,6 +71,7 @@ class Contact extends Model
         'messaging_opt_out_at'      => 'datetime',
         'messaging_all_blocked'     => 'boolean',
         'messaging_opted_in_at'     => 'datetime',
+        'outreach_permission_asked_at' => 'datetime', // AT-81
     ];
 
     /**
@@ -102,6 +105,63 @@ class Contact extends Model
     {
         return $this->belongsToMany(ContactTag::class, 'contact_tag')
                     ->withTimestamps();
+    }
+
+    /**
+     * The parent contact types this contact belongs to (AT-79 multi-parent
+     * model). A person can be Seller AND Buyer. The single `type()`/
+     * contact_type_id above is a denormalised "primary parent" mirror kept in
+     * sync by syncTypeAssignments() for legacy readers + e-sign reverse-mapping.
+     */
+    public function parentTypes(): BelongsToMany
+    {
+        return $this->belongsToMany(ContactType::class, 'contact_contact_type')
+                    ->withTimestamps();
+    }
+
+    /**
+     * Single source of truth for writing a contact's type/tag assignments.
+     * Syncs the multi-parent pivot and the sub-tag pivot, then re-derives the
+     * primary-parent mirror (contacts.contact_type_id = lowest-sort assigned
+     * parent, or null). Returns the tag IDs newly attached this call so the
+     * caller can fire ContactTagged events.
+     *
+     * @param  int[]  $parentTypeIds  parent contact_type IDs to assign
+     * @param  int[]  $tagIds         sub-tag IDs to assign
+     * @return int[]  newly-attached tag IDs
+     */
+    public function syncTypeAssignments(array $parentTypeIds, array $tagIds): array
+    {
+        $parentTypeIds = array_values(array_unique(array_map('intval', $parentTypeIds)));
+        $tagIds        = array_values(array_unique(array_map('intval', $tagIds)));
+
+        // A chosen sub-tag implies its parent — fold those parents in so parent
+        // membership is never implicit-only.
+        if (!empty($tagIds)) {
+            $impliedParents = ContactTag::whereIn('id', $tagIds)
+                ->whereNotNull('contact_type_id')
+                ->pluck('contact_type_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+            $parentTypeIds = array_values(array_unique(array_merge($parentTypeIds, $impliedParents)));
+        }
+
+        $previousTagIds = $this->tags()->pluck('contact_tags.id')->map(fn ($id) => (int) $id)->all();
+
+        $this->parentTypes()->sync($parentTypeIds);
+        $this->tags()->sync($tagIds);
+
+        // Re-derive the primary mirror: lowest-sort parent currently assigned.
+        $primaryId = empty($parentTypeIds) ? null : ContactType::whereIn('id', $parentTypeIds)
+            ->orderBy('sort_order')->orderBy('id')
+            ->value('id');
+
+        if ((int) $this->contact_type_id !== (int) $primaryId) {
+            $this->contact_type_id = $primaryId;
+            $this->save();
+        }
+
+        return array_values(array_diff($tagIds, $previousTagIds));
     }
 
     public function createdBy(): BelongsTo
@@ -565,6 +625,30 @@ class Contact extends Model
     public const COMM_ALL_BLOCKED         = 'all_blocked';
     public const COMM_TRANSACTION_ONLY    = 'transaction_only';
 
+    // ── AT-81 — outreach-consent sub-state (the 5-state doctrine) ─────────
+    //
+    // The master opt-in/opt-out axis (above) is preserved; these add the
+    // source/reason dimension. messaging_opt_out_kind carries the opted-out
+    // sub-state; outreach_permission_asked_at carries the not-yet-opted-out
+    // PENDING marker. The 5 states below are DERIVED (never stored) by
+    // outreachConsentState().
+
+    /** messaging_opt_out_kind value: explicit decline — never re-contact. */
+    public const OPT_OUT_KIND_DECLINED    = 'declined';
+    /** messaging_opt_out_kind value: silence-lapse — re-contactable in future. */
+    public const OPT_OUT_KIND_NO_RESPONSE = 'no_response';
+
+    /** Never contacted — approachable for a first consent-request. NOT held consent. */
+    public const OUTREACH_INITIAL     = 'initial';
+    /** Consent-request sent, awaiting reply — the no-response clock is running. */
+    public const OUTREACH_PENDING     = 'pending';
+    /** Responded yes — actual marketing consent obtained. */
+    public const OUTREACH_CONFIRMED   = 'confirmed';
+    /** Window elapsed in silence — opted out, but distinct from a decline. */
+    public const OUTREACH_NO_RESPONSE = 'no_response';
+    /** Responded no — explicit opt-out. */
+    public const OUTREACH_DECLINED    = 'declined';
+
     /**
      * The contact's communication status, DERIVED (never stored):
      *   opted_in            — not opted out (default; receives all).
@@ -601,10 +685,84 @@ class Contact extends Model
     }
 
     /**
-     * Badge metadata for the derived status — plain-English label + a CoreX
-     * design-system badge class. Safe for list and detail views.
+     * AT-81 — the outreach-consent state in the 5-state doctrine, DERIVED from
+     * the master opt-out/opt-in columns plus the sub-state dimension. Distinct
+     * from communicationStatus() (which is the master gating axis); this is the
+     * richer marketing-relationship state used for honest labelling + the future
+     * re-contact pool.
      *
-     * @return array{key:string, label:string, class:string}
+     *   INITIAL    — never contacted, no consent held (approachable).
+     *   PENDING    — consent-request sent, awaiting reply (clock running).
+     *   CONFIRMED  — replied yes (consent obtained).
+     *   NO_RESPONSE— window elapsed silent (opted out, re-contactable later).
+     *   DECLINED   — replied no (opted out, never re-contact).
+     */
+    public function outreachConsentState(): string
+    {
+        if ($this->messaging_opt_out_at !== null) {
+            // Legacy opt-outs carry no kind → they were all explicit declines.
+            return $this->messaging_opt_out_kind === self::OPT_OUT_KIND_NO_RESPONSE
+                ? self::OUTREACH_NO_RESPONSE
+                : self::OUTREACH_DECLINED;
+        }
+        if ($this->messaging_opted_in_at !== null) {
+            return self::OUTREACH_CONFIRMED;
+        }
+        if ($this->outreach_permission_asked_at !== null) {
+            return self::OUTREACH_PENDING;
+        }
+        return self::OUTREACH_INITIAL;
+    }
+
+    /** AT-81 — true while a consent-request is awaiting a reply (re-send blocked). */
+    public function isOutreachPending(): bool
+    {
+        return $this->messaging_opt_out_at === null
+            && $this->messaging_opted_in_at === null
+            && $this->outreach_permission_asked_at !== null;
+    }
+
+    /**
+     * AT-81 — start the no-response clock when a consent-request is sent. Only
+     * from INITIAL: a confirmed opt-in needs no clock (consent already held), and
+     * an opted-out contact is gate-blocked from sending anyway. Idempotent — never
+     * moves an existing pending marker (so the window measures from the FIRST ask).
+     */
+    public function markOutreachPending($at = null): void
+    {
+        if ($this->messaging_opt_out_at !== null
+            || $this->messaging_opted_in_at !== null
+            || $this->outreach_permission_asked_at !== null) {
+            return;
+        }
+        $this->forceFill(['outreach_permission_asked_at' => $at ?? now()])->save();
+    }
+
+    /**
+     * AT-81 — clear the PENDING marker the moment the contact engages (opt-in,
+     * opt-out, click, or a future inbound reply) so the timeout never lapses
+     * someone who is mid-reply. Idempotent; no-op when not pending.
+     */
+    public function clearOutreachPending(): void
+    {
+        if ($this->outreach_permission_asked_at !== null) {
+            $this->forceFill(['outreach_permission_asked_at' => null])->save();
+        }
+    }
+
+    /**
+     * Badge metadata for the derived status — plain-English label, a CoreX
+     * design-system badge class, and a state-specific tooltip. THE single source
+     * for both the contact header pill and the Outreach-tab status badge.
+     *
+     * AT-81 — surfaces all FIVE outreach-consent states distinctly (the doctrine):
+     * the opted-IN master case fans out into INITIAL / PENDING / CONFIRMED, and
+     * the opted-OUT marketing case into NO_RESPONSE (silence) vs DECLINED
+     * (explicit) — so no surface ever mislabels a lapse as a refusal, or a
+     * sent-but-unanswered pitch as plain opted-in. Master gating
+     * (communicationStatus) is unchanged; this is the richer display layer.
+     *
+     * @return array{key:string, label:string, class:string, title:string}
      */
     public function communicationStatusMeta(): array
     {
@@ -613,22 +771,49 @@ class Contact extends Model
                 'key'   => self::COMM_TRANSACTION_ONLY,
                 'label' => 'Transaction-only',
                 'class' => 'ds-badge-warning',
+                'title' => 'Marketing is off, but messages about an active sale continue until it concludes.',
             ],
             self::COMM_ALL_BLOCKED => [
                 'key'   => self::COMM_ALL_BLOCKED,
                 'label' => 'All messages stopped',
                 'class' => 'ds-badge-danger',
+                'title' => 'The contact asked to stop all messages.',
             ],
-            self::COMM_MARKETING_OPTED_OUT => [
-                'key'   => self::COMM_MARKETING_OPTED_OUT,
-                'label' => 'Marketing opted out',
-                'class' => 'ds-badge-warning',
-            ],
-            default => [
-                'key'   => self::COMM_OPTED_IN,
-                'label' => 'Opted in',
-                'class' => 'ds-badge-success',
-            ],
+            self::COMM_MARKETING_OPTED_OUT => $this->messaging_opt_out_kind === self::OPT_OUT_KIND_NO_RESPONSE
+                ? [
+                    'key'   => self::OUTREACH_NO_RESPONSE,
+                    'label' => 'No response — lapsed',
+                    'class' => 'ds-badge-warning',
+                    'title' => 'No reply to the consent request within the window — suppressed, but not an explicit opt-out.',
+                ]
+                : [
+                    'key'   => self::COMM_MARKETING_OPTED_OUT,
+                    'label' => 'Marketing opted out',
+                    'class' => 'ds-badge-warning',
+                    'title' => 'The contact opted out of marketing messages.',
+                ],
+            // Opted-in master state — fan out the three opted-in sub-states so
+            // INITIAL, PENDING and CONFIRMED are each visibly distinct (AT-81).
+            default => $this->messaging_opted_in_at !== null
+                ? [
+                    'key'   => self::OUTREACH_CONFIRMED,
+                    'label' => 'Opted in · confirmed',
+                    'class' => 'ds-badge-success',
+                    'title' => 'The contact confirmed they want to hear from you.',
+                ]
+                : ($this->outreach_permission_asked_at !== null
+                    ? [
+                        'key'   => self::OUTREACH_PENDING,
+                        'label' => 'Awaiting reply',
+                        'class' => 'ds-badge-info',
+                        'title' => 'Consent request sent — awaiting their reply.',
+                    ]
+                    : [
+                        'key'   => self::OUTREACH_INITIAL,
+                        'label' => 'Opted in · not contacted',
+                        'class' => 'ds-badge-success',
+                        'title' => 'Opted in by default — no outreach has been sent yet.',
+                    ]),
         };
     }
 

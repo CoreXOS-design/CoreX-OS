@@ -155,6 +155,9 @@ Schedule::command('contacts:detect-duplicates')->dailyAt('03:30')->onOneServer()
 // ── Buyer CRM (M4) ──
 Schedule::command('buyers:recompute-states')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
 
+// ── Seller Outreach (AT-81) — lapse silent PENDING contacts to no_response ──
+Schedule::command('outreach:recompute-no-response')->dailyAt('04:15')->onOneServer()->withoutOverlapping();
+
 // ── Property Intelligence (M5) ──
 Schedule::command('properties:generate-recommendations')->weeklyOn(1, '05:00')->onOneServer()->withoutOverlapping();
 
