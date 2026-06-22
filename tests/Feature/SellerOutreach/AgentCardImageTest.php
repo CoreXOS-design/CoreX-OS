@@ -17,8 +17,8 @@ use Tests\TestCase;
  *
  * Robustness matrix (BUILD_STANDARD §5): happy path (photo), the lazy/degraded
  * paths (no photo → initials, no FFC, no designation, very long name), and the
- * cache contract (reuse on no change, fresh file on change). Asserts real PNG
- * bytes at the documented 1200×630 — never a blank/broken image.
+ * cache contract (reuse on no change, fresh file on change). Asserts real JPEG
+ * bytes at the documented 1200×630, under WhatsApp's 300KB safe size.
  */
 final class AgentCardImageTest extends TestCase
 {
@@ -97,28 +97,35 @@ final class AgentCardImageTest extends TestCase
         return $bin;
     }
 
-    /** @return array{0:int,1:int,2:string} width, height, mime */
-    private function assertValidPng(string $fsPath): array
+    /**
+     * Assert the output is a JPEG at the documented 1200×630, and UNDER 300KB —
+     * WhatsApp's link-preview crawler enforces a strict 600KB og:image cap, so
+     * the card must stay comfortably inside it (PNG would not — it doesn't
+     * compress the photo). @return array{0:int,1:int,2:string} width,height,mime
+     */
+    private function assertValidCard(string $fsPath): array
     {
         $this->assertFileExists($fsPath);
         $info = getimagesize($fsPath);
         $this->assertNotFalse($info, 'output is a parseable image');
-        $this->assertSame('image/png', $info['mime']);
+        $this->assertSame('image/jpeg', $info['mime'], 'card is JPEG (not PNG)');
+        $this->assertSame(1200, $info[0]);
+        $this->assertSame(630, $info[1]);
+        $this->assertLessThan(300 * 1024, filesize($fsPath), 'card is under WhatsApp\'s 300KB safe size');
         return [$info[0], $info[1], $info['mime']];
     }
 
-    public function test_card_with_photo_renders_1200x630_png(): void
+    public function test_card_with_photo_renders_1200x630_jpeg_under_300kb(): void
     {
         Storage::fake('public');
         $svc = app(AgentCardImageService::class);
         $agent = $this->makeAgent($this->seedAgency());
 
         $path = $svc->resolve($agent);
-        [$w, $h] = $this->assertValidPng($path);
-        $this->assertSame(1200, $w);
-        $this->assertSame(630, $h);
+        $this->assertValidCard($path);
+        $this->assertStringEndsWith('.jpg', $svc->relativePath($agent->fresh()));
 
-        @copy($path, '/tmp/agent-card-photo.png'); // for human eyeballing
+        @copy($path, '/tmp/agent-card-photo.jpg'); // for human eyeballing
     }
 
     public function test_card_without_photo_falls_back_to_initials_card(): void
@@ -128,11 +135,9 @@ final class AgentCardImageTest extends TestCase
         $agent = $this->makeAgent($this->seedAgency(), ['name' => 'Retha Kelly'], withPhoto: false);
 
         $path = $svc->resolve($agent);
-        [$w, $h] = $this->assertValidPng($path);
-        $this->assertSame(1200, $w);
-        $this->assertSame(630, $h);
+        $this->assertValidCard($path);
 
-        @copy($path, '/tmp/agent-card-initials.png');
+        @copy($path, '/tmp/agent-card-initials.jpg');
     }
 
     public function test_degraded_inputs_still_render(): void
@@ -149,11 +154,9 @@ final class AgentCardImageTest extends TestCase
         ], withPhoto: false);
 
         $path = $svc->resolve($agent);
-        [$w, $h] = $this->assertValidPng($path);
-        $this->assertSame(1200, $w);
-        $this->assertSame(630, $h);
+        $this->assertValidCard($path);
 
-        @copy($path, '/tmp/agent-card-degraded.png');
+        @copy($path, '/tmp/agent-card-degraded.jpg');
     }
 
     public function test_cache_reuses_file_until_a_detail_changes(): void

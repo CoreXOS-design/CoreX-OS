@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Storage;
  * The free wa.me model can only pre-fill PLAIN TEXT — no inline images — so the
  * only branded visual a seller sees in WhatsApp is the link-preview card
  * WhatsApp renders from the FIRST URL in the body. We point that first URL at
- * the opt-in page, whose og:image is the PNG this service composites:
+ * the preference page, whose og:image is the JPEG this service composites:
  *
  *     [ circular agent photo ]   Agent Name
  *                                Title / designation
@@ -26,8 +26,8 @@ use Illuminate\Support\Facades\Storage;
  * fixed 1200×630 canvas — the standard Open-Graph / WhatsApp large-preview size
  * (≥300×200 with a ~1.91:1 aspect renders as the big card, not a thumbnail).
  *
- * CACHE: one PNG per agent, filename carries a content hash
- * (`agent-{id}-{hash}.png`) so the public URL changes whenever the agent's
+ * CACHE: one JPEG per agent, filename carries a content hash
+ * (`agent-{id}-{hash}.jpg`) so the public URL changes whenever the agent's
  * photo or details change — WhatsApp caches previews by URL, so a changing URL
  * is what forces a re-fetch. Stale hashes for the same agent are pruned on
  * regenerate (these are derived cache artefacts, not domain records — the
@@ -47,6 +47,16 @@ final class AgentCardImageService
 
     /** Public-disk directory the cached cards live in. */
     private const DIR = 'outreach-cards';
+
+    /**
+     * Output is JPEG, not PNG. WhatsApp's link-preview crawler enforces a STRICT
+     * 600KB og:image cap (≈300KB for reliable render) — PNG does not compress the
+     * photographic agent portrait, so a JPEG keeps the card comfortably small AND
+     * matches the format of the agency logo that previously previewed fine.
+     * Quality 85 lands this composite well under 300KB while keeping the photo,
+     * logo and text crisp (flat brand background compresses to almost nothing).
+     */
+    private const JPEG_QUALITY = 85;
 
     private const FONT_REGULAR = 'resources/fonts/DejaVuSans.ttf';
     private const FONT_BOLD    = 'resources/fonts/DejaVuSans-Bold.ttf';
@@ -68,7 +78,7 @@ final class AgentCardImageService
     private const WHITE = [255, 255, 255];
 
     /**
-     * Absolute filesystem path to the cached card PNG for this agent,
+     * Absolute filesystem path to the cached card JPEG for this agent,
      * generating + caching it first if missing. Generate-on-miss; cheap on
      * subsequent calls (a single exists() check).
      */
@@ -79,8 +89,8 @@ final class AgentCardImageService
 
         if (!$disk->exists($rel)) {
             $this->pruneOld($agent);
-            $png = $this->render($agent);
-            $disk->put($rel, $png);
+            $jpeg = $this->render($agent);
+            $disk->put($rel, $jpeg);
         }
 
         return $disk->path($rel);
@@ -96,10 +106,10 @@ final class AgentCardImageService
         return $this->hash($agent);
     }
 
-    /** Disk-relative path for the agent's current card. */
+    /** Disk-relative path for the agent's current card (JPEG). */
     public function relativePath(User $agent): string
     {
-        return self::DIR . '/agent-' . $agent->id . '-' . $this->hash($agent) . '.png';
+        return self::DIR . '/agent-' . $agent->id . '-' . $this->hash($agent) . '.jpg';
     }
 
     // ── hashing / inputs ─────────────────────────────────────────────────
@@ -116,7 +126,7 @@ final class AgentCardImageService
         $agency = $this->agency($agent);
 
         $parts = [
-            'v3', // bump to force-regenerate every card after a layout change
+            'v4', // bump to force-regenerate every card after a layout/format change (v4 = JPEG)
             (string) $agent->id,
             (string) $agent->name,
             (string) ($agent->designation ?? ''),
@@ -180,7 +190,7 @@ final class AgentCardImageService
 
     // ── rendering ────────────────────────────────────────────────────────
 
-    /** Render the card to PNG binary. Never throws — degrades to a text card. */
+    /** Render the card to JPEG binary. Never throws — degrades to a text card. */
     private function render(User $agent): string
     {
         $agency = $this->agency($agent);
@@ -234,8 +244,11 @@ final class AgentCardImageService
         }
         $this->drawFittedLine($canvas, $this->fontRegular, 27, $agencyName, $tx, $base, $maxW, $whiteSoft);
 
+        // JPEG (not PNG) to stay well under WhatsApp's 600KB og:image cap — see
+        // JPEG_QUALITY. The brand background is flat so quality 85 keeps the photo
+        // and text crisp at a small file size.
         ob_start();
-        imagepng($canvas);
+        imagejpeg($canvas, null, self::JPEG_QUALITY);
         $binary = (string) ob_get_clean();
         imagedestroy($canvas);
 
