@@ -2008,7 +2008,11 @@
                     {{-- Legacy tags awaiting a parent (re-home so nothing is lost) --}}
                     @if(isset($unassignedTags) && $unassignedTags->isNotEmpty())
                     <div class="p-4 rounded-md mt-3" style="background: color-mix(in srgb, var(--ds-amber) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
-                        <div class="text-xs font-semibold mb-2" style="color:var(--text-primary);">Unsorted tags — assign each to a signing role</div>
+                        @php $unsortedTotal = $unassignedTagsCount ?? $unassignedTags->count(); @endphp
+                        <div class="text-xs font-semibold mb-1" style="color:var(--text-primary);">Unsorted tags — assign each to a signing role <span style="color:var(--text-muted); font-weight:400;">({{ $unsortedTotal }} total)</span></div>
+                        @if($unsortedTotal > $unassignedTags->count())
+                        <p class="text-[11px] mb-2" style="color:var(--text-muted);">Showing the first {{ $unassignedTags->count() }}. Run <code>php artisan contacts:normalise-types</code> to auto-sort the rest under their closest signing role.</p>
+                        @endif
                         @foreach($unassignedTags as $tag)
                         <form method="POST" action="{{ route('corex.settings.contact-tags.update', $tag) }}" class="flex items-center gap-2 mb-2">
                             @csrf @method('PUT')

@@ -87,8 +87,14 @@ class SettingsController extends Controller
         // parent is surfaced separately so it can be re-homed.
         $data['contactTypes']    = ContactType::canonical()->with('subTags')->get();
         $data['contactSources']  = ContactSource::orderBy('sort_order')->orderBy('name')->get();
-        $data['unassignedTags']  = ContactTag::whereNull('contact_type_id')
-            ->orderBy('sort_order')->orderBy('name')->get();
+        // Legacy tags awaiting a parent (pre-normalisation). BOUNDED: on an
+        // un-normalised install EVERY tag is unassigned, so an unbounded render
+        // would OOM the settings page — cap the rendered forms and surface the
+        // true total so the admin knows to run `contacts:normalise-types`.
+        $unassignedTagsQuery = ContactTag::whereNull('contact_type_id')
+            ->orderBy('sort_order')->orderBy('name');
+        $data['unassignedTagsCount'] = (clone $unassignedTagsQuery)->count();
+        $data['unassignedTags']      = $unassignedTagsQuery->limit(50)->get();
 
         // Feature Settings: list page sizes (how many rows show per page)
         $data['contactsPerPage']   = (int) PerformanceSetting::get('contacts_per_page', 25);
