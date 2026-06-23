@@ -88,7 +88,7 @@ class ContactController extends Controller
         $contacts     = $query->with(['tags', 'parentTypes'])->paginate($perPage)->withQueryString();
         // The four fixed parents, each with its agency-scoped sub-tags — feeds
         // the type/tag pop-up picker on the contact forms (AT-79).
-        $contactTypes = ContactType::canonical()->with('subTags')->get()->unique('esign_role')->values();
+        $contactTypes = ContactType::parents()->with('subTags')->get()->unique('name')->values();
 
         $agentList     = $canPickAgent ? $this->agentList()->values() : collect();
         $selectedAgent = ($canPickAgent && $filterAgentId !== '')
@@ -123,7 +123,7 @@ class ContactController extends Controller
             ->where('is_active', true)
             ->orderBy('name')
             ->get(['id', 'name']);
-        $contactTypes     = ContactType::canonical()->with('subTags')->get()->unique('esign_role')->values();
+        $contactTypes     = ContactType::parents()->with('subTags')->get()->unique('name')->values();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $matchCategories  = PropertySettingItem::group('category')->get();
         $matchTypes       = PropertySettingItem::group('property_type')->where('active', true)->get();
@@ -509,16 +509,16 @@ class ContactController extends Controller
      */
     private function applyTypeAssignments(Contact $contact, Request $request): void
     {
-        $canonical = array_keys(ContactType::CANONICAL);
+        $parentIdsAllowed = ContactType::parentIds();
 
         $validated = $request->validate([
             'parent_type_ids'      => 'required|array|min:1',
-            'parent_type_ids.*'    => ['integer', \Illuminate\Validation\Rule::exists('contact_types', 'id')->whereIn('esign_role', $canonical)],
+            'parent_type_ids.*'    => ['integer', \Illuminate\Validation\Rule::in($parentIdsAllowed)],
             'tag_ids'              => 'nullable|array',
             'tag_ids.*'            => 'integer|exists:contact_tags,id',
             'new_tags'             => 'nullable|array',
             'new_tags.*.name'      => 'nullable|string|max:100',
-            'new_tags.*.parent_id' => ['nullable', 'required_with:new_tags.*.name', \Illuminate\Validation\Rule::exists('contact_types', 'id')->whereIn('esign_role', $canonical)],
+            'new_tags.*.parent_id' => ['nullable', 'required_with:new_tags.*.name', \Illuminate\Validation\Rule::in($parentIdsAllowed)],
         ], [
             'parent_type_ids.required' => 'Please assign at least one contact type.',
             'parent_type_ids.min'      => 'Please assign at least one contact type.',
@@ -528,14 +528,18 @@ class ContactController extends Controller
         $tagIds    = array_map('intval', $validated['tag_ids'] ?? []);
 
         // Inline-created sub-tags: reuse an existing same-name tag under the same
-        // parent (agency-scoped) if present, otherwise create one.
+        // parent (agency-scoped, case-insensitive) if present, otherwise create.
         foreach ($validated['new_tags'] ?? [] as $nt) {
             $name = trim((string) ($nt['name'] ?? ''));
             if ($name === '' || empty($nt['parent_id'])) {
                 continue;
             }
             $parentId = (int) $nt['parent_id'];
-            $tag = ContactTag::where('contact_type_id', $parentId)->where('name', $name)->first()
+            // Case-insensitive match so a re-typed name (any casing/spacing) does
+            // not create a duplicate sub-tag.
+            $tag = ContactTag::where('contact_type_id', $parentId)
+                    ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                    ->first()
                 ?? ContactTag::create([
                     'contact_type_id' => $parentId,
                     'name'            => $name,

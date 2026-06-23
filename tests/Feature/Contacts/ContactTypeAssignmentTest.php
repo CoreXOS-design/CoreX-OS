@@ -36,6 +36,49 @@ final class ContactTypeAssignmentTest extends TestCase
         }
     }
 
+    public function test_parents_includes_owner_and_other_without_esign_role(): void
+    {
+        $parents = ContactType::query()->parents()->get();
+
+        $this->assertEqualsCanonicalizing(
+            ['Seller', 'Buyer', 'Lessor', 'Lessee', 'Owner', 'Other'],
+            $parents->pluck('name')->all()
+        );
+
+        $owner = $parents->firstWhere('name', 'Owner');
+        $other = $parents->firstWhere('name', 'Other');
+        $this->assertNull($owner->esign_role, 'Owner does not map to e-sign');
+        $this->assertNull($other->esign_role, 'Other does not map to e-sign');
+        $this->assertTrue($owner->isLocked());
+        $this->assertTrue($other->isLocked());
+    }
+
+    public function test_store_adds_multiple_subtags_under_owner_and_skips_case_insensitive_dupes(): void
+    {
+        $agencyId = $this->seedAgency();
+        $admin = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'super_admin']);
+        $owner = ContactType::where('name', 'Owner')->whereNull('esign_role')->firstOrFail();
+
+        // Pre-existing sub-tag under the (non-e-sign) Owner parent.
+        $this->subTag($agencyId, $owner->id, 'Investor');
+
+        $this->actingAs($admin)
+            ->post(route('corex.settings.contact-tags.store'), [
+                'contact_type_id' => $owner->id,
+                // 'investor' collides with existing (case); 'Cash Buyer' collides
+                // with 'Cash buyer' within the same input.
+                'name' => 'Cash buyer, First-timer, investor, Cash Buyer',
+            ])
+            ->assertRedirect();
+
+        $names = DB::table('contact_tags')
+            ->where('contact_type_id', $owner->id)
+            ->whereNull('deleted_at')
+            ->pluck('name')->sort()->values()->all();
+
+        $this->assertSame(['Cash buyer', 'First-timer', 'Investor'], $names);
+    }
+
     public function test_canonical_excludes_rogue_types_sharing_an_esign_role(): void
     {
         // Un-normalised installs carry legacy types the old name-pattern migration
@@ -134,33 +177,47 @@ final class ContactTypeAssignmentTest extends TestCase
         $this->assertSame($seller->id, (int) $contact->contact_type_id);
     }
 
-    public function test_normalise_maps_owner_to_seller_keeping_name_as_subtag(): void
+    public function test_normalise_protects_the_owner_parent(): void
     {
         $agencyId = $this->seedAgency();
-        $seller   = ContactType::where('esign_role', 'seller')->firstOrFail();
+        $owner = ContactType::where('name', 'Owner')->whereNull('esign_role')->firstOrFail();
 
-        // "Owner" — a transaction synonym for Seller; no esign_role set (the old
-        // name-pattern migration never matched it).
-        $ownerTypeId = (int) DB::table('contact_types')->insertGetId([
-            'name' => 'Owner', 'esign_role' => null, 'color' => '#fff',
+        $contact = $this->makeContact($agencyId);
+        DB::table('contacts')->where('id', $contact->id)->update(['contact_type_id' => $owner->id]);
+
+        $this->artisan('contacts:normalise-types', ['--force' => true, '--preserve-unmappable' => true])->assertSuccessful();
+
+        $this->assertNull(DB::table('contact_types')->where('id', $owner->id)->value('deleted_at'), 'Owner parent must NOT be deleted');
+        $contact->refresh();
+        $this->assertSame($owner->id, (int) $contact->contact_type_id, 'contact keeps its Owner type');
+    }
+
+    public function test_normalise_maps_landlord_to_lessor_keeping_name_as_subtag(): void
+    {
+        $agencyId = $this->seedAgency();
+        $lessor   = ContactType::where('esign_role', 'lessor')->firstOrFail();
+
+        // "Landlord" — a synonym for Lessor; not a parent name, no esign_role.
+        $landlordId = (int) DB::table('contact_types')->insertGetId([
+            'name' => 'Landlord', 'esign_role' => null, 'color' => '#fff',
             'sort_order' => 9, 'is_active' => 1, 'created_at' => now(), 'updated_at' => now(),
         ]);
         $contact = $this->makeContact($agencyId);
-        DB::table('contacts')->where('id', $contact->id)->update(['contact_type_id' => $ownerTypeId]);
+        DB::table('contacts')->where('id', $contact->id)->update(['contact_type_id' => $landlordId]);
 
         $this->artisan('contacts:normalise-types', ['--force' => true])->assertSuccessful();
 
         $contact->refresh();
-        $this->assertSame($seller->id, (int) $contact->contact_type_id, 'mirror remapped to Seller');
-        $this->assertSame([$seller->id], $contact->parentTypes()->pluck('contact_types.id')->all());
-        $this->assertNotNull(DB::table('contact_types')->where('id', $ownerTypeId)->value('deleted_at'), 'Owner type soft-deleted');
+        $this->assertSame($lessor->id, (int) $contact->contact_type_id, 'mirror remapped to Lessor');
+        $this->assertSame([$lessor->id], $contact->parentTypes()->pluck('contact_types.id')->all());
+        $this->assertNotNull(DB::table('contact_types')->where('id', $landlordId)->value('deleted_at'), 'Landlord type soft-deleted');
 
         $tag = DB::table('contact_tag')
             ->join('contact_tags', 'contact_tags.id', '=', 'contact_tag.contact_tag_id')
             ->where('contact_tag.contact_id', $contact->id)
             ->first(['contact_tags.name', 'contact_tags.contact_type_id']);
-        $this->assertSame('Owner', $tag->name);
-        $this->assertSame($seller->id, (int) $tag->contact_type_id, 'name kept as sub-tag under Seller');
+        $this->assertSame('Landlord', $tag->name);
+        $this->assertSame($lessor->id, (int) $tag->contact_type_id, 'name kept as sub-tag under Lessor');
     }
 
     public function test_normalise_preserves_non_transaction_type_as_unsorted_tag(): void
@@ -226,6 +283,44 @@ final class ContactTypeAssignmentTest extends TestCase
         $this->assertNotNull(DB::table('contact_tags')->where('id', $a->id)->value('deleted_at'));
         $this->assertNotNull(DB::table('contact_tags')->where('id', $b->id)->value('deleted_at'));
         $this->assertNull(DB::table('contact_tags')->where('id', $c->id)->value('deleted_at'), 'unselected sub-tag kept');
+    }
+
+    public function test_owner_contact_is_promoted_to_seller_when_linked_to_a_property(): void
+    {
+        $agencyId = $this->seedAgency();
+        $owner  = ContactType::where('name', 'Owner')->whereNull('esign_role')->firstOrFail();
+        $seller = ContactType::where('esign_role', 'seller')->firstOrFail();
+
+        $contact = $this->makeContact($agencyId);
+        $contact->syncTypeAssignments([$owner->id], []);
+        $contact->refresh();
+        $this->assertSame([$owner->id], $contact->parentTypes()->pluck('contact_types.id')->all());
+
+        $event = new \App\Events\Contact\ContactLinkedToProperty(
+            $contact, new \App\Models\Property(['agency_id' => $agencyId]), 'owner'
+        );
+        (new \App\Listeners\Contact\PromoteOwnerToSellerOnPropertyLink())->handle($event);
+
+        $contact->refresh();
+        $this->assertSame([$seller->id], $contact->parentTypes()->pluck('contact_types.id')->all(), 'Owner promoted to Seller');
+        $this->assertSame($seller->id, (int) $contact->contact_type_id, 'mirror moved to Seller');
+    }
+
+    public function test_owner_contact_is_not_promoted_when_linked_as_a_buyer(): void
+    {
+        $agencyId = $this->seedAgency();
+        $owner = ContactType::where('name', 'Owner')->whereNull('esign_role')->firstOrFail();
+
+        $contact = $this->makeContact($agencyId);
+        $contact->syncTypeAssignments([$owner->id], []);
+
+        $event = new \App\Events\Contact\ContactLinkedToProperty(
+            $contact, new \App\Models\Property(['agency_id' => $agencyId]), 'buyer'
+        );
+        (new \App\Listeners\Contact\PromoteOwnerToSellerOnPropertyLink())->handle($event);
+
+        $contact->refresh();
+        $this->assertSame([$owner->id], $contact->parentTypes()->pluck('contact_types.id')->all(), 'buyer link must not promote');
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
