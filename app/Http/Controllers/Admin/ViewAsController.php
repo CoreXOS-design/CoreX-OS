@@ -20,7 +20,7 @@ class ViewAsController extends Controller
         }
 
         $data = $request->validate([
-            'role' => ['required', Rule::in(Role::where('is_owner', false)->pluck('name'))],
+            'role' => ['required', Rule::in(Role::allRoles($user->effectiveAgencyId())->where('is_owner', false)->pluck('name'))],
             'branch_id' => ['nullable', 'integer'],
         ]);
 

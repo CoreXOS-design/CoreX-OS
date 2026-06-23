@@ -103,7 +103,8 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        $roles = Role::orderBy('sort_order')->get();
+        // Agency-scoped role list (owner roles included for filtering in-view).
+        $roles = Role::allRoles($agencyId);
 
         return view('admin.users.create-edit', [
             'user'         => null,
@@ -249,7 +250,8 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        $roles = Role::orderBy('sort_order')->get();
+        // Agency-scoped role list (owner roles included for filtering in-view).
+        $roles = Role::allRoles($agencyId);
 
         return view('admin.users.create-edit', compact('user', 'branches', 'designations', 'roles'));
     }

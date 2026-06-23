@@ -81,7 +81,7 @@
                         @if(auth()->user()->isOwnerRole())
                             <div class="px-4 py-2 text-xs text-gray-500 uppercase">View As</div>
 
-                            @foreach(\App\Models\Role::orderBy('sort_order')->get() as $viewRole)
+                            @foreach(\App\Models\Role::allRoles(auth()->user()?->effectiveAgencyId()) as $viewRole)
                                 @if(!$viewRole->is_owner)
                                 <form method="POST" action="{{ route('admin.viewas.update') }}">@csrf
                                     <input type="hidden" name="role" value="{{ $viewRole->name }}">

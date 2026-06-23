@@ -37,6 +37,13 @@ class Role extends Model
         return $this->hasMany(User::class, 'role', 'name');
     }
 
+    /**
+     * WARNING: keyed by role NAME only — NOT agency-scoped. Because role names
+     * repeat across agencies (.ai/specs/roles-permissions.md), eager/lazy
+     * loading this reads grants across ALL agencies. Currently unused. Do NOT
+     * wire it into request code — resolve permissions via PermissionService
+     * (agency-aware) instead, or filter ->where('agency_id', $agencyId).
+     */
     public function permissions()
     {
         return $this->hasMany(RolePermission::class, 'role', 'name');
