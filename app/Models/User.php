@@ -332,11 +332,12 @@ class User extends Authenticatable
 
     // --- Admin Multi-Branch Manager (spec: admin-multi-branch-manager.md) ---
     //
-    // These describe which branches an admin MANAGES and which one they are
-    // currently "acting as" manager of. This is an identity/representation
-    // layer only. None of it feeds effectiveBranchId(), effectiveRole(),
-    // BranchScope, or PermissionService::getDataScope() — so an admin acting
-    // as a branch keeps full agency-wide visibility.
+    // An admin can MANAGE several branches and pick a login default. The
+    // "current branch" they operate in is the existing branch-isolation
+    // context (view_as_branch_id, via effectiveBranchId). They "act as" the
+    // manager of whichever managed branch they are currently in. Because
+    // admins hold branches.view_all, BranchScope is bypassed for them, so
+    // being in a branch is CONTEXT only — it never hides another branch's data.
 
     /** Branches this user manages (the user_managed_branches pivot). */
     public function managedBranches(): BelongsToMany
@@ -371,19 +372,19 @@ class User extends Authenticatable
     }
 
     /**
-     * The branch the user is currently acting as manager of, from the session.
-     * Defensive: a stale/forged value not in the user's managed set is ignored.
+     * The branch the user is currently acting as manager of: the branch they
+     * are currently in (effectiveBranchId / view_as_branch_id), IF they manage
+     * it. Returns null when they're in "all branches" or a branch they don't
+     * manage — so deal-manager capture only fires in a managed branch context.
      */
     public function actingBranchManagerId(): ?int
     {
-        $id = session('acting_branch_manager_id');
-        if ($id === null || $id === '') {
-            return null;
+        $branchId = $this->effectiveBranchId();
+        if ($branchId && $this->isManagerOfBranch((int) $branchId)) {
+            return (int) $branchId;
         }
 
-        $id = (int) $id;
-
-        return $this->isManagerOfBranch($id) ? $id : null;
+        return null;
     }
 
     /**

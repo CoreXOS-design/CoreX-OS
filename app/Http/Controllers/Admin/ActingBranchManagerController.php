@@ -14,15 +14,13 @@ use Illuminate\Support\Facades\Auth;
  * currently "acting as" the branch manager of. Writes `acting_branch_manager_id`
  * into the session.
  *
- * IMPORTANT — this is deliberately NOT the branch-isolation switcher:
- *   - It does NOT write `view_as_branch_id` (which feeds effectiveBranchId()
- *     and BranchScope) or `view_as_role` (which narrows getDataScope()).
- *   - It therefore never changes the admin's data scope — they keep full
- *     agency-wide visibility while acting as a branch's manager.
- *
- * The acting context only affects: the default branch on deal registration,
- * who is captured as managed_by_user_id on a registered deal, and the topbar
- * "Acting as" label.
+ * This moves the admin INTO the chosen branch by writing the standard
+ * branch-isolation context (`view_as_branch_id`) — the same lever the
+ * "Switch Branch" control uses — but scoped to branches the admin manages.
+ * For admins (who hold branches.view_all) BranchScope is bypassed, so this is
+ * CONTEXT only: it never hides another branch's data. Being in a managed
+ * branch makes them its acting manager (deal defaults + naming) via
+ * User::actingBranchManagerId(), which derives from the current branch.
  */
 class ActingBranchManagerController extends Controller
 {
@@ -39,14 +37,14 @@ class ActingBranchManagerController extends Controller
             abort(403, 'You do not manage that branch.');
         }
 
-        session(['acting_branch_manager_id' => (int) $branch->id]);
+        session(['view_as_branch_id' => (int) $branch->id]);
 
         return back()->with('status', "Acting as {$branch->name} branch manager.");
     }
 
     public function clear(Request $request)
     {
-        session()->forget('acting_branch_manager_id');
+        session()->forget('view_as_branch_id');
 
         return back()->with('status', 'Returned to Administrator (all branches).');
     }

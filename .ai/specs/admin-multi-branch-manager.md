@@ -101,33 +101,48 @@ This composes with the existing `branches.switch` / `branches.view_all` keys fro
 
 ## 5. The "acting as branch manager" context
 
-A new session key, distinct from the impersonation/view-as keys:
+**Decision (revised after live feedback 2026-06-23):** the "current branch" an
+admin operates in is the **existing** branch-isolation context — the session
+key `view_as_branch_id`, the same lever the "Switch Branch" control uses. We do
+**not** invent a parallel branch-context key. An admin is "acting as" the
+manager of whichever branch they are currently in, **if** they manage it.
 
-| Key | Meaning | Effect |
-|-----|---------|--------|
-| `acting_branch_manager_id` | The branch the admin is currently acting as manager of | (a) Default branch for new deal registration; (b) the admin is recorded as `managed_by_user_id` on deals registered in this context; (c) topbar shows "Acting as: <Branch> Manager". **Does NOT change `effectiveRole()`, `effectiveBranchId()`, or data scope.** |
+| Concept | Source | Effect |
+|---------|--------|--------|
+| Current branch | `view_as_branch_id` (→ `effectiveBranchId()`) | The branch the admin is in. Set on login to their default managed branch, and by both the "Switch Branch" and "Acting as" controls. |
+| Acting as manager of | `User::actingBranchManagerId()` = `effectiveBranchId()` **iff** `isManagerOfBranch()` | (a) Default branch for new deal registration; (b) the admin is recorded as `managed_by_user_id` on deals registered while in that branch; (c) topbar shows "Acting: <Branch>". |
 
-Why a new key rather than `view_as_branch_id` / `view_as_role`:
+**Why this does not break "keep admin-wide visibility":** admins hold
+`branches.view_all`, and `BranchScope` is bypassed entirely for `view_all`
+holders. So setting `view_as_branch_id` for an admin is **context only** — it
+drives the header label, the deal-form default, and manager naming, but never
+hides another branch's data. `PermissionService::getDataScope()` still returns
+`'all'` for admins (we never set `view_as_role`), so data scope stays agency-wide.
 
-- `view_as_role = 'branch_manager'` would make `PermissionService::getDataScope()` return `'branch'` and **narrow visibility** — the opposite of the confirmed requirement.
-- `view_as_branch_id` feeds `effectiveBranchId()`, which `BranchScope` consumes — setting it would silently filter the admin's data. We must leave `effectiveBranchId()` reporting the admin's home branch so their agency-wide view is preserved.
-
-So `acting_branch_manager_id` is read **only** by the deal-registration and topbar-label code paths, never by `BranchScope` or `getDataScope()`.
+> Rejected earlier approach: a separate `acting_branch_manager_id` key that did
+> *not* touch `view_as_branch_id`. It left the admin's identity changed but the
+> actual branch context (and the "Switch Branch" UI) untouched — so on login
+> they were *labelled* a branch manager but were not *in* the branch and still
+> had to Switch Branch manually. Unifying on `view_as_branch_id` fixes that.
 
 ### 5.1 Login default
 
-On login (or first authenticated request with no `acting_branch_manager_id` set), if the user has a `user_managed_branches` row flagged `is_default`, seed `acting_branch_manager_id` with it. If they have managed branches but no explicit default, leave unset (they operate as plain admin until they pick one). Implemented in the same place the app already bootstraps per-session user context (e.g. an `Authenticated` event listener or middleware — confirm exact hook during build investigation).
+The `Login` event listener (`AppServiceProvider`) reads
+`defaultManagedBranchId()` and, when present, seeds `view_as_branch_id` so the
+admin opens CoreX already in their default branch. `Logout` clears
+`view_as_branch_id`. Users with no default managed branch are unaffected (no-op).
 
 ### 5.2 Helper on `User`
 
 ```php
 public function managedBranches(): BelongsToMany; // via user_managed_branches
 public function defaultManagedBranchId(): ?int;
-public function actingBranchManagerId(): ?int;     // reads session('acting_branch_manager_id')
 public function isManagerOfBranch(int $branchId): bool;
+public function actingBranchManagerId(): ?int;     // = effectiveBranchId() iff isManagerOfBranch()
 ```
 
-`actingBranchManagerId()` returns the session value only if it is one of the user's managed branches (defensive — a stale/forged session value is ignored).
+`actingBranchManagerId()` returns the current branch only when the user manages
+it — so deal-manager capture fires in a managed-branch context and nowhere else.
 
 ---
 

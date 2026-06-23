@@ -89,9 +89,26 @@ class AdminMultiBranchManagerTest extends TestCase
             'is_default' => true, 'created_at' => now(), 'updated_at' => now(),
         ]);
 
+        // Acting moves the admin into the branch via the standard branch
+        // context (view_as_branch_id), and they become its acting manager.
         $this->actingAs($admin)->post(route('branch.acting', $b1))->assertSessionHas('status');
-        $this->assertSame($b1->id, (int) session('acting_branch_manager_id'));
+        $this->assertSame($b1->id, (int) session('view_as_branch_id'));
         $this->assertSame($b1->id, $admin->actingBranchManagerId());
+    }
+
+    public function test_login_lands_admin_in_default_managed_branch(): void
+    {
+        [$agency, $b1, $b2, $admin] = $this->makeAgencyWithBranches();
+        DB::table('user_managed_branches')->insert([
+            'user_id' => $admin->id, 'branch_id' => $b2->id, 'agency_id' => $agency->id,
+            'is_default' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        // The Login event listener seeds the default managed branch as the
+        // active branch context, so the admin opens CoreX already in it.
+        event(new \Illuminate\Auth\Events\Login('web', $admin, false));
+
+        $this->assertSame($b2->id, (int) session('view_as_branch_id'));
     }
 
     public function test_deal_branch_manager_prefers_captured_over_role(): void
@@ -187,7 +204,7 @@ class AdminMultiBranchManagerTest extends TestCase
         // switcher) must both render without error and show the new controls.
         $this->actingAs($admin)->get(route('agent.portal'))
             ->assertOk()
-            ->assertSee('Branches I Manage')
-            ->assertSee('Act as branch manager');
+            ->assertSee('Branches I Manage')               // profile panel
+            ->assertSee('Administrator (all branches)');   // acting switcher dropdown
     }
 }
