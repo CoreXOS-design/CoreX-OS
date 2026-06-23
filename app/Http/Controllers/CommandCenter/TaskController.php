@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CommandCenter;
 use App\Http\Controllers\Controller;
 use App\Models\CommandCenter\CommandTask;
 use App\Services\CommandCenter\TaskService;
+use App\Services\PermissionService;
 use Illuminate\Http\Request;
 
 class TaskController extends Controller
@@ -163,7 +164,7 @@ class TaskController extends Controller
         $user = $request->user();
 
         $tasks = CommandTask::onlyTrashed()
-            ->where('assigned_to', $user->id)
+            ->visibleTo($user, PermissionService::taskScope($user))
             ->with(['property', 'contact'])
             ->orderByDesc('deleted_at')
             ->get();

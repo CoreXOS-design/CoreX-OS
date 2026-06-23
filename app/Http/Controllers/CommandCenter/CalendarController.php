@@ -11,6 +11,7 @@ use App\Models\Property;
 use App\Services\CommandCenter\Calendar\CalendarThresholdResolver;
 use App\Services\CommandCenter\Calendar\CalendarVisibilityResolver;
 use App\Services\CommandCenter\CalendarEventService;
+use App\Services\PermissionService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -38,9 +39,15 @@ class CalendarController extends Controller
         // Filter params (shared across all views)
         $typeFilter     = $request->input('types', []);
         $categoryFilter = $request->input('categories', []);
-        $scope          = $request->input('scope', 'all');
+
+        // Role-driven visibility ceiling (own | branch | all). The page's
+        // My/Branch/All toggle can request a scope, but never wider than the
+        // ceiling Role Manager grants for command_center.calendar.view.
+        $ceiling = PermissionService::calendarScope($user);
+        $scope   = PermissionService::clampScope($request->input('scope'), $ceiling);
 
         $shared = $this->sharedViewData($user, $view, $typeFilter, $categoryFilter, $scope);
+        $shared['scopeCeiling'] = $ceiling;
         $shared['autoOpenFeedbackEventId'] = $request->input('capture_feedback');
 
         // ── Week view ──
@@ -409,7 +416,7 @@ class CalendarController extends Controller
         $end   = $request->get('end', now()->endOfMonth()->toDateString());
         $filters = $request->only(['event_type', 'status', 'property_id']);
 
-        $scope = $request->input('scope', 'all');
+        $scope = PermissionService::clampScope($request->input('scope'), PermissionService::calendarScope($user));
         $resolved = $this->applyFilters(
             $this->service->getEventsForRange($user, $start, $end, $filters, $scope),
             $user,

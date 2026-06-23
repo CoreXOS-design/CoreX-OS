@@ -105,6 +105,40 @@ class PermissionService
     }
 
     /**
+     * Calendar data-visibility scope for a user (own | branch | all).
+     * Reads command_center.calendar.view's scope; defaults to 'own' so a
+     * user who reaches the page never accidentally sees the whole agency.
+     */
+    public static function calendarScope(User $user): string
+    {
+        return static::getDataScope($user, 'command_center.calendar') ?? 'own';
+    }
+
+    /**
+     * Task data-visibility scope for a user (own | branch | all).
+     * Reads command_center.tasks.view's scope; defaults to 'own'.
+     */
+    public static function taskScope(User $user): string
+    {
+        return static::getDataScope($user, 'command_center.tasks') ?? 'own';
+    }
+
+    /**
+     * Clamp a user-requested scope to a role-granted ceiling.
+     * Breadth order: own (0) < branch (1) < all (2). A request wider than
+     * the ceiling is pulled back to the ceiling, so the page's My/Branch/All
+     * toggle can never exceed what Role Manager allows.
+     */
+    public static function clampScope(?string $requested, string $ceiling): string
+    {
+        $rank = ['own' => 0, 'branch' => 1, 'all' => 2];
+        $ceilRank = $rank[$ceiling] ?? 0;
+        $reqRank  = $rank[$requested] ?? $ceilRank;
+
+        return $reqRank <= $ceilRank ? ($requested ?? $ceiling) : $ceiling;
+    }
+
+    /**
      * Check if a user has a specific permission via their role.
      * Owner role bypasses all permission checks.
      * If role_permissions table is empty (unseeded DB / tests), allow all.

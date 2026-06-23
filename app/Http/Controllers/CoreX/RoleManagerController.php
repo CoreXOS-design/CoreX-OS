@@ -63,6 +63,9 @@ class RoleManagerController extends Controller
         // ── Build grouped matrix for action-level UI ──
         $moduleLabels = [
             'dashboard'        => 'Dashboard',
+            'command_center'          => 'Command Center',
+            'command_center_calendar' => 'Calendar',
+            'command_center_tasks'    => 'Tasks',
             'agency_tracker'   => 'Agency Tracker',
             'deals'            => 'Deals',
             'listings'         => 'Listings',

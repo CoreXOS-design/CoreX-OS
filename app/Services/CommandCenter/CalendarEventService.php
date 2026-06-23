@@ -61,12 +61,9 @@ class CalendarEventService
     {
         $query = CalendarEvent::query()->inDateRange($start, $end);
 
-        if ($scope === 'own') {
-            $query->forUser($user->id);
-        } elseif ($scope === 'branch' && $user->branch_id) {
-            $query->where('branch_id', $user->branch_id);
-        }
-        // scope 'all' — no user/branch filter; VisibilityResolver handles access
+        // Role-driven visibility (own / branch / all). 'all' applies no user
+        // filter here — the VisibilityResolver handles per-event access.
+        $query->visibleTo($user, $scope);
 
         if (!empty($filters['event_type'])) {
             $query->ofType($filters['event_type']);
@@ -122,9 +119,9 @@ class CalendarEventService
     /**
      * Get today's events for a user.
      */
-    public function getTodayEvents(User $user, int $limit = 10): Collection
+    public function getTodayEvents(User $user, int $limit = 10, string $scope = 'own'): Collection
     {
-        return CalendarEvent::forUser($user->id)
+        return CalendarEvent::query()->visibleTo($user, $scope)
             ->today()
             ->orderBy('all_day', 'desc')
             ->orderBy('event_date')
@@ -135,9 +132,9 @@ class CalendarEventService
     /**
      * Get overdue events for a user.
      */
-    public function getOverdueEvents(User $user, int $limit = 10): Collection
+    public function getOverdueEvents(User $user, int $limit = 10, string $scope = 'own'): Collection
     {
-        return CalendarEvent::forUser($user->id)
+        return CalendarEvent::query()->visibleTo($user, $scope)
             ->overdue()
             ->orderBy('event_date')
             ->limit($limit)

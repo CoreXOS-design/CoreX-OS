@@ -1157,8 +1157,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     })->name('corex.api.contact-lookup');
 
     Route::prefix('command-center')->group(function () {
-        Route::get('/calendar', [CommandCenterCalendarController::class, 'index'])->name('command-center.calendar');
-        Route::get('/calendar/events', [CommandCenterCalendarController::class, 'events'])->name('command-center.calendar.events');
+        Route::get('/calendar', [CommandCenterCalendarController::class, 'index'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar');
+        Route::get('/calendar/events', [CommandCenterCalendarController::class, 'events'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.events');
 
         // Calendar Invitations — MUST be before /calendar/{calendarEvent} wildcard
         Route::get('/calendar/invitations', function () {
@@ -1237,8 +1237,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         Route::get('/performance', [CommandCenterDashboardController::class, 'performance'])->middleware('permission:view_dashboard')->name('command-center.performance');
 
-        Route::get('/tasks', [CommandCenterTaskController::class, 'index'])->name('command-center.tasks');
-        Route::get('/tasks/archived', [CommandCenterTaskController::class, 'archived'])->name('command-center.tasks.archived');
+        Route::get('/tasks', [CommandCenterTaskController::class, 'index'])->middleware('permission:command_center.tasks.view')->name('command-center.tasks');
+        Route::get('/tasks/archived', [CommandCenterTaskController::class, 'archived'])->middleware('permission:command_center.tasks.view')->name('command-center.tasks.archived');
         Route::post('/tasks/archive-done', [CommandCenterTaskController::class, 'archiveDone'])->name('command-center.tasks.archive-done');
         Route::post('/tasks/{taskId}/restore', [CommandCenterTaskController::class, 'restore'])->name('command-center.tasks.restore');
         Route::post('/tasks', [CommandCenterTaskController::class, 'store'])->name('command-center.tasks.store');

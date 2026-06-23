@@ -9,6 +9,7 @@ use App\Models\CommandCenter\CommandTask;
 use App\Models\User;
 use App\Services\CommandCenter\Calendar\CalendarThresholdResolver;
 use App\Services\CommandCenter\Calendar\CalendarVisibilityResolver;
+use App\Services\PermissionService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -189,14 +190,19 @@ class CommandCentreService
         // (birthdays, anniversaries, HR awareness) which are not scheduled events.
         $isAppointment = fn ($e) => $e->event_type !== 'people';
 
-        $todayEvents = collect($calendarService->getTodayEvents($user, 25))
+        // Honour the role's Calendar Data Scope on the Today page too.
+        $calScope = PermissionService::calendarScope($user);
+
+        $todayEvents = collect($calendarService->getTodayEvents($user, 25, $calScope))
             ->filter($isAppointment);
 
         // Also get tomorrow's
         $tomorrowRaw = $calendarService->getEventsForRange(
             $user,
             now()->addDay()->startOfDay()->toDateString(),
-            now()->addDay()->endOfDay()->toDateString()
+            now()->addDay()->endOfDay()->toDateString(),
+            [],
+            $calScope
         );
         $tomorrowEvents = collect($visibilityResolver->filterVisible($tomorrowRaw, $user))
             ->filter($isAppointment)
@@ -249,12 +255,14 @@ class CommandCentreService
 
     private function overdueItems(User $user): array
     {
-        $overdueTasks = CommandTask::forUser($user->id)
+        $overdueTasks = CommandTask::query()
+            ->visibleTo($user, PermissionService::taskScope($user))
             ->overdue()->whereNull('resolution')
             ->with(['property', 'contact'])
             ->orderBy('due_date')->limit(5)->get();
 
-        $overdueEvents = CalendarEvent::forUser($user->id)
+        $overdueEvents = CalendarEvent::query()
+            ->visibleTo($user, PermissionService::calendarScope($user))
             ->where('status', 'overdue')->whereNull('resolution')
             ->where('event_type', '!=', 'people') // exclude birthdays / anniversaries — not actionable
             ->orderBy('event_date')->limit(5)->get();
