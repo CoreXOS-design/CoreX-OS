@@ -11,8 +11,8 @@ class Role extends Model
 {
     use HasFactory, SoftDeletes;
 
-    /** @var Collection|null Cached roles for the current request */
-    protected static ?Collection $cachedRoles = null;
+    /** @var array<string, Collection> Cached roles per agency context for the request */
+    protected static array $cachedRoles = [];
 
     protected $fillable = [
         'name',
@@ -75,15 +75,50 @@ class Role extends Model
     }
 
     /**
-     * Get all active roles (cached for the request).
+     * Get the roles visible in a given agency context (cached per agency for
+     * the request). Roles are agency-scoped (.ai/specs/roles-permissions.md):
+     *
+     * - When $agencyId is set AND that agency owns its own roles, return the
+     *   global owner roles + that agency's roles. This makes a name lookup
+     *   (e.g. firstWhere('name', 'admin')) resolve unambiguously to the
+     *   agency's own copy.
+     * - Otherwise (no agency context, or an agency that has not been
+     *   provisioned yet) fall back to the global template/owner rows
+     *   (agency_id IS NULL). This keeps owner accounts and fresh/test DBs
+     *   working unchanged.
+     *
+     * Pass $agencyId from $user->effectiveAgencyId() at every call site that
+     * resolves a specific user's role.
      */
-    public static function allRoles(): Collection
+    public static function allRoles(?int $agencyId = null): Collection
     {
-        if (static::$cachedRoles === null) {
-            static::$cachedRoles = static::orderBy('sort_order')->get();
+        $key = $agencyId === null ? 'null' : (string) $agencyId;
+
+        if (!isset(static::$cachedRoles[$key])) {
+            $roles = null;
+
+            if ($agencyId !== null) {
+                $agencyRoles = static::where('agency_id', $agencyId)
+                    ->orderBy('sort_order')->get();
+
+                if ($agencyRoles->isNotEmpty()) {
+                    $ownerRoles = static::whereNull('agency_id')
+                        ->where('is_owner', true)->get();
+
+                    $roles = $ownerRoles->concat($agencyRoles)
+                        ->sortBy('sort_order')->values();
+                }
+            }
+
+            // Fallback: global template + owner rows (agency_id IS NULL).
+            if ($roles === null) {
+                $roles = static::whereNull('agency_id')->orderBy('sort_order')->get();
+            }
+
+            static::$cachedRoles[$key] = $roles;
         }
 
-        return static::$cachedRoles;
+        return static::$cachedRoles[$key];
     }
 
     /**
@@ -91,14 +126,14 @@ class Role extends Model
      */
     public static function clearCache(): void
     {
-        static::$cachedRoles = null;
+        static::$cachedRoles = [];
     }
 
     /**
-     * Get all role names for validation rules.
+     * Get all role names for validation rules, scoped to an agency context.
      */
-    public static function roleNames(): array
+    public static function roleNames(?int $agencyId = null): array
     {
-        return static::allRoles()->pluck('name')->all();
+        return static::allRoles($agencyId)->pluck('name')->all();
     }
 }

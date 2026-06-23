@@ -81,7 +81,7 @@ class ContactGovernanceController extends Controller
     public function updateLeaveVisibility(Request $request)
     {
         $agencyId = $this->resolveAgencyId();
-        $roles = \App\Models\Role::allRoles()->pluck('name')->reject(fn($r) => $r === 'super_admin')->values()->toArray();
+        $roles = \App\Models\Role::allRoles($agencyId)->pluck('name')->reject(fn($r) => $r === 'super_admin')->values()->toArray();
 
         $matrixData = $request->input('matrix', []);
 

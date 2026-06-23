@@ -602,7 +602,10 @@ class User extends Authenticatable
      */
     public function isOwnerRole(): bool
     {
-        $roleModel = Role::allRoles()->firstWhere('name', $this->role ?? '');
+        // Owner roles are global (agency_id NULL) and always present in
+        // allRoles() for any agency context, so the resolved agency here
+        // never hides them — it just disambiguates same-named agency roles.
+        $roleModel = Role::allRoles($this->effectiveAgencyId())->firstWhere('name', $this->role ?? '');
 
         return $roleModel && $roleModel->is_owner;
     }
@@ -612,17 +615,17 @@ class User extends Authenticatable
      */
     public function isEffectiveOwner(): bool
     {
-        $roleModel = Role::allRoles()->firstWhere('name', $this->effectiveRole());
+        $roleModel = Role::allRoles($this->effectiveAgencyId())->firstWhere('name', $this->effectiveRole());
 
         return $roleModel && $roleModel->is_owner;
     }
 
     /**
-     * Get the Role model for this user's real role.
+     * Get the Role model for this user's real role (within the user's agency).
      */
     public function roleModel(): ?Role
     {
-        return Role::allRoles()->firstWhere('name', $this->role ?? '');
+        return Role::allRoles($this->effectiveAgencyId())->firstWhere('name', $this->role ?? '');
     }
 
     /**

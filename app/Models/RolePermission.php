@@ -9,5 +9,5 @@ class RolePermission extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['role', 'permission_key', 'scope'];
+    protected $fillable = ['role', 'permission_key', 'scope', 'agency_id'];
 }

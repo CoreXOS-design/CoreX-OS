@@ -127,7 +127,7 @@ class UserManagementController extends Controller
             'fax'           => ['nullable', 'string', 'max:50'],
             'ffc_number'    => ['nullable', 'string', 'max:100'],
             'website'       => ['nullable', 'string', 'max:255'],
-            'role'          => ['required', Rule::in(Role::roleNames())],
+            'role'          => ['required', Rule::in(Role::roleNames(auth()->user()?->effectiveAgencyId()))],
             'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
             'designation'   => ['nullable', 'string', 'max:100'],
             'agent_cut_percent'           => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -146,7 +146,7 @@ class UserManagementController extends Controller
         ]);
 
         // The owner role cannot be created through user management.
-        $submittedRole = Role::allRoles()->firstWhere('name', $data['role']);
+        $submittedRole = Role::allRoles(auth()->user()?->effectiveAgencyId())->firstWhere('name', $data['role']);
         if ($submittedRole && $submittedRole->is_owner) {
             abort(403, 'The owner role cannot be assigned through user management.');
         }
@@ -271,7 +271,7 @@ class UserManagementController extends Controller
             'id_number'     => ['nullable', 'string', 'max:20'],
             'ppra_status'   => ['nullable', 'string', 'in:active,pending,expired,suspended'],
             'website'       => ['nullable', 'string', 'max:255'],
-            'role'          => ['required', Rule::in(Role::roleNames())],
+            'role'          => ['required', Rule::in(Role::roleNames(auth()->user()?->effectiveAgencyId()))],
             'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
             'designation'   => ['nullable', 'string', 'max:100'],
             'agent_cut_percent'           => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -295,7 +295,7 @@ class UserManagementController extends Controller
         ]);
 
         // The owner role cannot be assigned through user management.
-        $submittedRole = Role::allRoles()->firstWhere('name', $data['role']);
+        $submittedRole = Role::allRoles(auth()->user()?->effectiveAgencyId())->firstWhere('name', $data['role']);
         if ($submittedRole && $submittedRole->is_owner && !$user->isOwnerRole()) {
             abort(403, 'The owner role cannot be assigned through user management.');
         }
@@ -633,7 +633,7 @@ class UserManagementController extends Controller
         }
 
         $data = $request->validate([
-            'role' => ['required', Rule::in(Role::roleNames())],
+            'role' => ['required', Rule::in(Role::roleNames(auth()->user()?->effectiveAgencyId()))],
             'designation' => ['nullable', 'string', 'max:100'],
             'branch_id' => ['nullable', 'integer'],
         ]);
@@ -641,7 +641,7 @@ class UserManagementController extends Controller
         $role = (string)$data['role'];
 
         // Guard 2: Cannot downgrade an owner to a non-owner role
-        $submittedRole = Role::allRoles()->firstWhere('name', $role);
+        $submittedRole = Role::allRoles(auth()->user()?->effectiveAgencyId())->firstWhere('name', $role);
         if ($user->isOwnerRole() && (!$submittedRole || !$submittedRole->is_owner)) {
             return back()->withErrors("Cannot change an owner's role.");
         }

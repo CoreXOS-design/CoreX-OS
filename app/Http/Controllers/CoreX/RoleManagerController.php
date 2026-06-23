@@ -26,18 +26,28 @@ class RoleManagerController extends Controller
 
         $sections = $permissions->pluck('section')->unique()->values();
 
+        $agencyId = auth()->user()->effectiveAgencyId();
+
+        // Roles + grants are agency-scoped (.ai/specs/roles-permissions.md).
+        // Show only THIS agency's grants; owners without an active agency
+        // context fall back to the global templates (agency_id IS NULL).
+        $grantQuery = fn () => RolePermission::query()
+            ->when(
+                $agencyId,
+                fn ($q) => $q->where('agency_id', $agencyId),
+                fn ($q) => $q->whereNull('agency_id')
+            );
+
         // Build a lookup: role_permissions[permission_key][role] = true
-        $granted = RolePermission::all()
+        $granted = $grantQuery()->get()
             ->groupBy('permission_key')
             ->map(fn($group) => $group->pluck('role')->flip()->map(fn() => true));
 
         // Build scope lookup: scopeGranted[permission_key][role] = 'own'|'branch'|'all'|null
-        $scopeGranted = RolePermission::whereNotNull('scope')
+        $scopeGranted = $grantQuery()->whereNotNull('scope')
             ->get()
             ->groupBy('permission_key')
             ->map(fn($group) => $group->pluck('scope', 'role'));
-
-        $agencyId = auth()->user()->effectiveAgencyId();
 
         $roles = Role::withCount(['users' => function ($q) use ($agencyId) {
             $q->where('is_active', 1);
@@ -49,6 +59,12 @@ class RoleManagerController extends Controller
             // identities and bypass permission checks. They still exist in the
             // DB and continue to function; just not editable from this screen.
             ->where('is_owner', false)
+            // Only this agency's own roles (templates stay invisible here).
+            ->when(
+                $agencyId,
+                fn ($q) => $q->where('agency_id', $agencyId),
+                fn ($q) => $q->whereNull('agency_id')
+            )
             ->orderBy('sort_order')->get();
 
         $users = User::agencyMembers()
@@ -209,8 +225,15 @@ class RoleManagerController extends Controller
 
     public function savePermissions(Request $request)
     {
+        $agencyId = auth()->user()->effectiveAgencyId();
+
+        // Only this agency's own non-owner roles may be edited here.
+        $editableRoles = Role::where('is_owner', false)
+            ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+            ->pluck('name');
+
         $request->validate([
-            'role'          => ['required', Rule::in(Role::where('is_owner', false)->pluck('name'))],
+            'role'          => ['required', Rule::in($editableRoles)],
             'permissions'   => 'nullable|array',
             'permissions.*' => 'string',
             'scopes'        => 'nullable|array',
@@ -249,15 +272,19 @@ class RoleManagerController extends Controller
                     'role'           => $role,
                     'permission_key' => $permKey,
                     'scope'          => $scope,
+                    'agency_id'      => $agencyId,
                     'created_at'     => $now,
                     'updated_at'     => $now,
                 ];
             }
         }
 
-        // Wrap delete+insert in a transaction so permissions are never lost
-        DB::transaction(function () use ($role, $rows) {
-            RolePermission::where('role', $role)->forceDelete();
+        // Wrap delete+insert in a transaction so permissions are never lost.
+        // Scoped to this agency so editing one agency's role never touches another's.
+        DB::transaction(function () use ($role, $rows, $agencyId) {
+            RolePermission::where('role', $role)
+                ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+                ->forceDelete();
 
             if (count($rows)) {
                 // Insert in chunks to stay within DB limits
@@ -283,13 +310,15 @@ class RoleManagerController extends Controller
 
     public function updateUserRole(Request $request)
     {
+        $agencyId = auth()->user()->effectiveAgencyId();
+
         $request->validate([
             'user_id' => 'required|exists:users,id',
-            'role'    => ['required', Rule::in(Role::roleNames())],
+            'role'    => ['required', Rule::in(Role::roleNames($agencyId))],
         ]);
 
         // Only owner-role users may assign the owner role
-        $targetRole = Role::allRoles()->firstWhere('name', $request->role);
+        $targetRole = Role::allRoles($agencyId)->firstWhere('name', $request->role);
         if ($targetRole && $targetRole->is_owner && !auth()->user()->isOwnerRole()) {
             abort(403, 'Only the System Owner can assign the owner role.');
         }
@@ -301,7 +330,7 @@ class RoleManagerController extends Controller
         PermissionService::clearCache();
 
         if ($request->expectsJson() || $request->ajax()) {
-            $roleModel = Role::allRoles()->firstWhere('name', $user->role);
+            $roleModel = Role::allRoles($agencyId)->firstWhere('name', $user->role);
             return response()->json([
                 'success'    => true,
                 'user_id'    => $user->id,
@@ -320,7 +349,11 @@ class RoleManagerController extends Controller
      */
     public function copyPermissions(Request $request)
     {
-        $nonOwnerRoles = Role::where('is_owner', false)->pluck('name')->all();
+        $agencyId = auth()->user()->effectiveAgencyId();
+
+        $agencyRoles = fn ($q) => $q->when($agencyId, fn ($qq) => $qq->where('agency_id', $agencyId), fn ($qq) => $qq->whereNull('agency_id'));
+
+        $nonOwnerRoles = Role::where('is_owner', false)->tap($agencyRoles)->pluck('name')->all();
 
         $request->validate([
             'source_role'   => ['required', Rule::in($nonOwnerRoles)],
@@ -335,19 +368,24 @@ class RoleManagerController extends Controller
             return redirect()->route('corex.role-manager', ['role' => $source])->withErrors(['target_roles' => 'Select at least one target role that is different from the source.']);
         }
 
-        $sourcePerms = RolePermission::where('role', $source)->get(['permission_key', 'scope']);
+        $sourcePerms = RolePermission::where('role', $source)
+            ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+            ->get(['permission_key', 'scope']);
 
         $now   = now();
         $count = 0;
 
-        DB::transaction(function () use ($targets, $sourcePerms, $now, &$count) {
+        DB::transaction(function () use ($targets, $sourcePerms, $now, $agencyId, &$count) {
             foreach ($targets as $target) {
-                RolePermission::where('role', $target)->forceDelete();
+                RolePermission::where('role', $target)
+                    ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+                    ->forceDelete();
 
                 $rows = $sourcePerms->map(fn($p) => [
                     'role'           => $target,
                     'permission_key' => $p->permission_key,
                     'scope'          => $p->scope,
+                    'agency_id'      => $agencyId,
                     'created_at'     => $now,
                     'updated_at'     => $now,
                 ])->all();
@@ -364,8 +402,8 @@ class RoleManagerController extends Controller
 
         PermissionService::clearCache();
 
-        $targetLabels = Role::whereIn('name', $targets)->pluck('label')->implode(', ');
-        $sourceLabel  = Role::where('name', $source)->value('label');
+        $targetLabels = Role::whereIn('name', $targets)->tap($agencyRoles)->pluck('label')->implode(', ');
+        $sourceLabel  = Role::where('name', $source)->tap($agencyRoles)->value('label');
 
         return redirect()->route('corex.role-manager', ['role' => $source])->with('success', "Copied {$sourcePerms->count()} permissions from {$sourceLabel} to {$targetLabels}.");
     }
@@ -374,9 +412,14 @@ class RoleManagerController extends Controller
 
     public function storeRole(Request $request)
     {
+        $agencyId = auth()->user()->effectiveAgencyId();
+
         $request->validate([
             'label'       => 'required|string|max:100',
-            'name'        => ['nullable', 'string', 'max:100', 'regex:/^[a-z0-9_-]+$/', Rule::unique('roles', 'name')],
+            // Role names are unique WITHIN an agency, not globally — another
+            // agency may legitimately have a role of the same name.
+            'name'        => ['nullable', 'string', 'max:100', 'regex:/^[a-z0-9_-]+$/',
+                Rule::unique('roles', 'name')->where(fn ($q) => $q->where('agency_id', $agencyId))],
             'description' => 'nullable|string|max:500',
             'color'       => 'nullable|string|max:20',
             'sort_order'  => 'nullable|integer',
@@ -384,9 +427,9 @@ class RoleManagerController extends Controller
 
         $name = $request->name ?: Str::slug($request->label, '_');
 
-        // Ensure uniqueness of auto-generated slug
-        if (Role::withTrashed()->where('name', $name)->exists()) {
-            return redirect()->route('corex.role-manager')->withErrors(['name' => "The role slug '{$name}' is already taken."]);
+        // Ensure uniqueness of auto-generated slug within this agency (incl. trashed).
+        if (Role::withTrashed()->where('name', $name)->where('agency_id', $agencyId)->exists()) {
+            return redirect()->route('corex.role-manager')->withErrors(['name' => "The role slug '{$name}' is already taken in this agency."]);
         }
 
         $role = Role::create([
@@ -394,19 +437,28 @@ class RoleManagerController extends Controller
             'label'       => $request->label,
             'description' => $request->description,
             'color'       => $request->color ?? '#0d9488',
-            'sort_order'  => $request->sort_order ?? (Role::max('sort_order') + 1),
+            'sort_order'  => $request->sort_order ?? (Role::where('agency_id', $agencyId)->max('sort_order') + 1),
             'is_owner'    => false,
             'can_be_deleted' => true,
+            'agency_id'   => $agencyId,
         ]);
 
-        // Seed new role with agent's permissions as a starting point
-        $agentPerms = RolePermission::where('role', 'agent')->get();
+        // Seed new role with this agency's agent permissions as a starting
+        // point (fall back to the global template if the agency has none yet).
+        $agentPerms = RolePermission::where('role', 'agent')
+            ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+            ->get();
+        if ($agentPerms->isEmpty() && $agencyId) {
+            $agentPerms = RolePermission::where('role', 'agent')->whereNull('agency_id')->get();
+        }
+
         if ($agentPerms->isNotEmpty()) {
             $now  = now();
             $rows = $agentPerms->map(fn($p) => [
                 'role'           => $role->name,
                 'permission_key' => $p->permission_key,
                 'scope'          => $p->scope,
+                'agency_id'      => $agencyId,
                 'created_at'     => $now,
                 'updated_at'     => $now,
             ])->all();
@@ -421,6 +473,8 @@ class RoleManagerController extends Controller
 
     public function updateRole(Request $request, Role $role)
     {
+        $this->authorizeAgencyRole($role);
+
         $request->validate([
             'label'           => 'required|string|max:100',
             'description'     => 'nullable|string|max:500',
@@ -439,6 +493,8 @@ class RoleManagerController extends Controller
 
     public function destroyRole(Request $request, Role $role)
     {
+        $this->authorizeAgencyRole($role);
+
         if ($role->is_owner) {
             abort(403, 'The System Owner role cannot be deleted.');
         }
@@ -447,11 +503,15 @@ class RoleManagerController extends Controller
             abort(403, 'This role cannot be deleted.');
         }
 
+        $agencyId = auth()->user()->effectiveAgencyId();
+
+        // User queries are agency-scoped by the global AgencyScope, so this
+        // counts/updates only THIS agency's users even though role names repeat.
         $activeUserCount = User::where('role', $role->name)->where('is_active', 1)->count();
 
         if ($activeUserCount > 0) {
             $request->validate([
-                'reassign_to' => ['required', Rule::in(Role::roleNames())],
+                'reassign_to' => ['required', Rule::in(Role::roleNames($agencyId))],
             ]);
 
             $reassignRole = $request->reassign_to;
@@ -469,5 +529,20 @@ class RoleManagerController extends Controller
         PermissionService::clearCache();
 
         return redirect()->route('corex.role-manager')->with('success', "Role '{$role->label}' deleted." . ($activeUserCount > 0 ? " {$activeUserCount} user(s) moved to '{$request->reassign_to}'." : ''));
+    }
+
+    /**
+     * Guard: a Role bound by route-model binding must belong to the acting
+     * agency. Roles are agency-scoped but the `Role` model has no global
+     * AgencyScope, so the binder would otherwise resolve another agency's
+     * (or a global template) role by id. Reject with 404.
+     */
+    protected function authorizeAgencyRole(Role $role): void
+    {
+        $agencyId = auth()->user()->effectiveAgencyId();
+
+        if ($role->agency_id !== $agencyId) {
+            abort(404);
+        }
     }
 }

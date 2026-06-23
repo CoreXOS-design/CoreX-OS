@@ -222,7 +222,7 @@ class SettingsController extends Controller
         if ($user && in_array($user->role, ['admin', 'owner', 'super_admin'])) {
             $agencyId = $user->effectiveAgencyId();
             $matrix = \App\Models\AgencyLeaveVisibilityMatrix::matrixForAgency($agencyId);
-            $roles = \App\Models\Role::allRoles()->pluck('name')
+            $roles = \App\Models\Role::allRoles($agencyId)->pluck('name')
                 ->reject(fn($r) => $r === 'super_admin')->values()->toArray();
             $aliases = ['branch_manager' => 'bm', 'bm' => 'branch_manager'];
             $grid = [];

@@ -4,7 +4,7 @@
     $effectiveBranchId = $user?->effectiveBranchId();
 
     $userInitials = $user ? collect(explode(' ', $user->name))->map(fn($w) => strtoupper(substr($w, 0, 1)))->take(2)->join('') : '??';
-    $userRoleModel = $user ? \App\Models\Role::allRoles()->firstWhere('name', $effectiveRole) : null;
+    $userRoleModel = $user ? \App\Models\Role::allRoles($user->effectiveAgencyId())->firstWhere('name', $effectiveRole) : null;
     $userRole = $userRoleModel?->label ?? ($user ? ucfirst(str_replace('_', ' ', $effectiveRole)) : '');
 
     // Owner role & Agency Switcher

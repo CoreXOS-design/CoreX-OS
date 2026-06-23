@@ -8,45 +8,91 @@ use App\Models\User;
 
 class PermissionService
 {
-    /** @var array<string, string[]> Cached permissions keyed by role */
+    /** @var array<string, string[]> Cached permissions keyed by "agency:role" */
     protected static array $cache = [];
 
-    /** @var array<string, array<string, ?string>> Cached scopes: role -> permKey -> scope */
+    /** @var array<string, array<string, ?string>> Cached scopes keyed by "agency:role" */
     protected static array $scopeCache = [];
 
-    /** @var bool|null Whether the role_permissions table has been seeded */
+    /** @var bool|null Whether the role_permissions table has ANY rows (fresh-DB guard) */
     protected static ?bool $seeded = null;
 
+    /** @var array<string, bool> Whether a given agency owns any grants (provisioned?) */
+    protected static array $agencyHasGrants = [];
+
     /**
-     * Get all permission_keys for a given role (cached per-request).
+     * Resolve which agency_id the grants for this context live under
+     * (.ai/specs/roles-permissions.md §4.1).
+     *
+     * - No agency context (owners, fresh/test DBs) → NULL (global templates).
+     * - Agency that owns its own grants → that agency id.
+     * - Agency not yet provisioned → NULL fallback to the global templates,
+     *   so behaviour matches pre-migration until the agency is provisioned.
+     */
+    protected static function grantsAgencyId(?int $agencyId): ?int
+    {
+        if ($agencyId === null) {
+            return null;
+        }
+
+        $k = (string) $agencyId;
+        if (!isset(static::$agencyHasGrants[$k])) {
+            static::$agencyHasGrants[$k] = RolePermission::where('agency_id', $agencyId)->exists();
+        }
+
+        return static::$agencyHasGrants[$k] ? $agencyId : null;
+    }
+
+    /**
+     * Get all permission_keys for a given role within an agency context
+     * (cached per-request).
      *
      * @return string[]
      */
-    public static function getPermissionsForRole(string $role): array
+    public static function getPermissionsForRole(string $role, ?int $agencyId = null): array
     {
-        if (!isset(static::$cache[$role])) {
-            static::$cache[$role] = RolePermission::where('role', $role)
+        $resolved = static::grantsAgencyId($agencyId);
+        $key      = ($resolved ?? 'null') . ':' . $role;
+
+        if (!isset(static::$cache[$key])) {
+            static::$cache[$key] = static::scopedGrantQuery($role, $resolved)
                 ->pluck('permission_key')
                 ->all();
         }
 
-        return static::$cache[$role];
+        return static::$cache[$key];
     }
 
     /**
-     * Get scope values for a role (cached per-request).
+     * Get scope values for a role within an agency context (cached per-request).
      * Returns array: permission_key => scope ('own'|'branch'|'all'|null)
      */
-    protected static function getScopesForRole(string $role): array
+    protected static function getScopesForRole(string $role, ?int $agencyId = null): array
     {
-        if (!isset(static::$scopeCache[$role])) {
-            static::$scopeCache[$role] = RolePermission::where('role', $role)
+        $resolved = static::grantsAgencyId($agencyId);
+        $key      = ($resolved ?? 'null') . ':' . $role;
+
+        if (!isset(static::$scopeCache[$key])) {
+            static::$scopeCache[$key] = static::scopedGrantQuery($role, $resolved)
                 ->whereNotNull('scope')
                 ->pluck('scope', 'permission_key')
                 ->all();
         }
 
-        return static::$scopeCache[$role];
+        return static::$scopeCache[$key];
+    }
+
+    /**
+     * Base query for a role's grants, filtered to the resolved agency
+     * (NULL = global template rows).
+     */
+    protected static function scopedGrantQuery(string $role, ?int $resolvedAgencyId)
+    {
+        $q = RolePermission::where('role', $role);
+
+        return $resolvedAgencyId === null
+            ? $q->whereNull('agency_id')
+            : $q->where('agency_id', $resolvedAgencyId);
     }
 
     /**
@@ -63,10 +109,11 @@ class PermissionService
             return 'all';
         }
 
-        $role = $user->effectiveRole();
+        $role     = $user->effectiveRole();
+        $agencyId = $user->effectiveAgencyId();
 
         // Owner role always gets full scope (covers edge cases)
-        $roleModel = Role::allRoles()->firstWhere('name', $role);
+        $roleModel = Role::allRoles($agencyId)->firstWhere('name', $role);
         if ($roleModel && $roleModel->is_owner) {
             return 'all';
         }
@@ -83,7 +130,7 @@ class PermissionService
             };
         }
 
-        $scopes  = static::getScopesForRole($role);
+        $scopes  = static::getScopesForRole($role, $agencyId);
         $viewKey = $module . '.view';
         $stored  = $scopes[$viewKey] ?? null;
 
@@ -154,10 +201,11 @@ class PermissionService
             return true;
         }
 
-        $role = $user->effectiveRole();
+        $role     = $user->effectiveRole();
+        $agencyId = $user->effectiveAgencyId();
 
         // Owner role bypasses all permission checks (covers edge cases)
-        $roleModel = Role::allRoles()->firstWhere('name', $role);
+        $roleModel = Role::allRoles($agencyId)->firstWhere('name', $role);
         if ($roleModel && $roleModel->is_owner) {
             return true;
         }
@@ -170,8 +218,8 @@ class PermissionService
             return true;
         }
 
-        $permissions = static::getPermissionsForRole($role);
-        $scopes      = static::getScopesForRole($role);
+        $permissions = static::getPermissionsForRole($role, $agencyId);
+        $scopes      = static::getScopesForRole($role, $agencyId);
 
         // For {module}.view keys, check scope instead of simple presence
         if (str_ends_with($permissionKey, '.view')) {
@@ -205,5 +253,6 @@ class PermissionService
         static::$cache = [];
         static::$scopeCache = [];
         static::$seeded = null;
+        static::$agencyHasGrants = [];
     }
 }
