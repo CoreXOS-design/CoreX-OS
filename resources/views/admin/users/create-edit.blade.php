@@ -12,6 +12,17 @@
     $nameParts = $isEdit ? explode(' ', $user->name, 2) : [];
     $firstName = old('name', $nameParts[0] ?? '');
     $surname   = old('surname', $nameParts[1] ?? '');
+
+    // Admin Multi-Branch Manager — current managed-branch assignments + the
+    // role's admin-ness (drives the "Branches Managed" section in the Role tab).
+    $managedRows = ($isEdit && $user->id)
+        ? \DB::table('user_managed_branches')->where('user_id', $user->id)->get(['branch_id', 'is_default'])
+        : collect();
+    $managedIds = $managedRows->pluck('branch_id')->map(fn ($v) => (int) $v);
+    $managedDefaultId = optional($managedRows->firstWhere('is_default', 1))->branch_id;
+    $managedDefaultId = $managedDefaultId !== null ? (int) $managedDefaultId : null;
+    $currentRoleSel = old('role', $isEdit ? ($user->role ?? 'agent') : 'agent');
+    $isAdminRoleSel = in_array($currentRoleSel, ['admin', 'super_admin'], true);
 @endphp
 
 <div class="w-full space-y-5">
@@ -261,6 +272,36 @@
                             @endforeach
                         </select>
                     </div>
+                </div>
+
+                {{-- Admin Multi-Branch Manager — only shown for admin roles.
+                     Assign which branches this admin manages and which one they
+                     log in as (default). Identity only; does not change scope. --}}
+                <div class="mt-5 pt-5" style="border-top:1px solid var(--border);"
+                     x-data="{ adminRole: {{ $isAdminRoleSel ? 'true' : 'false' }} }"
+                     x-init="document.querySelector('[name=role]')?.addEventListener('change', e => adminRole = ['admin','super_admin'].includes(e.target.value))"
+                     x-show="adminRole" x-cloak>
+                    <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Branches Managed</label>
+                    <p class="text-xs mb-3" style="color:var(--text-muted);">Admins can manage several branches and act as each one's branch manager. Tick every branch this user manages, then mark the <strong>default</strong> — the branch they log in as.</p>
+                    @if($branchList->isEmpty())
+                        <p class="text-xs" style="color:var(--text-muted);">No branches available.</p>
+                    @else
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        @foreach($branchList as $b)
+                            @php $bid = (int) $b->id; $isManaged = $managedIds->contains($bid); $isDef = $managedDefaultId === $bid; @endphp
+                            <div class="flex items-center justify-between gap-3 rounded-md px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                                <label class="flex items-center gap-2 cursor-pointer text-sm" style="color:var(--text-primary);">
+                                    <input type="checkbox" name="managed_branches[]" value="{{ $bid }}" {{ $isManaged ? 'checked' : '' }}>
+                                    {{ $b->name }}
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer text-xs" style="color:var(--text-muted);">
+                                    <input type="radio" name="default_branch_id" value="{{ $bid }}" {{ $isDef ? 'checked' : '' }}>
+                                    Default
+                                </label>
+                            </div>
+                        @endforeach
+                    </div>
+                    @endif
                 </div>
 
                 {{-- Candidate Practitioner Info (PPRA compliance) --}}

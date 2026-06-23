@@ -287,6 +287,11 @@ class UserManagementController extends Controller
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'password'        => ['nullable', 'string', 'min:8'],
             'show_on_website' => ['nullable', 'in:0,1'],
+            // Admin Multi-Branch Manager — branches this user manages + the one
+            // they log in as (default). Only honoured for admin roles below.
+            'managed_branches'   => ['nullable', 'array'],
+            'managed_branches.*' => ['integer'],
+            'default_branch_id'  => ['nullable', 'integer'],
         ]);
 
         // The owner role cannot be assigned through user management.
@@ -356,6 +361,22 @@ class UserManagementController extends Controller
         }
 
         $user->save();
+
+        // ── Admin Multi-Branch Manager ───────────────────────────────────────
+        // Only admins can manage multiple branches and act as their manager.
+        // Resolve the EDITED user's real agency (never the editor's session)
+        // so foreign branches are rejected correctly.
+        if (in_array($data['role'], ['admin', 'super_admin'], true)) {
+            $editedAgencyId = $user->agency_id ?: optional(Branch::find($user->branch_id))->agency_id;
+            $user->syncManagedBranches(
+                $request->input('managed_branches', []),
+                $request->input('default_branch_id'),
+                $editedAgencyId ? (int) $editedAgencyId : null
+            );
+        } else {
+            // Demoted out of an admin role → drop any managed-branch assignments.
+            DB::table('user_managed_branches')->where('user_id', $user->id)->delete();
+        }
 
         // ── Domain events (spec corex-domain-events-spec.md) ─────────────────
         $fresh = $user->fresh() ?? $user;

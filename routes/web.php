@@ -869,6 +869,12 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/branch/switch/clear', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'clear'])->name('branch.switch.clear');
         Route::post('/branch/switch/{branch}', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'switch'])->name('branch.switch');
 
+        // Acting-as branch manager (Admin Multi-Branch Manager — identity only,
+        // does NOT change data scope). Gated by branches.self_assign_managed +
+        // the controller's isManagerOfBranch() check.
+        Route::post('/branch/acting/clear', [\App\Http\Controllers\Admin\ActingBranchManagerController::class, 'clear'])->name('branch.acting.clear');
+        Route::post('/branch/acting/{branch}', [\App\Http\Controllers\Admin\ActingBranchManagerController::class, 'actAs'])->name('branch.acting');
+
         // Cross-branch deal attach/detach (Split Branches Phase 2 — spec §11)
         Route::post('/admin/deals/{deal}/branches/attach', [\App\Http\Controllers\Admin\DealBranchController::class, 'attach'])->name('admin.deals.branches.attach');
         Route::delete('/admin/deals/{deal}/branches/{branch}', [\App\Http\Controllers\Admin\DealBranchController::class, 'detach'])->name('admin.deals.branches.detach');
@@ -1332,6 +1338,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:upload_own_documents')->name('agent.portal.upload');
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
+
+    // Admin Multi-Branch Manager — admin self-assigns which branches they
+    // manage (+ a default) from their own profile. Gated by the dedicated
+    // permission (admins/owners only; branch managers already have one branch).
+    Route::patch('/my-portal/managed-branches', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateManagedBranches'])
+        ->middleware('permission:branches.self_assign_managed')->name('agent.portal.managed-branches.update');
 
     // Live preview of an agent's public website page (self, or any agent in the
     // agency for managers/owner). Authorization handled in the controller.

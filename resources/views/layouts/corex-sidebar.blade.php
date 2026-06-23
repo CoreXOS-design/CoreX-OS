@@ -41,6 +41,17 @@
         ? \App\Models\Branch::where('agency_id', $_userAgencyId)->orderBy('name')->get()
         : collect();
 
+    // Admin Multi-Branch Manager — "Acting as" switcher state. Separate from
+    // the branch-isolation switcher above: this writes acting_branch_manager_id
+    // (identity only) and NEVER changes data scope. See
+    // .ai/specs/admin-multi-branch-manager.md.
+    $_canSelfAssignManaged = $user && $user->hasPermission('branches.self_assign_managed');
+    $_managedBranches = $_canSelfAssignManaged
+        ? $user->managedBranches()->orderBy('branches.name')->get()
+        : collect();
+    $_actingBranchId = $user ? $user->actingBranchManagerId() : null;
+    $_actingBranch   = $_actingBranchId ? $_managedBranches->firstWhere('id', $_actingBranchId) : null;
+
     // Impersonation state
     $impersonatorId  = (int) session('impersonator_id', 0);
     $isImpersonating = $impersonatorId > 0;
@@ -259,6 +270,55 @@
                             class="w-full text-left px-3 py-2 text-xs hover:bg-[color:var(--surface)] {{ (int) $_viewAsBranchId === (int) $_b->id ? 'font-semibold' : '' }}"
                             style="color: @if((int) $_viewAsBranchId === (int) $_b->id) var(--brand-icon, #0ea5e9) @else var(--text-secondary) @endif;">
                         {{ $_b->name }}
+                    </button>
+                </form>
+                @endforeach
+            </div>
+        </div>
+    </div>
+    @endif
+
+    {{-- Acting-as branch manager (Admin Multi-Branch Manager). Identity only —
+         lets an admin who manages several branches present as the manager of a
+         chosen one for deal registration. Does NOT change what they can see. --}}
+    @if($_canSelfAssignManaged && $_managedBranches->count() > 0)
+    <div class="px-4 pb-2">
+        <div x-data="{ actingOpen: false }" class="px-0">
+            <button type="button" @click="actingOpen = !actingOpen"
+                    class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
+                    style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 flex-shrink-0">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                </svg>
+                <span class="flex-1 text-left truncate">
+                    @if($_actingBranch)
+                        Acting: {{ $_actingBranch->name }}
+                    @else
+                        Act as branch manager
+                    @endif
+                </span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 transition-transform" :class="actingOpen && 'rotate-90'">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+            </button>
+            <div x-show="actingOpen" x-cloak @click.outside="actingOpen = false" x-transition
+                 class="mt-1 rounded-md overflow-hidden shadow-lg"
+                 style="background:var(--surface-2); border:1px solid var(--border);">
+                <form method="POST" action="{{ route('branch.acting.clear') }}">
+                    @csrf
+                    <button type="submit"
+                            class="w-full text-left px-3 py-2 text-xs hover:bg-[color:var(--surface)] {{ !$_actingBranch ? 'font-semibold' : '' }}"
+                            style="color: @if(!$_actingBranch) var(--brand-icon, #0ea5e9) @else var(--text-secondary) @endif;">
+                        Administrator (all branches)
+                    </button>
+                </form>
+                @foreach($_managedBranches as $_mb)
+                <form method="POST" action="{{ route('branch.acting', $_mb) }}">
+                    @csrf
+                    <button type="submit"
+                            class="w-full text-left px-3 py-2 text-xs hover:bg-[color:var(--surface)] {{ (int) $_actingBranchId === (int) $_mb->id ? 'font-semibold' : '' }}"
+                            style="color: @if((int) $_actingBranchId === (int) $_mb->id) var(--brand-icon, #0ea5e9) @else var(--text-secondary) @endif;">
+                        {{ $_mb->name }} Manager
                     </button>
                 </form>
                 @endforeach
