@@ -242,7 +242,7 @@
                 </svg>
                 <span class="flex-1 text-left truncate">
                     @if($_viewAsBranchId && $_activeBranch)
-                        Exit branch view
+                        {{ $_activeBranch->name }}
                     @else
                         Switch Branch
                     @endif
