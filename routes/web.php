@@ -260,15 +260,18 @@ Route::middleware('auth')->group(function () {
 
     // ── Admin: Soft Deletes Register (restore archived records) ──
     // Spec: .ai/specs/soft-deletes-admin.md
+    // Soft Deletes register is agency-scoped — an owner with no active agency
+    // context is redirected to the agency picker (agency.required) so they see
+    // a specific agency's archived records, not a cross-agency mix.
     Route::get('/admin/soft-deletes', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'index'])
-        ->middleware('permission:access_soft_deletes')
+        ->middleware(['permission:access_soft_deletes', 'agency.required'])
         ->name('admin.soft-deletes.index');
     Route::get('/admin/soft-deletes/{key}', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'show'])
-        ->middleware('permission:access_soft_deletes')
+        ->middleware(['permission:access_soft_deletes', 'agency.required'])
         ->where('key', '[A-Za-z0-9.]+')
         ->name('admin.soft-deletes.show');
     Route::post('/admin/soft-deletes/{key}/{id}/restore', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'restore'])
-        ->middleware('permission:access_soft_deletes')
+        ->middleware(['permission:access_soft_deletes', 'agency.required'])
         ->where('key', '[A-Za-z0-9.]+')
         ->where('id', '[0-9]+')
         ->name('admin.soft-deletes.restore');
@@ -2059,21 +2062,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/commission', [\App\Http\Controllers\Commission\CommissionSettingsController::class, 'update'])
         ->middleware('permission:access_settings')->name('corex.settings.commission.update');
 
-    // Role Manager
-    Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->middleware('permission:access_role_manager')->name('corex.role-manager');
+    // Role Manager — roles & permissions are agency-scoped, so an owner with
+    // no active agency context is redirected to the agency picker
+    // (agency.required). Non-owner admins always have a context → pass through.
+    Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->middleware(['permission:access_role_manager', 'agency.required'])->name('corex.role-manager');
     Route::post('/role-manager/permissions', [CoreXRoleManagerController::class, 'savePermissions'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.save');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.save');
     Route::post('/role-manager/user-role', [CoreXRoleManagerController::class, 'updateUserRole'])
-        ->middleware('permission:change_user_roles')->name('corex.role-manager.user-role');
+        ->middleware(['permission:change_user_roles', 'agency.required'])->name('corex.role-manager.user-role');
     // Role CRUD
     Route::post('/role-manager/roles', [CoreXRoleManagerController::class, 'storeRole'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.roles.store');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.roles.store');
     Route::put('/role-manager/roles/{role}', [CoreXRoleManagerController::class, 'updateRole'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.roles.update');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.roles.update');
     Route::delete('/role-manager/roles/{role}', [CoreXRoleManagerController::class, 'destroyRole'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.roles.destroy');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.roles.destroy');
     Route::post('/role-manager/copy-permissions', [CoreXRoleManagerController::class, 'copyPermissions'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.copy');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.copy');
 
     // Integrations — System Developer hub for external platform connections
     // (Meta/Facebook OAuth config + public legal page URLs). Owner-only.
