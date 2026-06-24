@@ -122,9 +122,11 @@ final class RentalImagesTest extends TestCase
     {
         $p = $this->makeProperty();
 
+        // custom_id: '' mirrors the live request — the ConvertEmptyStringsToNull
+        // middleware turns it to null, which must NOT trip the validation.
         $this->actingAs($this->user)
             ->postJson(route('corex.properties.rental-images.save', $p), [
-                'action' => 'set_date', 'section' => 'in_inspection', 'date' => '2026-06-24',
+                'action' => 'set_date', 'section' => 'in_inspection', 'custom_id' => '', 'date' => '2026-06-24',
             ])
             ->assertOk();
 
@@ -157,7 +159,7 @@ final class RentalImagesTest extends TestCase
 
         $this->actingAs($this->user)
             ->postJson(route('corex.properties.rental-images.delete', $p), [
-                'section' => 'out_inspection', 'index' => 0,
+                'section' => 'out_inspection', 'custom_id' => '', 'index' => 0,
             ])->assertOk();
 
         $after = $p->fresh()->rentalImagesStructure()['out_inspection']['images'];

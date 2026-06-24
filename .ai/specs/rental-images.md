@@ -81,11 +81,15 @@ the column is null, so the controller and view never deal with missing keys.
 ## 5. User flow
 
 1. Agent opens a rental property → **Rental Images** tab is present (absent on sale properties).
-2. Agent expands **In Inspection** → sets the inspection date, uploads photos. Repeats for
-   **Out Inspection**.
-3. Agent clicks **+ Add section**, names it (e.g. "Damage — kitchen"), and the new collapsed
-   section appears with its own date + gallery.
-4. Within any section the agent uploads more images or deletes individual images.
+2. Agent expands **In Inspection** → sets the inspection date, uploads photos (a **progress bar**
+   tracks the upload). Repeats for **Out Inspection**.
+3. Agent clicks **+ Add section** (a CoreX-styled modal, not a browser prompt), names it
+   (e.g. "Damage — kitchen"), and the new collapsed section appears with its own date + gallery.
+4. Within any section the agent can:
+   - **Click a photo** to open a full-screen viewer (prev/next, keyboard arrows, Esc, Download).
+   - **Download** a single photo (hover icon), **Download all**, or **Select** several and
+     **Download selected**.
+   - Upload more images or delete individual images.
 5. All state persists to `rental_images_json`; dates and galleries survive reload.
 
 ---
@@ -135,7 +139,14 @@ All under the `corex.properties.` route group (inherit `permission:access_proper
   `saveRentalImagesMeta`, `deleteRentalImage`
 - **Modify** `routes/web.php` — three routes in the properties group
 - **Modify** `resources/views/corex/properties/show.blade.php` — tab + panel + Alpine component
+  (`rentalImages()`), CoreX add/rename modal, and full-image viewer (lightbox)
+- **Create** `resources/views/corex/properties/partials/rental-section-body.blade.php` — the
+  shared per-section body (date, select/download toolbar, thumbnail grid, upload + progress bar)
 - **Create** `tests/Feature/CoreX/RentalImagesTest.php`
+
+> Note: `custom_id` is validated `nullable|string|required_if:...` on every endpoint — the global
+> `ConvertEmptyStringsToNull` middleware turns the empty `custom_id` sent for the fixed in/out
+> sections into `null`, which a bare `string` rule would reject (was the cause of the date-save 422).
 - Re-run `php artisan schema:dump`, commit refreshed `database/schema/mysql-schema.sql` (NN #12a)
 
 ---

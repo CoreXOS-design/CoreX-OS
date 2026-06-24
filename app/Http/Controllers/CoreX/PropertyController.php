@@ -1133,7 +1133,7 @@ class PropertyController extends Controller
 
         $request->validate([
             'section'   => 'required|in:in_inspection,out_inspection,custom',
-            'custom_id' => 'required_if:section,custom|string',
+            'custom_id' => 'nullable|string|required_if:section,custom',
             'images'    => 'required|array',
             'images.*'  => 'image|max:51200',
         ]);
@@ -1179,7 +1179,11 @@ class PropertyController extends Controller
         $data = $request->validate([
             'action'           => 'required|in:set_date,add_section,rename_section',
             'section'          => 'required_if:action,set_date|in:in_inspection,out_inspection,custom',
-            'custom_id'        => 'required_if:section,custom|required_if:action,rename_section|string',
+            // nullable first: the ConvertEmptyStringsToNull middleware turns an
+            // empty custom_id ('' for the fixed in/out sections) into null, which
+            // the string rule would otherwise reject. required_if still forces a
+            // value when the section is custom / the action is a rename.
+            'custom_id'        => 'nullable|string|required_if:section,custom|required_if:action,rename_section',
             'date'             => 'nullable|date',
             'name'             => 'required_if:action,add_section,rename_section|string|max:120',
         ]);
@@ -1235,7 +1239,7 @@ class PropertyController extends Controller
 
         $data = $request->validate([
             'section'   => 'required|in:in_inspection,out_inspection,custom',
-            'custom_id' => 'required_if:section,custom|string',
+            'custom_id' => 'nullable|string|required_if:section,custom',
             'index'     => 'required|integer|min:0',
         ]);
 
