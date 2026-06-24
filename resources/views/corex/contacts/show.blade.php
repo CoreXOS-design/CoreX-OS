@@ -126,6 +126,7 @@
 
             {{-- Right group: action buttons — wrap together, never overlap the name --}}
             <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
+            @include('layouts.partials.tour-header-launcher')
             {{-- Schedule Event from Contact --}}
             <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $contact->id, 'prefill_class' => $contact->is_buyer ? 'viewing' : 'meeting']) }}"
                class="corex-btn-primary flex-shrink-0 no-underline">
@@ -223,6 +224,7 @@
             @endif
             <button type="button"
                     @click="activeTab = '{{ $t['key'] }}'"
+                    @if($t['key'] === 'outreach') data-tour="outreach-tab" @endif
                     :class="activeTab === '{{ $t['key'] }}' ? 'border-b-2' : 'border-b-2 border-transparent'"
                     :style="activeTab === '{{ $t['key'] }}' ? 'color:var(--brand-icon, #0ea5e9); border-color:var(--brand-icon, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);' : 'color:var(--text-secondary);'"
                     class="px-4 py-4 text-sm font-semibold whitespace-nowrap transition-all duration-300 outline-none hover:opacity-80"

@@ -6,6 +6,7 @@
     $isManager = auth()->user()?->hasPermission('prospecting_setup.manage') ?? false;
     $includeInStockToggle = (bool) request()->boolean('include_in_stock');
 @endphp
+@include('layouts.partials.tour-header-launcher')
 @if($isManager)
     <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
            style="color: rgba(255,255,255,0.8);"

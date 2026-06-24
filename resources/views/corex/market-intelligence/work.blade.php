@@ -23,15 +23,21 @@
     </x-slot:actions>
 </x-mic-page-header>
 
+<div data-tour="mic-tabs">
 @include('corex.market-intelligence.partials.tabs')
+</div>
 
+<div data-tour="mic-hero">
 @include('corex.market-intelligence.partials.this-week-hero', [
     'tiles'            => $tiles ?? collect(),
     'tilesGeneratedAt' => $tilesGeneratedAt ?? null,
     'agent'            => auth()->user(),
 ])
+</div>
 
+<div data-tour="mic-upload">
 @include('corex.market-intelligence.partials.quick-upload-cma')
+</div>
 
 <header class="mi-header"
         style="position: sticky; top: 0; z-index: 10; background: var(--surface);">
@@ -41,7 +47,7 @@
 {{-- F.8 — one-time dismissable intro banner. localStorage-gated. --}}
 @include('corex.market-intelligence._intro-banner')
 
-<div class="mi-split" style="display: grid; grid-template-columns: 200px 1fr; align-items: start;">
+<div class="mi-split" data-tour="mic-list" style="display: grid; grid-template-columns: 200px 1fr; align-items: start;">
     @include('corex.market-intelligence._filter-rail')
 
     <main class="mi-main" style="min-width: 0; overflow-x: hidden; padding: 12px 16px;">
