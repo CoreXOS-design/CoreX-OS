@@ -471,6 +471,14 @@ class AgencyController extends Controller
 
         $counts = [];
         DB::transaction(function () use ($cascadeTables, $tables, $agencyId, $ownerRoleNames, &$counts, $agency, $driver) {
+            // Full agency purge: disable FK checks for the duration so the cascade is
+            // order-independent. SHOW TABLES is alphabetical, so e.g. `branches` is
+            // deleted before `contacts`, but contacts.branch_id -> branches.id is
+            // ON DELETE RESTRICT — without this we'd hit FK 1451 and play whack-a-mole
+            // with every dependency in the graph. Re-enabled in finally so the
+            // connection never leaks the setting, even on rollback.
+            DB::statement('SET FOREIGN_KEY_CHECKS=0');
+            try {
             // Cascade rows referencing users we're about to delete (e.g. agent_scorecards)
             // which don't carry agency_id directly and would otherwise trip FK constraints.
             $userIdsToDelete = DB::table('users')
@@ -580,6 +588,9 @@ class AgencyController extends Controller
             }
 
             $agency->forceDelete();
+            } finally {
+                DB::statement('SET FOREIGN_KEY_CHECKS=1');
+            }
         });
 
         if (session('active_agency_id') == $agencyId) {
