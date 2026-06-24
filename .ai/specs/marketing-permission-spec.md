@@ -178,12 +178,43 @@ class ReadinessReport
 
 ### 5.2 Gates (all must pass for `ready = true`)
 
+> **AMENDED — AT-94 (2026-06-24, Johan final).** The document gates no longer
+> query `docuperfect_documents`/`signature_templates` by hardcoded string.
+> They read the property's **Drive documents** (`App\Models\Document` on the
+> property + linked seller contacts) against each agency's **configurable
+> required document-type list** (Settings → Document Types, stored per-agency
+> in `agency_document_type_compliance`). A typed, non-soft-deleted Drive
+> document of a required type being **present** IS the gate — no approval
+> status is checked. See §5.5 (Doctrine) and §6.5.
+
 | Gate | Check | Source |
 |------|-------|--------|
-| Authority to Market signed | EITHER a signed mandate (sole or open, `docuperfect_documents.document_type='mandate'` with `signature_templates.status='completed'`) OR a signed marketing_permission document exists for the property. Both together also passes. | `docuperfect_documents` + `signature_templates` |
-| All sellers FICA passed | Every contact linked to property with role `seller` / `owner` / `landlord` / `lessor` has a `fica_submission` with status `approved` | `fica_submissions` |
+| Each agency-required document type present | For every document type the agency flags `is_compliance_required`, at least one non-soft-deleted `Document` of that `document_type_id` is linked to the property OR a seller/owner/landlord/lessor contact. HFC default required set: `mandate`, `fica`, `disclosure` (MDF). Presence = met; no approval status checked. | `documents` + `document_properties` + `document_contacts` + `agency_document_type_compliance` |
+| FICA bridge (when `fica` is required) | Satisfied by a `fica`-typed Drive document (above) OR every seller having a `fica_submission` with status `approved` (authoritative FICA workflow preserved — no regression). | `fica_submissions` (OR Drive) |
 | Listing has photos | `gallery_images_json` + `images_json` count ≥ minimum (hardcoded 4 in Phase 1) | `properties` JSON columns |
 | Listing details complete | Required fields present: address, suburb, town, province, price, property_type, erf_size_m2 | `properties` |
+
+Because e-signed documents auto-file to the Drive with their `document_type_id`
+(`SignatureService::autoFileSignedDocument`), an e-signed mandate satisfies the
+same gate as a manually-uploaded one — the gate is source-agnostic by design.
+
+### 5.5 Doctrine — instant-unlock on typed upload (AT-94, standing, all agencies)
+
+The two compliance paths apply the **same control at different points**, by
+design — they are not inconsistent:
+
+- **Wet-ink / physical** documents are physically signed off by the applicable
+  BM in the real world before they are scanned. The approval control is met on
+  paper by an authorised person, so a typed Drive upload unlocks compliance
+  **instantly** — the system must NOT add a CO/approval step, which would
+  duplicate an already-completed control.
+- **E-sign** has no physical document and no BM paper sign-off, so the approval
+  control lives system-side — which is exactly why the e-sign pipeline has
+  CO-approval routing. That pipeline is **untouched** by AT-94.
+
+Instant-unlock on Drive upload is the digital reflection of a completed
+physical sign-off, not a lowered bar. The Drive-upload compliance path checks
+**presence of a typed document only** — never an approval status.
 
 ### 5.3 If a snapshot already exists
 
@@ -263,6 +294,24 @@ Same readiness gate trigger: the readiness service reads `signature_templates.st
 Full CRUD on wet-ink uploads: upload (create), view on property/contact drive (read), re-upload after rejection (update via replace), soft-delete of the parent document (delete).
 
 ---
+
+### 6.5 Drive-document compliance path (AT-94)
+
+The gate that decides marketability reads the property's Drive documents — it
+does not care how they arrived:
+
+- **Manual / wet-ink upload** → `PropertyFileController::store` /
+  `ContactDocumentController::store` create a `Document` with the chosen
+  `document_type_id`. If that type is agency-required, the gate is met the
+  instant the upload completes. No CO/approval step (see §5.5 Doctrine).
+- **E-sign** → on completion `SignatureService::autoFileSignedDocument` files a
+  `Document` with the template's `document_type_id`. Same gate, same result.
+
+Which document types gate is **agency-configurable** at Settings → Document
+Types (per-agency `is_compliance_required` flag, stored in
+`agency_document_type_compliance`). No hardcoded document-type strings remain in
+the readiness service. New agencies are seeded the default required set
+(`mandate`, `fica`, `disclosure`) via `AgencyComplianceDocTypeService::ensureDefaults`.
 
 ## 7. UI Surfaces
 

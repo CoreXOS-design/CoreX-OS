@@ -151,6 +151,10 @@ class AgencyController extends Controller
             return $agency;
         });
 
+        // Seed default marketing-compliance required document types (mandate,
+        // FICA, disclosure) so a new agency has sensible gating out of the box.
+        app(\App\Services\Compliance\AgencyComplianceDocTypeService::class)->ensureDefaults($agency->id);
+
         if ($request->hasFile('logo')) {
             $ext = $request->file('logo')->getClientOriginalExtension();
             $path = $request->file('logo')->storeAs(
