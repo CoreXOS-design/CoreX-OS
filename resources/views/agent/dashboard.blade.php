@@ -76,7 +76,7 @@
 <div class="space-y-6">
 
     {{-- PAGE HEADER (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="at-agent-dashboard-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight tracking-tight">
@@ -96,7 +96,8 @@
                         Go
                     </button>
                 </form>
-                <a href="{{ route('agent.daily') }}" class="corex-btn-primary">Daily Activity</a>
+                @include('layouts.partials.tour-header-launcher')
+                <a href="{{ route('agent.daily') }}" class="corex-btn-primary" data-tour="at-agent-dashboard-daily-cta">Daily Activity</a>
             </div>
         </div>
     </div>
@@ -120,7 +121,7 @@
     @endif
 
     {{-- HERO / MOTIVATION --}}
-    <div class="ds-status-card">
+    <div class="ds-status-card" data-tour="at-agent-dashboard-focus">
         <div class="flex flex-col gap-4">
             <div>
                 <div class="ds-section-header">Your focus — {{ $snapshot['month_label'] }}</div>
@@ -209,7 +210,7 @@
     </div>
 
     {{-- YOUR ACTUALS --}}
-    <div class="ds-status-card">
+    <div class="ds-status-card" data-tour="at-agent-dashboard-actuals">
         <h3 class="ds-section-header mb-1">Your Actuals</h3>
         <div class="ds-section-sub mb-4">What you've done so far — updated from Deals + Daily Activity + Points.</div>
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -239,7 +240,7 @@
                 <div class="ds-value-lg">{{ number_format((int)($a['daily_rows'] ?? 0)) }}</div>
                 <div class="mt-1 text-xs" style="color: var(--text-muted);">All-time: {{ number_format((int)($a['daily_rows_all_time'] ?? 0)) }}</div>
             </div>
-            <div class="ds-status-card">
+            <div class="ds-status-card" data-tour="at-agent-dashboard-listing-stock">
                 <div class="ds-label">Listing stock</div>
                 <div class="mt-2 grid grid-cols-2 gap-3">
                     <div>
@@ -265,7 +266,7 @@
     </div>
 
     {{-- YOU vs BRANCH vs COMPANY --}}
-    <div class="ds-status-card">
+    <div class="ds-status-card" data-tour="at-agent-dashboard-comparison">
         <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
             <h3 class="ds-section-header">You vs Branch vs Company</h3>
             <div class="text-xs" style="color: var(--text-muted);">Totals only (privacy safe)</div>

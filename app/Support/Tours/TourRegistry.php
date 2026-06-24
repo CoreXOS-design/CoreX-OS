@@ -34,6 +34,32 @@ class TourRegistry
      */
     public static function all(): array
     {
+        $tours = static::core();
+
+        // Modular definitions (AT-41 full-coverage pass): every file in
+        // app/Support/Tours/defs/*.php returns an array<key,definition> and is
+        // merged in. This lets the catalogue grow per-module without one giant
+        // file (and lets parallel work land without merge conflicts). Keys are
+        // globally unique; a later file silently overriding an earlier key is a
+        // bug, so we keep keys namespaced by module in each file.
+        foreach (glob(__DIR__ . '/defs/*.php') as $defFile) {
+            $defs = require $defFile;
+            if (is_array($defs)) {
+                $tours += $defs; // '+' preserves earlier keys — never clobber core
+            }
+        }
+
+        return $tours;
+    }
+
+    /**
+     * The original hand-authored core tours (queue #1–#9). Kept inline as the
+     * canonical reference set; module packs live in defs/.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    protected static function core(): array
+    {
         return [
             // ── Contact capture ──────────────────────────────────────────────
             'contact-capture' => [

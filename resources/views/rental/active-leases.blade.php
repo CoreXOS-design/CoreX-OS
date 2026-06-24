@@ -12,7 +12,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div data-tour="rent-active-leases-intro" class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Active Leases</h1>
@@ -22,7 +22,7 @@
                 </p>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('docuperfect.rental.uploadAndSend') }}" class="corex-btn-primary">Upload &amp; Send Lease</a>
+                <a href="{{ route('docuperfect.rental.uploadAndSend') }}" data-tour="rent-active-leases-upload" class="corex-btn-primary">Upload &amp; Send Lease</a>
                 @permission('access_settings')
                 <a href="{{ url('/corex/settings?s=feature-rentals') }}"
                    title="Active Leases Settings"
@@ -54,7 +54,7 @@
         </div>
     @endif
 
-    <div class="space-y-3">
+    <div data-tour="rent-active-leases-list" class="space-y-3">
         @forelse($leases as $lease)
             @php
                 $daysLeft = $lease->daysUntilExpiry();

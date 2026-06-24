@@ -7,7 +7,7 @@
     {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="earn-dashboard-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">My Earnings</h1>
                 <p class="text-sm text-white/60">Commission, cap progress, and revenue share at a glance.</p>
             </div>
@@ -17,7 +17,7 @@
     {{-- ══════════════════════════════════════
          TOP CARDS ROW
          ══════════════════════════════════════ --}}
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-tour="earn-dashboard-cards">
 
         {{-- Card 1: This Month --}}
         <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
@@ -64,7 +64,7 @@
     {{-- ══════════════════════════════════════
          FULL-WIDTH CAP PROGRESS BAR
          ══════════════════════════════════════ --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-6 py-5" style="background:var(--surface); border:1px solid var(--border);" data-tour="earn-dashboard-cap">
         <div class="flex items-center justify-between mb-2">
             <div class="text-sm font-semibold" style="color:var(--text-primary);">
                 Annual Cap Progress
@@ -110,7 +110,7 @@
     {{-- ══════════════════════════════════════
          MONTHLY EARNINGS CHART
          ══════════════════════════════════════ --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-6 py-5" style="background:var(--surface); border:1px solid var(--border);" data-tour="earn-dashboard-chart">
         <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Monthly Earnings — Last 12 Months</h3>
         <div style="position:relative; height:280px;">
             <canvas id="earningsChart"></canvas>
@@ -120,7 +120,7 @@
     {{-- ══════════════════════════════════════
          RECENT TRANSACTIONS TABLE
          ══════════════════════════════════════ --}}
-    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" data-tour="earn-dashboard-transactions">
         <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
             <h3 class="text-sm font-bold" style="color:var(--text-primary);">Recent Transactions</h3>
         </div>

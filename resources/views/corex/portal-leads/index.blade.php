@@ -6,7 +6,7 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="re-portal-leads-intro">
                 <h1 class="text-xl font-bold tracking-tight text-white leading-tight">Portal Leads</h1>
                 <p class="text-sm" style="color: rgba(255,255,255,0.6);">Buyer enquiries received from Property24 and Private Property.</p>
             </div>
@@ -18,6 +18,7 @@
 
     {{-- Filters --}}
     <form method="GET" action="{{ route('corex.portal-leads.index') }}"
+          data-tour="re-portal-leads-filters"
           class="rounded-md p-4 grid grid-cols-1 md:grid-cols-6 gap-3 transition-all duration-300"
           style="background: var(--surface); border: 1px solid var(--border);">
 
@@ -61,6 +62,7 @@
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Status</label>
             <select name="status"
+                    data-tour="re-portal-leads-status"
                     class="w-full rounded-md text-sm transition-all duration-300"
                     style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
@@ -81,6 +83,7 @@
 
     {{-- Leads table --}}
     <div class="rounded-md overflow-hidden"
+         data-tour="re-portal-leads-table"
          style="background: var(--surface); border: 1px solid var(--border);">
         <table class="w-full text-sm">
             <thead>

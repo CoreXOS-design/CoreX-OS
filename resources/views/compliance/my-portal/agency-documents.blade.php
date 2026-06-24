@@ -7,7 +7,7 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div class="min-w-0">
+            <div class="min-w-0" data-tour="portal-agency-docs-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Agency Documents</h1>
                 <p class="text-sm text-white/60">
                     @if($splitEnabled && $branchName)
@@ -42,7 +42,7 @@
             $colourMap = ['teal' => 'var(--brand-icon,#0ea5e9)', 'amber' => 'var(--ds-amber,#f59e0b)', 'red' => 'var(--ds-crimson,#c41e3a)', 'slate' => 'var(--text-muted,#94a3b8)'];
         @endphp
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-tour="portal-agency-docs-grid">
             @foreach($documents as $doc)
             @php
                 $config = $doc->config;
@@ -65,7 +65,7 @@
 
                 <div class="px-4 py-3">
                     {{-- Status --}}
-                    <div class="flex items-center gap-1.5 mb-3">
+                    <div class="flex items-center gap-1.5 mb-3" @if($loop->first) data-tour="portal-agency-docs-status" @endif>
                         <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ $colourMap[$colour] }};"></span>
                         <span class="text-xs font-semibold" style="color:{{ $colourMap[$colour] }};">{{ $status->label }}</span>
                     </div>
@@ -73,7 +73,8 @@
                     @if($prov)
                         {{-- Download + metadata --}}
                         <a href="{{ route('my-portal.agency-documents.download', $prov) }}"
-                           class="corex-btn-primary inline-flex items-center gap-1.5 mb-3">
+                           class="corex-btn-primary inline-flex items-center gap-1.5 mb-3"
+                           @if($loop->first) data-tour="portal-agency-docs-download" @endif>
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                             Download
                         </a>

@@ -26,7 +26,7 @@
     $activeFilter = $activeFilter ?? 'all';
 @endphp
 
-<div class="mic-opp-stats"
+<div class="mic-opp-stats" data-tour="mic-opportunities-stats"
      style="margin-bottom: 12px; padding: 4px;
             display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;">
     @foreach($tiles as $tile)

@@ -9,7 +9,7 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="re-core-matches-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Core Matches</h1>
                 <p class="text-sm text-white/60">Buyer and renter search criteria saved against your contacts.</p>
             </div>
@@ -70,9 +70,10 @@
         @php
             $contact = $row['contact'];
             $matches = $row['matches'];
+            $isFirstCard = $loop->first;
         @endphp
 
-        <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" @if($loop->first) data-tour="re-core-matches-card" @endif>
 
             {{-- Contact header --}}
             <div class="flex items-center justify-between gap-3 px-5 py-4"
@@ -163,7 +164,7 @@
 
                     {{-- Match counts: total / visible / hidden --}}
                     @php $counts = $matchCounts[$match->id] ?? ['total' => 0, 'visible' => 0, 'hidden' => 0]; @endphp
-                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                    <div class="flex items-center gap-1.5 flex-shrink-0" @if($isFirstCard && $loop->first) data-tour="re-core-matches-counts" @endif>
                         <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
                               style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
                               title="Total properties matching this search">
@@ -185,6 +186,7 @@
 
                     {{-- Action --}}
                     <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
+                       @if($isFirstCard && $loop->first) data-tour="re-core-matches-view" @endif
                        class="corex-btn-outline text-xs flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1.5">
                         View Matches
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>

@@ -338,7 +338,7 @@
 <div class="wrap flex flex-col gap-6">
 
   {{-- Page Header --}}
-  <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
+  <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5" data-tour="tools-header">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
       <div class="flex items-center gap-3">
         @if(!empty($printSettings['logoUrl']))
@@ -351,6 +351,7 @@
         </div>
       </div>
       <div class="flex items-center gap-3">
+        @include('layouts.partials.tour-header-launcher')
         <div id="activeAgentDisplay" class="text-sm text-white/80 font-medium">
           <span id="currentAgentName">{{ auth()->user()?->name ?? "User" }}</span>
         </div>
@@ -362,10 +363,12 @@
   {{-- Tab navigation --}}
   <div class="tab-nav" id="toolTabs">
     <button class="tab-btn {{ $activeTab === 'calc' ? 'active' : '' }}"
+            data-tour="tools-commission-tab"
             onclick="activateSection('calcSection')">
       Commission Calculator
     </button>
     <button class="tab-btn {{ $activeTab === 'cma' ? 'active' : '' }}"
+            data-tour="tools-cma-tab"
             onclick="activateSection('certSection')">
       CMA Certificate
     </button>
@@ -376,7 +379,7 @@
   </div>
 
   <!-- Calculator Section -->
-  <div id="calcSection" class="section {{ $activeTab === 'calc' ? 'active' : '' }}">
+  <div id="calcSection" class="section {{ $activeTab === 'calc' ? 'active' : '' }}" data-tour="tools-commission-section">
     <div class="tool-card">
       <h3 class="tool-card-header">Commission Calculator</h3>
 
@@ -395,7 +398,7 @@
         </div>
       </div>
 
-      <div class="inlineRow">
+      <div class="inlineRow" data-tour="tools-commission-inputs">
         <div class="field">
           <label id="priceLabel">Advertised Price (R)</label>
           <input id="price" type="number" value="0" min="0" step="1000"/>
@@ -451,7 +454,7 @@
 
       <div class="divider"></div>
 
-      <div class="results">
+      <div class="results" data-tour="tools-commission-results">
         <div class="result">
           <div class="k">Selling Price</div>
           <div class="v" id="rSellingPrice">&mdash;</div>
@@ -484,14 +487,14 @@
           <input id="certDate" type="date" />
         </div>
         <div class="field" style="display:flex; align-items:flex-end;">
-          <button class="corex-btn-primary" id="btnPrint">Print Commission Summary</button>
+          <button class="corex-btn-primary" id="btnPrint" data-tour="tools-commission-print">Print Commission Summary</button>
         </div>
       </div>
     </div>
   </div>
 
   <!-- CMA Section -->
-  <div id="certSection" class="section {{ $activeTab === 'cma' ? 'active' : '' }}">
+  <div id="certSection" class="section {{ $activeTab === 'cma' ? 'active' : '' }}" data-tour="tools-cma-section">
     <div class="tool-card">
       <h3 class="tool-card-header">CMA Certificate Generator</h3>
 
@@ -519,7 +522,7 @@
         </div>
       </div>
 
-      <div class="inlineRow">
+      <div class="inlineRow" data-tour="tools-cma-value">
         <div class="field">
           <label>Estimated Market Value (R)</label>
           <input id="cmaValue" type="number" value="0" min="0" step="1000"/>
@@ -538,7 +541,7 @@
         </div>
       </div>
 
-      <div class="inlineRow">
+      <div class="inlineRow" data-tour="tools-cma-notes">
         <div class="field">
           <label>Key Features / Notes</label>
           <textarea id="cmaNotes" placeholder="e.g. Sea views, renovated kitchen, walking distance to beach..."></textarea>
@@ -549,7 +552,7 @@
 
       <div class="inlineRow">
         <div class="field" style="display:flex; align-items:flex-end;">
-          <button class="corex-btn-primary" id="btnPrintCert">Print CMA Certificate</button>
+          <button class="corex-btn-primary" id="btnPrintCert" data-tour="tools-cma-print">Print CMA Certificate</button>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 {{-- Phase D6 — price changes (last 200).
      DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-<section style="margin-bottom: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+<section data-tour="mic-market-pulse-price-changes" style="margin-bottom: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
     <div style="padding: 10px 14px; border-bottom: 1px solid var(--border);">
         <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin: 0;">
             Price changes · last {{ $priceChanges->count() }}

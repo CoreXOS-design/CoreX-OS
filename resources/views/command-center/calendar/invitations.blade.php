@@ -3,11 +3,14 @@
 
 @section('corex-content')
 <div class="space-y-6">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="cc-invitations-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Calendar Invitations</h1>
                 <p class="text-sm text-white/60">Events other agents have invited you to.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
             </div>
         </div>
     </div>
@@ -24,9 +27,9 @@
         </div>
     @endif
 
-    <div class="space-y-3">
+    <div class="space-y-3" data-tour="cc-invitations-list">
     @forelse($invitations as $inv)
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4" data-tour="cc-invitations-card" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
@@ -57,7 +60,7 @@
                         </div>
                     @endif
                 </div>
-                <div class="flex items-center gap-2 flex-shrink-0">
+                <div class="flex items-center gap-2 flex-shrink-0" data-tour="cc-invitations-actions">
                     <form method="POST" action="{{ route('command-center.calendar.invitations.respond', $inv) }}">
                         @csrf <input type="hidden" name="action" value="accepted">
                         <button type="submit" class="corex-btn-primary">Accept</button>

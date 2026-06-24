@@ -6,12 +6,12 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="re-commercial-evals-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Commercial Market Evaluations</h1>
                 <p class="text-sm text-white/60">Evaluate commercial, industrial, hospitality &amp; agricultural properties</p>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('commercial-evaluations.create') }}" class="corex-btn-primary">
+                <a href="{{ route('commercial-evaluations.create') }}" class="corex-btn-primary" data-tour="re-commercial-evals-new">
                     + New Evaluation
                 </a>
             </div>
@@ -19,7 +19,7 @@
     </div>
 
     {{-- Filter bar --}}
-    <div class="rounded-md px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="re-commercial-evals-filter">
         <div class="text-sm" style="color: var(--text-secondary);">
             Showing <span style="color: var(--text-primary); font-weight: 600;">{{ number_format($evaluations->count()) }}</span>
             {{ $showArchived ? 'archived' : 'active' }} {{ Str::plural('evaluation', $evaluations->count()) }}
@@ -33,7 +33,7 @@
     </div>
 
     {{-- Content --}}
-    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);" data-tour="re-commercial-evals-list">
         @if($evaluations->isEmpty())
             <div class="py-12 px-6 text-center">
                 <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"

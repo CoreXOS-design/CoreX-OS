@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('content')
-<div class="max-w-6xl mx-auto">
+<div class="max-w-6xl mx-auto" data-tour="dp-documents-root">
 
     <x-list-header
         :title="!empty($packInstance) ? 'Document Pack' : 'My Documents'"
@@ -11,7 +11,7 @@
     >
         <x-slot:filters>
             @if(empty($packInstance))
-            <select name="filter" onchange="this.form.submit()" class="list-header-filter">
+            <select name="filter" onchange="this.form.submit()" class="list-header-filter" data-tour="dp-documents-filter">
                 <option value="active" {{ ($filter ?? 'active') === 'active' ? 'selected' : '' }}>Active</option>
                 <option value="archived" {{ ($filter ?? 'active') === 'archived' ? 'selected' : '' }}>Archived</option>
             </select>
@@ -19,7 +19,7 @@
         </x-slot:filters>
         <x-slot:actions>
             @if(!empty($packInstance))
-            <a href="{{ route('docuperfect.documents.index') }}" class="corex-btn-outline text-sm">Show All</a>
+            <a href="{{ route('docuperfect.documents.index') }}" class="corex-btn-outline text-sm" data-tour="dp-documents-show-all">Show All</a>
             @else
             <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-primary text-sm">+ Create New</a>
             @endif
@@ -53,12 +53,12 @@
         <div class="flex justify-end mt-4">
             <button type="button" id="dpCombinedPdfBtn"
                     class="corex-btn-primary text-sm px-4 py-2" style="background:#0b2a4a;"
-                    onclick="downloadCombinedPdf()">
+                    onclick="downloadCombinedPdf()" data-tour="dp-documents-combined-pdf">
                 <i class="fas fa-file-pdf mr-1"></i> Download as Single PDF
             </button>
         </div>
         @endif
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-x-auto mt-4">
+        <div class="rounded-2xl border border-slate-200 bg-white overflow-x-auto mt-4" data-tour="dp-documents-table">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>

@@ -4,7 +4,7 @@
 <div class="w-full space-y-5" x-data="calculatorsApp()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="calc-hub-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Calculators</h1>
@@ -65,7 +65,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {{-- CARD 1: Commission Calculator --}}
-        <div class="ds-status-card flex flex-col" style="min-height: 420px;">
+        <div class="ds-status-card flex flex-col" style="min-height: 420px;" data-tour="calc-hub-commission">
             <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Commission Calculator</h3>
 
             <div class="space-y-3 flex-1">
@@ -115,7 +115,7 @@
         </div>
 
         {{-- CARD 2: Bond Repayment Calculator --}}
-        <div class="ds-status-card flex flex-col" style="min-height: 420px;">
+        <div class="ds-status-card flex flex-col" style="min-height: 420px;" data-tour="calc-hub-bond">
             <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Bond Repayment</h3>
 
             <div class="space-y-3 flex-1">
@@ -166,7 +166,7 @@
         </div>
 
         {{-- CARD 3: Transfer & Bond Cost Calculator --}}
-        <div class="ds-status-card flex flex-col" style="min-height: 420px;">
+        <div class="ds-status-card flex flex-col" style="min-height: 420px;" data-tour="calc-hub-transfer">
             <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Transfer & Bond Costs</h3>
 
             <div class="space-y-3 flex-1">
@@ -253,7 +253,7 @@
     </div>
 
     {{-- CARD 5: Bond Overpayment Savings (full width) --}}
-    <div class="ds-status-card">
+    <div class="ds-status-card" data-tour="calc-hub-overpayment">
         <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Bond Overpayment Savings</h3>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

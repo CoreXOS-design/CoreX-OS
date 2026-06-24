@@ -45,7 +45,7 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="pres-outcomes-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Outcomes Dashboard</h1>
                 <p class="text-sm text-white/60">
                     Win rate, loss reasons, and pipeline health across {{ number_format($totalPresentations) }} presentation{{ $totalPresentations === 1 ? '' : 's' }} in the selected window.
@@ -63,7 +63,8 @@
     {{-- Filters --}}
     <form method="GET"
           class="rounded-md p-4 grid gap-3"
-          style="background: var(--surface); border: 1px solid var(--border); grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
+          style="background: var(--surface); border: 1px solid var(--border); grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));"
+          data-tour="pres-outcomes-filters">
         <div>
             <label for="from" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">From</label>
             <input id="from" type="date" name="from" value="{{ $from->toDateString() }}"
@@ -130,7 +131,7 @@
             ['Still pending',       number_format($stillPending),  null],
         ];
     @endphp
-    <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+    <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));" data-tour="pres-outcomes-metrics">
         @foreach($metrics as [$lbl, $val, $sub])
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{{ $lbl }}</div>
@@ -144,7 +145,7 @@
 
     {{-- Loss reasons chart --}}
     @if(!empty($lossReasons))
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="pres-outcomes-loss-reasons">
             <h2 class="ds-section-header" style="margin: 0 0 12px 0;">Loss reasons breakdown</h2>
             <div class="flex flex-col gap-2.5">
                 @foreach($lossReasons as $key => $count)

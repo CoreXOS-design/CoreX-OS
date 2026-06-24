@@ -7,7 +7,7 @@
     <div class="flex-shrink-0 flex items-center gap-2 px-3 py-2 eval-topbar">
 
         {{-- Mode toggle --}}
-        <div class="eval-mode-toggle">
+        <div class="eval-mode-toggle" data-tour="misc-evaluation-mode">
             <button @click="mode='search'" :class="mode==='search' ? 'is-active' : ''" class="eval-mode-btn">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="eval-icon-xs"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>
                 Search
@@ -21,7 +21,7 @@
         <div class="eval-divider"></div>
 
         {{-- Search bar --}}
-        <div class="relative eval-search-wrap">
+        <div class="relative eval-search-wrap" data-tour="misc-evaluation-search">
             <svg class="eval-search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>
             <input type="text" x-model="searchQuery"
                 @input.debounce.350ms="runSearch()"
@@ -32,7 +32,7 @@
         </div>
 
         {{-- Search type pills --}}
-        <div x-show="mode==='search'" class="flex items-center gap-1 flex-shrink-0">
+        <div x-show="mode==='search'" class="flex items-center gap-1 flex-shrink-0" data-tour="misc-evaluation-types">
             @foreach(['Full Title','Person','ERF','Suburb','Street','Transfer'] as $t)
             <button @click="searchType='{{ strtolower($t) }}';runSearch()"
                 :class="searchType==='{{ strtolower($t) }}' ? 'is-active' : ''"
@@ -63,7 +63,7 @@
                     <div class="eval-empty-title">Search for a property</div>
                     <div class="eval-empty-sub">Enter an address, ERF number, suburb or owner name</div>
                 </div>
-                <div class="flex flex-wrap gap-2 justify-center eval-suggest-wrap">
+                <div class="flex flex-wrap gap-2 justify-center eval-suggest-wrap" data-tour="misc-evaluation-suggestions">
                     @foreach(['198 John Dory Drive','Newlands East','ERF 1438','Palm Beach','Ramsgate','Shelly Beach'] as $q)
                     <button @click="searchQuery='{{ $q }}';runSearch()" class="eval-suggest-pill">{{ $q }}</button>
                     @endforeach

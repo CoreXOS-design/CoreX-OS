@@ -5,7 +5,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (§2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="train-courses-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">My Training</h1>
@@ -29,7 +29,7 @@
             <p class="text-sm" style="color: var(--text-muted);">Courses will appear here as soon as your agency publishes them.</p>
         </div>
     @else
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-tour="train-courses-grid">
         @foreach($courses as $course)
         @php
             $pct = $course->completionPercentForUser($userId);
@@ -57,6 +57,7 @@
             $barVariant = $isCompleted ? 'ds-bar-green' : 'ds-bar-navy';
         @endphp
         <a href="{{ route('training.show', $course) }}" class="block no-underline rounded-md transition-colors"
+           @if($loop->first) data-tour="train-courses-card" @endif
            style="background: var(--surface); border: 1px solid var(--border);">
             <div class="p-5">
                 <div class="flex items-start justify-between gap-2 mb-2">
@@ -76,7 +77,7 @@
                 @endif
 
                 {{-- Progress bar (§3.13) --}}
-                <div class="flex items-center gap-2 mb-2">
+                <div class="flex items-center gap-2 mb-2" @if($loop->first) data-tour="train-courses-progress" @endif>
                     <div class="ds-progress-track">
                         <div class="ds-progress-bar {{ $barVariant }}" style="width: {{ $pct }}%;"></div>
                     </div>

@@ -4,11 +4,14 @@
 <div class="space-y-6">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="comp-comm-archive-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Communication Archive</h1>
                 <p class="text-sm text-white/60">Immutable record of business email &amp; WhatsApp — retained for compliance.</p>
             </div>
-            <a href="{{ route('compliance.comm-mailboxes.index') }}" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Mailboxes</a>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('compliance.comm-mailboxes.index') }}" data-tour="comp-comm-archive-mailboxes" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Mailboxes</a>
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 
@@ -20,7 +23,7 @@
     @endif
 
     {{-- Filters --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4" data-tour="comp-comm-archive-filters" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" class="flex flex-wrap items-end gap-3">
             @if($contact)<input type="hidden" name="contact" value="{{ $contact->id }}">@endif
             <div class="flex-1 min-w-[200px]">
@@ -52,7 +55,7 @@
     </div>
 
     {{-- List --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" data-tour="comp-comm-archive-list" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>

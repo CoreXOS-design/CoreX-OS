@@ -6,15 +6,15 @@
         {{-- Page header (Pattern A — branded) --}}
         <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div>
+                <div data-tour="calc-deposit-interest-intro">
                     <h1 class="text-xl font-bold text-white leading-tight">Deposit Interest Calculator</h1>
                     <p class="text-sm text-white/60">Proportional trust account interest</p>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
                     @if(\Illuminate\Support\Facades\Route::has('deposit-interest-calculator.history'))
-                        <a href="{{ route('deposit-interest-calculator.history') }}" class="corex-btn-outline">History</a>
+                        <a href="{{ route('deposit-interest-calculator.history') }}" class="corex-btn-outline" data-tour="calc-deposit-interest-history">History</a>
                     @endif
-                    <button type="submit" form="calcForm" class="corex-btn-primary">Calculate</button>
+                    <button type="submit" form="calcForm" class="corex-btn-primary" data-tour="calc-deposit-interest-calc">Calculate</button>
                 </div>
             </div>
         </div>
@@ -54,7 +54,7 @@
                 @csrf
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
-                    <div>
+                    <div data-tour="calc-deposit-interest-property">
                         <label for="property_name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property Name <span class="text-red-500">*</span></label>
                         <input id="property_name" type="text" name="property_name" required
                                value="{{ old('property_name', $input['property_name'] ?? '') }}"
@@ -62,7 +62,7 @@
                                class="w-full rounded-md text-sm px-3 py-2"
                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
-                    <div>
+                    <div data-tour="calc-deposit-interest-amount">
                         <label for="deposit_amount" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Deposit Amount (R) <span class="text-red-500">*</span></label>
                         <input id="deposit_amount" type="number" step="0.01" min="1" name="deposit_amount" required
                                value="{{ old('deposit_amount', $input['deposit_amount'] ?? '') }}"
@@ -70,7 +70,7 @@
                                class="w-full rounded-md text-sm px-3 py-2"
                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
-                    <div>
+                    <div data-tour="calc-deposit-interest-dates">
                         <label for="invest_date" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Date Invested <span class="text-red-500">*</span></label>
                         <input id="invest_date" type="date" name="invest_date" required
                                value="{{ old('invest_date', $input['invest_date'] ?? '') }}"
@@ -87,7 +87,7 @@
                 </div>
 
                 {{-- Topups --}}
-                <div class="mb-4">
+                <div class="mb-4" data-tour="calc-deposit-interest-topups">
                     <div class="flex items-center justify-between mb-2">
                         <label class="text-xs font-medium" style="color: var(--text-secondary);">Deposit Topups</label>
                         <button type="button" @click="addTopup()" class="corex-btn-outline">+ Add Topup</button>

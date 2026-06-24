@@ -4,14 +4,15 @@
 @section('corex-content')
 <div class="space-y-6">
 
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="cc-oversight-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Manager Oversight</h1>
                 <p class="text-sm text-white/60">Outstanding items for the agents in your scope.</p>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('corex.settings.user.oversight') }}" class="corex-btn-outline">Oversight Settings</a>
+                @include('layouts.partials.tour-header-launcher')
+                <a href="{{ route('corex.settings.user.oversight') }}" class="corex-btn-outline" data-tour="cc-oversight-settings">Oversight Settings</a>
             </div>
         </div>
     </div>
@@ -28,11 +29,11 @@
         </div>
     @endif
 
-    <form method="GET" class="rounded-md p-4 flex flex-wrap gap-3 items-end"
+    <form method="GET" class="rounded-md p-4 flex flex-wrap gap-3 items-end" data-tour="cc-oversight-filters"
           style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex flex-col">
             <label for="filter-category" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Category</label>
-            <select id="filter-category" name="category" onchange="this.form.submit()"
+            <select id="filter-category" name="category" onchange="this.form.submit()" data-tour="cc-oversight-category"
                     class="list-header-filter rounded-md px-3 py-2 text-sm"
                     style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All categories</option>
@@ -43,7 +44,7 @@
         </div>
         <div class="flex flex-col">
             <label for="filter-agent" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
-            <select id="filter-agent" name="agent_id" onchange="this.form.submit()"
+            <select id="filter-agent" name="agent_id" onchange="this.form.submit()" data-tour="cc-oversight-agent"
                     class="list-header-filter rounded-md px-3 py-2 text-sm"
                     style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All agents</option>
@@ -75,7 +76,7 @@
             <p class="text-sm" style="color: var(--text-muted);">Nothing outstanding for the agents in your scope.</p>
         </div>
     @else
-        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md overflow-hidden" data-tour="cc-oversight-table" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm ds-table">
                     <thead>

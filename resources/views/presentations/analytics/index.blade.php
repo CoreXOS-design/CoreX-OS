@@ -7,7 +7,7 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="pres-analytics-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Presentations Analytics</h1>
                 <p class="text-sm text-white/60">Lifecycle pipeline: generated → shared → viewed → leads → outcomes.</p>
             </div>
@@ -24,7 +24,7 @@
 
     {{-- Filters (§3.8 / §3.6) --}}
     <form method="GET" class="rounded-md p-4 flex flex-wrap items-end gap-3"
-          style="background: var(--surface); border: 1px solid var(--border);">
+          style="background: var(--surface); border: 1px solid var(--border);" data-tour="pres-analytics-filters">
         <div class="flex-1 min-w-[160px]">
             <label for="filter-from" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">From</label>
             <input id="filter-from" type="date" name="from" value="{{ $from->toDateString() }}"
@@ -69,7 +69,7 @@
             ['Win rate',             number_format($winRate, 1) . '%',     null,                                  ($wonCount > 0 ? number_format($wonCount) . ' won' : 'no wins yet')],
         ];
     @endphp
-    <div class="corex-kpi-grid">
+    <div class="corex-kpi-grid" data-tour="pres-analytics-tiles">
         @foreach($tiles as [$label, $value, $pct, $sub])
             <div class="corex-kpi-card">
                 <p class="corex-kpi-title">{{ $label }}</p>
@@ -85,7 +85,7 @@
 
     {{-- Funnel visualization --}}
     @if($generatedCount > 0)
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="pres-analytics-funnel">
             <h2 class="ds-section-header mb-3">Funnel</h2>
             @php
                 $rows = [

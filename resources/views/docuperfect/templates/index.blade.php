@@ -13,14 +13,14 @@
 <div class="w-full space-y-5" x-data="{ viewMode: localStorage.getItem('docuperfect_tpl_view') || 'grid' }">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="dp-templates-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Template Management</h1>
                 <p class="text-sm text-white/60">Upload, organise, and configure your document templates.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <form method="POST" action="{{ route('docuperfect.templates.upload') }}" enctype="multipart/form-data" class="flex items-center" id="tplUploadForm">
+                <form method="POST" action="{{ route('docuperfect.templates.upload') }}" enctype="multipart/form-data" class="flex items-center" id="tplUploadForm" data-tour="dp-templates-upload">
                     @csrf
                     <label class="corex-btn-primary cursor-pointer text-sm inline-flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -48,7 +48,7 @@
     @endif
 
     {{-- Filter bar --}}
-    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md px-4 py-3" data-tour="dp-templates-filters" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route('docuperfect.templates.index') }}" class="flex flex-wrap items-center gap-3">
             @if(request('sort'))
             <input type="hidden" name="sort" value="{{ request('sort') }}">

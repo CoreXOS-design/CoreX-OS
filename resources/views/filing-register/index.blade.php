@@ -4,7 +4,7 @@
 <div class="space-y-6">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="docs-filing-register-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">
@@ -16,7 +16,7 @@
     </div>
 
     {{-- Filter bar --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4" data-tour="docs-filing-register-filters" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route('filing-register.index') }}" class="flex flex-wrap items-end gap-3">
             <div class="flex-1 min-w-[220px]">
                 <label for="search" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
@@ -78,7 +78,7 @@
     </div>
 
     {{-- Summary tiles --}}
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4" data-tour="docs-filing-register-tiles">
         <div class="ds-status-card">
             <div class="ds-label">Total Filed</div>
             <div class="ds-value-lg">{{ number_format($totalCount) }}</div>
@@ -180,7 +180,7 @@
     @endpermission
 
     {{-- Main table --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" data-tour="docs-filing-register-table" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table table-sticky">
                 <thead>

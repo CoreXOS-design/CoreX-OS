@@ -11,17 +11,20 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="at-agent-listings-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">My Listing Stock</h1>
                 <p class="text-sm text-white/60">Read-only view from imported Propcon stock.</p>
             </div>
+            <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 
     {{-- KPI Tiles --}}
-    <div class="corex-kpi-grid">
+    <div class="corex-kpi-grid" data-tour="at-agent-listings-kpis">
         <x-corex-kpi-card title="Active listings" :value="number_format($activeCount)" />
         <x-corex-kpi-card title="Total stock value" :value="'R ' . number_format($totalValueRand)" />
     </div>
@@ -64,7 +67,7 @@
         </div>
 
         {{-- Mandate & Type Filter Pills --}}
-        <div class="px-4 py-3 flex flex-wrap items-start gap-x-6 gap-y-3" style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
+        <div class="px-4 py-3 flex flex-wrap items-start gap-x-6 gap-y-3" data-tour="at-agent-listings-filters" style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
             <div class="flex items-center gap-2 flex-wrap">
                 <div class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Mandate</div>
                 <div class="flex flex-wrap gap-1.5">
@@ -99,7 +102,7 @@
         </div>
 
         {{-- Table --}}
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto" data-tour="at-agent-listings-table">
             <table class="min-w-full text-sm ds-table">
                 <thead>
                     <tr style="background: var(--surface-2);">
@@ -200,7 +203,7 @@
                         @endif
                     </td>
                     <td class="px-4 py-3 text-right">
-                        <form method="POST" action="{{ route('agent.listings.cma', $l) }}" class="flex items-center justify-end gap-2">
+                        <form method="POST" action="{{ route('agent.listings.cma', $l) }}" @if($loop->first) data-tour="at-agent-listings-cma" @endif class="flex items-center justify-end gap-2">
                             @csrf
                             <label for="cma-{{ $l->id }}" class="sr-only">CMA price for {{ $addressText }}</label>
                             <input id="cma-{{ $l->id }}"

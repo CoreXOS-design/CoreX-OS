@@ -12,7 +12,7 @@
 <div x-data="sharedDrive()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5 mb-6" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 mb-6" data-tour="docs-shared-drive-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="flex items-center gap-3">
                 <svg class="w-7 h-7 text-white/90" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -30,7 +30,7 @@
                     </button>
                 @endif
                 @if($can['upload'])
-                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary" :disabled="uploading" :style="uploading ? 'opacity:.6;' : ''">
+                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary" :disabled="uploading" :style="uploading ? 'opacity:.6;' : ''" data-tour="docs-shared-drive-upload">
                         <span x-show="!uploading">Upload Files</span>
                         <span x-show="uploading" x-cloak>Uploading…</span>
                     </button>
@@ -40,7 +40,7 @@
     </div>
 
     {{-- Breadcrumb --}}
-    <nav class="flex items-center flex-wrap gap-1 text-sm mb-4" style="color: var(--text-secondary);">
+    <nav class="flex items-center flex-wrap gap-1 text-sm mb-4" data-tour="docs-shared-drive-breadcrumb" style="color: var(--text-secondary);">
         <a href="{{ route('documents.shared-drive.index') }}" class="hover:underline {{ $currentId ? '' : 'font-semibold' }}" style="color: {{ $currentId ? 'var(--text-secondary)' : 'var(--text-primary)' }};">Shared Drive</a>
         @foreach($breadcrumb as $crumb)
             <span style="opacity:.5;">/</span>
@@ -113,7 +113,7 @@
         @endif
 
         {{-- Files --}}
-        <div class="flex items-center justify-between mb-2 gap-3 flex-wrap">
+        <div class="flex items-center justify-between mb-2 gap-3 flex-wrap" data-tour="docs-shared-drive-files">
             <h2 class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Files</h2>
             @if($canBulk && $files->count())
                 <div class="flex items-center gap-2" x-show="selectedIds.length" x-cloak>

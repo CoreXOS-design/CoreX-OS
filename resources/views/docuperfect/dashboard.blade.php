@@ -4,14 +4,14 @@
 @section('corex-content')
 <div class="w-full space-y-6">
 
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="dp-dashboard-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">My Documents</h1>
                 <p class="text-sm text-white/60">Documents you've created from templates.</p>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('docuperfect.create') }}" class="corex-btn-primary">
+                <a href="{{ route('docuperfect.create') }}" class="corex-btn-primary" data-tour="dp-dashboard-create">
                     + Create New Document
                 </a>
             </div>
@@ -43,7 +43,7 @@
             <a href="{{ route('docuperfect.create') }}" class="corex-btn-primary">Create Document</a>
         </div>
     @else
-        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md overflow-hidden" data-tour="dp-dashboard-list" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm ds-table">
                     <thead>

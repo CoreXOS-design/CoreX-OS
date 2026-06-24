@@ -4,14 +4,15 @@
 <div class="space-y-6">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="comp-policy-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Agency Policies</h1>
                 <p class="text-sm text-white/60">Versioned staff-acknowledged policies (POPIA / CPA / NCC and more).</p>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('compliance.policy.dashboard.index') }}" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Register</a>
+                @include('layouts.partials.tour-header-launcher')
+                <a href="{{ route('compliance.policy.dashboard.index') }}" data-tour="comp-policy-register" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Register</a>
                 @permission('edit_policy')
-                <a href="{{ route('compliance.policy.create') }}" class="corex-btn-primary">
+                <a href="{{ route('compliance.policy.create') }}" data-tour="comp-policy-new" class="corex-btn-primary">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                     New Policy
                 </a>
@@ -25,7 +26,7 @@
     @endif
 
     @forelse($policies as $policy)
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" @if($loop->first) data-tour="comp-policy-card" @endif style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
             <div>
                 <h2 class="text-base font-bold" style="color: var(--text-primary);">{{ $policy->name }}</h2>
@@ -35,12 +36,12 @@
             <a href="{{ route('compliance.policy.version.create', $policy) }}" class="corex-btn-outline">New Version</a>
             @endpermission
         </div>
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto" @if($loop->first) data-tour="comp-policy-versions" @endif>
             <table class="min-w-full text-sm ds-table">
                 <thead>
                     <tr style="background: var(--surface-2);">
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Version</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" @if($loop->first) data-tour="comp-policy-status" @endif style="color: var(--text-muted);">Status</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Approved</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Effective</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Next Review</th>

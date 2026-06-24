@@ -1,6 +1,6 @@
 {{-- Phase D6 — listings by suburb. Each row clickable -> suburb deep-dive panel.
      DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-<section style="margin-bottom: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+<section data-tour="mic-market-pulse-suburbs" style="margin-bottom: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
     <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px;
                 border-bottom: 1px solid var(--border);">
         <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin: 0;">

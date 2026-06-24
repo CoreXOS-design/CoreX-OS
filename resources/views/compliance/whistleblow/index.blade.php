@@ -7,13 +7,14 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="comp-whistleblow-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Compliance Reporting</h1>
                 <p class="text-sm text-white/60">File and track whistleblower reports to the PPRA.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 @permission('compliance.whistleblow.create')
-                <a href="{{ route('compliance.whistleblow.create') }}" class="corex-btn-primary inline-flex items-center gap-2 text-sm">
+                <a href="{{ route('compliance.whistleblow.create') }}" data-tour="comp-whistleblow-new" class="corex-btn-primary inline-flex items-center gap-2 text-sm">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     File New Report
                 </a>
@@ -30,8 +31,8 @@
     @endif
 
     {{-- Filters --}}
-    <form method="GET" class="flex items-center gap-3 flex-wrap">
-        <select name="status" onchange="this.form.submit()" class="list-header-filter">
+    <form method="GET" class="flex items-center gap-3 flex-wrap" data-tour="comp-whistleblow-filters">
+        <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="comp-whistleblow-status">
             <option value="">All Statuses</option>
             @foreach(['draft','pending_approval','changes_requested','rejected','approved','sent','acknowledged_by_ppra','closed'] as $s)
             <option value="{{ $s }}" {{ request('status') === $s ? 'selected' : '' }}>{{ str_replace('_', ' ', ucfirst($s)) }}</option>
@@ -49,7 +50,7 @@
     </form>
 
     {{-- Table --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" data-tour="comp-whistleblow-table" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>

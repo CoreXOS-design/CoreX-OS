@@ -4,14 +4,14 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Compliance Officer" :back-route="route('compliance.rmcp.index')" back-label="RMCP" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('compliance.officer.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition" style="background:var(--brand-icon); color:var(--text-primary); border-radius:6px;">
+            <a href="{{ route('compliance.officer.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition" style="background:var(--brand-icon); color:var(--text-primary); border-radius:6px;" data-tour="comp-officer-appoint">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 Appoint New
             </a>
         </x-slot:actions>
     </x-page-header>
 
-    <div class="p-4 lg:p-6">
+    <div class="p-4 lg:p-6" data-tour="comp-officer-intro">
         {{-- No current CO warning --}}
         @if(!$currentOfficer)
         <div class="mb-4 px-4 py-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid rgba(239,68,68,0.3); border-radius:6px; color:var(--ds-crimson);">

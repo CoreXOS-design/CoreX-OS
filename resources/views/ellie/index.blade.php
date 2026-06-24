@@ -58,7 +58,7 @@
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
       <div class="flex items-center gap-3">
         <img src="/images/ellie-32-circle.png" alt="Ellie" class="w-9 h-9 rounded-full">
-        <div>
+        <div data-tour="ai-ellie-intro">
           <h1 class="text-xl font-bold text-white leading-tight">Ellie, Your AI Assistant</h1>
           <p class="text-sm text-white/60">Logged in as {{ auth()->user()->name }}</p>
         </div>
@@ -69,7 +69,7 @@
         @else
           <a href="/ellie?archived=1" class="corex-btn-outline">Show Archived</a>
         @endif
-        <a href="/ellie?new=1{{ $archived ? '&archived=1' : '' }}" class="corex-btn-primary">+ New Conversation</a>
+        <a href="/ellie?new=1{{ $archived ? '&archived=1' : '' }}" class="corex-btn-primary" data-tour="ai-ellie-new">+ New Conversation</a>
       </div>
     </div>
   </div>
@@ -78,7 +78,7 @@
     <div class="ellie-row">
 
       {{-- LEFT: Conversations --}}
-      <div class="ellie-pane">
+      <div class="ellie-pane" data-tour="ai-ellie-conversations">
         <div class="ellie-pane-h">
           <div class="title">Conversations</div>
         </div>
@@ -142,12 +142,12 @@
           </div>
         </div>
 
-        <div class="ellie-compose">
+        <div class="ellie-compose" data-tour="ai-ellie-compose">
           <form method="POST" action="/ellie/send" class="ellie-form" id="ellieSendForm">
             @csrf
             <input type="hidden" name="conversation_id" value="{{ $conversation_id ?? '' }}">
-            <textarea name="message" class="ellie-input" placeholder="Message Ellie..." autocomplete="off"></textarea>
-            <button class="corex-btn-primary" type="submit">Send</button>
+            <textarea name="message" class="ellie-input" placeholder="Message Ellie..." autocomplete="off" data-tour="ai-ellie-input"></textarea>
+            <button class="corex-btn-primary" type="submit" data-tour="ai-ellie-send">Send</button>
           </form>
         </div>
       </div>

@@ -43,7 +43,7 @@
     @include('corex.market-intelligence.partials.opportunities-filter-chips')
     @include('corex.market-intelligence.partials.opportunities-secondary-filters')
 
-    <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px;">
+    <div data-tour="mic-opportunities-count" style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px;">
         <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin: 0;">
             Showing {{ $tps->total() }} {{ $tps->total() === 1 ? 'property' : 'properties' }}
             @if(($activeFilter ?? 'all') !== 'all')
@@ -55,7 +55,9 @@
         </span>
     </div>
 
-    @include('corex.market-intelligence.partials.opportunities-list')
+    <div data-tour="mic-opportunities-list">
+        @include('corex.market-intelligence.partials.opportunities-list')
+    </div>
 
 </div>
 @endsection

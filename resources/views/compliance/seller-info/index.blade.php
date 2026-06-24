@@ -67,7 +67,7 @@
      }">
 
     {{-- Page header (branded — §2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);" data-tour="comp-seller-info-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Send Seller Information Pack</h1>
@@ -101,7 +101,7 @@
             <div class="space-y-5">
 
                 {{-- Tier --}}
-                <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);" data-tour="comp-seller-info-tier">
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Which Issue?</h3>
                     <div class="space-y-2">
                         <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_1' ? 'background:color-mix(in srgb, var(--brand-default) 6%, transparent); border:1px solid var(--brand-default)' : 'border:1px solid var(--border)'">
@@ -120,7 +120,7 @@
                 </div>
 
                 {{-- Property search --}}
-                <div class="rounded-md p-5 space-y-3" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="rounded-md p-5 space-y-3" style="background:var(--surface); border:1px solid var(--border);" data-tour="comp-seller-info-property">
                     <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Property (optional)</h3>
                     <p class="text-xs" style="color:var(--text-secondary);">Selecting a property auto-loads linked sellers as recipients.</p>
 
@@ -145,7 +145,7 @@
             </div>
 
             {{-- Right column: recipients --}}
-            <div class="rounded-md p-5 space-y-3" style="background:var(--surface); border:1px solid var(--border);">
+            <div class="rounded-md p-5 space-y-3" style="background:var(--surface); border:1px solid var(--border);" data-tour="comp-seller-info-recipients">
                 <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Recipients</h3>
                 <p class="text-xs" style="color:var(--text-secondary);">This message uses our legally-researched seller information content. If you need to send a customised message, please use your own email client.</p>
 
@@ -187,7 +187,7 @@
         </div>
 
         {{-- Actions --}}
-        <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-3 flex-wrap" data-tour="comp-seller-info-actions">
             <button type="button" @click="preview()" class="corex-btn-outline">
                 Preview Email
             </button>

@@ -31,7 +31,7 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="pres-refresh-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Refresh Requests</h1>
                 <p class="text-sm text-white/60">
                     Sellers' asks to refresh share-link data. Acknowledge to mark seen; issue a refreshed link to resolve.
@@ -69,7 +69,7 @@
     @endif
 
     {{-- Status tabs --}}
-    <div class="flex gap-1 overflow-x-auto" style="border-bottom: 1px solid var(--border);">
+    <div class="flex gap-1 overflow-x-auto" style="border-bottom: 1px solid var(--border);" data-tour="pres-refresh-tabs">
         @foreach($tabs as $key => $label)
             @php $active = $status === $key; @endphp
             <a href="{{ route('corex.presentations.refresh-requests.index', ['status' => $key]) }}"
@@ -98,7 +98,7 @@
         </div>
     @else
         {{-- Requests table (§3.7) --}}
-        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="pres-refresh-table">
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm ds-table">
                     <thead>
@@ -108,7 +108,7 @@
                             <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Message</th>
                             <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
                             <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">When</th>
-                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
+                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);" data-tour="pres-refresh-actions">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
