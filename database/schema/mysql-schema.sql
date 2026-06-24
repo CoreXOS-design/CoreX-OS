@@ -496,6 +496,25 @@ CREATE TABLE `agency_dashboard_settings` (
   CONSTRAINT `agency_dashboard_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_document_type_compliance`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_document_type_compliance` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `document_type_id` bigint unsigned NOT NULL,
+  `is_compliance_required` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_doc_type_compliance_unique` (`agency_id`,`document_type_id`),
+  KEY `agency_document_type_compliance_document_type_id_foreign` (`document_type_id`),
+  KEY `agency_doc_type_compliance_lookup` (`agency_id`,`is_compliance_required`),
+  CONSTRAINT `agency_document_type_compliance_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `agency_document_type_compliance_document_type_id_foreign` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_document_type_configs`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -8066,6 +8085,7 @@ CREATE TABLE `properties` (
   `gallery_images_json` json DEFAULT NULL,
   `gallery_categories_json` json DEFAULT NULL,
   `gallery_custom_tags` json DEFAULT NULL,
+  `rental_images_json` json DEFAULT NULL COMMENT 'Rental inspection galleries: {in_inspection:{date,images[]}, out_inspection:{date,images[]}, custom:[{id,name,date,images[]}]}. Only used when listing_type=rental.',
   `features_json` json DEFAULT NULL,
   `features_json_meta` json DEFAULT NULL COMMENT 'Per-feature audit: {pool:{source:ai|manual,confidence:0.92,confirmed_by_user_id:5,confirmed_at:...}}',
   `pet_friendly` tinyint(1) DEFAULT NULL,
@@ -9762,12 +9782,29 @@ CREATE TABLE `sg_search_cache` (
   KEY `sg_search_cache_expires_at_index` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `shared_drive_access`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `shared_drive_access` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `drive_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `shared_drive_access_drive_id_user_id_unique` (`drive_id`,`user_id`),
+  KEY `shared_drive_access_user_id_index` (`user_id`),
+  CONSTRAINT `shared_drive_access_drive_id_foreign` FOREIGN KEY (`drive_id`) REFERENCES `shared_drives` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `shared_drive_access_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `shared_drive_files`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `shared_drive_files` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned DEFAULT NULL,
+  `drive_id` bigint unsigned DEFAULT NULL,
   `folder_id` bigint unsigned DEFAULT NULL,
   `original_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `stored_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -9783,6 +9820,9 @@ CREATE TABLE `shared_drive_files` (
   KEY `shared_drive_files_uploaded_by_user_id_foreign` (`uploaded_by_user_id`),
   KEY `shared_drive_files_agency_id_folder_id_index` (`agency_id`,`folder_id`),
   KEY `shared_drive_files_agency_id_deleted_at_index` (`agency_id`,`deleted_at`),
+  KEY `shared_drive_files_drive_id_foreign` (`drive_id`),
+  KEY `shared_drive_files_agency_id_drive_id_index` (`agency_id`,`drive_id`),
+  CONSTRAINT `shared_drive_files_drive_id_foreign` FOREIGN KEY (`drive_id`) REFERENCES `shared_drives` (`id`) ON DELETE SET NULL,
   CONSTRAINT `shared_drive_files_folder_id_foreign` FOREIGN KEY (`folder_id`) REFERENCES `shared_drive_folders` (`id`) ON DELETE SET NULL,
   CONSTRAINT `shared_drive_files_uploaded_by_user_id_foreign` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -9793,6 +9833,7 @@ DROP TABLE IF EXISTS `shared_drive_folders`;
 CREATE TABLE `shared_drive_folders` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned DEFAULT NULL,
+  `drive_id` bigint unsigned DEFAULT NULL,
   `parent_id` bigint unsigned DEFAULT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_by_user_id` bigint unsigned NOT NULL,
@@ -9804,8 +9845,31 @@ CREATE TABLE `shared_drive_folders` (
   KEY `shared_drive_folders_created_by_user_id_foreign` (`created_by_user_id`),
   KEY `shared_drive_folders_agency_id_parent_id_index` (`agency_id`,`parent_id`),
   KEY `shared_drive_folders_agency_id_deleted_at_index` (`agency_id`,`deleted_at`),
+  KEY `shared_drive_folders_drive_id_foreign` (`drive_id`),
+  KEY `shared_drive_folders_agency_id_drive_id_index` (`agency_id`,`drive_id`),
   CONSTRAINT `shared_drive_folders_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `shared_drive_folders_drive_id_foreign` FOREIGN KEY (`drive_id`) REFERENCES `shared_drives` (`id`) ON DELETE SET NULL,
   CONSTRAINT `shared_drive_folders_parent_id_foreign` FOREIGN KEY (`parent_id`) REFERENCES `shared_drive_folders` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `shared_drives`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `shared_drives` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_restricted` tinyint(1) NOT NULL DEFAULT '0',
+  `is_default` tinyint(1) NOT NULL DEFAULT '0',
+  `created_by_user_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `shared_drives_created_by_user_id_foreign` (`created_by_user_id`),
+  KEY `shared_drives_agency_id_deleted_at_index` (`agency_id`,`deleted_at`),
+  KEY `shared_drives_agency_id_is_default_index` (`agency_id`,`is_default`),
+  CONSTRAINT `shared_drives_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `signature_audit_log`;
@@ -10830,6 +10894,23 @@ CREATE TABLE `user_oversight_preferences` (
   KEY `user_oversight_preferences_agency_id_user_id_index` (`agency_id`,`user_id`),
   CONSTRAINT `user_oversight_preferences_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `user_oversight_preferences_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `user_tour_progress`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_tour_progress` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `tour_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `dismissed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `user_tour_progress_user_id_tour_key_unique` (`user_id`,`tour_key`),
+  KEY `user_tour_progress_tour_key_index` (`tour_key`),
+  CONSTRAINT `user_tour_progress_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `users`;
@@ -12046,3 +12127,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (860,'2026_07_03_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (861,'2026_07_03_000002_add_managed_by_user_id_to_deals_table',164);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (862,'2026_07_03_000002_add_outreach_no_response_days_to_agency_contact_settings',164);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (863,'2026_07_03_100000_add_maintenance_mode_to_agencies_table',165);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (864,'2026_06_15_000100_create_user_tour_progress_table',166);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (865,'2026_06_24_000001_create_shared_drives_table',166);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (866,'2026_06_24_000002_create_shared_drive_access_table',166);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (867,'2026_06_24_000003_add_drive_id_to_shared_drive_tables',166);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (868,'2026_06_24_120000_add_rental_images_json_to_properties',166);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (869,'2026_06_24_120000_create_agency_document_type_compliance_table',166);

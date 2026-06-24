@@ -9,6 +9,11 @@ use Illuminate\Support\Facades\DB;
 
 class MarketingReadinessService
 {
+    public function __construct(
+        private AgencyComplianceDocTypeService $docTypes = new AgencyComplianceDocTypeService(),
+    ) {
+    }
+
     /**
      * Evaluate all marketing readiness gates for a property.
      */
@@ -22,7 +27,7 @@ class MarketingReadinessService
                 blockedBy: [],
                 nextActions: [],
                 checklist: [
-                    'dev_override' => ['passed' => true, 'detail' => 'Compliance checks disabled in Dev Settings'],
+                    'dev_override' => ['passed' => true, 'label' => 'Dev override', 'detail' => 'Compliance checks disabled in Dev Settings'],
                 ],
             );
         }
@@ -42,43 +47,41 @@ class MarketingReadinessService
         $blockedBy = [];
         $nextActions = [];
 
-        // Gate 1: Authority to Market (mandate OR marketing permission — either suffices)
-        $checklist['authority_to_market'] = $this->checkAuthorityToMarket($property);
-        if (!$checklist['authority_to_market']['passed']) {
-            $blockedBy[] = $checklist['authority_to_market']['detail'];
-            $nextActions[] = [
-                'label' => 'Send Marketing Pack',
-                'action_url' => route('corex.properties.show', $property->id) . '?tab=drive',
-            ];
+        // ── Document gates: the agency's CONFIGURABLE required document types ──
+        // Each required type must have at least one typed, non-soft-deleted
+        // Drive document present on the property or a seller contact. Presence
+        // IS the gate — no approval status is checked (doctrine: a wet-ink doc
+        // is physically signed off by the BM before upload; the system-side
+        // approval control lives only in the untouched e-sign pipeline).
+        $driveTab = route('corex.properties.show', $property->id) . '?tab=drive';
+        foreach ($this->requiredDocTypeGates($property) as $slug => $gate) {
+            $checklist[$slug] = $gate;
+            if (!$gate['passed']) {
+                $blockedBy[] = $gate['detail'];
+                $nextActions[] = [
+                    'label' => $gate['action_label'] ?? ('Upload ' . $gate['label']),
+                    'action_url' => $gate['action_url'] ?? $driveTab,
+                ];
+            }
         }
 
-        // Gate 2: All sellers FICA approved
-        $checklist['fica_sellers'] = $this->checkSellersFica($property);
-        if (!$checklist['fica_sellers']['passed']) {
-            $blockedBy[] = $checklist['fica_sellers']['detail'];
-            $nextActions[] = [
-                'label' => 'Complete FICA for all sellers',
-                'action_url' => route('corex.properties.show', $property->id) . '?tab=contacts',
-            ];
-        }
-
-        // Gate 4: Listing has photos (>= 4)
+        // Gate: Listing has photos (>= 4)
         $checklist['photos'] = $this->checkPhotos($property);
         if (!$checklist['photos']['passed']) {
             $blockedBy[] = $checklist['photos']['detail'];
             $nextActions[] = [
                 'label' => 'Upload at least 4 property photos',
-                'action_url' => route('corex.properties.show', $property->id) . '?tab=gallery',
+                'action_url' => $checklist['photos']['action_url'],
             ];
         }
 
-        // Gate 5: Listing details complete
+        // Gate: Listing details complete
         $checklist['details_complete'] = $this->checkDetailsComplete($property);
         if (!$checklist['details_complete']['passed']) {
             $blockedBy[] = $checklist['details_complete']['detail'];
             $nextActions[] = [
                 'label' => 'Complete missing property details',
-                'action_url' => route('corex.properties.show', $property->id),
+                'action_url' => $checklist['details_complete']['action_url'],
             ];
         }
 
@@ -118,25 +121,16 @@ class MarketingReadinessService
                 ->value('status'),
         ])->values()->toArray();
 
-        $mandateDoc = $this->findSignedMandate($property);
-        $marketingPermDoc = $this->findSignedMarketingPermission($property);
+        // Capture the typed Drive documents that satisfied each required type
+        // at go-live — the permanent record of what was on file.
+        $presentDocs = $this->presentRequiredDocuments($property);
 
         $snapshotData = [
-            'snapshot_version' => 1,
+            'snapshot_version' => 2,
             'snapshotted_by_user_id' => $by->id,
             'snapshotted_by_name' => $by->name,
             'sellers' => $sellerData,
-            'documents' => [
-                'mandate' => $mandateDoc ? [
-                    'docuperfect_document_id' => $mandateDoc->id,
-                    'name' => $mandateDoc->name,
-                    'document_type' => $mandateDoc->document_type,
-                ] : null,
-                'marketing_permission' => $marketingPermDoc ? [
-                    'docuperfect_document_id' => $marketingPermDoc->id,
-                    'name' => $marketingPermDoc->name,
-                ] : null,
-            ],
+            'documents' => $presentDocs,
             'listing' => [
                 'title' => $property->title,
                 'price' => $property->price,
@@ -169,76 +163,171 @@ class MarketingReadinessService
         return $this->statusFor($property)->ready;
     }
 
-    // ── Gate checks ──
+    // ── Document gates (agency-configurable required types) ──
 
-    private function checkAuthorityToMarket(Property $property): array
+    /**
+     * Build a checklist entry for every document type the agency requires.
+     * Keyed by slug so the readiness panel renders each by its own label.
+     *
+     * @return array<string, array{passed:bool,label:string,detail:string,action_label:?string,action_url:string}>
+     */
+    private function requiredDocTypeGates(Property $property): array
     {
-        $mandate = $this->findSignedMandate($property);
-        $marketingPerm = $this->findSignedMarketingPermission($property);
+        $agencyId = (int) $property->agency_id;
+        $requiredTypes = $agencyId > 0
+            ? $this->docTypes->requiredTypesFor($agencyId)
+            : collect();
 
-        if ($mandate && $marketingPerm) {
-            return [
-                'passed' => true,
-                'detail' => 'Mandate signed (doc #' . $mandate->id . ') + Marketing Permission signed (doc #' . $marketingPerm->id . ')',
-            ];
-        }
-        if ($mandate) {
-            return [
-                'passed' => true,
-                'detail' => 'Mandate signed (doc #' . $mandate->id . ')',
-            ];
-        }
-        if ($marketingPerm) {
-            return [
-                'passed' => true,
-                'detail' => 'Marketing Permission signed (doc #' . $marketingPerm->id . ')',
-            ];
+        if ($requiredTypes->isEmpty()) {
+            return [];
         }
 
-        return [
-            'passed' => false,
-            'detail' => 'No signed authority document (mandate or marketing permission)',
-        ];
-    }
+        $sellerIds = $this->sellerContactIds($property);
+        $presentTypeIds = $this->presentDriveTypeIds($property, $sellerIds);
+        $ficaSlug = config('corex-compliance.fica_slug', 'fica');
+        $driveTab = route('corex.properties.show', $property->id) . '?tab=drive';
 
-    private function checkSellersFica(Property $property): array
-    {
-        $sellers = $property->contacts()
-            ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
-            ->get();
+        $gates = [];
+        foreach ($requiredTypes as $type) {
+            $present = $presentTypeIds->contains($type->id);
+            $detail = $type->label . ' on file';
 
-        if ($sellers->isEmpty()) {
-            return [
-                'passed' => false,
-                'detail' => 'No sellers linked to property',
-            ];
-        }
-
-        $failed = [];
-        foreach ($sellers as $seller) {
-            $fica = DB::table('fica_submissions')
-                ->where('contact_id', $seller->id)
-                ->where('status', 'approved')
-                ->orderByDesc('id')
-                ->first();
-
-            if (!$fica) {
-                $failed[] = trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? ''));
+            // FICA bridge: also satisfied by the authoritative FICA workflow
+            // (all sellers approved) so the existing FICA path never regresses.
+            if (!$present && $type->slug === $ficaSlug) {
+                [$ficaPass, $ficaDetail] = $this->checkSellersFicaSubmissions($property, $sellerIds);
+                $present = $ficaPass;
+                if (!$present) {
+                    $detail = $ficaDetail;
+                }
             }
-        }
 
-        if (!empty($failed)) {
-            return [
-                'passed' => false,
-                'detail' => 'FICA not approved for: ' . implode(', ', $failed),
+            if (!$present && $type->slug !== $ficaSlug) {
+                $detail = 'Missing: ' . $type->label . ' — upload the signed document to the property Drive';
+            }
+
+            $gates[$type->slug] = [
+                'passed' => $present,
+                'label' => $type->label,
+                'detail' => $detail,
+                'action_label' => $present ? null : 'Upload ' . $type->label,
+                'action_url' => $driveTab,
             ];
         }
 
-        return [
-            'passed' => true,
-            'detail' => 'All ' . $sellers->count() . ' seller(s) FICA approved',
-        ];
+        return $gates;
     }
+
+    /** Seller/owner/landlord/lessor contact ids linked to the property. */
+    private function sellerContactIds(Property $property): \Illuminate\Support\Collection
+    {
+        return $property->contacts()
+            ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->pluck('contacts.id');
+    }
+
+    /**
+     * Distinct document_type_ids present (not soft-deleted) on the property
+     * Drive or on any seller contact's Drive.
+     */
+    private function presentDriveTypeIds(Property $property, \Illuminate\Support\Collection $sellerIds): \Illuminate\Support\Collection
+    {
+        $propertyTypeIds = DB::table('document_properties as dp')
+            ->join('documents as d', 'd.id', '=', 'dp.document_id')
+            ->where('dp.property_id', $property->id)
+            ->whereNull('d.deleted_at')
+            ->whereNotNull('d.document_type_id')
+            ->pluck('d.document_type_id');
+
+        $contactTypeIds = collect();
+        if ($sellerIds->isNotEmpty()) {
+            $contactTypeIds = DB::table('document_contacts as dc')
+                ->join('documents as d', 'd.id', '=', 'dc.document_id')
+                ->whereIn('dc.contact_id', $sellerIds)
+                ->whereNull('d.deleted_at')
+                ->whereNotNull('d.document_type_id')
+                ->pluck('d.document_type_id');
+        }
+
+        return $propertyTypeIds->merge($contactTypeIds)->map(fn ($id) => (int) $id)->unique()->values();
+    }
+
+    /**
+     * Authoritative FICA check on fica_submissions: every seller approved.
+     * @return array{0:bool,1:string}
+     */
+    private function checkSellersFicaSubmissions(Property $property, \Illuminate\Support\Collection $sellerIds): array
+    {
+        if ($sellerIds->isEmpty()) {
+            return [false, 'No sellers linked to property'];
+        }
+
+        $approvedIds = DB::table('fica_submissions')
+            ->whereIn('contact_id', $sellerIds)
+            ->where('status', 'approved')
+            ->pluck('contact_id')
+            ->unique();
+
+        $missing = $sellerIds->reject(fn ($id) => $approvedIds->contains($id));
+
+        if ($missing->isEmpty()) {
+            return [true, 'All sellers FICA approved'];
+        }
+
+        $names = DB::table('contacts')
+            ->whereIn('id', $missing)
+            ->get(['first_name', 'last_name'])
+            ->map(fn ($c) => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')))
+            ->filter()
+            ->implode(', ');
+
+        return [false, 'FICA outstanding — no approved FICA or FICA document on Drive for: ' . ($names ?: 'seller(s)')];
+    }
+
+    /**
+     * The typed Drive documents currently satisfying each required type —
+     * recorded into the compliance snapshot at go-live.
+     */
+    private function presentRequiredDocuments(Property $property): array
+    {
+        $agencyId = (int) $property->agency_id;
+        $requiredTypes = $agencyId > 0 ? $this->docTypes->requiredTypesFor($agencyId) : collect();
+        if ($requiredTypes->isEmpty()) {
+            return [];
+        }
+
+        $sellerIds = $this->sellerContactIds($property);
+        $typeIds = $requiredTypes->pluck('id')->all();
+
+        $propertyDocs = DB::table('document_properties as dp')
+            ->join('documents as d', 'd.id', '=', 'dp.document_id')
+            ->where('dp.property_id', $property->id)
+            ->whereIn('d.document_type_id', $typeIds)
+            ->whereNull('d.deleted_at')
+            ->get(['d.id', 'd.document_type_id', 'd.original_name', 'd.source_type']);
+
+        $contactDocs = collect();
+        if ($sellerIds->isNotEmpty()) {
+            $contactDocs = DB::table('document_contacts as dc')
+                ->join('documents as d', 'd.id', '=', 'dc.document_id')
+                ->whereIn('dc.contact_id', $sellerIds)
+                ->whereIn('d.document_type_id', $typeIds)
+                ->whereNull('d.deleted_at')
+                ->get(['d.id', 'd.document_type_id', 'd.original_name', 'd.source_type']);
+        }
+
+        $labelById = $requiredTypes->keyBy('id');
+
+        return $propertyDocs->merge($contactDocs)->unique('id')->map(fn ($d) => [
+            'document_id' => $d->id,
+            'document_type_id' => $d->document_type_id,
+            'type_label' => $labelById[$d->document_type_id]->label ?? null,
+            'name' => $d->original_name,
+            'source' => $d->source_type, // 'upload' (manual) or 'esign'
+        ])->values()->toArray();
+    }
+
+    // ── Listing gates (unchanged behaviour) ──
 
     private function checkPhotos(Property $property): array
     {
@@ -247,9 +336,12 @@ class MarketingReadinessService
 
         return [
             'passed' => $count >= $required,
+            'label' => 'Photos',
             'detail' => $count >= $required
                 ? $count . ' photos uploaded'
                 : 'Only ' . $count . ' photos (minimum ' . $required . ' required)',
+            'action_label' => 'Upload Photos',
+            'action_url' => route('corex.properties.show', $property->id) . '?tab=gallery',
         ];
     }
 
@@ -275,47 +367,16 @@ class MarketingReadinessService
 
         return [
             'passed' => empty($missing),
+            'label' => 'Listing details',
             'detail' => empty($missing)
                 ? 'All required listing details complete'
                 : 'Missing: ' . implode(', ', $missing),
+            'action_label' => 'Complete Details',
+            'action_url' => route('corex.properties.show', $property->id) . '?tab=info',
         ];
     }
 
     // ── Helpers ──
-
-    private function findSignedMandate(Property $property): ?object
-    {
-        return DB::table('docuperfect_documents')
-            ->where('property_id', $property->id)
-            ->where('document_type', 'mandate')
-            ->whereNull('deleted_at')
-            ->whereExists(function ($q) {
-                $q->select(DB::raw(1))
-                  ->from('signature_templates')
-                  ->whereColumn('signature_templates.document_id', 'docuperfect_documents.id')
-                  ->where('signature_templates.status', 'completed')
-                  ->whereNull('signature_templates.deleted_at');
-            })
-            ->orderByDesc('id')
-            ->first();
-    }
-
-    private function findSignedMarketingPermission(Property $property): ?object
-    {
-        return DB::table('docuperfect_documents')
-            ->where('property_id', $property->id)
-            ->where('document_type', 'like', '%marketing%permission%')
-            ->whereNull('deleted_at')
-            ->whereExists(function ($q) {
-                $q->select(DB::raw(1))
-                  ->from('signature_templates')
-                  ->whereColumn('signature_templates.document_id', 'docuperfect_documents.id')
-                  ->where('signature_templates.status', 'completed')
-                  ->whereNull('signature_templates.deleted_at');
-            })
-            ->orderByDesc('id')
-            ->first();
-    }
 
     private function countPhotos(Property $property): int
     {
@@ -328,10 +389,9 @@ class MarketingReadinessService
         $snapshot = $property->compliance_snapshot_data ?? [];
 
         return $snapshot['checklist'] ?? [
-            'authority_to_market' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
-            'fica_sellers' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
-            'photos' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
-            'details_complete' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
+            'authority_to_market' => ['passed' => true, 'label' => 'Authority to Market', 'detail' => 'Verified at snapshot time'],
+            'photos' => ['passed' => true, 'label' => 'Photos', 'detail' => 'Verified at snapshot time'],
+            'details_complete' => ['passed' => true, 'label' => 'Listing details', 'detail' => 'Verified at snapshot time'],
         ];
     }
 }

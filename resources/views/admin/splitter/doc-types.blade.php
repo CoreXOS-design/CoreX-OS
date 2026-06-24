@@ -128,6 +128,9 @@
                                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Slug</th>
                                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Listing Type</th>
                                         <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-24" style="color: var(--text-muted);">Active</th>
+                                        <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-32" style="color: var(--text-muted);">
+                                            <span class="cursor-help" title="When ticked, a property cannot be marketed until at least one document of this type is on its Drive. Applies to this agency only. Photos and listing details are always required.">Compliance required &#9432;</span>
+                                        </th>
                                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-20" style="color: var(--text-muted);">Actions</th>
                                     </tr>
                                 </thead>
@@ -195,6 +198,12 @@
                                                 <option value="1" {{ $t->is_active ? 'selected' : '' }}>Yes</option>
                                                 <option value="0" {{ !$t->is_active ? 'selected' : '' }}>No</option>
                                             </select>
+                                        </td>
+                                        <td class="px-4 py-3 text-center">
+                                            <input type="checkbox" name="types[{{ $i }}][compliance_required]" value="1"
+                                                   {{ ($complianceMap[$t->id] ?? false) ? 'checked' : '' }}
+                                                   class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--ds-green);"
+                                                   title="Require a {{ $t->label }} on the property Drive before it can be marketed (this agency only).">
                                         </td>
                                         <td class="px-4 py-3 text-right">
                                             <button type="button" onclick="deleteDocType('{{ route('admin.splitter.doc-types.destroy', $t) }}', '{{ addslashes($t->label) }}')"
