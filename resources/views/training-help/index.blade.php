@@ -9,12 +9,13 @@
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Training Centre</h1>
+                <h1 class="text-xl font-bold text-white leading-tight" data-tour="train-help-intro">Training Centre</h1>
                 <p class="text-sm text-white/60">Learn how to use CoreX — step-by-step guides for every role.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 {{-- Search trigger --}}
                 <button @click="searchOpen = true"
+                        data-tour="train-help-search"
                         class="corex-btn-outline text-sm"
                         style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
@@ -27,6 +28,7 @@
 
     {{-- Required docs progress --}}
     <div class="rounded-md p-4 flex flex-wrap items-center justify-between gap-3"
+         data-tour="train-help-progress"
          style="background:var(--surface); border:1px solid var(--border);">
         <div>
             <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Required Docs Progress</div>
@@ -41,7 +43,7 @@
     </div>
 
     {{-- Filters --}}
-    <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap gap-2" data-tour="train-help-filters">
         @php $filters = [
             'all' => 'All',
             'for-me' => 'For Me',
@@ -70,7 +72,7 @@
     @endif
 
     {{-- Doc Cards Grid --}}
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" data-tour="train-help-grid">
         @forelse($docs as $doc)
         @php
             $read = $reads->get($doc->id);
@@ -81,6 +83,7 @@
             $isRequired = $doc->isRequiredForRole($role);
         @endphp
         <a href="{{ route('training-help.show', $doc->slug) }}"
+           @if($loop->first) data-tour="train-help-card" @endif
            class="block rounded-md p-5 transition-all group"
            style="background:var(--surface); border:1px solid var(--border);">
             <div class="flex items-start justify-between gap-2 mb-3">

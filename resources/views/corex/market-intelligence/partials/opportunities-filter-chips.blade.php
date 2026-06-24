@@ -17,7 +17,7 @@
     $activeFilter = $activeFilter ?? 'all';
 @endphp
 
-<div class="mic-opp-chips"
+<div class="mic-opp-chips" data-tour="mic-opportunities-chips"
      style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;">
     @foreach($chips as $key => $label)
         @php $isActive = $activeFilter === $key; @endphp

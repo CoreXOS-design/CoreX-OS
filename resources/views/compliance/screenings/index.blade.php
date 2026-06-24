@@ -4,8 +4,8 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Employee Screenings" :back-route="route('compliance.screening.dashboard.index')" back-label="Dashboard" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('compliance.screenings.overdue') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition" style="border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-secondary, #6b7280);">Overdue</a>
-            <a href="{{ route('compliance.screenings.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition" style="background:var(--brand-icon); color:var(--text-primary); border-radius:6px;">
+            <a href="{{ route('compliance.screenings.overdue') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition" style="border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-secondary, #6b7280);" data-tour="comp-screenings-overdue">Overdue</a>
+            <a href="{{ route('compliance.screenings.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition" style="background:var(--brand-icon); color:var(--text-primary); border-radius:6px;" data-tour="comp-screenings-new">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 New Screening
             </a>
@@ -13,7 +13,7 @@
     </x-page-header>
 
     <div class="p-4 lg:p-6">
-        <form method="GET" class="flex items-center gap-3 mb-4">
+        <form method="GET" class="flex items-center gap-3 mb-4" data-tour="comp-screenings-filters">
             <input type="text" name="search" value="{{ request('search') }}" placeholder="Search by name..." class="px-3 py-2 text-sm border" style="border-color:var(--border, #e5e7eb); border-radius:6px; max-width:200px;">
             <select name="status" onchange="this.form.submit()" class="px-3 py-2 text-sm border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
                 <option value="">All statuses</option>
@@ -34,7 +34,7 @@
 
         <div class="text-xs mb-2" style="color:#64748b;">Showing {{ $screenings->count() }} of {{ $screenings->total() }}</div>
 
-        <div class="overflow-x-auto" style="border:1px solid var(--border, #e5e7eb); border-radius:6px;">
+        <div class="overflow-x-auto" style="border:1px solid var(--border, #e5e7eb); border-radius:6px;" data-tour="comp-screenings-table">
             <table class="w-full text-sm" style="">
                 <thead>
                     <tr style="background:var(--surface-alt, #f8fafc); border-bottom:1px solid var(--border, #e5e7eb);">

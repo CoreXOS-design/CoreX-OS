@@ -12,7 +12,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div data-tour="rent-expired-leases-intro" class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Expired Leases</h1>
@@ -36,7 +36,7 @@
         </div>
     @endif
 
-    <div class="space-y-3">
+    <div data-tour="rent-expired-leases-list" class="space-y-3">
         @forelse($leases as $lease)
             @php
                 $rental = number_format((float) $lease->rental_amount, 0, '.', ',');
@@ -65,7 +65,7 @@
                             </span>
                         </div>
                     </div>
-                    <div class="flex flex-col gap-2 ml-4 shrink-0">
+                    <div data-tour="rent-expired-leases-actions" class="flex flex-col gap-2 ml-4 shrink-0">
                         @if($lease->document)
                             <a href="{{ route('docuperfect.signatures.audit', $lease->document) }}"
                                class="corex-btn-outline text-xs px-3 py-1.5 text-center">

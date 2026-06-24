@@ -5,12 +5,13 @@
 <div class="space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="tools-pdf-suite-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">PDF Suite</h1>
                 <p class="text-sm text-white/60">Nine tools for everything you need to do with a PDF — split, compress, merge, rotate, redact, enhance and more.</p>
             </div>
+            @include('layouts.partials.tour-header-launcher')
             @permission('access_settings')
                 @if(\Illuminate\Support\Facades\Route::has('admin.splitter.doc-types.index'))
                 <a href="{{ route('admin.splitter.doc-types.index') }}"
@@ -64,10 +65,12 @@
             };
         @endphp
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5" data-tour="tools-pdf-suite-grid">
             @foreach($tools as $t)
                 @if(\Illuminate\Support\Facades\Route::has($t['route']))
                 <a href="{{ route($t['route']) }}"
+                   @if($loop->first) data-tour="tools-pdf-suite-first-card" @endif
+                   @if($t['icon'] === 'redact') data-tour="tools-pdf-suite-redact-card" @endif
                    class="group block rounded-md transition-all duration-300 hover:-translate-y-0.5"
                    style="background: var(--surface); border: 1px solid var(--border); text-decoration: none; min-height: 180px;">
                     <div class="p-6 h-full flex flex-col">

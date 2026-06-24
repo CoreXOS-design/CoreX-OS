@@ -6,14 +6,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div data-tour="rent-stock-intro" class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Rentals Register</h1>
                 <p class="text-sm text-white/60">All assigned rentals &mdash; not period-based.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('rentals.create') }}" class="corex-btn-primary inline-flex items-center gap-2">
+                <a href="{{ route('rentals.create') }}" data-tour="rent-stock-new" class="corex-btn-primary inline-flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                     </svg>
@@ -24,7 +24,7 @@
     </div>
 
     {{-- Summary stats --}}
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div data-tour="rent-stock-summary" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="rounded-md px-4 py-3 flex items-center gap-3" style="background: var(--surface); border: 1px solid var(--border);">
             <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0"
                   style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
@@ -52,7 +52,7 @@
     </div>
 
     {{-- Per Agent Summary --}}
-    <div class="ds-status-card" style="border-left-color: var(--brand-icon, #0ea5e9);">
+    <div data-tour="rent-stock-per-agent" class="ds-status-card" style="border-left-color: var(--brand-icon, #0ea5e9);">
         <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Per Agent</h3>
         @if(count($summary_per_agent) === 0)
             <p class="text-sm" style="color: var(--text-muted);">No agent splits yet.</p>
@@ -85,7 +85,7 @@
             <a href="{{ route('rentals.create') }}" class="corex-btn-primary">New Rental</a>
         </div>
     @else
-        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div data-tour="rent-stock-table" class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm ds-table">
                     <thead>

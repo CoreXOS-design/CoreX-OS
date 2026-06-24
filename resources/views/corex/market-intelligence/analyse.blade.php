@@ -26,7 +26,7 @@
 
 @include('corex.market-intelligence.partials.tabs')
 
-<header class="mi-header"
+<header class="mi-header" data-tour="mic-analyse-stats"
         style="position: sticky; top: 0; z-index: 10; background: var(--surface);">
     @include('corex.market-intelligence._stats-strip', [
         'snapshotKpis'       => $snapshotKpis,
@@ -37,13 +37,17 @@
 
 <div class="mi-analyse-body" style="padding: 16px 0; display: flex; flex-direction: column; gap: 16px;">
 
-    @include('corex.market-intelligence._ellie-brief', ['brief' => $data['brief']])
+    <div data-tour="mic-analyse-brief">
+        @include('corex.market-intelligence._ellie-brief', ['brief' => $data['brief']])
+    </div>
 
     <div class="mi-analyse-grid"
          style="display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start;">
 
         <div class="mi-analyse-left" style="display: flex; flex-direction: column; gap: 16px; min-width: 0;">
-            @include('corex.market-intelligence._heat-matrix', ['matrix' => $data['matrix']])
+            <div data-tour="mic-analyse-matrix">
+                @include('corex.market-intelligence._heat-matrix', ['matrix' => $data['matrix']])
+            </div>
             @include('corex.market-intelligence._market-velocity', ['velocity' => $data['velocity']])
             @include('corex.market-intelligence._buyer-funnel-analyse', [
                 'snapshot' => $snapshot,
@@ -52,7 +56,7 @@
             ])
         </div>
 
-        <div class="mi-analyse-right" style="display: flex; flex-direction: column; gap: 16px; min-width: 0;">
+        <div class="mi-analyse-right" data-tour="mic-analyse-pockets" style="display: flex; flex-direction: column; gap: 16px; min-width: 0;">
             @include('corex.market-intelligence._opportunity-pockets', ['pockets' => $data['pockets']])
             @include('corex.market-intelligence._agency-share', [
                 'comp'   => $data['competitive'],

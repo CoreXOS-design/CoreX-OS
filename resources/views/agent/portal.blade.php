@@ -18,7 +18,7 @@
     {{-- Page header (Pattern A — branded, matches Contacts / Core Matches) --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="portal-home-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">My Portal</h1>
                 <p class="text-sm text-white/60">Your profile, documents, compliance, training and earnings in one place.</p>
             </div>
@@ -66,7 +66,7 @@
     @endif
 
     {{-- Tab navigation (fixed spacing) --}}
-    <div style="border-bottom:1px solid var(--border);">
+    <div style="border-bottom:1px solid var(--border);" data-tour="portal-home-tabs">
         <nav class="-mb-px flex gap-1 overflow-x-auto" aria-label="Tabs">
             @php
                 $portalTabs = [
@@ -128,7 +128,7 @@
     <div x-show="tab === 'overview'" x-cloak>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {{-- Earnings snapshot --}}
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;" data-tour="portal-home-earnings">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">My Earnings</h3>
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div class="p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -153,7 +153,7 @@
             </div>
 
             {{-- Quick compliance card --}}
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;" data-tour="portal-home-compliance">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Compliance Overview</h3>
                 @php $dotColors = ['green' => 'var(--ds-green)', 'amber' => 'var(--ds-amber)', 'red' => 'var(--ds-crimson)', 'grey' => 'var(--text-muted)', 'missing' => 'var(--text-muted)']; @endphp
                 <div class="space-y-2">

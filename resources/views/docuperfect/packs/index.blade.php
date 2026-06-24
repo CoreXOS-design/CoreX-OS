@@ -5,7 +5,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="dp-packs-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Document Packs</h1>
@@ -43,7 +43,7 @@
             @endif
         </div>
     @else
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-tour="dp-packs-grid">
             @foreach($packs as $pack)
             <div class="pack-card rounded-md p-4 flex flex-col"
                  style="background: var(--surface); border: 1px solid var(--border); transition: all 300ms ease;">
@@ -106,7 +106,7 @@
                 @endif
 
                 <div class="flex flex-wrap items-center gap-2 mt-auto pt-3" style="border-top: 1px solid var(--border);">
-                    <a href="{{ route('docuperfect.packs.showLaunch', $pack->id) }}" class="corex-btn-primary text-xs">Launch Pack</a>
+                    <a href="{{ route('docuperfect.packs.showLaunch', $pack->id) }}" class="corex-btn-primary text-xs" @if($loop->first) data-tour="dp-packs-launch" @endif>Launch Pack</a>
                     @if($canManage)
                     <a href="{{ route('docuperfect.packs.edit', $pack->id) }}" class="corex-btn-outline text-xs">Edit</a>
                     <form method="POST" action="{{ route('docuperfect.packs.destroy', $pack->id) }}" class="inline ml-auto" onsubmit="return confirm('Delete this pack?');">

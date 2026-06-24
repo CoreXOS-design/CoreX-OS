@@ -6,7 +6,7 @@
     {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="re-properties-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Properties</h1>
                 <p class="text-sm text-white/60">Manage listings and publish to website.</p>
             </div>
@@ -79,7 +79,7 @@
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
     @endphp
-    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 xl:gap-4">
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 xl:gap-4" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
             $c = $kpiColors[$kpi['label']] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)'];
@@ -154,7 +154,7 @@
         <form method="GET" action="{{ route('corex.properties.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Search --}}
-            <div class="relative flex-1 min-w-[180px] max-w-xs">
+            <div class="relative flex-1 min-w-[180px] max-w-xs" data-tour="re-properties-search">
                 <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
@@ -193,7 +193,7 @@
             @endif
 
             {{-- Status --}}
-            <select name="status" onchange="this.form.submit()" class="list-header-filter">
+            <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
                 <option value="active" {{ $status === 'active' ? 'selected' : '' }}>Active</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
@@ -334,7 +334,7 @@
             @endif
 
             {{-- View toggle --}}
-            <div class="flex items-center gap-0.5 rounded-md" style="height:2.25rem;padding:0.125rem;background:var(--surface-2);border:1px solid var(--border);">
+            <div class="flex items-center gap-0.5 rounded-md" style="height:2.25rem;padding:0.125rem;background:var(--surface-2);border:1px solid var(--border);" data-tour="re-properties-viewtoggle">
                 <button type="button" @click="view = 'grid'"
                         class="h-full px-2 rounded transition-all duration-300 inline-flex items-center justify-center"
                         :style="view === 'grid' ? 'background:var(--brand-default,#0b2a4a);color:#fff;' : 'color:var(--text-muted);'"
@@ -523,7 +523,7 @@
     @else
 
     {{-- ═══ GRID VIEW ═══ --}}
-    <div x-show="view === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <div x-show="view === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" data-tour="re-properties-list">
         @foreach($properties as $property)
         @php
             $images = $property->allImages();

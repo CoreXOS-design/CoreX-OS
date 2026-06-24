@@ -108,7 +108,7 @@
          full-bleed negative margin on #corex-map-root so the card sits inside
          the normal page padding while the map body below stays edge-to-edge. --}}
     <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 20px 12px; padding: 20px 24px; background: var(--brand-default, #0b2a4a); border-radius: 6px; flex-shrink: 0; z-index: 500;">
-        <div style="min-width: 0;">
+        <div style="min-width: 0;" data-tour="re-map-intro">
             <div style="display: flex; align-items: center; gap: 12px;">
                 <h1 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin: 0; line-height: 1.2;">CoreX Map</h1>
                 <div id="map-loading-pill" style="display: none; padding: 4px 10px; font-size: 0.6875rem; font-weight: 500; background: var(--surface-2); color: var(--text-secondary); border-radius: 999px;">Loading pins…</div>
@@ -117,7 +117,7 @@
         </div>
         <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
             {{-- Base-layer toggle --}}
-            <div id="base-layer-toggle" style="display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
+            <div id="base-layer-toggle" data-tour="re-map-baselayer" style="display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
                 <button data-base="streets" class="base-pill active" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: var(--brand-button); color: #fff; border: 0; border-radius: 4px; cursor: pointer;">Streets</button>
                 <button data-base="satellite" class="base-pill" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: transparent; color: var(--text-secondary); border: 0; border-radius: 4px; cursor: pointer;">Satellite</button>
             </div>
@@ -140,7 +140,7 @@
             @php
                 $mapCanSeeAgentView = (bool) (auth()->user()?->hasPermission('access_prospecting') ?? false);
             @endphp
-            <div id="view-mode-toggle" data-can-see-agent="{{ $mapCanSeeAgentView ? '1' : '0' }}" style="display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
+            <div id="view-mode-toggle" data-tour="re-map-viewmode" data-can-see-agent="{{ $mapCanSeeAgentView ? '1' : '0' }}" style="display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
                 @if($mapCanSeeAgentView)
                     <button data-mode="agent" class="mode-pill" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: transparent; color: var(--text-secondary); border: 0; border-radius: 4px; cursor: pointer;">Agent View</button>
                 @endif
@@ -212,7 +212,7 @@
                  hover shows the layer name + count. --}}
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Layers</div>
-                <div id="layer-list" style="display: flex; gap: 6px;">
+                <div id="layer-list" data-tour="re-map-layers" style="display: flex; gap: 6px;">
                     @php
                         // Layer-chip palette MUST stay in sync with PIN_STYLES
                         // and LAYER_COLOURS in the JS section below. Otherwise
@@ -252,7 +252,7 @@
 
             {{-- Phase A.3.1 — search input. 500ms debounce in JS. --}}
             <div style="margin-bottom: 12px;">
-                <input type="text" id="filter-search" placeholder="Search address / scheme / agent…" autocomplete="off"
+                <input type="text" id="filter-search" data-tour="re-map-search" placeholder="Search address / scheme / agent…" autocomplete="off"
                        style="width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.8125rem; box-sizing: border-box;">
             </div>
 

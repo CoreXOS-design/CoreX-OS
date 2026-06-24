@@ -6,7 +6,7 @@
 <div class="w-full space-y-6">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div data-tour="rent-dashboard-intro" class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Rental Division</h1>
@@ -16,7 +16,7 @@
     </div>
 
     {{-- Metric Tiles --}}
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
+    <div data-tour="rent-dashboard-tiles" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
         <a href="{{ route('rental.signatures') }}" class="ds-status-card p-4 text-center transition cursor-pointer block">
             <div class="text-[1.625rem] font-semibold" style="color: {{ $counts['needs_approval'] > 0 ? 'var(--ds-amber)' : 'var(--text-muted)' }};">{{ number_format($counts['needs_approval']) }}</div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">Needs Approval</div>
@@ -48,8 +48,8 @@
     </div>
 
     {{-- Quick Actions --}}
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <a href="{{ route('rental.signatures') }}" class="ds-status-card p-5 transition cursor-pointer block">
+    <div data-tour="rent-dashboard-actions" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <a href="{{ route('rental.signatures') }}" data-tour="rent-dashboard-signatures" class="ds-status-card p-5 transition cursor-pointer block">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-md flex items-center justify-center" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

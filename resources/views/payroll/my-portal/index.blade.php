@@ -6,14 +6,14 @@
     <x-page-header title="My Payslips" :back-route="route('agent.portal')" back-label="My Portal" :flush="true" />
 
     <div class="p-4 lg:p-6">
-        <p class="text-xs mb-4" style="color:var(--text-secondary, #6b7280);">Your finalised payslips. Click View to see details or Download to get the PDF.</p>
+        <p class="text-xs mb-4" style="color:var(--text-secondary, #6b7280);" data-tour="portal-payslips-intro">Your finalised payslips. Click View to see details or Download to get the PDF.</p>
 
         @if($payslips->isEmpty())
             <div class="py-12 text-center text-sm" style="color:var(--text-secondary, #6b7280);">
                 No payslips yet. Your payslips will appear here once your employer finalises a payroll run.
             </div>
         @else
-            <div class="overflow-x-auto">
+            <div class="overflow-x-auto" data-tour="portal-payslips-table">
                 <table class="w-full text-sm" style="border-collapse:collapse;">
                     <colgroup>
                         <col style="width:120px;">{{-- Period --}}
@@ -28,7 +28,7 @@
                             <th class="text-left px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Pay Date</th>
                             <th class="text-right px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Gross</th>
                             <th class="text-right px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Net Pay</th>
-                            <th class="text-right px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Actions</th>
+                            <th class="text-right px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;" data-tour="portal-payslips-actions">Actions</th>
                         </tr>
                     </thead>
                     <tbody>

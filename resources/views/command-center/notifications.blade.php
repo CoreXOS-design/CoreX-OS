@@ -1,15 +1,18 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="space-y-4">
-    <div class="flex items-center justify-between">
+<div class="space-y-4" data-tour="cc-notifications-list">
+    <div class="flex items-center justify-between" data-tour="cc-notifications-header">
         <h1 class="text-xl font-bold" style="color:var(--text-primary);">Notifications</h1>
-        @if($notifications->count() > 0)
-        <form method="POST" action="{{ route('command-center.notifications.mark-all-read') }}">
-            @csrf
-            <button type="submit" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);">Mark all read</button>
-        </form>
-        @endif
+        <div class="flex items-center gap-2">
+            @include('layouts.partials.tour-header-launcher')
+            @if($notifications->count() > 0)
+            <form method="POST" action="{{ route('command-center.notifications.mark-all-read') }}">
+                @csrf
+                <button type="submit" data-tour="cc-notifications-mark-all" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);">Mark all read</button>
+            </form>
+            @endif
+        </div>
     </div>
 
     @forelse($notifications as $n)
@@ -17,7 +20,7 @@
             $data = json_decode($n->data, true);
             $isUnread = !$n->read_at;
         @endphp
-        <div class="rounded-md px-4 py-3 flex items-start gap-3" style="background:var(--surface);border:1px solid var(--border);{{ $isUnread ? 'border-left:3px solid var(--brand-button);' : '' }}">
+        <div class="rounded-md px-4 py-3 flex items-start gap-3" data-tour="cc-notifications-item" style="background:var(--surface);border:1px solid var(--border);{{ $isUnread ? 'border-left:3px solid var(--brand-button);' : '' }}">
             <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="{{ $isUnread ? 'background:var(--brand-button);' : 'background:var(--text-muted);opacity:0.3;' }}"></div>
             <div class="flex-1 min-w-0">
                 @php

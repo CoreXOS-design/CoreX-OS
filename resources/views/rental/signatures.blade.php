@@ -44,7 +44,7 @@
      }">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
+    <div data-tour="rent-signatures-intro" style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight tracking-tight">Electronic Signatures</h1>
@@ -55,6 +55,7 @@
             </div>
             <div class="flex items-center gap-2">
                 <a href="{{ route('docuperfect.rental.uploadAndSend') }}"
+                   data-tour="rent-signatures-upload"
                    class="corex-btn-primary inline-flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
                     Upload &amp; Send for Signing
@@ -78,7 +79,7 @@
     @endif
 
     {{-- Status summary cards --}}
-    <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
+    <div data-tour="rent-signatures-cards" class="grid grid-cols-2 md:grid-cols-6 gap-4">
         @if($counts['pending_approval'] > 0)
         <a href="#section-pending-approval" onclick="event.preventDefault(); scrollToSection('section-pending-approval')"
            class="ds-status-card p-4 text-center cursor-pointer block transition-all duration-300"

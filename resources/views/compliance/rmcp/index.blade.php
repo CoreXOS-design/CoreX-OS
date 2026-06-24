@@ -5,15 +5,16 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="comp-rmcp-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">RMCP Versions</h1>
                 <p class="text-sm text-white/60">Risk Management & Compliance Programme — version history and approvals.</p>
             </div>
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Back</a>
                 @permission('edit_rmcp')
-                <a href="{{ route('compliance.rmcp.variables') }}" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Variables</a>
-                <a href="{{ route('compliance.rmcp.create') }}" class="corex-btn-primary">
+                <a href="{{ route('compliance.rmcp.variables') }}" data-tour="comp-rmcp-variables" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Variables</a>
+                <a href="{{ route('compliance.rmcp.create') }}" data-tour="comp-rmcp-new" class="corex-btn-primary">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                     New Version
                 </a>
@@ -23,7 +24,7 @@
     </div>
 
     {{-- Filter / search bar --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4" data-tour="comp-rmcp-search" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" class="flex flex-col sm:flex-row sm:items-center gap-3">
             <input type="text" name="search" value="{{ request('search') }}" placeholder="Search versions..."
                    class="w-full sm:max-w-xs rounded-md px-3 py-2 text-sm"
@@ -39,7 +40,7 @@
     </div>
 
     {{-- Versions table --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" data-tour="comp-rmcp-versions" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>

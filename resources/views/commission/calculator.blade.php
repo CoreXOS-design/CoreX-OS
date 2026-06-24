@@ -8,7 +8,7 @@
     {{-- Page header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="calc-revenue-share-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Revenue Share Calculator</h1>
                 <p class="text-sm text-white/60">See what your network could earn you. Adjust the sliders to explore different scenarios.</p>
             </div>
@@ -18,12 +18,12 @@
     {{-- ══════════════════════════════════════
          INPUT SECTION
          ══════════════════════════════════════ --}}
-    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="calc-revenue-share-scenario">
         <h3 class="text-lg font-semibold mb-5" style="color: var(--text-primary);">Your Scenario</h3>
 
         <div class="space-y-6">
             {{-- Slider 1: Agents --}}
-            <div>
+            <div data-tour="calc-revenue-share-agents">
                 <div class="flex items-center justify-between mb-2">
                     <label for="rs-tier1-agents" class="block text-xs font-medium" style="color: var(--text-secondary);">Agents you sponsor</label>
                     <div class="flex items-center gap-2">
@@ -63,7 +63,7 @@
             </div>
 
             {{-- Slider 3: Avg commission --}}
-            <div>
+            <div data-tour="calc-revenue-share-commission">
                 <div class="flex items-center justify-between mb-2">
                     <label for="rs-avg-commission" class="block text-xs font-medium" style="color: var(--text-secondary);">Avg commission per deal</label>
                     <div class="flex items-center gap-2">
@@ -87,7 +87,7 @@
     {{-- ══════════════════════════════════════
          RESULTS SECTION
          ══════════════════════════════════════ --}}
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-tour="calc-revenue-share-results">
 
         {{-- Card 1: Monthly Revenue Share --}}
         <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">

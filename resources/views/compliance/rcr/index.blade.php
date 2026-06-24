@@ -26,11 +26,14 @@
     {{-- Page header (§2.4 Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="comp-rcr-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Risk &amp; Compliance Returns (RCR)</h1>
                 <p class="text-sm text-white/60">
                     FIC Directive 11 of 2026 — submit by 31 July 2026 via the FIC goAML platform. CoreX prepares your answers; you transpose into goAML.
                 </p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
             </div>
             @if($active)
             <div class="flex items-center gap-2 flex-wrap">
@@ -55,7 +58,7 @@
     @endif
 
     {{-- KPI tiles (§3.2) --}}
-    <div class="corex-kpi-grid">
+    <div class="corex-kpi-grid" data-tour="comp-rcr-kpis">
         <x-corex-kpi-card title="Total submissions" :value="number_format($submissions->count())" />
         <x-corex-kpi-card title="Active returns" :value="number_format($activeCount)" />
     </div>
@@ -93,7 +96,7 @@
     @endif
 
     {{-- Start a new submission (§3.3 card + §3.6 form) --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4" data-tour="comp-rcr-start" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="ds-section-header" style="margin: 0 0 12px 0;">Start a new submission</h2>
         <form method="POST" action="{{ route('corex.compliance.rcr.store') }}" class="flex flex-col sm:flex-row sm:items-end gap-3">
             @csrf
@@ -109,7 +112,7 @@
             </div>
             <button type="submit" class="corex-btn-primary whitespace-nowrap flex-shrink-0">Start submission</button>
         </form>
-        <p class="mt-2 text-xs" style="color: var(--text-muted);">
+        <p class="mt-2 text-xs" data-tour="comp-rcr-autopop" style="color: var(--text-muted);">
             Starting a new submission auto-populates known data (FICA officers, RMCP status, transaction counts) so you only fill in what CoreX can't infer.
         </p>
     </div>

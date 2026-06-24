@@ -11,7 +11,7 @@
     </style>
 
     {{-- Page header (Pattern A — branded banner) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div data-tour="deals-create-intro" class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">New Deal</h1>
@@ -29,7 +29,7 @@
     </div>
 
     {{-- Step indicators --}}
-    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div data-tour="deals-create-rail" class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex items-center gap-1 flex-wrap">
             <template x-for="(label, i) in ['Property', 'Contacts', 'Details', 'Pipeline', 'Confirm']" :key="i">
                 <div class="flex items-center gap-1">
@@ -64,11 +64,11 @@
     @endif
 
     {{-- STEP 1: Property --}}
-    <div x-show="step === 1" class="rounded-md p-5" style="border: 1px solid var(--border); background: var(--surface);">
+    <div x-show="step === 1" data-tour="deals-create-step1" class="rounded-md p-5" style="border: 1px solid var(--border); background: var(--surface);">
         <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">Select Property</h2>
 
         <div class="relative mb-4">
-            <input type="text" x-model="propertySearch" @input.debounce.300ms="searchProperties()" placeholder="Search by address..."
+            <input type="text" data-tour="deals-create-property-search" x-model="propertySearch" @input.debounce.300ms="searchProperties()" placeholder="Search by address..."
                    class="w-full rounded-md text-sm px-3 py-2 focus:outline-none"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             {{-- Results dropdown --}}
@@ -102,7 +102,7 @@
         </div>
 
         <div class="flex justify-end">
-            <button @click="if(selectedProperty) step = 2" :disabled="!selectedProperty" class="corex-btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
+            <button @click="if(selectedProperty) step = 2" :disabled="!selectedProperty" data-tour="deals-create-next" class="corex-btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
                 Next →
             </button>
         </div>

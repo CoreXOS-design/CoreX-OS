@@ -6,7 +6,7 @@
     <x-page-header title="My Leave" :back-route="route('agent.portal')" back-label="My Portal" :flush="true">
         <x-slot:actions>
             @if($employee)
-                <a href="{{ route('my-portal.leave.apply') }}" class="corex-btn-primary inline-flex items-center gap-1.5">
+                <a href="{{ route('my-portal.leave.apply') }}" class="corex-btn-primary inline-flex items-center gap-1.5" data-tour="portal-leave-apply">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     Apply for Leave
                 </a>
@@ -26,7 +26,7 @@
             <div class="py-12 text-center text-sm" style="color:var(--text-secondary, #6b7280);">You are not on the payroll roster. Contact your administrator.</div>
         @else
             {{-- Balance cards --}}
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6" data-tour="portal-leave-balances">
                 @foreach($balances as $bal)
                     <div class="p-3" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                         <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">{{ $bal['leave_type']->label }}</p>
@@ -40,9 +40,9 @@
             </div>
 
             {{-- Application history --}}
-            <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">My Applications</h4>
+            <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;" data-tour="portal-leave-applications">My Applications</h4>
 
-            <div class="flex gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
+            <div class="flex gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);" data-tour="portal-leave-status-tabs">
                 @foreach(['all'=>'All','pending'=>'Pending','approved'=>'Approved','rejected'=>'Rejected','cancelled'=>'Cancelled'] as $key => $label)
                     <a href="{{ route('my-portal.leave.index', ['status' => $key]) }}" class="px-3 py-1.5 text-xs font-semibold transition" style="{{ ($status ?? 'all') === $key ? 'border-bottom:2px solid var(--brand-icon); color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);' }}">
                         {{ $label }} <span class="ml-1 text-[10px] opacity-60">{{ $counts[$key] ?? 0 }}</span>

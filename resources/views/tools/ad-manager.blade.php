@@ -7,13 +7,14 @@
 <div class="w-full space-y-5" x-data="adManager()">
 
     {{-- ── Page header (branded) ───────────────────────────────── --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="tools-ad-manager-header" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Ad Manager</h1>
                 <p class="text-sm text-white/60">Generate ready-to-post ads for multiple properties — image and grounded AI description.</p>
             </div>
-            <div class="flex items-center gap-2 text-xs font-semibold text-white/70">
+            @include('layouts.partials.tour-header-launcher')
+            <div class="flex items-center gap-2 text-xs font-semibold text-white/70" data-tour="tools-ad-manager-steps">
                 <span :class="step==='select' ? 'text-white' : ''">1. Properties</span>
                 <span class="text-white/40">›</span>
                 <span :class="step==='template' ? 'text-white' : ''">2. Template</span>
@@ -27,7 +28,7 @@
     <div x-show="step==='select'" class="space-y-4">
 
         {{-- Ad size selector --}}
-        <div class="rounded-md p-4 flex flex-col sm:flex-row sm:items-center gap-3" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="rounded-md p-4 flex flex-col sm:flex-row sm:items-center gap-3" data-tour="tools-ad-manager-size" style="background:var(--surface); border:1px solid var(--border);">
             <div class="flex-1">
                 <div class="text-sm font-semibold" style="color:var(--text-primary);">Ad size</div>
                 <div class="text-xs" style="color:var(--text-muted);">Where will you post these ads? This sets the image dimensions.</div>
@@ -55,7 +56,7 @@
 
         @if($allAgents)
             {{-- Agent-by-agent grouping --}}
-            <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center justify-between flex-wrap gap-2" data-tour="tools-ad-manager-select">
                 <div class="text-sm font-semibold" style="color:var(--text-primary);">Select properties by agent</div>
                 <button type="button" @click="selectAllEverything()" class="corex-btn-outline text-xs">Select all properties</button>
             </div>
@@ -84,7 +85,7 @@
             </div>
         @else
             {{-- Own properties --}}
-            <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center justify-between flex-wrap gap-2" data-tour="tools-ad-manager-select">
                 <div class="text-sm font-semibold" style="color:var(--text-primary);">Select your properties</div>
                 <button type="button" @click="selectAllEverything()" class="corex-btn-outline text-xs">Select all</button>
             </div>
@@ -99,6 +100,7 @@
         <div class="sticky bottom-0 z-20 py-3 flex items-center justify-between gap-3" style="background:var(--bg,#0d0f14);">
             <div class="text-sm" style="color:var(--text-muted);"><span class="font-bold" style="color:var(--text-primary);" x-text="selected.length"></span> propert<span x-text="selected.length===1?'y':'ies'"></span> selected</div>
             <button type="button" @click="goTemplate()" :disabled="!selected.length"
+                    data-tour="tools-ad-manager-next"
                     class="corex-btn-primary text-base px-5 py-2.5 disabled:opacity-40 disabled:cursor-not-allowed">
                 Next: Choose template →
             </button>

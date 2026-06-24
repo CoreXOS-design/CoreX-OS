@@ -19,7 +19,7 @@
 
     @include('corex.market-intelligence.partials.tabs')
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-bottom: 16px;">
+    <div data-tour="mic-portal-alerts-counts" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-bottom: 16px;">
         <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
             <div style="font-size: 0.625rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted);">P24 email alerts (no address)</div>
             <div style="font-size: 1.0625rem; font-weight: 600; color: var(--text-primary);">{{ number_format($totalP24Alerts) }}</div>
@@ -42,7 +42,7 @@
             <p class="text-sm" style="color: var(--text-muted);">No portal alerts awaiting an address right now. Anything new will show up here.</p>
         </div>
     @else
-        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+        <div data-tour="mic-portal-alerts-table" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
             <div style="overflow-x: auto;">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.8125rem;">
                 <thead>
@@ -55,7 +55,7 @@
                         <th style="text-align: right; padding: 8px 12px;">Asking</th>
                         <th style="text-align: left; padding: 8px 12px;">First seen</th>
                         <th style="text-align: left; padding: 8px 12px;">Reason</th>
-                        <th style="text-align: left; padding: 8px 12px;">Open</th>
+                        <th data-tour="mic-portal-alerts-open" style="text-align: left; padding: 8px 12px;">Open</th>
                     </tr>
                 </thead>
                 <tbody>

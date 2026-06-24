@@ -2,17 +2,19 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div x-data="commandCentre()" x-init="startAutoRefresh()" class="space-y-6">
+<div x-data="commandCentre()" x-init="startAutoRefresh()" data-tour="cc-today-board" class="space-y-6">
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="cc-today-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div class="min-w-0">
+            <div class="min-w-0" data-tour="cc-today-greeting">
                 <h1 class="text-xl font-bold text-white leading-tight">Welcome back, {{ explode(' ', $user->name)[0] }}</h1>
                 <p class="text-sm text-white/60">{{ now()->format('l, d F Y') }}</p>
             </div>
             <div class="flex items-center gap-3 flex-shrink-0">
+                @include('layouts.partials.tour-header-launcher')
                 <span class="text-xs hidden md:inline text-white/60" x-text="lastRefresh"></span>
                 <button type="button" @click="refresh()" :disabled="refreshing"
+                        data-tour="cc-today-refresh"
                         class="corex-btn-outline disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
                         title="Refresh">
                     <svg class="w-4 h-4" :class="refreshing && 'animate-spin'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">

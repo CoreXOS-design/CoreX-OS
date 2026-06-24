@@ -4,7 +4,7 @@
 <div class="space-y-6" x-data="{ showVerified: false, showRejected: false }">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comp-verification-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Document Verification Queue</h1>
@@ -24,7 +24,7 @@
     @endif
 
     {{-- Stat cards --}}
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" data-tour="comp-verification-stats">
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--ds-amber);">{{ number_format($pending->count()) }}</div>
             <div class="text-xs font-semibold mt-1 uppercase tracking-wider" style="color: var(--text-muted);">Pending Verification</div>
@@ -44,7 +44,7 @@
     </div>
 
     {{-- Pending --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="comp-verification-pending">
         <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
             <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Pending Documents</h3>
         </div>

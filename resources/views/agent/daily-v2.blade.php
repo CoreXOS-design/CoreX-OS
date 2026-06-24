@@ -27,7 +27,7 @@
 <div class="w-full space-y-5" x-data="{ search: '' }">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="at-agent-daily-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <div class="text-sm text-white/60">
@@ -37,6 +37,7 @@
                 <p class="text-sm text-white/60">{{ \Carbon\Carbon::parse($selectedDate)->toFormattedDateString() }}</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('agent.daily.print', ['date' => $selectedDate]) }}" target="_blank"
                    class="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/20">
                     Print
@@ -67,7 +68,7 @@
         @endif
 
         {{-- Monthly stats (right half) --}}
-        <div class="rounded-md px-4 py-2.5 ds-status-card" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md px-4 py-2.5 ds-status-card" data-tour="at-agent-daily-stats" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="grid grid-cols-4 gap-3 h-full items-center">
                 <div class="text-center">
                     <div class="text-[11px] font-medium uppercase tracking-wide" style="color: var(--text-muted);">Month</div>
@@ -90,7 +91,7 @@
     </div>
 
     {{-- Search Bar --}}
-    <div class="relative">
+    <div class="relative" data-tour="at-agent-daily-search">
         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <svg class="w-3.5 h-3.5" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
@@ -189,7 +190,7 @@
          page itself scrolls if the list is long. The Save button + the
          "Today (manual)" footer sit at the bottom of the list (normal
          document flow, not sticky). --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" data-tour="at-agent-daily-capture" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="POST" action="{{ route('agent.daily') }}">
             @csrf
             <input type="hidden" name="activity_date" value="{{ $selectedDate }}"/>
@@ -250,7 +251,7 @@
                     <span class="text-sm font-medium" style="color: var(--text-primary);">Today (manual):</span>
                     <span class="text-sm font-bold ml-1" style="color: var(--brand-icon, #0ea5e9);">{{ number_format((int)$totalPoints) }} pts</span>
                 </div>
-                <button type="submit" class="corex-btn-primary">Save</button>
+                <button type="submit" class="corex-btn-primary" data-tour="at-agent-daily-save">Save</button>
             </div>
         </form>
     </div>

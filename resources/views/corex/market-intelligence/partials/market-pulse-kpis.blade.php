@@ -8,7 +8,7 @@
         default => 'var(--text-muted)',
     };
 @endphp
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+<div data-tour="mic-market-pulse-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: 8px; margin-bottom: 16px;">
     <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
         <div style="font-size: 0.625rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted); margin-bottom: 2px;">Last import</div>

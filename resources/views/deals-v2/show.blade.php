@@ -15,7 +15,7 @@
 
     <div x-data="dealTracker()" x-cloak>
         {{-- Sticky header --}}
-        <div class="sticky top-0 z-30 -mx-4 -mt-4 mb-0 lg:-mx-6 lg:-mt-6" style="background: var(--surface); border-bottom: 1px solid var(--border);">
+        <div data-tour="deals-detail-intro" class="sticky top-0 z-30 -mx-4 -mt-4 mb-0 lg:-mx-6 lg:-mt-6" style="background: var(--surface); border-bottom: 1px solid var(--border);">
             <div class="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-3">
                 <div class="flex items-center gap-3 min-w-0">
                     <a href="{{ route('deals-v2.index') }}" class="inline-flex items-center gap-1 text-sm flex-shrink-0" style="color: var(--text-muted);">
@@ -28,7 +28,7 @@
                         <span class="hidden sm:inline"> — {{ Str::limit($deal->property->address ?? '', 35) }}</span>
                     </h1>
                 </div>
-                <div class="flex items-center gap-2 flex-shrink-0">
+                <div data-tour="deals-detail-status" class="flex items-center gap-2 flex-shrink-0">
                     <span class="px-2.5 py-1 rounded-full text-xs font-medium capitalize" style="{{ $statusStyle }}">{{ str_replace('_', ' ', $deal->status) }}</span>
                     <span class="w-3 h-3 rounded-full inline-block {{ $deal->overall_rag === 'overdue' ? 'animate-pulse' : '' }}" style="background: {{ $ragColor }};"></span>
                     @if($canEdit)
@@ -47,7 +47,7 @@
             @endif
 
             {{-- DEAL SUMMARY --}}
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div data-tour="deals-detail-summary" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {{-- Property --}}
                 <div class="rounded-xl p-4" style="border: 1px solid var(--border); background: var(--surface);">
                     <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">Property</div>
@@ -95,7 +95,7 @@
             </div>
 
             {{-- PIPELINE TRACKER --}}
-            <div>
+            <div data-tour="deals-detail-pipeline">
                 <h2 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Pipeline Tracker</h2>
                 <div class="space-y-2">
                     @foreach($deal->stepInstances as $step)

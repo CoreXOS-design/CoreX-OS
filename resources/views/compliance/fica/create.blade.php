@@ -3,7 +3,7 @@
 @section('corex-content')
 <div class="p-6 lg:p-8 max-w-2xl">
     {{-- Header --}}
-    <div class="mb-6">
+    <div class="mb-6" data-tour="comp-fica-create-intro">
         <a href="{{ route('compliance.fica.index') }}" class="text-sm text-slate-500 hover:text-slate-700 mb-2 inline-block">&larr; Back to Compliance</a>
         <h1 class="text-2xl font-bold text-slate-900">Send FICA Request</h1>
         <p class="text-sm text-slate-500 mt-1">Select a contact to send a FICA verification form to</p>
@@ -21,7 +21,7 @@
         <form method="POST" action="{{ route('compliance.fica.store') }}">
             @csrf
 
-            <div class="mb-4" x-data="{ search: '', open: false, selected: null, selectedName: '' }">
+            <div class="mb-4" x-data="{ search: '', open: false, selected: null, selectedName: '' }" data-tour="comp-fica-create-contact">
                 <label class="block text-sm font-semibold text-slate-700 mb-1">Contact *</label>
                 <div class="relative">
                     <input type="text"
@@ -58,7 +58,7 @@
             </div>
 
             <div class="flex items-center gap-3 mt-6">
-                <button type="submit" class="px-6 py-2 bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition">
+                <button type="submit" class="px-6 py-2 bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition" data-tour="comp-fica-create-send">
                     Send FICA Request
                 </button>
                 <a href="{{ route('compliance.fica.index') }}" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">Cancel</a>

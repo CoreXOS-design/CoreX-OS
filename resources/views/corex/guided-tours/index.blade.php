@@ -19,13 +19,18 @@
         </div>
     </div>
 
-    @if($tours->isEmpty())
+    @if($groups->isEmpty())
         <div class="rounded-md p-8 text-center" style="background: var(--surface); border: 1px solid var(--border);">
             <p class="text-base font-semibold" style="color: var(--text-primary);">No tours available yet</p>
             <p class="mt-1 text-sm" style="color: var(--text-secondary);">Tours will appear here as they become available for your role.</p>
         </div>
     @else
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        @foreach($groups as $groupName => $tours)
+        <section class="space-y-3">
+            <h2 class="text-xs font-bold uppercase tracking-widest pt-1" style="color: var(--text-muted);">
+                {{ $groupName }} <span style="opacity:0.6;">· {{ $tours->count() }}</span>
+            </h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             @foreach($tours as $tour)
                 <div class="rounded-md p-5 flex flex-col" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-start gap-3">
@@ -60,7 +65,9 @@
                     </div>
                 </div>
             @endforeach
-        </div>
+            </div>
+        </section>
+        @endforeach
     @endif
 
 </div>

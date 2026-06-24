@@ -24,7 +24,7 @@
                     Show archived ({{ number_format($stats['archived'] ?? 0) }})
                 </a>
             @endif
-            <a href="{{ route('market-intelligence.reports.create') }}" class="corex-btn-primary text-sm">
+            <a href="{{ route('market-intelligence.reports.create') }}" class="corex-btn-primary text-sm" data-tour="mic-reports-upload">
                 Upload a report
             </a>
         </x-slot:actions>
@@ -41,7 +41,7 @@
         </div>
     @endif
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 16px;">
+    <div data-tour="mic-reports-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 16px;">
         <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
             <div style="font-size: 0.625rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted);">Total uploaded</div>
             <div style="font-size: 1.0625rem; font-weight: 600; color: var(--text-primary);">{{ number_format($stats['total']) }}</div>
@@ -69,13 +69,13 @@
                       border-radius: 4px; text-decoration: none;">Upload your first report</a>
         </div>
     @else
-        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+        <div data-tour="mic-reports-table" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.8125rem;">
                 <thead>
                     <tr style="background: var(--surface-2); color: var(--text-muted); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em;">
                         <th style="text-align: left; padding: 8px 12px;">Filename</th>
                         <th style="text-align: left; padding: 8px 12px;">Type</th>
-                        <th style="text-align: left; padding: 8px 12px;">Parse</th>
+                        <th data-tour="mic-reports-parse-col" style="text-align: left; padding: 8px 12px;">Parse</th>
                         <th style="text-align: left; padding: 8px 12px;">Spot check</th>
                         <th style="text-align: right; padding: 8px 12px;">Points</th>
                         <th style="text-align: right; padding: 8px 12px;">Discrepancies</th>

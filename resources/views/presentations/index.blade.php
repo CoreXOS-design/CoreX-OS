@@ -8,7 +8,7 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="pres-list-intro">
                 <h1 class="text-xl font-bold tracking-tight text-white leading-tight">Presentations</h1>
                 <p class="text-sm" style="color: rgba(255,255,255,0.6);">Seller presentations, evaluations and pricing analysis.</p>
             </div>
@@ -51,7 +51,7 @@
         @endif
 
         <div class="flex flex-wrap items-center gap-3">
-            <div class="relative flex-1 min-w-[12rem] max-w-sm">
+            <div class="relative flex-1 min-w-[12rem] max-w-sm" data-tour="pres-list-search">
                 <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
@@ -61,7 +61,7 @@
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
 
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-2 flex-wrap" data-tour="pres-list-filters">
                 <select name="status" onchange="this.form.submit()" class="list-header-filter">
                     <option value="active" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
                     <option value="archived" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
@@ -122,7 +122,7 @@
         </div>
     @else
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="overflow-x-auto">
+            <div class="overflow-x-auto" data-tour="pres-list-table">
                 <table class="min-w-full text-sm ds-table">
                     <thead>
                         <tr style="background: var(--surface-2);">
@@ -134,7 +134,7 @@
                             <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
                             @endif
                             <x-sort-header field="created_at" label="Created" />
-                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
+                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);" data-tour="pres-list-actions">Actions</th>
                         </tr>
                     </thead>
                     <tbody>

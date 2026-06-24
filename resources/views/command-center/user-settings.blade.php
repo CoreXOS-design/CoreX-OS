@@ -4,13 +4,14 @@
 <div class="space-y-6">
 
     {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="cc-user-settings-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Dashboard Settings</h1>
                 <p class="text-sm text-white/60">Customise your reminders, alerts, and calendar preferences.</p>
             </div>
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('corex.dashboard') }}" class="corex-btn-outline">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     Back to Dashboard
@@ -73,7 +74,7 @@
         <div class="space-y-6">
 
             {{-- ═══════ PROPERTY IDLE ALERTS ═══════ --}}
-            <div class="corex-panel">
+            <div class="corex-panel" data-tour="cc-user-settings-idle">
                 <div class="corex-panel-header">
                     <h3 class="corex-panel-title flex items-center gap-2">
                         <svg class="w-4 h-4" style="color: var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3H21m-3.75 3H21" /></svg>
@@ -144,7 +145,7 @@
             </div>
 
             {{-- ═══════ COMPLIANCE REMINDERS ═══════ --}}
-            <div class="corex-panel">
+            <div class="corex-panel" data-tour="cc-user-settings-compliance">
                 <div class="corex-panel-header">
                     <h3 class="corex-panel-title flex items-center gap-2">
                         <svg class="w-4 h-4" style="color: var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
@@ -259,7 +260,7 @@
             </div>
 
             {{-- ═══════ CALENDAR PREFERENCES ═══════ --}}
-            <div class="corex-panel">
+            <div class="corex-panel" data-tour="cc-user-settings-calendar">
                 <div class="corex-panel-header">
                     <h3 class="corex-panel-title flex items-center gap-2">
                         <svg class="w-4 h-4" style="color: var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg>
@@ -305,7 +306,7 @@
             </div>
 
             {{-- ═══════ NOTIFICATION CHANNELS ═══════ --}}
-            <div class="corex-panel">
+            <div class="corex-panel" data-tour="cc-user-settings-channels">
                 <div class="corex-panel-header">
                     <h3 class="corex-panel-title flex items-center gap-2">
                         <svg class="w-4 h-4" style="color: var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" /></svg>
@@ -366,7 +367,7 @@
             {{-- Save button (always shown — push master is editable even under agency lock) --}}
             @unless(false)
                 <div class="flex justify-end">
-                    <button type="submit" class="corex-btn-primary" style="padding: 0.5rem 1.25rem; font-size: 0.875rem;">
+                    <button type="submit" class="corex-btn-primary" data-tour="cc-user-settings-save" style="padding: 0.5rem 1.25rem; font-size: 0.875rem;">
                         Save Settings
                     </button>
                 </div>

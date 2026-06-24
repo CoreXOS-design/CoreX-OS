@@ -12,7 +12,7 @@
 ══════════════════════════════════════════════════════════════════════════ --}}
 <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4 mb-6">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-        <div>
+        <div data-tour="pres-analysis-intro">
             <h2 class="text-xl font-bold text-white leading-tight">Market Analysis</h2>
             <div class="text-sm text-white/60">
                 {{ $presentation->title }}
@@ -59,7 +59,7 @@
 {{-- ══════════════════════════════════════════════════════════════════════════
      RUN ANALYSIS PANEL
 ══════════════════════════════════════════════════════════════════════════ --}}
-<div class="ds-status-card mb-6" style="border-left-color: var(--ds-cyan);">
+<div class="ds-status-card mb-6" style="border-left-color: var(--ds-cyan);" data-tour="pres-analysis-run">
     <div class="flex items-center justify-between mb-3">
         <h2 class="ds-section-header">Run Analysis</h2>
         @if(isset($latestSnapshot) && $latestSnapshot && $latestSnapshot->generated_at)
@@ -189,7 +189,8 @@
     </p>
     <div id="analysis-section-toggles" class="grid gap-2"
          style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));"
-         data-section-url="{{ route('presentations.review.sections', $latestVersion->id) }}">
+         data-section-url="{{ route('presentations.review.sections', $latestVersion->id) }}"
+         data-tour="pres-analysis-sections">
         @foreach($sectionsCatalogue as $sKey => $sLabel)
             @php
                 $isFloor = in_array($sKey, $sectionFloor, true);
@@ -266,7 +267,7 @@
                    || \App\Models\PortalCapture::where('presentation_id', $presentation->id)->where('parse_status', 'parsed')->exists();
 @endphp
 
-<div class="ds-status-card mb-6" style="border-left-color: var(--ds-cyan);" id="readiness">
+<div class="ds-status-card mb-6" style="border-left-color: var(--ds-cyan);" id="readiness" data-tour="pres-analysis-readiness">
     <h2 class="ds-section-header">Analysis readiness</h2>
     <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-xs sm:grid-cols-3">
         @php

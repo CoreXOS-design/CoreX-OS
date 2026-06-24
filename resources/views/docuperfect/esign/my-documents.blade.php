@@ -13,7 +13,7 @@
      }">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="dp-esign-my-docs-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">{{ ($showOnlyAuthorisation ?? false) ? 'Authorise Documents' : 'My E-Sign Documents' }}</h1>
@@ -29,7 +29,7 @@
             </div>
             <div class="flex items-center gap-2">
                 <a href="{{ route('docuperfect.esign.create') }}"
-                   class="corex-btn-primary inline-flex items-center gap-2">
+                   class="corex-btn-primary inline-flex items-center gap-2" data-tour="dp-esign-my-docs-new">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                     New E-Sign
                 </a>
@@ -67,7 +67,7 @@
 
     @if(!($showOnlyAuthorisation ?? false))
     {{-- Status summary tiles --}}
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4" data-tour="dp-esign-my-docs-tiles">
         @if(($counts['needs_authorisation'] ?? 0) > 0)
         <a href="#section-needs-authorisation" onclick="event.preventDefault(); scrollToSection('section-needs-authorisation')"
            class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"

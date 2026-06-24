@@ -2,7 +2,7 @@
 
 @section('corex-content')
 <div class="space-y-6">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comms-wa-devices-intro">
         <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Capture</h1>
         <p class="text-sm text-white/60">Register the device that runs the read-only capture extension. Business WhatsApp conversations with loaded contacts are archived for compliance.</p>
     </div>
@@ -20,7 +20,7 @@
     @endif
 
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-        <form method="POST" action="{{ route('communications.wa-devices.store') }}" class="flex flex-wrap items-end gap-3">
+        <form method="POST" action="{{ route('communications.wa-devices.store') }}" class="flex flex-wrap items-end gap-3" data-tour="comms-wa-devices-register">
             @csrf
             <div class="flex-1 min-w-[220px]">
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">WhatsApp number (optional)</label>
@@ -28,13 +28,13 @@
             </div>
             <button type="submit" class="corex-btn-primary">Register Device &amp; Issue Token</button>
         </form>
-        <p class="text-xs mt-3" style="color: var(--text-muted);">
+        <p class="text-xs mt-3" style="color: var(--text-muted);" data-tour="comms-wa-devices-extension">
             Download the extension: <a href="{{ asset('downloads/wa-capture-extension.zip') }}" style="color: var(--brand-icon);">wa-capture-extension.zip</a>
             — unzip, load it as an unpacked extension in Chrome, open the popup, set your CoreX URL + this token.
         </p>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="comms-wa-devices-table">
         <table class="min-w-full text-sm ds-table">
             <thead>
                 <tr style="background: var(--surface-2);">

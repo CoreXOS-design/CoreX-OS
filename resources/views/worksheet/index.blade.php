@@ -25,14 +25,17 @@
 <div class="w-full space-y-6">
 
     {{-- Page Header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="at-worksheet-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Worksheet &mdash; {{ $user->name }}</h1>
                 <p class="text-sm text-white/60">Income &rarr; Sales &rarr; Stock</p>
             </div>
-            <div class="text-sm font-medium text-white/80">
-                {{ $w->period ?? now()->format('Y-m') }}
+            <div class="flex items-center gap-3">
+                @include('layouts.partials.tour-header-launcher')
+                <div class="text-sm font-medium text-white/80">
+                    {{ $w->period ?? now()->format('Y-m') }}
+                </div>
             </div>
         </div>
     </div>
@@ -154,7 +157,7 @@
         @csrf
 
         {{-- Section: Period + Inputs --}}
-        <div class="ds-status-card" style="border-left-color: var(--brand-default, #0b2a4a);">
+        <div class="ds-status-card" data-tour="at-worksheet-inputs" style="border-left-color: var(--brand-default, #0b2a4a);">
             <h3 class="ds-section-header" style="margin-bottom:0.5rem;">Planning Inputs</h3>
             <p class="text-sm mb-4" style="color: var(--text-muted);">Fill in your numbers for the month. Save. Your required sales and stock levels will calculate automatically.</p>
 
@@ -200,7 +203,7 @@
         </div>
 
         {{-- Section: Net Monthly Targets --}}
-        <div class="ds-status-card" style="border-left-color: var(--brand-default, #0b2a4a);">
+        <div class="ds-status-card" data-tour="at-worksheet-net-targets" style="border-left-color: var(--brand-default, #0b2a4a);">
             <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Net Monthly Targets</h3>
 
             @if(!empty($companyRequirement))
@@ -265,7 +268,7 @@
         {{-- ============================================================ --}}
         {{-- DEAL REGISTER SUMMARY --}}
         {{-- ============================================================ --}}
-        <div class="ds-status-card" style="border-left-color: var(--brand-default, #0b2a4a);">
+        <div class="ds-status-card" data-tour="at-worksheet-deal-summary" style="border-left-color: var(--brand-default, #0b2a4a);">
             <h3 class="ds-section-header" style="margin-bottom:0.25rem;">Deal Register Summary (What's Happening)</h3>
             <div class="ds-section-sub mb-4">
                 This section reports your captured Deal Register performance for the selected period (sales, commission, stages, and pipeline).
@@ -506,7 +509,7 @@
 
         {{-- Save Button --}}
         <div class="flex flex-col md:flex-row items-start md:items-center gap-4">
-            <button id="saveWorksheetBtn" type="submit" class="corex-btn-primary px-5 py-2.5 text-sm">
+            <button id="saveWorksheetBtn" type="submit" class="corex-btn-primary px-5 py-2.5 text-sm" data-tour="at-worksheet-save">
                 Save Worksheet
             </button>
 
@@ -520,7 +523,7 @@
     {{-- ============================================================ --}}
     {{-- TARGET REQUIREMENTS (Plan vs Market Reality) --}}
     {{-- ============================================================ --}}
-    <div class="ds-status-card" style="border-left-color: var(--brand-default, #0b2a4a);">
+    <div class="ds-status-card" data-tour="at-worksheet-requirements" style="border-left-color: var(--brand-default, #0b2a4a);">
         <h3 class="ds-section-header" style="margin-bottom:0.25rem;">Target Requirements (Plan vs Market Reality)</h3>
         <div class="ds-section-sub mb-4">
             This section recalculates what you need to do (sales/listings/gap) based on (1) your plan inputs vs (2) market reality from Deal Register averages.

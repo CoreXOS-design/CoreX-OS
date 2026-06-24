@@ -4,14 +4,14 @@
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="dp-sales-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Sales Documents</h1>
                 <p class="text-sm text-white/60">Send, track and manage signed sales documents.</p>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('docuperfect.sales.send') }}" class="corex-btn-primary inline-flex items-center gap-2">
+                <a href="{{ route('docuperfect.sales.send') }}" class="corex-btn-primary inline-flex items-center gap-2" data-tour="dp-sales-send">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     Upload &amp; Send New
                 </a>
@@ -20,7 +20,7 @@
     </div>
 
     {{-- Status summary cards --}}
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" data-tour="dp-sales-summary">
         <div class="rounded-md p-4 text-center" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="text-[1.625rem] font-semibold" style="color: var(--brand-icon);">{{ number_format($inProgress->count()) }}</div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">In Progress</div>

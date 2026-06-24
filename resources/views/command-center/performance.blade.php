@@ -13,13 +13,14 @@
 <div class="space-y-6">
 
     {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" data-tour="cc-performance-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Performance</h1>
                 <p class="text-sm text-white/60">How you're tracking this week and this month.</p>
             </div>
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('corex.dashboard') }}" class="corex-btn-outline">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     Back to Today
@@ -31,7 +32,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {{-- Scorecard --}}
-        <div class="corex-panel lg:col-span-1">
+        <div class="corex-panel lg:col-span-1" data-tour="cc-performance-scorecard">
             <div class="corex-panel-header">
                 <h3 class="corex-panel-title">My Scorecard</h3>
                 <span class="text-xs" style="color: var(--text-muted);">This Week</span>
@@ -102,7 +103,7 @@
         </div>
 
         {{-- Activity Points --}}
-        <div class="corex-panel lg:col-span-2">
+        <div class="corex-panel lg:col-span-2" data-tour="cc-performance-points">
             <div class="corex-panel-header">
                 <h3 class="corex-panel-title">Activity Points</h3>
                 <span class="text-xs" style="color: var(--text-muted);">{{ now()->format('F Y') }}</span>
@@ -130,7 +131,7 @@
                     </div>
                 @endif
                 <div class="mt-4">
-                    <a href="{{ route('agent.daily') }}" class="corex-btn-outline">
+                    <a href="{{ route('agent.daily') }}" class="corex-btn-outline" data-tour="cc-performance-capture">
                         Capture Daily Activity
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
                     </a>
@@ -173,7 +174,7 @@
     @endif
 
     {{-- Property Health --}}
-    <div class="corex-panel">
+    <div class="corex-panel" data-tour="cc-performance-prop-health">
         <div class="corex-panel-header">
             <h3 class="corex-panel-title">Properties Needing Attention</h3>
             <div class="flex items-center gap-2">

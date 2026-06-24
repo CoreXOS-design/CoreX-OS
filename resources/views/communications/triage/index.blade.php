@@ -2,7 +2,7 @@
 
 @section('corex-content')
 <div class="space-y-6" x-data="triage()">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comms-triage-intro">
         <h1 class="text-xl font-bold text-white leading-tight">Message Triage</h1>
         <p class="text-sm text-white/60">Unknown-contact messages awaiting your decision. Add the contact to archive the conversation, or mark it not real-estate related to remove it from your list.</p>
     </div>
@@ -11,7 +11,7 @@
     <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="comms-triage-table">
         <table class="min-w-full text-sm ds-table">
             <thead>
                 <tr style="background: var(--surface-2);">
@@ -34,12 +34,13 @@
                     </td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
                         <button type="button" class="corex-btn-primary" style="font-size:0.7rem; padding:4px 10px;"
+                                @if($loop->first) data-tour="comms-triage-add" @endif
                                 @click="openAdd(@js($p->from_identifier))">Add contact</button>
                         <form method="POST" action="{{ route('communications.triage.not-real-estate') }}" class="inline ml-2">
                             @csrf
                             <input type="hidden" name="identifier" value="{{ $p->from_identifier }}">
                             <input type="hidden" name="message_external_id" value="{{ $p->external_id }}">
-                            <button type="submit" class="text-xs font-semibold" style="color: var(--text-muted);">Not real estate</button>
+                            <button type="submit" class="text-xs font-semibold" style="color: var(--text-muted);" @if($loop->first) data-tour="comms-triage-dismiss" @endif>Not real estate</button>
                         </form>
                     </td>
                 </tr>
