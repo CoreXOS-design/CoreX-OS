@@ -26,7 +26,7 @@
     {{-- ===== PROGRESS BAR (sticky header) ===== --}}
     <div style="background: var(--brand-default, #0b2a4a);" class="px-6 py-5 flex-shrink-0">
         <div class="flex items-center justify-between mb-3">
-            <h2 class="text-xl font-bold text-white leading-tight flex items-center gap-2">
+            <h2 class="text-xl font-bold text-white leading-tight flex items-center gap-2" data-tour="esign-title">
                 <span class="whitespace-nowrap">E-Sign Document —</span>
                 <input type="text"
                        x-model="documentName"
@@ -37,9 +37,12 @@
                        placeholder="Document name..."
                 />
             </h2>
-            <span class="text-sm text-white/60" x-text="'Step ' + currentStep + ' of 6'"></span>
+            <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
+                <span class="text-sm text-white/60" x-text="'Step ' + currentStep + ' of 6'"></span>
+            </div>
         </div>
-        <div class="flex gap-1">
+        <div class="flex gap-1" data-tour="esign-rail">
             <template x-for="(label, i) in stepLabels" :key="i">
                 <div class="flex-1 flex flex-col gap-1"
                      :class="canGoToStep(i+1) ? 'cursor-pointer' : 'cursor-default'"

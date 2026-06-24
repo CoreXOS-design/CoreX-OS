@@ -39,6 +39,7 @@ class TourRegistry
             'contact-capture' => [
                 'key'   => 'contact-capture',
                 'title' => 'How to capture a contact',
+                'description' => 'Capture a buyer, seller, tenant or landlord — the four fields a contact needs.',
                 'route' => 'corex.contacts.index',
                 // The capture panel is collapsed by default — open it for the tour.
                 'setup' => [
@@ -117,6 +118,7 @@ class TourRegistry
             'property-capture' => [
                 'key'   => 'property-capture',
                 'title' => 'How to capture a property',
+                'description' => 'Add a listing through the 4-step New Property wizard.',
                 'route' => 'corex.properties.wizard',
                 'setup' => [
                     ['action' => 'scrollTop'],
@@ -171,6 +173,7 @@ class TourRegistry
             'outreach-summary' => [
                 'key'        => 'outreach-summary',
                 'title'      => 'Reading the outreach board',
+                'description' => 'Read the WhatsApp outreach scoreboard and drill into any agent/outcome.',
                 'route'      => 'corex.outreach-summary.index',
                 'permission' => 'outreach.summary.view',
                 'setup'      => [
@@ -207,6 +210,7 @@ class TourRegistry
             'presentation-create' => [
                 'key'   => 'presentation-create',
                 'title' => 'Starting a CMA / presentation',
+                'description' => 'Enter a property\'s details to start a seller CMA / presentation.',
                 'route' => 'presentations.create',
                 'setup' => [
                     ['action' => 'scrollTop'],
@@ -246,6 +250,266 @@ class TourRegistry
                         'element' => '[data-tour="pres-submit"]',
                         'title'   => 'Create — then the clever part',
                         'body'    => 'This saves the property details and takes you to the next screen, where you upload the comparable-sales evidence and run the analysis that builds the seller\'s valuation. That\'s the start — close this and create your first presentation.',
+                    ],
+                ],
+            ],
+
+            // ── Outreach composer — the WhatsApp pitch (queue #1) ────────────
+            // On the contact's Outreach tab (gated outreach.compose). Setup opens
+            // that tab so the composer panel is on-screen for the spotlight.
+            'outreach-composer' => [
+                'key'         => 'outreach-composer',
+                'title'       => 'Pitching a seller on WhatsApp',
+                'description' => 'How to ask a seller for permission and send your WhatsApp pitch from a contact.',
+                'route'       => 'corex.contacts.show',
+                'permission'  => 'outreach.compose',
+                'setup' => [
+                    ['action' => 'click', 'selector' => '[data-tour="outreach-tab"]'],
+                    ['action' => 'scrollTop'],
+                ],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="outreach-tab"]',
+                        'title'   => 'The Outreach tab',
+                        'body'    => 'Everything about pitching this seller on WhatsApp lives here — we\'ve opened it for you. The number on the tab is how many times you\'ve reached out.',
+                    ],
+                    [
+                        'element' => '#tab-outreach',
+                        'title'   => 'Compose, send & track',
+                        'body'    => 'From here you send the seller a WhatsApp asking permission to market their home, see whether they said yes or no, and track every send. CoreX only lets you pitch once you have their consent — it keeps you compliant automatically.',
+                    ],
+                ],
+            ],
+
+            // ── Buyer Pipeline (queue #2) ────────────────────────────────────
+            'buyer-pipeline' => [
+                'key'         => 'buyer-pipeline',
+                'title'       => 'Working your buyer pipeline',
+                'description' => 'Track buyers from New to Warm, Cold or Lost, and switch between your own, branch or agency view.',
+                'route'       => 'command-center.buyers.pipeline',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="buyers-intro"]',
+                        'title'   => 'Your buyer pipeline',
+                        'body'    => 'Every buyer you\'re working, grouped by how hot they are: New → Warm → Cold → Lost. Buyers land here automatically when you capture what they\'re looking for on their contact, so the board fills itself as you work.',
+                    ],
+                    [
+                        'element' => '[data-tour="buyers-scope"]',
+                        'title'   => 'Whose buyers?',
+                        'body'    => 'Switch between Mine, your Branch, or All (where you\'re allowed to see them). Start on Mine — that\'s your own list to action.',
+                    ],
+                    [
+                        'element' => '[data-tour="buyers-view"]',
+                        'title'   => 'Board or list',
+                        'body'    => 'Kanban shows buyers as cards you can drag between stages; List is a compact table. Use whichever you prefer — close this and move a buyer along.',
+                    ],
+                ],
+            ],
+
+            // ── Market Intelligence / MIC (queue #3) ─────────────────────────
+            'mic-work' => [
+                'key'         => 'mic-work',
+                'title'       => 'Using Market Intelligence',
+                'description' => 'Your daily prospecting worklist — what to action next, plus uploading a CMA.',
+                'route'       => 'market-intelligence.work',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="mic-tabs"]',
+                        'title'   => 'Market Intelligence',
+                        'body'    => 'Your prospecting command centre. Work is your daily to-do list of listings to act on; Opportunities, Analyse and Market Pulse sit alongside it on these tabs.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-hero"]',
+                        'title'   => 'This week',
+                        'body'    => 'Your hottest prompts for the week — the handful of listings CoreX thinks deserve your attention first, ranked by the suggested next step.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-upload"]',
+                        'title'   => 'Got a CMA? Drop it here',
+                        'body'    => 'Upload a CMA or sales report and CoreX reads it for you — pulling out the comparable sales and feeding them into your valuations. No retyping.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-list"]',
+                        'title'   => 'Your worklist',
+                        'body'    => 'Each row is a property with a suggested next move. Filter on the left, click a row to see why it matched and what to do. Work top-down — close this and action your first one.',
+                    ],
+                ],
+            ],
+
+            // ── Compliance / FICA (queue #4) ─────────────────────────────────
+            'fica-capture' => [
+                'key'         => 'fica-capture',
+                'title'       => 'Sending a FICA request',
+                'description' => 'Start an online or wet-ink FICA verification and track where each one stands.',
+                'route'       => 'compliance.fica.index',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="fica-intro"]',
+                        'title'   => 'FICA compliance',
+                        'body'    => 'FICA is the law that says you must verify who your clients are. This screen lists every verification you\'ve started and whether it\'s done.',
+                    ],
+                    [
+                        'element' => '[data-tour="fica-online"]',
+                        'title'   => 'Send Online FICA',
+                        'body'    => 'The easy way: CoreX emails your client a secure link to upload their ID and proof of address themselves. You\'ll see it tick over to verified here — no paper.',
+                    ],
+                    [
+                        'element' => '[data-tour="fica-wetink"]',
+                        'title'   => 'Wet-ink FICA',
+                        'body'    => 'For a client who hands you physical documents, capture them here instead. Same record, just done in person.',
+                    ],
+                    [
+                        'element' => '[data-tour="fica-rmcp"]',
+                        'title'   => 'Your risk programme',
+                        'body'    => 'View RMCP opens your agency\'s Risk Management & Compliance Programme — the rulebook for how thoroughly each client must be checked. Good to know it\'s there; you rarely need it day to day.',
+                    ],
+                ],
+            ],
+
+            // ── Deals V2 — deal register (queue #5) ──────────────────────────
+            'deals-register' => [
+                'key'         => 'deals-register',
+                'title'       => 'The deal register',
+                'description' => 'Track a transaction from offer through to registration, and start a new deal.',
+                'route'       => 'deals-v2.index',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="deals-intro"]',
+                        'title'   => 'Your deals',
+                        'body'    => 'Every transaction you\'re running, from the moment an offer is signed through to registration at the deeds office. One row per deal, with its current stage.',
+                    ],
+                    [
+                        'element' => '[data-tour="deals-new"]',
+                        'title'   => 'Start a new deal',
+                        'body'    => 'Got an accepted offer? Create the deal here. CoreX pulls in the property, the buyer and seller, and the commission — then walks the deal through each stage.',
+                    ],
+                    [
+                        'element' => '[data-tour="deals-filter"]',
+                        'title'   => 'Find a deal fast',
+                        'body'    => 'Search or filter to jump to a specific deal or stage. Close this and open a deal to see its full timeline.',
+                    ],
+                ],
+            ],
+
+            // ── Feedback Reports (queue #7, lower) ───────────────────────────
+            'feedback-reports' => [
+                'key'         => 'feedback-reports',
+                'title'       => 'Feedback & bug reports',
+                'description' => 'Review feedback, enhancement ideas and bug reports raised by the team.',
+                'route'       => 'command-center.feedback-reports',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="feedback-intro"]',
+                        'title'   => 'Team feedback',
+                        'body'    => 'Anything the team has flagged — a bug, an idea, a request — lands here so nothing gets lost. A shared to-do list for improving CoreX.',
+                    ],
+                    [
+                        'element' => '[data-tour="feedback-filter"]',
+                        'title'   => 'Filter by status',
+                        'body'    => 'See what\'s new, being looked at, fixed or parked. Click a status to narrow the list.',
+                    ],
+                    [
+                        'element' => '[data-tour="feedback-export"]',
+                        'title'   => 'Export if you need it',
+                        'body'    => 'Download the list as a file to share or keep. That\'s it — close this and have a look.',
+                    ],
+                ],
+            ],
+
+            // ── Calendar (queue #6) ──────────────────────────────────────────
+            'calendar' => [
+                'key'         => 'calendar',
+                'title'       => 'Using your calendar',
+                'description' => 'See your viewings, meetings and compliance dates, and add a new event.',
+                'route'       => 'command-center.calendar',
+                'steps' => [
+                    [
+                        'element' => '[data-tour="cal-intro"]',
+                        'title'   => 'Everything in one place',
+                        'body'    => 'Your viewings, meetings, lease and compliance dates and personal events — all on one calendar so nothing slips. Deal and lease dates appear here automatically.',
+                    ],
+                    [
+                        'element' => '[data-tour="cal-add"]',
+                        'title'   => 'Add an event',
+                        'body'    => 'Book a viewing or a meeting here. Link it to a contact and a property and CoreX keeps everyone\'s details together — and can ask the buyer for feedback afterwards.',
+                    ],
+                ],
+            ],
+
+            // ── Tasks (queue #6) ─────────────────────────────────────────────
+            'tasks' => [
+                'key'         => 'tasks',
+                'title'       => 'Staying on top of tasks',
+                'description' => 'Track your to-dos on a board or list and capture a new task.',
+                'route'       => 'command-center.tasks',
+                'steps' => [
+                    [
+                        'element' => '[data-tour="task-intro"]',
+                        'title'   => 'Your to-do list',
+                        'body'    => 'Every follow-up and to-do in one place, with what\'s open, overdue and due today right here at the top so you always know where you stand.',
+                    ],
+                    [
+                        'element' => '[data-tour="task-add"]',
+                        'title'   => 'Add a task',
+                        'body'    => 'Capture a follow-up in seconds — give it a due date and link it to a contact, property or deal so it shows up where you\'ll need it.',
+                    ],
+                    [
+                        'element' => '[data-tour="task-view"]',
+                        'title'   => 'Board or list',
+                        'body'    => 'Board groups tasks by status you can drag between; List is a simple checklist. Your pick — close this and clear your first task.',
+                    ],
+                ],
+            ],
+
+            // ── Documents Library (queue #8) ─────────────────────────────────
+            'documents-library' => [
+                'key'         => 'documents-library',
+                'title'       => 'The document library',
+                'description' => 'Upload, find and manage shared documents.',
+                'route'       => 'documents.library.index',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="docs-intro"]',
+                        'title'   => 'Shared documents',
+                        'body'    => 'Your agency\'s shared files — brochures, forms, anything the team reuses — kept in one place so you\'re not hunting through email.',
+                    ],
+                    [
+                        'element' => '#upload-library',
+                        'title'   => 'Upload a document',
+                        'body'    => 'Pick a type, choose the file and upload. Tagging it by type is what makes it easy to find later.',
+                    ],
+                    [
+                        'element' => '[data-tour="docs-filter"]',
+                        'title'   => 'Find one fast',
+                        'body'    => 'Filter by type to narrow the list. Close this and upload or open a document.',
+                    ],
+                ],
+            ],
+
+            // ── E-sign builder (queue #9) — READ-ONLY (P0-safe) ──────────────
+            // Strictly point-only: NO setup clicks, no step changes — the tour
+            // never touches the wizard's state or the signing surface.
+            'esign-wizard' => [
+                'key'         => 'esign-wizard',
+                'title'       => 'Sending a document to sign',
+                'description' => 'A read-only walkthrough of the e-sign builder — how a document gets signed online.',
+                'route'       => 'docuperfect.esign.create',
+                'steps' => [
+                    [
+                        'element' => '[data-tour="esign-title"]',
+                        'title'   => 'The e-sign builder',
+                        'body'    => 'This is where you send a document out for signature online — no printing, no scanning. Give it a name here so you recognise it later.',
+                    ],
+                    [
+                        'element' => '[data-tour="esign-rail"]',
+                        'title'   => 'Six guided steps',
+                        'body'    => 'Pick the template, attach the property, add who must sign (the recipients), fill the details, place the signature fields, then review and send. The bar shows where you are; the Next and Back buttons in the wizard move you along — work through them in order.',
                     ],
                 ],
             ],
