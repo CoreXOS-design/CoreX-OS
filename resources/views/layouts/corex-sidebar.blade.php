@@ -189,6 +189,9 @@
         <span>CoreX <span class="corex-logo-accent">Os</span></span>
         <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
             @auth
+            {{-- Per-page interactive tour launcher (filled by layouts/partials/tour-engine.blade.php
+                 only on pages with a registered tour; absent slot degrades to a floating button). --}}
+            <div id="tour-launcher-slot" style="flex-shrink:0; display:flex; align-items:center;"></div>
             <div id="help-widget-slot" style="flex-shrink:0;"></div>
             @endauth
             {{-- Mobile-only: close sidebar for a full-screen page --}}
@@ -538,6 +541,13 @@
                 @permission('access_contacts')
                 @if(\Illuminate\Support\Facades\Route::has('corex.contacts.index'))
                 <a href="{{ route('corex.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.contacts.*') && !request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Contacts</a>
+                @endif
+                @endpermission
+
+                {{-- AT-91 — WhatsApp Outreach Summary board (agents × outreach states). --}}
+                @permission('outreach.summary.view')
+                @if(\Illuminate\Support\Facades\Route::has('corex.outreach-summary.index'))
+                <a href="{{ route('corex.outreach-summary.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-summary.*') ? 'active' : '' }}">WhatsApp Outreach</a>
                 @endif
                 @endpermission
 

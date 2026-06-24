@@ -334,6 +334,13 @@ Route::middleware('auth')->group(function () {
             Route::patch('/checklist/{itemId}',     [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'checklistUpdate'])->name('checklist.update');
             Route::delete('/checklist/{itemId}',    [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'checklistDestroy'])->name('checklist.destroy');
         });
+
+        // ── Interactive help tours — per-user progress (self-scoped) ──
+        // Engine: App\Support\Tours\TourRegistry + layouts/partials/tour-engine.blade.php
+        Route::prefix('tours')->name('tours.')->group(function () {
+            Route::post('/{tourKey}/seen',    [\App\Http\Controllers\TourProgressController::class, 'seen'])->name('seen');
+            Route::post('/{tourKey}/dismiss', [\App\Http\Controllers\TourProgressController::class, 'dismiss'])->name('dismiss');
+        });
     });
 
     Route::get('/evaluation', function () {
@@ -2092,12 +2099,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{userId}/toggle', [\App\Http\Controllers\Admin\DeveloperUserController::class, 'toggleActive'])->name('toggle');
     });
 
-    // Agency Management — index/create/store/destroy/toggle-active are owner-only.
+    // Agency Management — index/create/store/destroy/toggle-active/toggle-maintenance are owner-only.
     Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
         Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
         Route::post('/{agency}/toggle-active', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleActive'])->name('toggle-active');
+        // Per-agency maintenance mode (AT-93). Owner-only; owners bypass the
+        // gate so they can always lift it. Spec: .ai/specs/maintenance-mode.md
+        Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');
         Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
     });
 
@@ -2399,6 +2409,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/',     [\App\Http\Controllers\CoreX\PortalLeadController::class, 'index'])->name('index');
             Route::get('/poll', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'poll'])->name('poll');
             Route::post('/{portalLead}/mark-notified', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'markNotified'])->name('mark-notified');
+        });
+
+    // WhatsApp Outreach Summary board (agents × outreach states).
+    // Spec: .ai/specs/whatsapp-outreach-summary.md (AT-91)
+    Route::prefix('real-estate/outreach-summary')
+        ->middleware(['permission:outreach.summary.view', 'agency.required'])
+        ->name('corex.outreach-summary.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\WhatsappOutreachSummaryController::class, 'index'])->name('index');
         });
 
     // Contacts

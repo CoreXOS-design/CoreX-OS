@@ -2112,7 +2112,7 @@
                     $initSpaces     = $spacesData['spaces']   ?? [];
                     $initFeatures   = $spacesData['features'] ?? new \stdClass();
                 @endphp
-                <div x-data="spacesAndFeaturesManager(
+                <div data-tour="prop-spaces" x-data="spacesAndFeaturesManager(
                     {{ json_encode($initSpaces) }},
                     {{ json_encode($initFeatures) }},
                     {{ (int)($property->beds  ?? 0) }},
@@ -2687,7 +2687,7 @@
                     'hideStreetNumber' => (bool) old('pp_hide_street_number', $property->pp_hide_street_number ?? false),
                     'hideComplexName' => (bool) old('pp_hide_complex_name', $property->pp_hide_complex_name ?? false),
                     'hideUnitNumber' => (bool) old('pp_hide_unit_number', $property->pp_hide_unit_number ?? false),
-                ]) }})">
+                ]) }})" data-tour="prop-location">
                     <p class="prop-subsection-heading">Address</p>
 
                     {{-- Summary rows — Internal & Public --}}
@@ -3372,7 +3372,7 @@
 
             {{-- Save / Delete — outside the update form to prevent nesting --}}
             <div class="flex items-center justify-between pt-4">
-                <button type="submit" form="prop-update-form"
+                <button type="submit" form="prop-update-form" data-tour="prop-submit"
                         class="px-5 py-2 rounded-md text-sm font-semibold text-white"
                         style="background:var(--brand-default); border:1px solid var(--border);"
                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">

@@ -7,6 +7,7 @@ use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Scopes\ContactScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -720,6 +721,73 @@ class Contact extends Model
         return $this->messaging_opt_out_at === null
             && $this->messaging_opted_in_at === null
             && $this->outreach_permission_asked_at !== null;
+    }
+
+    // ── AT-91 — WhatsApp Outreach Summary board (single source of truth) ──
+    //
+    // The four outreach-OUTCOME states the board columns and the contacts-list
+    // drill-through both count by. Derived purely from the consent timestamps +
+    // kind (NO transaction_only / all_blocked master-gating carve-out — this is
+    // the outreach outcome, mirroring outreachConsentState()). 'awaiting' is the
+    // documented leftover: a WhatsApp-sent contact derived back to INITIAL
+    // (e.g. clicked the link, clearing the PENDING marker, but not yet opted
+    // in/out; or a legacy pre-AT-81 send that never stamped the marker). It is
+    // NOT a primary column but is counted + drillable so no send is ever lost.
+    // See .ai/specs/whatsapp-outreach-summary.md §3.1.
+
+    /** The four primary board states, in display order. */
+    public const OUTREACH_BOARD_STATES = ['pending', 'confirmed', 'opt_out_no_response', 'opted_out'];
+
+    /** Every drillable board state (the four primary + the 'awaiting' leftover). */
+    public const OUTREACH_BOARD_STATES_ALL = ['pending', 'confirmed', 'opt_out_no_response', 'opted_out', 'awaiting'];
+
+    /**
+     * The raw SQL boolean fragment for one board state. STATIC SQL — no user
+     * input is interpolated (the column names and literals are fixed), so it is
+     * safe for whereRaw / a CASE WHEN. The single source consumed by BOTH the
+     * board's SUM(CASE…) read model AND the contacts-list ?outreach_state filter
+     * so the cell count and its drilled list can never drift apart.
+     *
+     * @param string $state One of self::OUTREACH_BOARD_STATES_ALL.
+     * @param string $alias Table/alias the contacts columns live under ('' for none).
+     */
+    public static function outreachStateSql(string $state, string $alias = 'contacts'): string
+    {
+        $p = $alias === '' ? '' : $alias . '.';
+
+        return match ($state) {
+            'pending' => "{$p}messaging_opt_out_at IS NULL AND {$p}messaging_opted_in_at IS NULL AND {$p}outreach_permission_asked_at IS NOT NULL",
+            'confirmed' => "{$p}messaging_opt_out_at IS NULL AND {$p}messaging_opted_in_at IS NOT NULL",
+            'opt_out_no_response' => "{$p}messaging_opt_out_at IS NOT NULL AND {$p}messaging_opt_out_kind = 'no_response'",
+            'opted_out' => "{$p}messaging_opt_out_at IS NOT NULL AND ({$p}messaging_opt_out_kind <> 'no_response' OR {$p}messaging_opt_out_kind IS NULL)",
+            'awaiting' => "{$p}messaging_opt_out_at IS NULL AND {$p}messaging_opted_in_at IS NULL AND {$p}outreach_permission_asked_at IS NULL",
+            default => throw new \InvalidArgumentException("Unknown outreach board state: {$state}"),
+        };
+    }
+
+    /** Filter to contacts in a given board state (drill-through). */
+    public function scopeOutreachState(Builder $query, string $state): Builder
+    {
+        return $query->whereRaw('(' . self::outreachStateSql($state, $query->getModel()->getTable()) . ')');
+    }
+
+    /**
+     * Filter to contacts with at least one (non-deleted) WhatsApp outreach send
+     * in the same agency — the board population. Correlated EXISTS using the
+     * outreach_send_contact_idx (agency_id, contact_id, sent_at) index.
+     */
+    public function scopeHasWhatsappOutreach(Builder $query): Builder
+    {
+        $table = $query->getModel()->getTable();
+
+        return $query->whereExists(function ($sub) use ($table) {
+            $sub->selectRaw('1')
+                ->from('seller_outreach_sends as sos')
+                ->whereColumn('sos.contact_id', "{$table}.id")
+                ->whereColumn('sos.agency_id', "{$table}.agency_id")
+                ->where('sos.channel', 'whatsapp')
+                ->whereNull('sos.deleted_at');
+        });
     }
 
     /**

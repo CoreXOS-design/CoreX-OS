@@ -32,6 +32,35 @@ class AgencyController extends Controller
         return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" {$state}.");
     }
 
+    /**
+     * Put a single agency into / out of maintenance mode (AT-93). Owner-only.
+     * While ON, only that agency's users see the branded maintenance screen
+     * after login; System Owners bypass and every other agency is unaffected.
+     * Reversible state flag — no hard delete. Spec: .ai/specs/maintenance-mode.md
+     */
+    public function toggleMaintenance(Request $request, Agency $agency)
+    {
+        $validated = $request->validate([
+            'maintenance_message' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        if ($agency->isInMaintenance()) {
+            $agency->exitMaintenance();
+            $state = 'is now LIVE — users can sign in normally';
+        } else {
+            $agency->enterMaintenance($validated['maintenance_message'] ?? null);
+            $state = 'is now in MAINTENANCE — only System Owners can access it';
+        }
+
+        Log::info('Agency maintenance toggled', [
+            'agency_id'        => $agency->id,
+            'maintenance_mode' => $agency->maintenance_mode,
+            'changed_by'       => auth()->id(),
+        ]);
+
+        return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" {$state}.");
+    }
+
 
     public function index()
     {
