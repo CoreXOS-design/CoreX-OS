@@ -2,57 +2,78 @@
 
 namespace App\Console\Commands;
 
-use App\Services\MaintenanceMode;
+use App\Models\Agency;
 use Illuminate\Console\Command;
 
 /**
- * Escape hatch for CoreX maintenance mode (AT-93).
+ * Per-agency maintenance escape hatch (AT-93, re-scoped).
  *
- * Turns the system-wide maintenance gate on/off from the CLI with NO
- * dependency on the web UI — so a System Owner can always lift
- * maintenance even if the toggle page itself is unreachable. As a last
- * resort the flag file can also be removed by hand:
- *   rm storage/framework/corex-maintenance.flag
+ * Puts a single agency into / out of maintenance from the CLI with no UI
+ * dependency — so a System Owner can always lift an agency's maintenance
+ * even if the toggle page is unreachable.
  *
  * Usage:
- *   php artisan corex:maintenance         (status)
- *   php artisan corex:maintenance on
- *   php artisan corex:maintenance off
+ *   php artisan corex:maintenance                       (list every agency's state)
+ *   php artisan corex:maintenance <agency> status
+ *   php artisan corex:maintenance <agency> on  [--message="..."]
+ *   php artisan corex:maintenance <agency> off
  *
+ * <agency> is an id, slug, or exact name.
  * Spec: .ai/specs/maintenance-mode.md
  */
 class MaintenanceModeCommand extends Command
 {
-    protected $signature = 'corex:maintenance {action=status : on | off | status}';
+    protected $signature = 'corex:maintenance
+        {agency? : Agency id, slug, or exact name}
+        {action=status : on | off | status}
+        {--message= : Optional message shown to that agency\'s users when turning on}';
 
-    protected $description = 'Toggle CoreX system-wide maintenance mode (owner-only gate). CLI escape hatch independent of the UI.';
+    protected $description = 'Per-agency maintenance mode (tenant-level). CLI escape hatch independent of the UI.';
 
-    public function handle(MaintenanceMode $maintenance): int
+    public function handle(): int
     {
+        $agencyArg = $this->argument('agency');
+
+        // No agency → list every agency's current state.
+        if ($agencyArg === null) {
+            $rows = Agency::orderBy('name')->get()->map(fn ($a) => [
+                $a->id,
+                $a->name,
+                $a->isInMaintenance() ? 'MAINTENANCE' : 'live',
+                optional($a->maintenance_started_at)?->toDateTimeString() ?? '',
+            ])->all();
+
+            $this->table(['ID', 'Agency', 'State', 'Since'], $rows);
+            return self::SUCCESS;
+        }
+
+        $agency = $this->resolveAgency((string) $agencyArg);
+        if (!$agency) {
+            $this->error("No agency matched '{$agencyArg}' (try an id, slug, or exact name).");
+            return self::INVALID;
+        }
+
         $action = strtolower(trim((string) $this->argument('action')));
 
         switch ($action) {
             case 'on':
             case 'enable':
-                $maintenance->enable(by: 'artisan CLI');
-                $this->warn('Maintenance mode is now ON — only System Owners can access CoreX.');
-                $this->line('Flag: '.$maintenance->flagPath());
+                $agency->enterMaintenance($this->option('message') ?: null);
+                $this->warn("Agency \"{$agency->name}\" is now in MAINTENANCE — only System Owners can access it.");
                 return self::SUCCESS;
 
             case 'off':
             case 'disable':
-                $maintenance->disable();
-                $this->info('Maintenance mode is now OFF — CoreX is live for all users.');
+                $agency->exitMaintenance();
+                $this->info("Agency \"{$agency->name}\" is now LIVE — users can sign in normally.");
                 return self::SUCCESS;
 
             case 'status':
-                if ($maintenance->isActive()) {
-                    $meta = $maintenance->meta();
-                    $this->warn('Maintenance mode: ON');
-                    $this->line('  Enabled at: '.($meta['enabled_at'] ?? 'unknown'));
-                    $this->line('  Enabled by: '.($meta['enabled_by'] ?? 'unknown'));
+                if ($agency->isInMaintenance()) {
+                    $this->warn("Agency \"{$agency->name}\": MAINTENANCE"
+                        . ($agency->maintenance_started_at ? " (since {$agency->maintenance_started_at->toDateTimeString()})" : ''));
                 } else {
-                    $this->info('Maintenance mode: OFF (site is live).');
+                    $this->info("Agency \"{$agency->name}\": live.");
                 }
                 return self::SUCCESS;
 
@@ -60,5 +81,18 @@ class MaintenanceModeCommand extends Command
                 $this->error("Unknown action '{$action}'. Use: on | off | status.");
                 return self::INVALID;
         }
+    }
+
+    private function resolveAgency(string $needle): ?Agency
+    {
+        if (ctype_digit($needle)) {
+            $byId = Agency::find((int) $needle);
+            if ($byId) {
+                return $byId;
+            }
+        }
+
+        return Agency::where('slug', $needle)->first()
+            ?? Agency::where('name', $needle)->first();
     }
 }

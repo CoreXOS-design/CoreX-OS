@@ -89,6 +89,12 @@
                                 @else
                                     <span class="ds-badge ds-badge-default">Inactive</span>
                                 @endif
+                                @if($agency->isInMaintenance())
+                                    <span class="ds-badge ds-badge-warning"
+                                          title="Only System Owners can access this agency. Users see the maintenance screen after login.@if($agency->maintenance_started_at) Since {{ $agency->maintenance_started_at->diffForHumans() }}.@endif">
+                                        Maintenance
+                                    </span>
+                                @endif
                             </td>
                             <td class="px-4 py-3 text-right">
                                 <div class="flex items-center justify-end gap-3">
@@ -103,6 +109,28 @@
                                         <button type="submit" class="text-xs font-semibold"
                                                 style="color: {{ $agency->is_active ? 'var(--ds-amber)' : 'var(--ds-green)' }};">
                                             {{ $agency->is_active ? 'Disable' : 'Enable' }}
+                                        </button>
+                                    </form>
+                                    {{-- Per-agency maintenance toggle (AT-93). Login stays up;
+                                         only this agency's users see the maintenance screen. --}}
+                                    <form method="POST" action="{{ route('agencies.toggle-maintenance', $agency) }}"
+                                          class="inline"
+                                          onsubmit="
+                                              @if($agency->isInMaintenance())
+                                              return confirm('Take agency &quot;{{ $agency->name }}&quot; OUT of maintenance? Its users will be able to sign in and work normally again.');
+                                              @else
+                                              if (!confirm('Put agency &quot;{{ $agency->name }}&quot; INTO maintenance? Only System Owners will be able to access it; all of its users will see the maintenance screen after login. Login stays up for every other agency.')) return false;
+                                              var msg = prompt('Optional message to show this agency\'s users (leave blank for the default):', '');
+                                              if (msg === null) return false;
+                                              this.querySelector('input[name=maintenance_message]').value = msg;
+                                              return true;
+                                              @endif
+                                          ">
+                                        @csrf
+                                        <input type="hidden" name="maintenance_message" value="">
+                                        <button type="submit" class="text-xs font-semibold"
+                                                style="color: {{ $agency->isInMaintenance() ? 'var(--ds-green)' : 'var(--ds-amber)' }};">
+                                            {{ $agency->isInMaintenance() ? 'End maintenance' : 'Maintenance' }}
                                         </button>
                                     </form>
                                     <form method="POST" action="{{ route('agencies.destroy', $agency) }}"

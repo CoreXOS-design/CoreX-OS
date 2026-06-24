@@ -1,153 +1,124 @@
-# Maintenance Mode — System-Owners-Only Access (AT-93)
+# Maintenance Mode — Per-Agency (AT-93)
 
-> Status: built on `AT-maintenance-mode`, pending Johan's full lock/unlock
-> cycle test on `/corex-staging`.
+> Status: re-scoped 2026-06-24 from a platform-wide gate to a per-agency,
+> post-login gate. Built on `AT-maintenance-mode`.
 
 ## What this does and why
 
-A single owner-only toggle that puts the whole CoreX platform into
-maintenance mode. While ON, every user sees a branded "down for
-maintenance" page **except System Owners**, who keep full normal access
-to run final go-live checks. A second click lifts it. This is the go-live
-cutover control — it lets an owner freeze the live site for everyone else
-while verifying the deployment, then release it.
+Maintenance mode is a **tenant-level** state: a System Owner can put one
+agency into maintenance so that **only that agency's users** see a branded
+"down for maintenance" screen (after they log in and their agency resolves),
+while every other agency keeps working normally. The CoreX **login is never
+taken down** — it stays reachable for all agencies at all times. System
+Owners bypass the flag entirely, so the agency under maintenance is still
+fully reachable for the work being done on it.
+
+### Why the previous (platform-wide) design was wrong
+
+The first cut used a global flag file + a `web`-group gate prepended before
+`Authenticate`, which blocked every non-owner request regardless of agency —
+so all agencies saw the splash. That is the wrong scope for tenant
+maintenance. It has been removed entirely (no `php artisan down`, no global
+flag, no before-auth gate).
 
 ## Pillar connection
 
-This is platform-infrastructure (cross-cutting), not a pillar data feature.
-It gates access to the entire app — every pillar surface (Property, Contact,
-Deal, Agent) is behind it for non-owners while ON. It reads/writes no pillar
-data; it touches no tenant tables.
+Tenant infrastructure keyed on the **Agency** (the tenant boundary that the
+Agent pillar and all pillar data hang off). The flag lives on the `agencies`
+row; enforcement reads the authenticated user's resolved agency.
 
-## System Owner definition (reused, not reinvented)
+## State (per-agency, configurable — not hardcoded)
 
-A System Owner is `User::isOwnerRole()` — the user's **real** role (not
-View-As) whose `Role.is_owner = true`. This is the identical gate used by
-the `owner_only` middleware (`app/Http/Middleware/OwnerOnly.php`) and every
-platform-level area (P24 importer, dev-settings, developer-users, agency
-switcher). No new flag, no new concept.
+Columns on `agencies` (migration
+`2026_07_03_100000_add_maintenance_mode_to_agencies_table.php`):
 
-## Why NOT `php artisan down`
+| Column | Type | Meaning |
+|--------|------|---------|
+| `maintenance_mode` | bool, default false | Is this agency in maintenance? |
+| `maintenance_message` | text, nullable | Optional message shown on the splash |
+| `maintenance_started_at` | timestamp, nullable | Stamped on entry, cleared on exit ("in maintenance since…") |
 
-Laravel's built-in maintenance mode short-circuits in
-`PreventRequestsDuringMaintenance` *before* routing and auth resolve, so it
-cannot selectively let an authenticated owner through, and can block the
-very route needed to lift it. CoreX maintenance mode is instead a gate that
-runs **after** session boot — it knows who the user is and always lets
-owners (and the auth/toggle routes) through.
+`Agency` helpers: `isInMaintenance()`, `enterMaintenance(?message)`,
+`exitMaintenance()`. Reversible state flag — toggling off restores access.
+No hard delete.
 
-## State storage — a flag file
+## Enforcement — after login, per agency
 
-Source of truth is a flag file: `storage/framework/corex-maintenance.flag`,
-wrapped by `App\Services\MaintenanceMode`.
+`App\Http\Middleware\AgencyMaintenanceGate`, appended to the `web` group (runs
+after `StartSession`, so the authenticated user and their agency are
+resolvable). Logic:
 
-- **Why a file, not the DB/`DevSetting`:** the gate runs on every web
-  request and the down-page must render even when the DB is stressed or
-  down (the most likely thing to be stressed during a cutover). `is_file()`
-  is a filesystem stat — zero DB/cache dependency. Instant, survives across
-  requests, flippable from the UI with no redeploy.
-- The file holds JSON metadata: `enabled_at`, `enabled_by`, optional
-  `message` — used for the control-panel indicator and the down-page.
+1. No authenticated user → pass. **Login/guests are never blocked.**
+2. `User::isOwnerRole()` → pass (System Owner bypass).
+3. Login / logout / password routes → pass (a maintenance-agency user can
+   still sign out).
+4. Resolve `User::effectiveAgencyId()`; load that `Agency`; if it
+   `isInMaintenance()` → branded 503 splash (`errors/maintenance.blade.php`)
+   with the agency's message. JSON callers get a structured 503.
+5. Otherwise → pass (every other agency is unaffected).
 
-## Scope — GLOBAL
+The gate replaces the old global `MaintenanceGate`. No middleware-priority
+manipulation — because it only ever acts on an authenticated non-owner, guests
+fall through to the normal `auth` redirect to login.
 
-Maintenance mode is system-level (whole platform, all agencies). It is
-deliberately **not** agency-scoped — this is for locking the live site at
-go-live, not per-tenant. No `agency_id` anywhere in the mechanism.
+## System Owner bypass
 
-## Architecture
+`isOwnerRole()` (role `is_owner = true`). Owners carry `agency_id = NULL` and
+bypass `AgencyScope`; here they bypass the maintenance gate too, including when
+switched into the maintenance agency via the agency switcher.
 
-| Concern | File |
-|---------|------|
-| State (flag file) | `app/Services/MaintenanceMode.php` |
-| Gate | `app/Http/Middleware/MaintenanceGate.php` (appended to `web` group in `bootstrap/app.php`) |
-| Toggle controller | `app/Http/Controllers/Admin/MaintenanceModeController.php` |
-| Toggle routes | `routes/web.php` → `admin/maintenance/{enable,disable}` (POST, `owner_only`) |
-| Toggle UI | `resources/views/admin/dev-settings/index.blade.php` (card at top) |
-| Down-page | `resources/views/errors/maintenance.blade.php` (self-contained, 503) |
-| Escape hatch | `app/Console/Commands/MaintenanceModeCommand.php` → `corex:maintenance on\|off\|status` |
+## Splash
 
-### Middleware ordering
+Reuses `resources/views/errors/maintenance.blade.php` — self-contained
+(no layout / Vite / DB), CoreX brand navy/teal, the agency's
+`maintenance_message`, and the "System Owner? Sign in" link intact.
 
-`MaintenanceGate` is **appended** to the `web` group, so it runs after
-`StartSession` (the authenticated user resolves from the session) and
-before app route handlers. The `auth` middleware is route-level, so the
-gate also runs for guests. The api group is unaffected (mobile keeps
-working). When maintenance is OFF the gate is a single `is_file()` stat —
-no behaviour change.
+## Toggle — System Owner control (per nav rule)
 
-### Always-exempt routes
+On the owner-only **Agency Management** page (`settings/agencies`, sidebar →
+"Agency Management"), each agency row has a **Maintenance / End maintenance**
+control beside the existing Active toggle, and a "Maintenance" status badge.
+Route: `POST settings/agencies/{agency}/toggle-maintenance` →
+`AgencyController::toggleMaintenance` (owner-only middleware + the controller's
+`owner_only` route group). Enabling prompts for an optional message.
 
-So an owner can always sign in and lift maintenance, and a non-owner is
-bounced back to the down-page after logging in, these are never blocked:
-`login` (GET+POST), `logout`, `password.*`, `admin.maintenance.enable`,
-`admin.maintenance.disable`, plus a path-prefix safety net for the unnamed
-POST `/login` and `/up` health check.
+Decision: **owner-only**, not agency-admin self-service — an agency admin is a
+non-owner and also sees the splash, so they must not be able to lock (or
+unlock) their own agency; only a System Owner controls it.
 
-## User flow
+### Escape hatch (no UI dependency)
 
-1. Owner → **Dev Settings** (sidebar) → Maintenance mode card at top.
-2. Card shows current state: green "Site is LIVE" or amber "Site in
-   MAINTENANCE — owners only" (+ who/when).
-3. **Enable maintenance mode** → native confirm ("This will block ALL
-   non-owner users… Continue?") → POST → flag written → success flash.
-4. Non-owners and guests now get the branded 503 down-page everywhere
-   except the auth routes. Owners browse normally.
-5. **Go live (lift maintenance)** → POST → flag removed → site live for all.
+`php artisan corex:maintenance {agency} {on|off|status}` (agency = id / slug /
+name), or `corex:maintenance` with no args to list every agency's state. An
+owner can always lift an agency's maintenance from the CLI.
 
-## Safety — escape hatch (owner never locked out)
+## Permissions / multi-tenancy
 
-- `php artisan corex:maintenance off` — lifts maintenance with no UI
-  dependency.
-- `php artisan corex:maintenance on|status` — enable / inspect.
-- Last resort: delete `storage/framework/corex-maintenance.flag` by hand.
-- Owners always pass the gate; login/logout/toggle never blocked.
-
-## Permissions
-
-Owner-only, enforced two ways: `owner_only` route middleware + an explicit
-`isOwnerRole()` guard in the controller (defence-in-depth). Consistent with
-other platform-level owner tools (no separate permission key, matching the
-P24 importer pattern).
-
-## Navigation
-
-Lives on the existing **Dev Settings** page (sidebar → Dev Settings,
-already owner-only). No new nav node needed; reachable today.
-
-## Robustness (input space)
-
-- **Flag file unreadable / malformed JSON** → `meta()` returns `[]`, page
-  still renders. Absorbed.
-- **Toggle hit by a non-owner** → `owner_only` + controller guard → 403.
-  Prevented.
-- **Maintenance ON + JSON/AJAX caller** → structured 503 JSON, not an HTML
-  page. Absorbed.
-- **Double-enable / double-disable** → idempotent (write-over / unlink-if-
-  exists). Absorbed.
-- **Owner with an expired session during maintenance** → treated as guest →
-  down-page, but login is reachable → signs in → through. No lock-out.
+Owner-only (consistent with the other `settings/agencies` controls). The gate
+reads `effectiveAgencyId()` per the multi-tenancy doctrine; `Agency` is a
+catalog model (no `AgencyScope`), so `Agency::find()` in the gate is correct.
 
 ## Acceptance criteria
 
-- [x] Owner + ON → full access, no down-page.
-- [x] Non-owner + ON → branded 503 down-page, blocked from app.
-- [x] Guest + ON → down-page, but `/login` reachable; owner login → through;
-      agent login → back to down-page.
-- [x] Toggle OFF → everyone normal.
-- [x] `corex:maintenance off` lifts it without the UI.
-- [x] login/logout/toggle never blocked.
+- [x] Login loads for a non-maintenance agency user → normal app.
+- [x] Login loads for a maintenance agency user → splash AFTER login.
+- [x] System Owner into the maintenance agency → bypasses, gets in.
+- [x] The CoreX login URL is reachable in all cases (never a global splash).
+- [x] Toggle on→off→on restores access each way.
+- [x] Owner-only toggle (non-owner → 403).
+- [x] Per-agency artisan escape hatch on/off.
 
-## Files created / modified
+## Files
 
-**Created:** `app/Services/MaintenanceMode.php`,
-`app/Http/Middleware/MaintenanceGate.php`,
-`app/Http/Controllers/Admin/MaintenanceModeController.php`,
-`app/Console/Commands/MaintenanceModeCommand.php`,
-`resources/views/errors/maintenance.blade.php`,
-`tests/Feature/MaintenanceModeTest.php`, this spec.
+**Added:** migration above; `app/Http/Middleware/AgencyMaintenanceGate.php`;
+`Agency` maintenance columns/casts/helpers; `AgencyController::toggleMaintenance`
++ route; maintenance toggle/badge in `admin/agencies/index.blade.php`;
+per-agency `corex:maintenance` command; `tests/Feature/MaintenanceModeTest.php`.
 
-**Modified:** `bootstrap/app.php` (append gate to web group),
-`routes/web.php` (toggle routes),
-`app/Http/Controllers/Admin/DevSettingsController.php` (pass state),
-`resources/views/admin/dev-settings/index.blade.php` (toggle card).
+**Removed (old platform-wide cut):** `app/Http/Middleware/MaintenanceGate.php`,
+`app/Services/MaintenanceMode.php`,
+`app/Http/Controllers/Admin/MaintenanceModeController.php`, the global
+`admin/maintenance` routes, the Dev Settings toggle card + controller state,
+and the before-auth priority hook in `bootstrap/app.php`.
+
+**Reused:** `resources/views/errors/maintenance.blade.php`.
