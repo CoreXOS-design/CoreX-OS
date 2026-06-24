@@ -37,13 +37,16 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="os-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Outreach Summary</h1>
                 <p class="text-sm text-white/60">
                     Where every agent's WhatsApp seller pitches stand. Each count is the number of
                     contacts pitched on WhatsApp who are now in that state — click any number to open
                     that exact list.
                 </p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
             </div>
         </div>
     </div>
@@ -61,9 +64,9 @@
     @else
         <div class="rounded-md overflow-hidden" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
             <div class="overflow-x-auto">
-                <table class="w-full text-sm">
+                <table class="w-full text-sm" data-tour="os-board">
                     <thead>
-                        <tr style="background:var(--surface-2,#f8fafc); border-bottom:1px solid var(--border,#e5e7eb);">
+                        <tr data-tour="os-columns" style="background:var(--surface-2,#f8fafc); border-bottom:1px solid var(--border,#e5e7eb);">
                             <th class="text-left font-semibold px-4 py-3 whitespace-nowrap" style="color:var(--text-primary,#0b2a4a);">Agent</th>
                             @foreach($columns as $col)
                                 <th class="text-right font-semibold px-4 py-3 whitespace-nowrap"
@@ -76,6 +79,7 @@
                                 </th>
                             @endforeach
                             <th class="text-right font-semibold px-4 py-3 whitespace-nowrap"
+                                data-tour="os-total"
                                 style="color:var(--text-primary,#0b2a4a); border-left:1px solid var(--border,#e5e7eb);"
                                 title="Every contact pitched on WhatsApp by this agent.">
                                 Total contacted
