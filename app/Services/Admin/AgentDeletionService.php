@@ -5,6 +5,7 @@ namespace App\Services\Admin;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class AgentDeletionService
 {
@@ -17,8 +18,14 @@ class AgentDeletionService
      *     contacts:int,
      *     calendar_events:int,
      *     command_tasks:int,
-     *     has_any:bool
+     *     deals:int,
+     *     has_any:bool,
+     *     has_deals:bool
      * }
+     *
+     * `has_any` covers properties/contacts/events/tasks (the records gated by
+     * the reassignment dropdown). Deals are tracked separately via `deals` /
+     * `has_deals` because they have their own leave-or-move control.
      */
     public function preview(User $user): array
     {
@@ -28,13 +35,32 @@ class AgentDeletionService
         $events    = DB::table('calendar_events')->whereNull('deleted_at')->where('user_id', $user->id)->count();
         $tasks     = DB::table('command_tasks')->whereNull('deleted_at')->where('assigned_to', $user->id)->count();
 
+        // Distinct deals this agent owns across both deal systems (v1 register +
+        // v2 pipeline) — as agent on the deal, or as the named branch manager.
+        $dealsV1 = DB::table('deals')->whereNull('deleted_at')
+            ->where(function ($q) use ($user) {
+                $q->where('managed_by_user_id', $user->id)
+                  ->orWhereIn('id', DB::table('deal_user')->select('deal_id')->where('user_id', $user->id));
+            })->count();
+
+        $dealsV2 = DB::table('deals_v2')->whereNull('deleted_at')
+            ->where(function ($q) use ($user) {
+                $q->where('listing_agent_id', $user->id)
+                  ->orWhere('selling_agent_id', $user->id)
+                  ->orWhereIn('id', DB::table('deal_v2_agents')->select('deal_id')->where('user_id', $user->id));
+            })->count();
+
+        $deals = $dealsV1 + $dealsV2;
+
         return [
             'properties_primary'   => $primary,
             'properties_secondary' => $secondary,
             'contacts'             => $contacts,
             'calendar_events'      => $events,
             'command_tasks'        => $tasks,
+            'deals'                => $deals,
             'has_any'              => ($primary + $secondary + $contacts + $events + $tasks) > 0,
+            'has_deals'            => $deals > 0,
         ];
     }
 
@@ -181,5 +207,114 @@ class AgentDeletionService
 
             return $counts;
         });
+    }
+
+    /**
+     * Move every deal-ownership and commission/settlement linkage from
+     * $source to $target, across both deal systems (v1 register + v2 pipeline).
+     *
+     * Used to consolidate duplicate agent accounts: all deals, commission
+     * pools, and settlement allocations owed to the departing agent move to
+     * the surviving agent so nothing is orphaned under the deleted user.
+     *
+     * What MOVES (ownership + money):
+     *   - deal_user / deal_v2_agents           (agent role on each deal)
+     *   - deal_settlements / deal_v2_settlements (commission split overrides)
+     *   - deal_money_lines                      (allocated money owed)
+     *   - deals.managed_by_user_id              (named branch manager)
+     *   - deals_v2.listing_agent_id / selling_agent_id
+     *
+     * What is LEFT UNTOUCHED (audit / historical actor fields — rewriting them
+     * would corrupt the record of who did what):
+     *   - deal_logs.actor_user_id, deals.link_reviewed_by_user_id,
+     *     deal_step_instances.completed_by_id, deal_step_documents.uploaded_by_id,
+     *     deal_activity_log.user_id, *.created_by_id, lost-deal actor fields.
+     *
+     * Tables with a unique(deal_id, user_id, side) constraint are deduplicated:
+     * if $target already holds the exact slot, $source's duplicate row is
+     * removed (soft-deleted where the table supports it) rather than moved, so
+     * the unique key never clashes and commission is never double-counted.
+     *
+     * @return array<string,int> rows changed per table.
+     */
+    public function reassignDeals(User $source, User $target, int $actorId): array
+    {
+        return DB::transaction(function () use ($source, $target, $actorId) {
+            $now = now();
+
+            $counts = [
+                'deal_user'           => $this->moveAgentSlots('deal_user', $source, $target, $now),
+                'deal_settlements'    => $this->moveAgentSlots('deal_settlements', $source, $target, $now),
+                'deal_v2_agents'      => $this->moveAgentSlots('deal_v2_agents', $source, $target, $now),
+                'deal_v2_settlements' => $this->moveAgentSlots('deal_v2_settlements', $source, $target, $now),
+                'deal_money_lines'    => DB::table('deal_money_lines')
+                    ->where('user_id', $source->id)
+                    ->update(['user_id' => $target->id, 'updated_at' => $now]),
+                'deals_managed_by'    => DB::table('deals')
+                    ->where('managed_by_user_id', $source->id)
+                    ->update(['managed_by_user_id' => $target->id, 'updated_at' => $now]),
+                'deals_v2_listing'    => DB::table('deals_v2')
+                    ->where('listing_agent_id', $source->id)
+                    ->update(['listing_agent_id' => $target->id, 'updated_at' => $now]),
+                'deals_v2_selling'    => DB::table('deals_v2')
+                    ->where('selling_agent_id', $source->id)
+                    ->update(['selling_agent_id' => $target->id, 'updated_at' => $now]),
+            ];
+
+            Log::info('agent.deals_reassigned', [
+                'actor_user_id'    => $actorId,
+                'source_user_id'   => $source->id,
+                'source_user_name' => $source->name,
+                'target_user_id'   => $target->id,
+                'target_user_name' => $target->name,
+                'counts'           => $counts,
+            ]);
+
+            return $counts;
+        });
+    }
+
+    /**
+     * Move rows on a table keyed by unique(deal_id, user_id, side) from $source
+     * to $target. Where $target already holds the same (deal_id, side) slot, the
+     * $source row is dropped instead of moved (soft-deleted if the table has a
+     * deleted_at column, hard-deleted otherwise) to avoid a unique-key clash and
+     * double-counted commission.
+     */
+    private function moveAgentSlots(string $table, User $source, User $target, $now): int
+    {
+        $softDeletes = Schema::hasColumn($table, 'deleted_at');
+
+        $sourceRows = DB::table($table)
+            ->where('user_id', $source->id)
+            ->when($softDeletes, fn ($q) => $q->whereNull('deleted_at'))
+            ->get(['id', 'deal_id', 'side']);
+
+        $changed = 0;
+
+        foreach ($sourceRows as $row) {
+            $collision = DB::table($table)
+                ->where('deal_id', $row->deal_id)
+                ->where('side', $row->side)
+                ->where('user_id', $target->id)
+                ->when($softDeletes, fn ($q) => $q->whereNull('deleted_at'))
+                ->exists();
+
+            if ($collision) {
+                if ($softDeletes) {
+                    DB::table($table)->where('id', $row->id)
+                        ->update(['deleted_at' => $now, 'updated_at' => $now]);
+                } else {
+                    DB::table($table)->where('id', $row->id)->delete();
+                }
+            } else {
+                DB::table($table)->where('id', $row->id)
+                    ->update(['user_id' => $target->id, 'updated_at' => $now]);
+            }
+
+            $changed++;
+        }
+
+        return $changed;
     }
 }

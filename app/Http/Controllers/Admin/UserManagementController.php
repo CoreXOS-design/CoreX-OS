@@ -939,6 +939,26 @@ class UserManagementController extends Controller
             $service->reassignAndCleanup($user, $target, $data['secondary_handling'], (int) auth()->id());
         }
 
+        // Deals are handled separately: the admin chooses to leave them under
+        // the departing agent (default) or move every deal + commission/
+        // settlement allocation to another agent (used to merge duplicate
+        // accounts). Spec: agent-delete-reassignment.md
+        if ($counts['has_deals']) {
+            $dealData = $request->validate([
+                'deal_handling'       => ['required', Rule::in(['leave', 'move'])],
+                'deal_target_user_id' => ['required_if:deal_handling,move', 'nullable', 'integer', 'different:user', Rule::exists('users', 'id')->where($sameAgencyActive)],
+            ], [
+                'deal_handling.required'          => 'Choose whether to leave or move this agent\'s deals.',
+                'deal_target_user_id.required_if' => 'Choose an agent to move the deals to.',
+                'deal_target_user_id.exists'      => 'The chosen deals agent is not a valid active user in this agency.',
+            ]);
+
+            if ($dealData['deal_handling'] === 'move') {
+                $dealTarget = User::findOrFail($dealData['deal_target_user_id']);
+                $service->reassignDeals($user, $dealTarget, (int) auth()->id());
+            }
+        }
+
         DB::table('branch_assignments')->where('user_id', $user->id)->delete();
 
         $user->update(['is_active' => false]);
