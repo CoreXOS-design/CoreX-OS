@@ -649,19 +649,27 @@ class PropertyController extends Controller
             }
         }
 
+        // Contacts captured while creating a LISTING are the seller side of the
+        // deal, so default their pivot role to the listing-based seller role
+        // (sale → seller, rental → landlord) instead of NULL. A NULL role here
+        // is invisible to the compliance gate's seller/FICA check — the root
+        // cause of "no sellers linked" on freshly-created properties.
+        $defaultLinkRole = ($property->listing_type ?? 'sale') === 'rental' ? 'landlord' : 'seller';
+
         // Link existing contacts selected during create
         foreach ((array) $request->input('pending_contact_ids', []) as $cid) {
             $cid = (int) $cid;
             if ($cid > 0) {
                 $wasLinked = $property->contacts()->where('contacts.id', $cid)->exists();
-                $property->contacts()->syncWithoutDetaching([$cid => ['role' => null]]);
+                $property->contacts()->syncWithoutDetaching([$cid => ['role' => $defaultLinkRole]]);
                 if (!$wasLinked) {
                     $linkedContact = \App\Models\Contact::find($cid);
                     if ($linkedContact) {
+                        \App\Models\PropertySellerLink::ensureExists($property->id, $cid);
                         event(new \App\Events\Contact\ContactLinkedToProperty(
                             contact: $linkedContact,
                             property: $property,
-                            role: 'unknown',
+                            role: $defaultLinkRole,
                             actorUserId: auth()->id(),
                         ));
                     }
@@ -685,14 +693,15 @@ class PropertyController extends Controller
             $existing = $dupService->findDuplicates($ncData, $agencyId)->first();
             if ($existing) {
                 $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
-                $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => null]]);
+                $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $defaultLinkRole]]);
                 $match = $dupService->identifyMatch($ncData, $existing, $agencyId);
                 $dupService->logAttempt($agencyId, auth()->id(), 'auto_link', $match['field'], $match['value'], $existing->id, $ncData, 'auto_linked');
                 if (!$wasLinked) {
+                    \App\Models\PropertySellerLink::ensureExists($property->id, $existing->id);
                     event(new \App\Events\Contact\ContactLinkedToProperty(
                         contact: $existing,
                         property: $property,
-                        role: 'unknown',
+                        role: $defaultLinkRole,
                         actorUserId: auth()->id(),
                     ));
                 }
@@ -715,11 +724,12 @@ class PropertyController extends Controller
             }
 
             $contact = \App\Models\Contact::create($ncData);
-            $property->contacts()->attach($contact->id, ['role' => null]);
+            $property->contacts()->attach($contact->id, ['role' => $defaultLinkRole]);
+            \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
             event(new \App\Events\Contact\ContactLinkedToProperty(
                 contact: $contact,
                 property: $property,
-                role: 'unknown',
+                role: $defaultLinkRole,
                 actorUserId: auth()->id(),
             ));
         }

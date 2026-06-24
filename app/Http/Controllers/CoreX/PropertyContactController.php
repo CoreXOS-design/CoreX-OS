@@ -11,6 +11,7 @@ use App\Models\Scopes\ContactScope;
 use App\Rules\ExistsInScope;
 use App\Services\ContactDuplicateService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class PropertyContactController extends Controller
 {
@@ -118,14 +119,38 @@ class PropertyContactController extends Controller
         );
     }
 
+    /**
+     * Canonical property↔contact roles. The seller-side subset
+     * (owner/seller/landlord/lessor) is what the compliance gate and the rest
+     * of CoreX treat as "seller" — a role MUST be one of these so the pivot is
+     * never NULL/free-text again (root cause of the FICA "no sellers linked"
+     * bug). buyer/tenant are valid non-seller roles.
+     */
+    public const LINK_ROLES = ['seller', 'buyer', 'owner', 'landlord', 'tenant', 'lessor'];
+
+    /**
+     * Defensive normalisation: trim + lowercase the role before validation so
+     * a stray " Seller " can never land off-canon in the pivot. Off-list or
+     * blank values then fail validation with a clear message rather than
+     * writing a NULL/variant role the compliance gate can't read.
+     */
+    private function normalizeRole(Request $request): void
+    {
+        $role = $request->input('role');
+        if (is_string($role)) {
+            $request->merge(['role' => strtolower(trim($role))]);
+        }
+    }
+
     /** Link an existing contact to the property. */
     public function link(Request $request, Property $property)
     {
         $this->authorizeProperty($property);
 
+        $this->normalizeRole($request);
         $data = $request->validate([
             'contact_id' => 'required|integer',
-            'role'       => 'nullable|string|max:50',
+            'role'       => ['required', 'string', Rule::in(self::LINK_ROLES)],
         ]);
 
         // Resolve through the scoped model so the contact must be a live,
@@ -140,7 +165,7 @@ class PropertyContactController extends Controller
                 : back()->withErrors(['contact_id' => 'Contact not found.'])->with('tab', 'contacts');
         }
 
-        $role = $data['role'] ?? null;
+        $role = $data['role'];
         $property->contacts()->syncWithoutDetaching([
             $contact->id => ['role' => $role],
         ]);
@@ -166,13 +191,14 @@ class PropertyContactController extends Controller
     {
         $this->authorizeProperty($property);
 
+        $this->normalizeRole($request);
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
             'last_name'       => 'required|string|max:100',
             'phone'           => 'required|string|max:30',
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
-            'role'            => 'nullable|string|max:50',
+            'role'            => ['required', 'string', Rule::in(self::LINK_ROLES)],
             // A.2.5 — optional ID number with SA-format validation.
             'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
             'bypass_duplicate_check' => 'nullable|boolean',
@@ -182,7 +208,7 @@ class PropertyContactController extends Controller
         $idNumber = isset($data['id_number']) ? preg_replace('/\s+/', '', (string) $data['id_number']) : null;
         unset($data['id_number']);  // we'll add it back together with audit fields after the dupe guard
 
-        $role = $data['role'] ?? null;
+        $role = $data['role'];
         unset($data['role']);
 
         $user = auth()->user();

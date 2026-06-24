@@ -369,6 +369,26 @@ final class MarketingReadinessDriveGateTest extends TestCase
         $this->assertStringContainsStringIgnoringCase('seller', implode(' ', $report->blockedBy));
     }
 
+    public function test_buyer_role_contact_does_not_satisfy_seller_fica_gate(): void
+    {
+        // A FICA-approved contact linked as a BUYER is not a seller — the gate
+        // must still block on FICA (role discrimination, the AT-94 root-cause fix).
+        $p = $this->makeListing();
+        $buyer = Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'created_by_user_id' => $this->user->id,
+            'first_name' => 'Buyer', 'last_name' => 'Person', 'phone' => '0825550000',
+        ]);
+        $p->contacts()->attach($buyer->id, ['role' => 'buyer']);
+        $this->approveFica($buyer);
+        $this->fileDoc('mandate', 'upload', $p);
+        $this->fileDoc('disclosure', 'upload', $p);
+
+        $report = $this->report($p);
+        $this->assertFalse($report->ready, 'A FICA-approved BUYER is not a seller — FICA gate stays blocked.');
+        $this->assertFalse($report->checklist['fica']['passed']);
+    }
+
     public function test_every_seller_must_be_fica_approved(): void
     {
         $p = $this->makeListing();

@@ -76,6 +76,41 @@ final class PropertyUploadContactTest extends TestCase
         $this->assertSame(1, $property->half_baths);
     }
 
+    /** A contact captured during listing create defaults to the seller role
+     *  (not NULL) so the compliance gate's seller/FICA check can see it. */
+    public function test_uploaded_contact_defaults_to_seller_role_on_sale(): void
+    {
+        [$agencyId, $agent, $suburbId] = $this->seedAgencyAgent();
+
+        $this->actingAs($agent)
+            ->post(route('corex.properties.store'), $this->propertyPayload($agent->id, $suburbId, [
+                ['first_name' => 'Sipho', 'last_name' => 'Owner', 'phone' => '0825551212'],
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $contact = Contact::withoutGlobalScopes()->where('phone', '0825551212')->firstOrFail();
+        $role = DB::table('contact_property')->where('contact_id', $contact->id)->value('role');
+        $this->assertSame('seller', $role, 'sale-listing contact must default to seller, never NULL');
+    }
+
+    public function test_uploaded_contact_defaults_to_landlord_role_on_rental(): void
+    {
+        [$agencyId, $agent, $suburbId] = $this->seedAgencyAgent();
+
+        $payload = $this->propertyPayload($agent->id, $suburbId, [
+            ['first_name' => 'Lerato', 'last_name' => 'Landlord', 'phone' => '0825553434'],
+        ]);
+        $payload['listing_type'] = 'rental';
+
+        $this->actingAs($agent)
+            ->post(route('corex.properties.store'), $payload)
+            ->assertSessionHasNoErrors();
+
+        $contact = Contact::withoutGlobalScopes()->where('phone', '0825553434')->firstOrFail();
+        $role = DB::table('contact_property')->where('contact_id', $contact->id)->value('role');
+        $this->assertSame('landlord', $role, 'rental-listing contact must default to landlord');
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:User,2:int} [agencyId, agent, p24SuburbId] */
