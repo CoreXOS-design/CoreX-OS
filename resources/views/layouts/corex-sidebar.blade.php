@@ -55,7 +55,15 @@
     // Impersonation state
     $impersonatorId  = (int) session('impersonator_id', 0);
     $isImpersonating = $impersonatorId > 0;
-    $canSwitchUsers  = !$isImpersonating && ($user && $user->hasPermission('impersonate_users'));
+    // Switch User is only available while inside an agency context. An owner
+    // who has not selected an active agency has no agency scope, so there is
+    // nobody to switch to — hide the control rather than list every user
+    // across all agencies. effectiveAgencyId() resolves the active-agency
+    // switcher override → branch → user agency; null = not in an agency.
+    $canSwitchUsers  = !$isImpersonating
+        && $user
+        && $user->hasPermission('impersonate_users')
+        && $user->effectiveAgencyId() !== null;
     $impersonatorName = null;
     if ($isImpersonating) {
         $impersonatorName = \Illuminate\Support\Facades\DB::table('users')->where('id', $impersonatorId)->value('name');
