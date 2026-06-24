@@ -4421,24 +4421,50 @@
                 </h3>
                 <div id="linked-contacts-list">
                 @forelse($property->contacts as $c)
-                <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);" data-contact-row="{{ $c->id }}">
-                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
-                         style="background:{{ $c->type?->color ?? '#334155' }};">
-                        {{ $c->initials }}
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <a href="{{ route('corex.contacts.show', $c) }}"
-                           class="text-sm font-semibold no-underline hover:underline"
-                           style="color:var(--text-primary);">{{ $c->full_name }}</a>
-                        <div class="text-xs mt-0.5 flex gap-3" style="color:var(--text-muted);">
-                            @if($c->phone)<span>{{ $c->phone }}</span>@endif
-                            @if($c->email)<span>{{ $c->email }}</span>@endif
-                            @if($c->pivot->role)<span class="font-semibold" style="color:var(--brand-icon);">{{ ucfirst($c->pivot->role) }}</span>@endif
+                <div x-data="{ editing: false, role: @js($c->pivot->role ?: $defaultLinkRole) }"
+                     class="px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);" data-contact-row="{{ $c->id }}">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
+                             style="background:{{ $c->type?->color ?? '#334155' }};">
+                            {{ $c->initials }}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <a href="{{ route('corex.contacts.show', $c) }}"
+                               class="text-sm font-semibold no-underline hover:underline"
+                               style="color:var(--text-primary);">{{ $c->full_name }}</a>
+                            <div class="text-xs mt-0.5 flex gap-3" style="color:var(--text-muted);">
+                                @if($c->phone)<span>{{ $c->phone }}</span>@endif
+                                @if($c->email)<span>{{ $c->email }}</span>@endif
+                                @if($c->pivot->role)<span class="font-semibold" style="color:var(--brand-icon);" data-contact-role>{{ ucfirst($c->pivot->role) }}</span>@endif
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <button type="button" @click="editing = !editing"
+                                    class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--brand-icon,#0ea5e9);">
+                                <span x-text="editing ? 'Close' : 'Edit role'"></span>
+                            </button>
+                            <button type="button"
+                                    @click="unlinkContact({{ $c->id }}, @js($c->full_name))"
+                                    class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
                         </div>
                     </div>
-                    <button type="button"
-                            @click="unlinkContact({{ $c->id }}, @js($c->full_name))"
-                            class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
+                    {{-- Inline role edit (full CRUD on the link role — no unlink/relink) --}}
+                    <div x-show="editing" x-cloak class="mt-3 pt-3 flex items-center gap-2 flex-wrap" style="border-top:1px solid var(--border);">
+                        <label class="text-xs font-semibold" style="color:var(--text-muted);">Role</label>
+                        <select x-model="role"
+                                class="rounded-md px-2 py-1.5 text-sm"
+                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            @foreach($linkRoleOptions as $value => $label)
+                            <option value="{{ $value }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                        <button type="button" @click="updateRole({{ $c->id }}, role)" :disabled="submitting"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">
+                            <span x-text="submitting ? 'Saving…' : 'Save'"></span>
+                        </button>
+                        <button type="button" @click="editing = false" :disabled="submitting"
+                                class="text-xs font-semibold px-2 py-1.5 rounded-md" style="color:var(--text-muted);">Cancel</button>
+                    </div>
                 </div>
                 @empty
                 @endforelse
@@ -4462,36 +4488,58 @@
                     </div>
                 </div>
 
-                {{-- Link as: role is captured per-link so the pivot is never NULL --}}
-                <div class="mb-3">
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Link as <span class="prop-required">*</span></label>
-                    <select x-model="linkRole"
-                            class="w-full rounded-md px-3 py-2 text-sm"
-                            style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        @foreach($linkRoleOptions as $value => $label)
-                        <option value="{{ $value }}" {{ $value === $defaultLinkRole ? 'selected' : '' }}>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                    <p class="mt-1 text-[11px]" style="color:var(--text-muted);">Sellers/owners/landlords drive compliance &amp; FICA. Pick the role this person plays on this property.</p>
-                </div>
-
-                <div x-show="results.length > 0" class="rounded-md overflow-hidden mb-3"
+                {{-- Search results — SELECTING a result does NOT link; it opens
+                     the confirm + role step below so the role is chosen first. --}}
+                <div x-show="results.length > 0 && !selected" class="rounded-md overflow-hidden mb-3"
                      style="border:1px solid var(--border);">
                     <template x-for="r in results" :key="r.id">
-                        <button type="button" @click="linkExisting(r)"
+                        <button type="button" @click="select(r)"
                                 class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
                                 style="border-bottom:1px solid var(--border); background:var(--surface); width:100%;">
                             <div>
                                 <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
                                 <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="[r.phone, r.email].filter(Boolean).join(' · ')"></div>
                             </div>
-                            <span class="ml-auto text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon);">+ Link</span>
+                            <span class="ml-auto text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon);">Select</span>
                         </button>
                     </template>
                 </div>
 
-                <div x-show="searched && results.length === 0" class="text-sm mb-3" style="color:var(--text-muted);">
+                <div x-show="searched && results.length === 0 && !selected" class="text-sm mb-3" style="color:var(--text-muted);">
                     No matching contacts found.
+                </div>
+
+                {{-- Confirm step: pick the role, THEN link (commits only on "Link") --}}
+                <div x-show="selected" x-cloak class="rounded-md p-4 mb-1"
+                     style="background:var(--surface); border:1px solid var(--brand-icon,#0ea5e9);">
+                    <div class="flex items-center justify-between gap-3 mb-3">
+                        <div class="min-w-0">
+                            <div class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Linking</div>
+                            <div class="text-sm font-semibold truncate" style="color:var(--text-primary);"
+                                 x-text="selected ? (selected.first_name + ' ' + selected.last_name) : ''"></div>
+                            <div class="text-xs" style="color:var(--text-muted);"
+                                 x-text="selected ? [selected.phone, selected.email].filter(Boolean).join(' · ') : ''"></div>
+                        </div>
+                        <button type="button" @click="selected = null" class="text-xs font-semibold flex-shrink-0" style="color:var(--text-muted);">Change</button>
+                    </div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Link as <span class="prop-required">*</span></label>
+                    <select x-model="linkRole"
+                            class="w-full rounded-md px-3 py-2 text-sm mb-1"
+                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        @foreach($linkRoleOptions as $value => $label)
+                        <option value="{{ $value }}" {{ $value === $defaultLinkRole ? 'selected' : '' }}>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <p class="mb-3 text-[11px]" style="color:var(--text-muted);">Sellers/owners/landlords drive compliance &amp; FICA.</p>
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="confirmLink()" :disabled="submitting"
+                                class="px-4 py-2 rounded-md text-sm font-semibold text-white"
+                                style="background:var(--brand-button,#0ea5e9);">
+                            <span x-text="submitting ? 'Linking…' : 'Link'"></span>
+                        </button>
+                        <button type="button" @click="selected = null" :disabled="submitting"
+                                class="px-3 py-2 rounded-md text-sm font-semibold" style="color:var(--text-muted);">Cancel</button>
+                    </div>
                 </div>
             </div>
 
@@ -5781,6 +5829,18 @@ function propertyContactsManager(searchUrl, defaultRole) {
         searched: false,
         submitting: false,
         linkRole: defaultRole || 'seller',
+        selected: null,
+        contactRequiredOpen: false,
+        init() {
+            // Track the forced-contact modal so a link made through it keeps the
+            // existing append+return-to-info flow (the property save reloads the
+            // gate), while a direct Contacts-tab link reloads to refresh it.
+            window.addEventListener('corex:contact-required', () => { this.contactRequiredOpen = true; });
+        },
+        _reloadContacts() {
+            window.location.assign(@js($property->exists ? route('corex.properties.show', $property) : '') + '?tab=contacts');
+        },
+        select(r) { this.selected = r; },
         async search() {
             if (this.query.length < 1) { this.results = []; this.searched = false; return; }
             this.loading = true;
@@ -5799,14 +5859,20 @@ function propertyContactsManager(searchUrl, defaultRole) {
             return m ? m.getAttribute('content') : '';
         },
         _afterAdd(contact) {
-            window.coreXAppendLinkedContact(contact);
-            // Drop this contact from current search results
-            this.results = this.results.filter(r => r.id !== contact.id);
-            // Dismiss contact-required modal and return to info tab so user can save
-            window.dispatchEvent(new CustomEvent('corex:contact-added'));
+            // Forced-contact modal flow: append inline + return to info to save
+            // (that save reloads the gate). Direct Contacts-tab link: reload now
+            // so the compliance panel + Drive checklist recompute immediately.
+            if (this.contactRequiredOpen) {
+                window.coreXAppendLinkedContact(contact);
+                this.results = this.results.filter(r => r.id !== contact.id);
+                window.dispatchEvent(new CustomEvent('corex:contact-added'));
+                return;
+            }
+            this._reloadContacts();
         },
-        async linkExisting(r) {
-            if (this.submitting) return;
+        // FIX 1 — commit the link only on the confirm step, with the chosen role.
+        async confirmLink() {
+            if (this.submitting || !this.selected) return;
             this.submitting = true;
             try {
                 const res = await fetch(@js($property->exists ? route('corex.properties.contacts.link', $property) : ''), {
@@ -5817,13 +5883,45 @@ function propertyContactsManager(searchUrl, defaultRole) {
                         'X-Requested-With': 'XMLHttpRequest',
                         'X-CSRF-TOKEN': this._csrf(),
                     },
-                    body: JSON.stringify({ contact_id: r.id, role: this.linkRole })
+                    body: JSON.stringify({ contact_id: this.selected.id, role: this.linkRole })
                 });
-                if (!res.ok) { alert('Failed to link contact.'); return; }
+                if (!res.ok) {
+                    if (res.status === 422) { const d = await res.json().catch(() => ({})); alert(Object.values(d.errors || {}).flat().join('\n') || 'Please pick a valid role.'); }
+                    else alert('Failed to link contact.');
+                    return;
+                }
                 const data = await res.json();
-                if (data.ok && data.contact) this._afterAdd(data.contact);
+                if (data.ok && data.contact) { this.selected = null; this._afterAdd(data.contact); }
             } catch (e) {
                 alert('Network error while linking contact.');
+            } finally {
+                this.submitting = false;
+            }
+        },
+        // FIX 2 — change the role on an existing link (no unlink/relink).
+        async updateRole(id, role) {
+            if (this.submitting) return;
+            this.submitting = true;
+            try {
+                const tpl = @js($property->exists ? route('corex.properties.contacts.updateRole', [$property->id, 0]) : '');
+                const res = await fetch(tpl.replace(/\/0\/role$/, '/' + id + '/role'), {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify({ role })
+                });
+                if (!res.ok) {
+                    if (res.status === 422) { const d = await res.json().catch(() => ({})); alert(Object.values(d.errors || {}).flat().join('\n') || 'Invalid role.'); }
+                    else alert('Failed to update role.');
+                    return;
+                }
+                this._reloadContacts();
+            } catch (e) {
+                alert('Network error while updating role.');
             } finally {
                 this.submitting = false;
             }
@@ -5906,8 +6004,11 @@ function propertyContactsManager(searchUrl, defaultRole) {
                     },
                 });
                 if (!res.ok) { alert('Failed to unlink contact.'); return; }
-                const data = await res.json();
-                window.coreXRemoveLinkedContact(id, data.count);
+                await res.json().catch(() => ({}));
+                // Reload so the compliance panel + Drive checklist recompute
+                // (removing a seller can re-block the gate).
+                if (this.contactRequiredOpen) { window.coreXRemoveLinkedContact(id, undefined); }
+                else { this._reloadContacts(); }
             } catch (e) {
                 alert('Network error while unlinking contact.');
             }
