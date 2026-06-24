@@ -796,6 +796,8 @@
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
                         <span class="text-xs" style="color:var(--text-secondary);">{{ $property->beds }}bd · {{ $property->baths }}ba{{ ($property->half_baths ?? 0) > 0 ? '+½' : '' }}</span>
+                        {{-- AT-41: tour launcher (renders only on the New Property route, where the capture tour binds) --}}
+                        @include('layouts.partials.tour-header-launcher')
                     </div>
                 </div>
             </div>
