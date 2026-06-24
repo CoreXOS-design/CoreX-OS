@@ -1895,6 +1895,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
     // Training placeholder replaced by LMS module (training.index route above)
 
+    // Guided Tours directory (AT-41) — agent self-serve training index. Any
+    // authenticated user; the list itself is filtered to the tours they can access.
+    Route::get('/guided-tours', [\App\Http\Controllers\CoreX\GuidedToursController::class, 'index'])->name('corex.guided-tours.index');
+
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');

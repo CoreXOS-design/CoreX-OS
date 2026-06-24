@@ -54,7 +54,7 @@
     {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="cal-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Calendar</h1>
                 <p class="text-sm text-white/60">
                     @if($currentView === 'week' && isset($weekStart))
@@ -68,7 +68,8 @@
                 </p>
             </div>
             <div class="flex items-center gap-2">
-                <button type="button" @click="openBlank()" class="corex-btn-primary">
+                @include('layouts.partials.tour-header-launcher')
+                <button type="button" @click="openBlank()" class="corex-btn-primary" data-tour="cal-add">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     Add Event
                 </button>

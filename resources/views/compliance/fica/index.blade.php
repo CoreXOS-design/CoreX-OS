@@ -5,7 +5,7 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="fica-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">FICA Compliance</h1>
                 <p class="text-sm text-white/60">
                     @if($canSeeAll)
@@ -16,15 +16,16 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('compliance.rmcp') }}" class="corex-btn-outline corex-btn-on-brand">
+                @include('layouts.partials.tour-header-launcher')
+                <a href="{{ route('compliance.rmcp') }}" class="corex-btn-outline corex-btn-on-brand" data-tour="fica-rmcp">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
                     View RMCP
                 </a>
-                <a href="{{ route('compliance.fica.wet-ink.create') }}" class="corex-btn-outline corex-btn-on-brand">
+                <a href="{{ route('compliance.fica.wet-ink.create') }}" class="corex-btn-outline corex-btn-on-brand" data-tour="fica-wetink">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     Create Wet-Ink FICA
                 </a>
-                <a href="{{ route('compliance.fica.create') }}" class="corex-btn-primary">
+                <a href="{{ route('compliance.fica.create') }}" class="corex-btn-primary" data-tour="fica-online">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     Send Online FICA
                 </a>

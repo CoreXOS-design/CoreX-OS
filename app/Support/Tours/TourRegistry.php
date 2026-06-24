@@ -39,6 +39,7 @@ class TourRegistry
             'contact-capture' => [
                 'key'   => 'contact-capture',
                 'title' => 'How to capture a contact',
+                'description' => 'Capture a buyer, seller, tenant or landlord — the four fields a contact needs.',
                 'route' => 'corex.contacts.index',
                 // The capture panel is collapsed by default — open it for the tour.
                 'setup' => [
@@ -77,9 +78,14 @@ class TourRegistry
                         'body'    => 'Optional, but worth adding — it\'s also duplicate-checked and is what e-sign uses to deliver documents for signature.',
                     ],
                     [
+                        // FIX 1 (AT-41): agent-safe copy. The old text told the user to add
+                        // contact types in Settings — but only admins/owners can do that, and
+                        // the tour's audience is agents. Role-aware copy would need engine
+                        // support (static registry strings can't branch trivially), so per
+                        // the brief this is the pick-one version shown to everyone.
                         'element' => '[data-tour="contact-type"]',
                         'title'   => 'Contact type',
-                        'body'    => 'The type (Seller, Buyer, Landlord, Tenant…) maps to an e-sign role and drives automation. No types yet? Add them in Settings → Feature Settings → Contacts.',
+                        'body'    => 'Pick at least one — Seller, Buyer, Landlord or Tenant. The type tells CoreX how to work this person: it sets their role on e-sign documents and drives the right automation. Choose the one that matches how you\'re dealing with them.',
                     ],
                     [
                         'element' => '[data-tour="contact-save"]',
@@ -94,74 +100,69 @@ class TourRegistry
                 ],
             ],
 
-            // ── Property capture ─────────────────────────────────────────────
-            // Anchored against the live "New Property" workspace
-            // (corex.properties.create → corex/properties/show.blade.php, Info tab).
-            // Standard fields use scoped [name="…"] selectors inside the capture
-            // form (#prop-update-form); a few section/tab targets use dedicated
-            // data-tour / data-prop-tab anchors.
+            // ── Property capture (the 4-step WIZARD) ─────────────────────────
+            // FIX 2 (AT-41): re-pointed from the old single-form
+            // corex.properties.create (now the secondary "Classic form") to the
+            // canonical New Property WIZARD (corex.properties.wizard →
+            // corex/properties/wizard.blade.php). The prominent "New Property"
+            // CTA on the listings page goes here.
+            //
+            // Multi-step approach: the wizard advances only via its validated
+            // "Continue" button (goToStep is gated by canJumpTo/draft existence),
+            // and forcing the Alpine `step` mid-tour fights driver.js's popover
+            // positioning on x-show-hidden sections. So the tour anchors on
+            // Step 1 (Basics — where every real capture decision lives) plus the
+            // always-visible 4-step rail, and the rail + the Continue step narrate
+            // the Photos → Details → Review progression. Every anchor is present
+            // on the wizard's initial render — no empty spotlights.
             'property-capture' => [
                 'key'   => 'property-capture',
                 'title' => 'How to capture a property',
-                'route' => 'corex.properties.create',
+                'description' => 'Add a listing through the 4-step New Property wizard.',
+                'route' => 'corex.properties.wizard',
                 'setup' => [
                     ['action' => 'scrollTop'],
                 ],
                 'steps' => [
                     [
-                        'element' => '#prop-update-form [name="title"]',
-                        'title'   => 'Listing title',
-                        'body'    => 'Required. A short headline buyers see in search — e.g. "Stunning 4 Bed House in Uvongo". This is a marketing line, not the street address.',
+                        'element' => '[data-tour="wiz-rail"]',
+                        'title'   => 'Four quick steps',
+                        'body'    => 'Adding a property is just four steps — Basics, Photos, Details, then a final Review before you publish. This bar always shows where you are. Your work saves as a draft, so you can stop and come back any time. Let\'s do the Basics.',
                     ],
                     [
-                        'element' => '#prop-update-form [name="property_type"]',
+                        'element' => '[data-tour="wiz-listing-type"]',
+                        'title'   => 'For Sale or For Rental?',
+                        'body'    => 'Start here. Your choice changes the fields ahead — a rental asks for the monthly amount and lease details, a sale asks for the asking price.',
+                    ],
+                    [
+                        'element' => '[data-tour="wiz-headline"]',
+                        'title'   => 'Headline',
+                        'body'    => 'Required. The short line buyers see in search — e.g. "Stunning 3 Bed Family Home in Uvongo Beach". Sell the lifestyle; this is marketing, not the street address.',
+                    ],
+                    [
+                        'element' => '[data-tour="wiz-type"]',
                         'title'   => 'Property type',
-                        'body'    => 'House, flat, townhouse, sectional title, vacant land… This drives buyer matching and how the listing maps onto Property24 and Private Property.',
+                        'body'    => 'Required. House, flat, townhouse, vacant land… This drives buyer matching and how the listing maps onto Property24 and Private Property.',
                     ],
                     [
-                        'element' => '#prop-update-form [name="listing_type"]',
-                        'title'   => 'Sale or rental?',
-                        'body'    => 'Choose For Sale or For Rental. This unlocks the right fields (e.g. monthly rental and lease dates) and is locked after the first save — duplicate the listing to change it.',
-                    ],
-                    [
-                        'element' => '#prop-update-form [name="price"]',
+                        'element' => '[data-tour="wiz-price"]',
                         'title'   => 'Price',
-                        'body'    => 'Required. The asking price in Rands (e.g. 2 500 000). Rates &amp; taxes, levy and special levy sit alongside it for a complete cost picture.',
+                        'body'    => 'Required. The asking price (or monthly rental) in Rands — just type the number, CoreX formats it for you as you go.',
                     ],
                     [
-                        'element' => '[data-tour="prop-spaces"]',
-                        'title'   => 'Spaces',
-                        'body'    => 'Tap the +/- counters to set bedrooms, bathrooms, garages and more. These power buyer matching and the portal feeds — get them right.',
+                        'element' => '[data-tour="wiz-complex"]',
+                        'title'   => 'Complex or estate?',
+                        'body'    => 'If it\'s in a complex, estate or sectional-title scheme, add the unit, block and complex name so the address is complete. Standalone house? You can leave this blank.',
                     ],
                     [
-                        'element' => '[data-tour="prop-location"]',
+                        'element' => '[data-tour="wiz-location"]',
                         'title'   => 'Province · City · Suburb',
-                        'body'    => 'Type to search — these are backed by Property24\'s official list. You must pick a suburb P24 recognises (no free text), so the listing maps cleanly to the portals.',
+                        'body'    => 'Type to search — these come from Property24\'s official list. You must pick a suburb it recognises (no free text), so your listing maps cleanly to the portals.',
                     ],
                     [
-                        'element' => '#prop-update-form [name="description"]',
-                        'title'   => 'Description',
-                        'body'    => 'The full description shown on the listing page. Sell the lifestyle, not just the bricks — this is what turns a view into an enquiry.',
-                    ],
-                    [
-                        'element' => '#prop-update-form [name="mandate_type"]',
-                        'title'   => 'Mandate type',
-                        'body'    => 'Sole, Joint or Open — the mandate you hold on this property. It drives commission handling and compliance under the Property Practitioners Act.',
-                    ],
-                    [
-                        'element' => '#prop-update-form [name="agent_id"]',
-                        'title'   => 'Responsible agent',
-                        'body'    => 'The agent who holds this mandate. Their FFC and commission settings flow through to any deal that comes off this listing.',
-                    ],
-                    [
-                        'element' => '[data-prop-tab="gallery"]',
-                        'title'   => 'Photos live in the Gallery tab',
-                        'body'    => 'Switch to the Gallery tab to add images. On a new property they upload the moment you press Create Property.',
-                    ],
-                    [
-                        'element' => '[data-tour="prop-submit"]',
-                        'title'   => 'Create the listing',
-                        'body'    => 'This creates the Property in your Agency Stock. If anything required is missing, CoreX tells you exactly what — and takes you straight to it.',
+                        'element' => '[data-tour="wiz-continue"]',
+                        'title'   => 'Continue — and the rest',
+                        'body'    => 'When the Basics are in, this saves a draft and moves you to Step 2 · Photos (drag images in), then Step 3 · Details (beds, baths, mandate, agent), then Step 4 · Review to check everything before you publish. That\'s the whole capture — close this and add your first listing.',
                     ],
                 ],
             ],
@@ -172,6 +173,7 @@ class TourRegistry
             'outreach-summary' => [
                 'key'        => 'outreach-summary',
                 'title'      => 'Reading the outreach board',
+                'description' => 'Read the WhatsApp outreach scoreboard and drill into any agent/outcome.',
                 'route'      => 'corex.outreach-summary.index',
                 'permission' => 'outreach.summary.view',
                 'setup'      => [
@@ -197,6 +199,317 @@ class TourRegistry
                         'element' => '[data-tour="os-board"]',
                         'title'   => 'Every number is a doorway',
                         'body'    => 'Click any count and CoreX opens that exact list of contacts — already filtered to that agent, that outcome and WhatsApp. No searching. That\'s the whole board — close this and click a number to dive in.',
+                    ],
+                ],
+            ],
+
+            // ── Presentations / CMA — start a new presentation (queue #1) ────
+            // Entry screen presentations.create (single form). Sets the
+            // expectation that evidence upload + analysis happen on the NEXT
+            // screen. Field anchors use scoped [name="…"] selectors on the form.
+            'presentation-create' => [
+                'key'   => 'presentation-create',
+                'title' => 'Starting a CMA / presentation',
+                'description' => 'Enter a property\'s details to start a seller CMA / presentation.',
+                'route' => 'presentations.create',
+                'setup' => [
+                    ['action' => 'scrollTop'],
+                ],
+                'steps' => [
+                    [
+                        'element' => 'form [name="title"]',
+                        'title'   => 'Name the presentation',
+                        'body'    => 'A label just for you to find it later — e.g. "21 Dee Road — Seller Presentation". This isn\'t shown to the seller.',
+                    ],
+                    [
+                        'element' => 'form [name="property_address"]',
+                        'title'   => 'Property address',
+                        'body'    => 'Required. The street address of the home you\'re pitching to list. It anchors the whole CMA.',
+                    ],
+                    [
+                        'element' => 'form [name="suburb"]',
+                        'title'   => 'Suburb',
+                        'body'    => 'Required. CoreX pulls comparable sales from this suburb to value the property — so get it right.',
+                    ],
+                    [
+                        'element' => 'form [name="property_type"]',
+                        'title'   => 'Property type',
+                        'body'    => 'House, flat, townhouse… The CMA compares like with like, so a flat is valued against flats, not freestanding houses.',
+                    ],
+                    [
+                        'element' => 'form [name="asking_price_inc"]',
+                        'title'   => 'Asking price',
+                        'body'    => 'Required. The price the seller has in mind (or your opening estimate). The analysis will test it against the real market and suggest a realistic range.',
+                    ],
+                    [
+                        'element' => 'form [name="bedrooms"]',
+                        'title'   => 'Beds, baths & size',
+                        'body'    => 'Fill in the basics — beds, baths, erf and floor size, garages. The closer these match the real home, the sharper the comparable-sales match.',
+                    ],
+                    [
+                        'element' => '[data-tour="pres-submit"]',
+                        'title'   => 'Create — then the clever part',
+                        'body'    => 'This saves the property details and takes you to the next screen, where you upload the comparable-sales evidence and run the analysis that builds the seller\'s valuation. That\'s the start — close this and create your first presentation.',
+                    ],
+                ],
+            ],
+
+            // ── Outreach composer — the WhatsApp pitch (queue #1) ────────────
+            // On the contact's Outreach tab (gated outreach.compose). Setup opens
+            // that tab so the composer panel is on-screen for the spotlight.
+            'outreach-composer' => [
+                'key'         => 'outreach-composer',
+                'title'       => 'Pitching a seller on WhatsApp',
+                'description' => 'How to ask a seller for permission and send your WhatsApp pitch from a contact.',
+                'route'       => 'corex.contacts.show',
+                'permission'  => 'outreach.compose',
+                'setup' => [
+                    ['action' => 'click', 'selector' => '[data-tour="outreach-tab"]'],
+                    ['action' => 'scrollTop'],
+                ],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="outreach-tab"]',
+                        'title'   => 'The Outreach tab',
+                        'body'    => 'Everything about pitching this seller on WhatsApp lives here — we\'ve opened it for you. The number on the tab is how many times you\'ve reached out.',
+                    ],
+                    [
+                        'element' => '#tab-outreach',
+                        'title'   => 'Compose, send & track',
+                        'body'    => 'From here you send the seller a WhatsApp asking permission to market their home, see whether they said yes or no, and track every send. CoreX only lets you pitch once you have their consent — it keeps you compliant automatically.',
+                    ],
+                ],
+            ],
+
+            // ── Buyer Pipeline (queue #2) ────────────────────────────────────
+            'buyer-pipeline' => [
+                'key'         => 'buyer-pipeline',
+                'title'       => 'Working your buyer pipeline',
+                'description' => 'Track buyers from New to Warm, Cold or Lost, and switch between your own, branch or agency view.',
+                'route'       => 'command-center.buyers.pipeline',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="buyers-intro"]',
+                        'title'   => 'Your buyer pipeline',
+                        'body'    => 'Every buyer you\'re working, grouped by how hot they are: New → Warm → Cold → Lost. Buyers land here automatically when you capture what they\'re looking for on their contact, so the board fills itself as you work.',
+                    ],
+                    [
+                        'element' => '[data-tour="buyers-scope"]',
+                        'title'   => 'Whose buyers?',
+                        'body'    => 'Switch between Mine, your Branch, or All (where you\'re allowed to see them). Start on Mine — that\'s your own list to action.',
+                    ],
+                    [
+                        'element' => '[data-tour="buyers-view"]',
+                        'title'   => 'Board or list',
+                        'body'    => 'Kanban shows buyers as cards you can drag between stages; List is a compact table. Use whichever you prefer — close this and move a buyer along.',
+                    ],
+                ],
+            ],
+
+            // ── Market Intelligence / MIC (queue #3) ─────────────────────────
+            'mic-work' => [
+                'key'         => 'mic-work',
+                'title'       => 'Using Market Intelligence',
+                'description' => 'Your daily prospecting worklist — what to action next, plus uploading a CMA.',
+                'route'       => 'market-intelligence.work',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="mic-tabs"]',
+                        'title'   => 'Market Intelligence',
+                        'body'    => 'Your prospecting command centre. Work is your daily to-do list of listings to act on; Opportunities, Analyse and Market Pulse sit alongside it on these tabs.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-hero"]',
+                        'title'   => 'This week',
+                        'body'    => 'Your hottest prompts for the week — the handful of listings CoreX thinks deserve your attention first, ranked by the suggested next step.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-upload"]',
+                        'title'   => 'Got a CMA? Drop it here',
+                        'body'    => 'Upload a CMA or sales report and CoreX reads it for you — pulling out the comparable sales and feeding them into your valuations. No retyping.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-list"]',
+                        'title'   => 'Your worklist',
+                        'body'    => 'Each row is a property with a suggested next move. Filter on the left, click a row to see why it matched and what to do. Work top-down — close this and action your first one.',
+                    ],
+                ],
+            ],
+
+            // ── Compliance / FICA (queue #4) ─────────────────────────────────
+            'fica-capture' => [
+                'key'         => 'fica-capture',
+                'title'       => 'Sending a FICA request',
+                'description' => 'Start an online or wet-ink FICA verification and track where each one stands.',
+                'route'       => 'compliance.fica.index',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="fica-intro"]',
+                        'title'   => 'FICA compliance',
+                        'body'    => 'FICA is the law that says you must verify who your clients are. This screen lists every verification you\'ve started and whether it\'s done.',
+                    ],
+                    [
+                        'element' => '[data-tour="fica-online"]',
+                        'title'   => 'Send Online FICA',
+                        'body'    => 'The easy way: CoreX emails your client a secure link to upload their ID and proof of address themselves. You\'ll see it tick over to verified here — no paper.',
+                    ],
+                    [
+                        'element' => '[data-tour="fica-wetink"]',
+                        'title'   => 'Wet-ink FICA',
+                        'body'    => 'For a client who hands you physical documents, capture them here instead. Same record, just done in person.',
+                    ],
+                    [
+                        'element' => '[data-tour="fica-rmcp"]',
+                        'title'   => 'Your risk programme',
+                        'body'    => 'View RMCP opens your agency\'s Risk Management & Compliance Programme — the rulebook for how thoroughly each client must be checked. Good to know it\'s there; you rarely need it day to day.',
+                    ],
+                ],
+            ],
+
+            // ── Deals V2 — deal register (queue #5) ──────────────────────────
+            'deals-register' => [
+                'key'         => 'deals-register',
+                'title'       => 'The deal register',
+                'description' => 'Track a transaction from offer through to registration, and start a new deal.',
+                'route'       => 'deals-v2.index',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="deals-intro"]',
+                        'title'   => 'Your deals',
+                        'body'    => 'Every transaction you\'re running, from the moment an offer is signed through to registration at the deeds office. One row per deal, with its current stage.',
+                    ],
+                    [
+                        'element' => '[data-tour="deals-new"]',
+                        'title'   => 'Start a new deal',
+                        'body'    => 'Got an accepted offer? Create the deal here. CoreX pulls in the property, the buyer and seller, and the commission — then walks the deal through each stage.',
+                    ],
+                    [
+                        'element' => '[data-tour="deals-filter"]',
+                        'title'   => 'Find a deal fast',
+                        'body'    => 'Search or filter to jump to a specific deal or stage. Close this and open a deal to see its full timeline.',
+                    ],
+                ],
+            ],
+
+            // ── Feedback Reports (queue #7, lower) ───────────────────────────
+            'feedback-reports' => [
+                'key'         => 'feedback-reports',
+                'title'       => 'Feedback & bug reports',
+                'description' => 'Review feedback, enhancement ideas and bug reports raised by the team.',
+                'route'       => 'command-center.feedback-reports',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="feedback-intro"]',
+                        'title'   => 'Team feedback',
+                        'body'    => 'Anything the team has flagged — a bug, an idea, a request — lands here so nothing gets lost. A shared to-do list for improving CoreX.',
+                    ],
+                    [
+                        'element' => '[data-tour="feedback-filter"]',
+                        'title'   => 'Filter by status',
+                        'body'    => 'See what\'s new, being looked at, fixed or parked. Click a status to narrow the list.',
+                    ],
+                    [
+                        'element' => '[data-tour="feedback-export"]',
+                        'title'   => 'Export if you need it',
+                        'body'    => 'Download the list as a file to share or keep. That\'s it — close this and have a look.',
+                    ],
+                ],
+            ],
+
+            // ── Calendar (queue #6) ──────────────────────────────────────────
+            'calendar' => [
+                'key'         => 'calendar',
+                'title'       => 'Using your calendar',
+                'description' => 'See your viewings, meetings and compliance dates, and add a new event.',
+                'route'       => 'command-center.calendar',
+                'steps' => [
+                    [
+                        'element' => '[data-tour="cal-intro"]',
+                        'title'   => 'Everything in one place',
+                        'body'    => 'Your viewings, meetings, lease and compliance dates and personal events — all on one calendar so nothing slips. Deal and lease dates appear here automatically.',
+                    ],
+                    [
+                        'element' => '[data-tour="cal-add"]',
+                        'title'   => 'Add an event',
+                        'body'    => 'Book a viewing or a meeting here. Link it to a contact and a property and CoreX keeps everyone\'s details together — and can ask the buyer for feedback afterwards.',
+                    ],
+                ],
+            ],
+
+            // ── Tasks (queue #6) ─────────────────────────────────────────────
+            'tasks' => [
+                'key'         => 'tasks',
+                'title'       => 'Staying on top of tasks',
+                'description' => 'Track your to-dos on a board or list and capture a new task.',
+                'route'       => 'command-center.tasks',
+                'steps' => [
+                    [
+                        'element' => '[data-tour="task-intro"]',
+                        'title'   => 'Your to-do list',
+                        'body'    => 'Every follow-up and to-do in one place, with what\'s open, overdue and due today right here at the top so you always know where you stand.',
+                    ],
+                    [
+                        'element' => '[data-tour="task-add"]',
+                        'title'   => 'Add a task',
+                        'body'    => 'Capture a follow-up in seconds — give it a due date and link it to a contact, property or deal so it shows up where you\'ll need it.',
+                    ],
+                    [
+                        'element' => '[data-tour="task-view"]',
+                        'title'   => 'Board or list',
+                        'body'    => 'Board groups tasks by status you can drag between; List is a simple checklist. Your pick — close this and clear your first task.',
+                    ],
+                ],
+            ],
+
+            // ── Documents Library (queue #8) ─────────────────────────────────
+            'documents-library' => [
+                'key'         => 'documents-library',
+                'title'       => 'The document library',
+                'description' => 'Upload, find and manage shared documents.',
+                'route'       => 'documents.library.index',
+                'setup'       => [['action' => 'scrollTop']],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="docs-intro"]',
+                        'title'   => 'Shared documents',
+                        'body'    => 'Your agency\'s shared files — brochures, forms, anything the team reuses — kept in one place so you\'re not hunting through email.',
+                    ],
+                    [
+                        'element' => '#upload-library',
+                        'title'   => 'Upload a document',
+                        'body'    => 'Pick a type, choose the file and upload. Tagging it by type is what makes it easy to find later.',
+                    ],
+                    [
+                        'element' => '[data-tour="docs-filter"]',
+                        'title'   => 'Find one fast',
+                        'body'    => 'Filter by type to narrow the list. Close this and upload or open a document.',
+                    ],
+                ],
+            ],
+
+            // ── E-sign builder (queue #9) — READ-ONLY (P0-safe) ──────────────
+            // Strictly point-only: NO setup clicks, no step changes — the tour
+            // never touches the wizard's state or the signing surface.
+            'esign-wizard' => [
+                'key'         => 'esign-wizard',
+                'title'       => 'Sending a document to sign',
+                'description' => 'A read-only walkthrough of the e-sign builder — how a document gets signed online.',
+                'route'       => 'docuperfect.esign.create',
+                'steps' => [
+                    [
+                        'element' => '[data-tour="esign-title"]',
+                        'title'   => 'The e-sign builder',
+                        'body'    => 'This is where you send a document out for signature online — no printing, no scanning. Give it a name here so you recognise it later.',
+                    ],
+                    [
+                        'element' => '[data-tour="esign-rail"]',
+                        'title'   => 'Six guided steps',
+                        'body'    => 'Pick the template, attach the property, add who must sign (the recipients), fill the details, place the signature fields, then review and send. The bar shows where you are; the Next and Back buttons in the wizard move you along — work through them in order.',
                     ],
                 ],
             ],
