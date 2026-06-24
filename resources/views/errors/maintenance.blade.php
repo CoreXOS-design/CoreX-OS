@@ -117,9 +117,18 @@
 
         <p style="font-size:14px;">Home Finders Coastal &middot; KZN South Coast</p>
 
-        {{-- Owners can still sign in to run go-live checks. Login is never
-             blocked by the maintenance gate. --}}
-        <a class="owner-link" href="{{ url('/login') }}">System Owner? Sign in &rarr;</a>
+        {{-- Owners can still sign in to run go-live checks. The blocked user is
+             ALREADY authenticated (the gate only fires for a logged-in
+             non-owner), so a plain link to /login bounces off the `guest`
+             middleware straight back to the dashboard → back to this splash.
+             We must sign the current user OUT first; logout redirects to `/`,
+             which sends a guest on to the System Owner login. Login + logout
+             are never blocked by the maintenance gate. --}}
+        <form method="POST" action="{{ route('logout') }}" style="margin:0;">
+            @csrf
+            <button type="submit" class="owner-link"
+                    style="background:none;cursor:pointer;font-family:inherit;">System Owner? Sign in &rarr;</button>
+        </form>
     </main>
 </body>
 </html>
