@@ -55,10 +55,12 @@
                             @endif
                             {{ $row['doc']['name'] }}
                         </div>
-                    @elseif($row['present'] && ($row['via'] ?? null) === 'fica_bridge')
-                        <div class="text-[11px]" style="color:var(--text-muted);">FICA approved (compliance record)</div>
+                    @elseif(!empty($row['is_contact_fica']))
+                        <div class="text-[11px]" style="color:var(--text-muted);">{{ $row['detail'] }}{{ $row['present'] ? '' : ' · seller-level compliance' }}</div>
                     @elseif($row['present'] && !empty($row['satisfied_by_snapshot']))
                         <div class="text-[11px]" style="color:var(--text-muted);">Verified at go-live</div>
+                    @elseif($row['present'])
+                        <div class="text-[11px]" style="color:var(--text-muted);">On file</div>
                     @else
                         <div class="text-[11px]" style="color:var(--text-muted);">
                             Required — not yet on file{{ $row['upload_contact_id'] ? " · files to " . $row['upload_contact_name'] . "'s drive" : '' }}
@@ -68,20 +70,31 @@
             </div>
 
             @unless($row['present'])
-                <form method="POST" action="{{ $row['upload_url'] }}" enctype="multipart/form-data" class="flex-shrink-0">
-                    @csrf
-                    <input type="hidden" name="document_type_id" value="{{ $row['document_type_id'] }}">
-                    @if($row['upload_contact_id'])
-                        <input type="hidden" name="contact_id" value="{{ $row['upload_contact_id'] }}">
-                    @endif
-                    <label class="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-md no-underline cursor-pointer transition hover:opacity-80"
-                           style="background:rgba(0,212,170,.1); color:#00d4aa; border:1px solid rgba(0,212,170,.2);"
-                           title="Upload a {{ $row['label'] }} — its document type is set automatically.">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-                        Upload
-                        <input type="file" name="file" class="hidden" onchange="if(this.files.length){ this.form.submit(); }">
-                    </label>
-                </form>
+                @if(!empty($row['is_contact_fica']))
+                    {{-- FICA is a seller-contact gate: link to the seller's FICA, no property upload --}}
+                    <a href="{{ $row['action_url'] }}"
+                       class="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-md no-underline flex-shrink-0 transition hover:opacity-80"
+                       style="background:rgba(0,212,170,.1); color:#00d4aa; border:1px solid rgba(0,212,170,.2);"
+                       title="FICA is verified on the seller contact, not uploaded to the property.">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                        {{ $row['action_label'] }}
+                    </a>
+                @else
+                    <form method="POST" action="{{ $row['upload_url'] }}" enctype="multipart/form-data" class="flex-shrink-0">
+                        @csrf
+                        <input type="hidden" name="document_type_id" value="{{ $row['document_type_id'] }}">
+                        @if($row['upload_contact_id'])
+                            <input type="hidden" name="contact_id" value="{{ $row['upload_contact_id'] }}">
+                        @endif
+                        <label class="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-md no-underline cursor-pointer transition hover:opacity-80"
+                               style="background:rgba(0,212,170,.1); color:#00d4aa; border:1px solid rgba(0,212,170,.2);"
+                               title="Upload a {{ $row['label'] }} — its document type is set automatically.">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+                            Upload
+                            <input type="file" name="file" class="hidden" onchange="if(this.files.length){ this.form.submit(); }">
+                        </label>
+                    </form>
+                @endif
             @endunless
         </div>
         @endforeach

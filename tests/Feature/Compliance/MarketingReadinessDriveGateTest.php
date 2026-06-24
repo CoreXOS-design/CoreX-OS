@@ -112,6 +112,16 @@ final class MarketingReadinessDriveGateTest extends TestCase
         return $contact;
     }
 
+    private function approveFica(Contact $contact): void
+    {
+        DB::table('fica_submissions')->insert([
+            'contact_id' => $contact->id, 'agency_id' => $this->agency->id,
+            'requested_by' => $this->user->id, 'token' => 'tok-' . uniqid(),
+            'token_expires_at' => now()->addDays(7), 'status' => 'approved',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     private function fileDoc(string $slug, string $source = 'upload', ?Property $property = null, ?Contact $contact = null): Document
     {
         $doc = Document::create([
@@ -141,7 +151,7 @@ final class MarketingReadinessDriveGateTest extends TestCase
         $seller = $this->addSeller($p);
         $this->fileDoc('mandate', 'upload', $p);
         $this->fileDoc('disclosure', 'upload', $p);
-        $this->fileDoc('fica', 'upload', null, $seller); // FICA filed to seller contact
+        $this->approveFica($seller); // FICA = seller-contact gate, not a property doc // FICA filed to seller contact
 
         $report = $this->report($p);
 
@@ -154,7 +164,7 @@ final class MarketingReadinessDriveGateTest extends TestCase
         $p = $this->makeListing();
         $seller = $this->addSeller($p);
         $this->fileDoc('mandate', 'upload', $p);
-        $this->fileDoc('fica', 'upload', null, $seller);
+        $this->approveFica($seller); // FICA = seller-contact gate, not a property doc
         // disclosure intentionally omitted
 
         $report = $this->report($p);
@@ -173,7 +183,7 @@ final class MarketingReadinessDriveGateTest extends TestCase
         $seller = $this->addSeller($p);
         $this->fileDoc('mandate', 'esign', $p);       // <-- e-sign source
         $this->fileDoc('disclosure', 'upload', $p);
-        $this->fileDoc('fica', 'esign', null, $seller);
+        $this->approveFica($seller);
 
         $report = $this->report($p);
 
@@ -229,7 +239,7 @@ final class MarketingReadinessDriveGateTest extends TestCase
         $seller = $this->addSeller($p);
         $mandate = $this->fileDoc('mandate', 'upload', $p);
         $this->fileDoc('disclosure', 'upload', $p);
-        $this->fileDoc('fica', 'upload', null, $seller);
+        $this->approveFica($seller); // FICA = seller-contact gate, not a property doc
         $this->assertTrue($this->report($p)->ready);
 
         $mandate->delete(); // soft delete
@@ -246,7 +256,7 @@ final class MarketingReadinessDriveGateTest extends TestCase
         $seller = $this->addSeller($p);
         $this->fileDoc('mandate', 'upload', $p);
         $this->fileDoc('disclosure', 'upload', $p);
-        $this->fileDoc('fica', 'upload', null, $seller);
+        $this->approveFica($seller); // FICA = seller-contact gate, not a property doc
 
         $report = $this->report($p);
         $this->assertFalse($report->ready);
@@ -260,7 +270,7 @@ final class MarketingReadinessDriveGateTest extends TestCase
         $seller = $this->addSeller($p);
         $this->fileDoc('mandate', 'upload', $p);
         $this->fileDoc('disclosure', 'upload', $p);
-        $this->fileDoc('fica', 'upload', null, $seller);
+        $this->approveFica($seller); // FICA = seller-contact gate, not a property doc
 
         $report = $this->report($p);
         $this->assertFalse($report->ready);
@@ -312,16 +322,66 @@ final class MarketingReadinessDriveGateTest extends TestCase
         $this->assertFalse($report->ready);
     }
 
-    public function test_checklist_fica_row_routes_upload_to_seller_contact(): void
+    public function test_checklist_fica_row_is_contact_gate_not_property_upload(): void
     {
         $p = $this->makeListing();
         $seller = $this->addSeller($p);
         $cl = $this->checklist($p);
 
-        // FICA is a contact-grouped type → upload routes to the seller contact.
-        $this->assertSame($seller->id, $cl['fica']['upload_contact_id']);
-        // Mandate is shared → no contact routing.
-        $this->assertNull($cl['mandate']['upload_contact_id']);
+        // FICA is a seller-contact gate — not a property upload row.
+        $this->assertTrue($cl['fica']['is_contact_fica']);
+        $this->assertStringContainsString('contact_id=' . $seller->id, $cl['fica']['action_url']);
+        // Mandate is a property Drive upload row.
+        $this->assertFalse($cl['mandate']['is_contact_fica']);
+        $this->assertArrayHasKey('upload_url', $cl['mandate']);
+    }
+
+    public function test_fica_doc_on_drive_does_not_satisfy_gate(): void
+    {
+        // The closed bypass: a FICA-typed PDF on the property/seller Drive must
+        // NOT satisfy FICA — only the seller's fica_submissions approval does.
+        $p = $this->makeListing();
+        $seller = $this->addSeller($p);
+        $this->fileDoc('mandate', 'upload', $p);
+        $this->fileDoc('disclosure', 'upload', $p);
+        $this->fileDoc('fica', 'upload', $p);            // FICA pdf on the property
+        $this->fileDoc('fica', 'upload', null, $seller); // FICA pdf on the seller too
+
+        $report = $this->report($p);
+        $this->assertFalse($report->ready, 'A FICA PDF must not unlock FICA — seller is not fica_submissions-approved.');
+        $this->assertFalse($report->checklist['fica']['passed']);
+
+        // And it ticks once the seller is actually FICA-approved.
+        $this->approveFica($seller);
+        $this->assertTrue($this->report($p)->ready);
+    }
+
+    public function test_property_with_no_seller_is_blocked_on_fica(): void
+    {
+        // No-seller hole closed: all property docs present but no linked seller.
+        $p = $this->makeListing();
+        $this->fileDoc('mandate', 'upload', $p);
+        $this->fileDoc('disclosure', 'upload', $p);
+
+        $report = $this->report($p);
+        $this->assertFalse($report->ready);
+        $this->assertFalse($report->checklist['fica']['passed']);
+        $this->assertStringContainsStringIgnoringCase('seller', implode(' ', $report->blockedBy));
+    }
+
+    public function test_every_seller_must_be_fica_approved(): void
+    {
+        $p = $this->makeListing();
+        $s1 = $this->addSeller($p);
+        $s2 = $this->addSeller($p);
+        $this->fileDoc('mandate', 'upload', $p);
+        $this->fileDoc('disclosure', 'upload', $p);
+        $this->approveFica($s1); // only one of two sellers approved
+
+        $this->assertFalse($this->report($p)->ready, 'All sellers must be FICA-approved.');
+
+        $this->approveFica($s2);
+        $this->assertTrue($this->report($p)->ready);
     }
 
     public function test_checklist_esigned_mandate_shows_ticked(): void
