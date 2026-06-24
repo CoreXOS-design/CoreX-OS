@@ -4023,7 +4023,7 @@
                             </div>
                             <button type="button" class="text-xs font-semibold px-3 py-2 rounded-md"
                                     style="color:var(--brand-icon);background:var(--surface-2);"
-                                    @click="renameSection(sec.id)">Rename</button>
+                                    @click="openRename(sec.id)">Rename</button>
                         </div>
                         <p x-show="!sec.images.length" class="text-xs" style="color:var(--text-muted);">No photos yet.</p>
                         <div x-show="sec.images.length" class="grid grid-cols-3 sm:grid-cols-5 gap-3">
@@ -4048,12 +4048,45 @@
             </template>
 
             {{-- Add section --}}
-            <button type="button" @click="addSection()" :disabled="busy"
+            <button type="button" @click="openAdd()" :disabled="busy"
                     class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white"
                     style="background:var(--brand-button,#0ea5e9);">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                 Add section
             </button>
+
+            {{-- Add / Rename section modal (CoreX-styled — replaces the native browser prompt) --}}
+            <div x-show="modal.open" x-cloak
+                 class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                 @keydown.escape.window="closeModal()">
+                <div class="absolute inset-0" style="background:rgba(0,0,0,0.6);" @click="closeModal()"></div>
+                <div class="relative w-full max-w-md rounded-lg shadow-xl overflow-hidden"
+                     style="background:var(--surface); border:1px solid var(--border);" @click.stop>
+                    <div class="px-5 py-3 flex items-center justify-between" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                        <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);"
+                            x-text="modal.mode === 'rename' ? 'Rename Section' : 'New Section'"></h3>
+                        <button type="button" @click="closeModal()" class="p-1 rounded-md hover:opacity-70" style="color:var(--text-muted);">
+                            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                    <form @submit.prevent="submitModal()">
+                        <div class="px-5 py-4 space-y-2">
+                            <label class="prop-label">Section name</label>
+                            <input type="text" x-model="modal.name" x-ref="modalInput" maxlength="120"
+                                   placeholder="e.g. Garden handover" class="prop-input w-full">
+                        </div>
+                        <div class="px-5 py-3 flex justify-end gap-2" style="background:var(--surface-2); border-top:1px solid var(--border);">
+                            <button type="button" @click="closeModal()"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold"
+                                    style="color:var(--text-secondary);background:var(--surface-3);">Cancel</button>
+                            <button type="submit" :disabled="busy || !modal.name.trim()"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold text-white"
+                                    style="background:var(--brand-button,#0ea5e9);"
+                                    x-text="modal.mode === 'rename' ? 'Rename' : 'Add section'"></button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
 
         <script>
@@ -4065,6 +4098,7 @@
                 open: {},
                 busy: false,
                 error: '',
+                modal: { open: false, mode: 'add', name: '', customId: null },
 
                 toggle(key) { this.open[key] = !this.open[key]; },
 
@@ -4090,29 +4124,38 @@
                     } catch (e) { this.error = e.message; }
                 },
 
-                async addSection() {
-                    const name = window.prompt('Name this section (e.g. "Garden handover")');
-                    if (!name || !name.trim()) return;
-                    this.busy = true;
-                    try {
-                        const r = await this._post(this.urls.save, { action: 'add_section', name: name.trim() });
-                        this.data = r.rental_images;
-                        const added = this.data.custom[this.data.custom.length - 1];
-                        if (added) this.open[added.id] = true;
-                    } catch (e) { this.error = e.message; }
-                    finally { this.busy = false; }
+                openAdd() {
+                    this.modal = { open: true, mode: 'add', name: '', customId: null };
+                    this.$nextTick(() => this.$refs.modalInput && this.$refs.modalInput.focus());
                 },
 
-                async renameSection(customId) {
+                openRename(customId) {
                     const sec = this.data.custom.find(c => c.id === customId);
-                    const name = window.prompt('Rename section', sec ? sec.name : '');
-                    if (!name || !name.trim()) return;
+                    this.modal = { open: true, mode: 'rename', name: sec ? sec.name : '', customId };
+                    this.$nextTick(() => this.$refs.modalInput && this.$refs.modalInput.focus());
+                },
+
+                closeModal() { this.modal.open = false; },
+
+                async submitModal() {
+                    const name = this.modal.name.trim();
+                    if (!name) return;
+                    this.busy = true;
                     try {
-                        const r = await this._post(this.urls.save, {
-                            action: 'rename_section', custom_id: customId, name: name.trim(),
-                        });
-                        this.data = r.rental_images;
+                        if (this.modal.mode === 'rename') {
+                            const r = await this._post(this.urls.save, {
+                                action: 'rename_section', custom_id: this.modal.customId, name,
+                            });
+                            this.data = r.rental_images;
+                        } else {
+                            const r = await this._post(this.urls.save, { action: 'add_section', name });
+                            this.data = r.rental_images;
+                            const added = this.data.custom[this.data.custom.length - 1];
+                            if (added) this.open[added.id] = true;
+                        }
+                        this.closeModal();
                     } catch (e) { this.error = e.message; }
+                    finally { this.busy = false; }
                 },
 
                 async uploadTo(section, customId, ev) {
