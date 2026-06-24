@@ -3901,6 +3901,14 @@
         </div>
 
         {{-- ── CONTACTS TAB ─────────────────────────────────────────────────── --}}
+        @php
+            // Canonical property↔contact roles (mirror PropertyContactController::LINK_ROLES).
+            // Defined BEFORE the contacts-tab wrapper so the x-data default below
+            // can never reference an undefined variable. Null-safe: unknown/absent
+            // listing_type falls back to the seller side.
+            $linkRoleOptions = ['seller' => 'Seller', 'buyer' => 'Buyer', 'owner' => 'Owner', 'landlord' => 'Landlord', 'tenant' => 'Tenant', 'lessor' => 'Lessor'];
+            $defaultLinkRole = (((isset($property) ? ($property->listing_type ?? 'sale') : 'sale')) === 'rental') ? 'landlord' : 'seller';
+        @endphp
         <div x-show="activeTab === 'contacts'" x-cloak class="p-6 space-y-6"
              @if($isNew)
              x-data="pendingContactsManager('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from(isset($preLinkedContact) && $preLinkedContact ? [['id' => $preLinkedContact->id, 'name' => trim($preLinkedContact->full_name), 'phone' => $preLinkedContact->phone ?? '', 'email' => $preLinkedContact->email ?? '']] : []) }})"
@@ -4041,14 +4049,6 @@
             </div>
 
         @else
-
-            @php
-                // Canonical property↔contact roles (mirror PropertyContactController::LINK_ROLES).
-                // Default to the seller side for the listing type so the gate's
-                // seller/FICA check always sees a correctly-roled contact.
-                $linkRoleOptions = ['seller' => 'Seller', 'buyer' => 'Buyer', 'owner' => 'Owner', 'landlord' => 'Landlord', 'tenant' => 'Tenant', 'lessor' => 'Lessor'];
-                $defaultLinkRole = (($property->listing_type ?? 'sale') === 'rental') ? 'landlord' : 'seller';
-            @endphp
 
             {{-- Linked contacts --}}
             <div>
