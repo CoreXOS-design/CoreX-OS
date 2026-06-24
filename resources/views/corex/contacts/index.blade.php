@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5"
+<div class="w-full space-y-5" data-tour-root="contacts"
      x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name')) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false }">
 
     {{-- Page header --}}
@@ -51,7 +51,7 @@
                 </div>
             </div>
             @endpermission
-            <button type="button" @click="showAdd = !showAdd" class="corex-btn-primary text-sm">
+            <button type="button" @click="showAdd = !showAdd" data-tour="contact-add-btn" class="corex-btn-primary text-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
@@ -96,7 +96,7 @@
     @endif
 
     {{-- Add Contact Form (collapsible) --}}
-    <div x-show="showAdd" x-cloak
+    <div x-show="showAdd" x-cloak data-tour="contact-form"
          x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
          x-data="{
             dupChecking: false,
@@ -194,6 +194,7 @@
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">First Name <span class="text-red-500">*</span></label>
                     <input type="text" name="first_name" value="{{ old('first_name') }}" required
+                           data-tour="contact-first-name"
                            placeholder="e.g. John"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
@@ -201,6 +202,7 @@
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Surname <span class="text-red-500">*</span></label>
                     <input type="text" name="last_name" value="{{ old('last_name') }}" required
+                           data-tour="contact-last-name"
                            placeholder="e.g. Smith"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
@@ -208,6 +210,7 @@
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone Number <span class="text-red-500">*</span></label>
                     <input type="text" name="phone" value="{{ old('phone') }}" required
+                           data-tour="contact-phone"
                            placeholder="e.g. 082 123 4567"
                            x-ref="phoneInput"
                            @blur="checkDuplicate()"
@@ -217,6 +220,7 @@
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                     <input type="email" name="email" value="{{ old('email') }}"
+                           data-tour="contact-email"
                            placeholder="e.g. john@example.com"
                            x-ref="emailInput"
                            @blur="checkDuplicate()"
@@ -232,14 +236,14 @@
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
                     <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
                 </div>
-                <div class="sm:col-span-2 lg:col-span-3">
+                <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-type">
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Type <span class="text-red-500">*</span></label>
                     @include('corex.contacts._type_picker', ['contactTypes' => $contactTypes])
                     @error('parent_type_ids')<p class="mt-1 text-[11px]" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
                 </div>
             </div>
             <div class="flex items-center gap-3 pt-2">
-                <button type="submit" class="corex-btn-primary text-sm" :disabled="dupFound"
+                <button type="submit" data-tour="contact-save" class="corex-btn-primary text-sm" :disabled="dupFound"
                         :style="dupFound ? 'opacity:0.4; cursor:not-allowed;' : ''">Save Contact</button>
                 <button type="button" @click="showAdd = false" class="text-sm transition-all duration-300" style="color:var(--text-muted);">Cancel</button>
             </div>
@@ -339,6 +343,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
                 <input type="text" name="search" value="{{ request('search') }}"
+                       data-tour="contact-search"
                        placeholder="Search name, phone, email…"
                        class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
                        style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
