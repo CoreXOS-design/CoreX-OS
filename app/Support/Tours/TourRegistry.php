@@ -165,6 +165,41 @@ class TourRegistry
                     ],
                 ],
             ],
+
+            // ── WhatsApp Outreach Summary board (AT-91) ──────────────────────
+            // Read-only board, but the drill-through interaction is worth a short
+            // orientation. Gated by the board's own permission key.
+            'outreach-summary' => [
+                'key'        => 'outreach-summary',
+                'title'      => 'Reading the outreach board',
+                'route'      => 'corex.outreach-summary.index',
+                'permission' => 'outreach.summary.view',
+                'setup'      => [
+                    ['action' => 'scrollTop'],
+                ],
+                'steps' => [
+                    [
+                        'element' => '[data-tour="os-intro"]',
+                        'title'   => 'Your WhatsApp pitch scoreboard',
+                        'body'    => 'This board shows, at a glance, where every seller you\'ve pitched on WhatsApp stands. One row per agent, one number per outcome. You only see what\'s yours — your own pipeline as an agent, your branch as a manager.',
+                    ],
+                    [
+                        'element' => '[data-tour="os-columns"]',
+                        'title'   => 'What each column means',
+                        'body'    => 'Awaiting reply = pitched, no answer yet. Confirmed = they said yes. No response — lapsed = the reply window passed. Opted out = they said no. Hover any heading for the full definition.',
+                    ],
+                    [
+                        'element' => '[data-tour="os-total"]',
+                        'title'   => 'Total contacted',
+                        'body'    => 'Everyone you\'ve pitched on WhatsApp. The small "+ awaiting reply" line underneath is people who engaged (e.g. clicked the link) but haven\'t said yes or no yet — so every send is accounted for.',
+                    ],
+                    [
+                        'element' => '[data-tour="os-board"]',
+                        'title'   => 'Every number is a doorway',
+                        'body'    => 'Click any count and CoreX opens that exact list of contacts — already filtered to that agent, that outcome and WhatsApp. No searching. That\'s the whole board — close this and click a number to dive in.',
+                    ],
+                ],
+            ],
         ];
     }
 
@@ -193,5 +228,32 @@ class TourRegistry
         }
 
         return static::all()[$key] ?? null;
+    }
+
+    /**
+     * Role-gating for a tour. A tour MAY declare an optional `permission`
+     * (single key) the viewer must hold to see/auto-run it. With no
+     * `permission` set, the tour is visible to anyone who can reach its
+     * route — the route's own middleware is the gate, so the tour inherits
+     * it and we don't double-maintain access rules. System Owners always see
+     * every tour.
+     */
+    public static function visibleTo(?array $tour, $user): bool
+    {
+        if (! $tour || ! $user) {
+            return false;
+        }
+
+        if (method_exists($user, 'isOwnerRole') && $user->isOwnerRole()) {
+            return true;
+        }
+
+        $permission = $tour['permission'] ?? null;
+        if (! $permission) {
+            return true; // inherit the route's own gate
+        }
+
+        return method_exists($user, 'hasPermission')
+            && $user->hasPermission($permission) === true;
     }
 }
