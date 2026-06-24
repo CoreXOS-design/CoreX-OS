@@ -168,41 +168,26 @@ class MarketingReadinessService
     /**
      * Build a checklist entry for every document type the agency requires.
      * Keyed by slug so the readiness panel renders each by its own label.
+     * Consumes the SHARED evaluation (single source of truth) so the gate and
+     * the Drive-tab checklist can never disagree.
      *
      * @return array<string, array{passed:bool,label:string,detail:string,action_label:?string,action_url:string}>
      */
     private function requiredDocTypeGates(Property $property): array
     {
-        $agencyId = (int) $property->agency_id;
-        $requiredTypes = $agencyId > 0
-            ? $this->docTypes->requiredTypesFor($agencyId)
-            : collect();
-
-        if ($requiredTypes->isEmpty()) {
-            return [];
-        }
-
-        $sellerIds = $this->sellerContactIds($property);
-        $presentTypeIds = $this->presentDriveTypeIds($property, $sellerIds);
         $ficaSlug = config('corex-compliance.fica_slug', 'fica');
         $driveTab = route('corex.properties.show', $property->id) . '?tab=drive';
 
         $gates = [];
-        foreach ($requiredTypes as $type) {
-            $present = $presentTypeIds->contains($type->id);
-            $detail = $type->label . ' on file';
+        foreach ($this->evaluateRequiredTypes($property) as $item) {
+            $type = $item['type'];
+            $present = $item['present'];
 
-            // FICA bridge: also satisfied by the authoritative FICA workflow
-            // (all sellers approved) so the existing FICA path never regresses.
-            if (!$present && $type->slug === $ficaSlug) {
-                [$ficaPass, $ficaDetail] = $this->checkSellersFicaSubmissions($property, $sellerIds);
-                $present = $ficaPass;
-                if (!$present) {
-                    $detail = $ficaDetail;
-                }
-            }
-
-            if (!$present && $type->slug !== $ficaSlug) {
+            if ($present) {
+                $detail = $type->label . ' on file';
+            } elseif ($type->slug === $ficaSlug) {
+                $detail = $item['fica_detail'] ?? ('Missing: ' . $type->label);
+            } else {
                 $detail = 'Missing: ' . $type->label . ' — upload the signed document to the property Drive';
             }
 
@@ -218,38 +203,164 @@ class MarketingReadinessService
         return $gates;
     }
 
+    /**
+     * Single source of truth for per-required-type presence. Both the gate
+     * (requiredDocTypeGates) and the Drive-tab checklist (complianceChecklistFor)
+     * derive from this — guaranteeing they never disagree.
+     *
+     * Presence = a non-soft-deleted Drive Document of that type on the property
+     * OR on a seller contact (no approval status checked — instant-unlock
+     * doctrine). FICA additionally bridges to the authoritative fica_submissions
+     * approval so the existing FICA workflow never regresses.
+     *
+     * @return list<array{type:object,present:bool,doc:?object,via:?string,fica_detail:?string}>
+     */
+    private function evaluateRequiredTypes(Property $property): array
+    {
+        $agencyId = (int) $property->agency_id;
+        $requiredTypes = $agencyId > 0
+            ? $this->docTypes->requiredTypesFor($agencyId)
+            : collect();
+
+        if ($requiredTypes->isEmpty()) {
+            return [];
+        }
+
+        $sellerIds = $this->sellerContactIds($property);
+        $typeIds = $requiredTypes->pluck('id')->all();
+        $ficaSlug = config('corex-compliance.fica_slug', 'fica');
+
+        $cols = ['d.id', 'd.document_type_id', 'd.original_name', 'd.disk', 'd.source_type'];
+
+        $propertyDocs = DB::table('document_properties as dp')
+            ->join('documents as d', 'd.id', '=', 'dp.document_id')
+            ->where('dp.property_id', $property->id)
+            ->whereIn('d.document_type_id', $typeIds)
+            ->whereNull('d.deleted_at')
+            ->orderByDesc('d.id')
+            ->get($cols)
+            ->keyBy('document_type_id');
+
+        $contactDocs = collect();
+        if ($sellerIds->isNotEmpty()) {
+            $contactDocs = DB::table('document_contacts as dc')
+                ->join('documents as d', 'd.id', '=', 'dc.document_id')
+                ->whereIn('dc.contact_id', $sellerIds)
+                ->whereIn('d.document_type_id', $typeIds)
+                ->whereNull('d.deleted_at')
+                ->orderByDesc('d.id')
+                ->get($cols)
+                ->keyBy('document_type_id');
+        }
+
+        $ficaChecked = false;
+        $ficaPass = false;
+        $ficaDetail = null;
+
+        $out = [];
+        foreach ($requiredTypes as $type) {
+            $doc = $propertyDocs->get($type->id) ?? $contactDocs->get($type->id);
+            $via = $propertyDocs->has($type->id) ? 'property' : ($contactDocs->has($type->id) ? 'contact' : null);
+            $present = $doc !== null;
+            $rowFicaDetail = null;
+
+            if (!$present && $type->slug === $ficaSlug) {
+                if (!$ficaChecked) {
+                    [$ficaPass, $ficaDetail] = $this->checkSellersFicaSubmissions($property, $sellerIds);
+                    $ficaChecked = true;
+                }
+                if ($ficaPass) {
+                    $present = true;
+                    $via = 'fica_bridge';
+                } else {
+                    $rowFicaDetail = $ficaDetail;
+                }
+            }
+
+            $out[] = [
+                'type' => $type,
+                'present' => $present,
+                'doc' => $doc,
+                'via' => $via,
+                'fica_detail' => $rowFicaDetail,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Drive-tab compliance checklist for a property — the SAME per-type
+     * presence the gate uses, plus the inline-upload routing (document type
+     * pre-set; contact-level types route to the primary seller contact so the
+     * uploaded doc lands where the gate reads it).
+     *
+     * When the gate is short-circuited ready (dev override or an existing
+     * compliance snapshot), every required row reflects satisfied — so the
+     * checklist can never contradict a LIVE/ready gate.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function complianceChecklistFor(Property $property): array
+    {
+        $items = $this->evaluateRequiredTypes($property);
+        if (empty($items)) {
+            return [];
+        }
+
+        // Mirror statusFor()'s ready short-circuits so the checklist agrees
+        // with a LIVE (snapshotted) or dev-override gate.
+        $forceSatisfied = DevSetting::bool('compliance_checks_disabled')
+            || $property->compliance_snapshot_at !== null;
+
+        // Primary seller for contact-level (e.g. FICA) upload routing.
+        $primarySeller = $property->contacts()
+            ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->first();
+
+        $filesStoreUrl = route('corex.properties.files.store', $property->id);
+
+        $rows = [];
+        foreach ($items as $item) {
+            $type = $item['type'];
+            $present = $item['present'] || $forceSatisfied;
+            $isContactLevel = ($type->grouping ?? 'shared') === 'contact';
+            $routeToContact = $isContactLevel && $primarySeller !== null;
+
+            $rows[] = [
+                'slug' => $type->slug,
+                'label' => $type->label,
+                'type_id' => $type->id,
+                'grouping' => $type->grouping ?? 'shared',
+                'present' => $present,
+                'satisfied_by_snapshot' => $forceSatisfied && !$item['present'],
+                'via' => $item['via'],
+                'doc' => $item['doc'] ? [
+                    'name' => $item['doc']->original_name,
+                    'source' => $item['doc']->source_type, // 'esign' | 'upload' | ...
+                ] : null,
+                // Inline upload — reuses PropertyFileController::store. document
+                // type is pre-set so the agent can't mistype it; contact-level
+                // types also pass contact_id so the doc lands on the seller's
+                // drive (where the gate's contact-level check reads it).
+                'upload_url' => $filesStoreUrl,
+                'document_type_id' => $type->id,
+                'upload_contact_id' => $routeToContact ? $primarySeller->id : null,
+                'upload_contact_name' => $routeToContact
+                    ? trim(($primarySeller->first_name ?? '') . ' ' . ($primarySeller->last_name ?? '')) ?: ($primarySeller->name ?? 'seller')
+                    : null,
+            ];
+        }
+
+        return $rows;
+    }
+
     /** Seller/owner/landlord/lessor contact ids linked to the property. */
     private function sellerContactIds(Property $property): \Illuminate\Support\Collection
     {
         return $property->contacts()
             ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
             ->pluck('contacts.id');
-    }
-
-    /**
-     * Distinct document_type_ids present (not soft-deleted) on the property
-     * Drive or on any seller contact's Drive.
-     */
-    private function presentDriveTypeIds(Property $property, \Illuminate\Support\Collection $sellerIds): \Illuminate\Support\Collection
-    {
-        $propertyTypeIds = DB::table('document_properties as dp')
-            ->join('documents as d', 'd.id', '=', 'dp.document_id')
-            ->where('dp.property_id', $property->id)
-            ->whereNull('d.deleted_at')
-            ->whereNotNull('d.document_type_id')
-            ->pluck('d.document_type_id');
-
-        $contactTypeIds = collect();
-        if ($sellerIds->isNotEmpty()) {
-            $contactTypeIds = DB::table('document_contacts as dc')
-                ->join('documents as d', 'd.id', '=', 'dc.document_id')
-                ->whereIn('dc.contact_id', $sellerIds)
-                ->whereNull('d.deleted_at')
-                ->whereNotNull('d.document_type_id')
-                ->pluck('d.document_type_id');
-        }
-
-        return $propertyTypeIds->merge($contactTypeIds)->map(fn ($id) => (int) $id)->unique()->values();
     }
 
     /**

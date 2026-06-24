@@ -313,6 +313,22 @@ Types (per-agency `is_compliance_required` flag, stored in
 the readiness service. New agencies are seeded the default required set
 (`mandate`, `fica`, `disclosure`) via `AgencyComplianceDocTypeService::ensureDefaults`.
 
+### 6.6 Drive-tab compliance checklist (AT-94)
+
+The property's Drive/Files tab shows the agency's required documents as a
+checklist, driven by the SAME `MarketingReadinessService` presence evaluation
+the gate uses (`complianceChecklistFor()` and `requiredDocTypeGates()` both
+consume one private `evaluateRequiredTypes()` — they can never disagree). Each
+required type is ticked when present, or shown unticked with an inline
+**Upload** control. The Upload posts to the existing
+`PropertyFileController::store` with the **document type pre-set** (the agent
+can't mistype it); contact-level types (FICA, `grouping='contact'`) also pass
+the primary seller's `contact_id` so the document lands on the seller's drive
+where the gate's contact-level check reads it. On success the Drive tab
+reloads → checklist and readiness panel recompute. When the gate is
+short-circuited ready (dev override or an existing snapshot), every row
+reflects satisfied so the checklist agrees with a LIVE gate.
+
 ## 7. UI Surfaces
 
 Three places agents and managers see marketing-readiness:

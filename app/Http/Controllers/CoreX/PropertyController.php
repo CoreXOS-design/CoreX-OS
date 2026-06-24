@@ -339,7 +339,10 @@ class PropertyController extends Controller
             ]);
         }
 
-        $readinessReport = app(\App\Services\Compliance\MarketingReadinessService::class)->statusFor($property);
+        $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        $readinessReport = $readinessSvc->statusFor($property);
+        // Drive-tab compliance checklist — same per-type presence the gate uses.
+        $complianceChecklist = $property->exists ? $readinessSvc->complianceChecklistFor($property) : [];
 
         // Whistleblower compliance flags linked to this property
         $propertyComplianceComplaints = $property->exists
@@ -364,7 +367,7 @@ class PropertyController extends Controller
 
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
-            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'propertyComplianceComplaints',
+            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
             'aiImageSuggestions'
         ));
     }
