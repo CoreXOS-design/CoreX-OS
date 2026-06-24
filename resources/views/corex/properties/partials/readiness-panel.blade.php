@@ -11,22 +11,6 @@
         $isReady => 'background:rgba(0,212,170,.15); color:#047857;',
         default => 'background:rgba(245,158,11,.15); color:#b45309;',
     };
-
-    // Resolve FICA-failing seller contacts for per-seller action buttons.
-    // One query for all approved FICA submissions across the sellers (was an
-    // N+1: a separate fica_submissions query per seller inside filter()).
-    $ficaFailingSellers = collect();
-    if (!($report->checklist['fica_sellers']['passed'] ?? true)) {
-        $sellers = $property->contacts()
-            ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
-            ->get();
-        $approvedContactIds = \DB::table('fica_submissions')
-            ->whereIn('contact_id', $sellers->pluck('id'))
-            ->where('status', 'approved')
-            ->pluck('contact_id')
-            ->all();
-        $ficaFailingSellers = $sellers->reject(fn ($c) => in_array($c->id, $approvedContactIds));
-    }
 @endphp
 <div class="mx-6 mt-4 mb-2 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);"
      x-data="{
@@ -97,32 +81,14 @@
                             <span class="text-xs mt-0.5" style="color:#ef4444;">&#10007;</span>
                         @endif
                         <div>
-                            <div class="text-xs font-medium" style="color:var(--text-primary);">{{ ucfirst(str_replace('_', ' ', $gate)) }}</div>
+                            <div class="text-xs font-medium" style="color:var(--text-primary);">{{ $check['label'] ?? ucfirst(str_replace('_', ' ', $gate)) }}</div>
                             <div class="text-[10px]" style="color:var(--text-muted);">{{ $check['detail'] }}</div>
                         </div>
                     </div>
-                    @if(!$check['passed'] && !$isLive)
-                        @if($gate === 'authority_to_market')
-                            <a href="{{ route('docuperfect.esign.create') }}?property_id={{ $property->id }}&template_type=mandate"
-                               class="text-[10px] font-medium px-2 py-1 rounded no-underline flex-shrink-0 transition hover:opacity-80"
-                               style="background:rgba(0,212,170,.1); color:#00d4aa; border:1px solid rgba(0,212,170,.2);">Send Marketing Pack</a>
-                        @elseif($gate === 'fica_sellers')
-                            <div class="flex flex-col gap-1 flex-shrink-0">
-                                @foreach($ficaFailingSellers as $seller)
-                                    <a href="{{ route('compliance.fica.create') }}?contact_id={{ $seller->id }}"
-                                       class="text-[10px] font-medium px-2 py-1 rounded no-underline transition hover:opacity-80"
-                                       style="background:rgba(0,212,170,.1); color:#00d4aa; border:1px solid rgba(0,212,170,.2);">FICA — {{ $seller->first_name }}</a>
-                                @endforeach
-                            </div>
-                        @elseif($gate === 'photos')
-                            <a href="{{ route('corex.properties.show', $property->id) }}?tab=gallery"
-                               class="text-[10px] font-medium px-2 py-1 rounded no-underline flex-shrink-0 transition hover:opacity-80"
-                               style="background:rgba(0,212,170,.1); color:#00d4aa; border:1px solid rgba(0,212,170,.2);">Upload Photos</a>
-                        @elseif($gate === 'details_complete')
-                            <a href="{{ route('corex.properties.show', $property->id) }}?tab=info"
-                               class="text-[10px] font-medium px-2 py-1 rounded no-underline flex-shrink-0 transition hover:opacity-80"
-                               style="background:rgba(0,212,170,.1); color:#00d4aa; border:1px solid rgba(0,212,170,.2);">Complete Details</a>
-                        @endif
+                    @if(!$check['passed'] && !$isLive && !empty($check['action_url']))
+                        <a href="{{ $check['action_url'] }}"
+                           class="text-[10px] font-medium px-2 py-1 rounded no-underline flex-shrink-0 transition hover:opacity-80"
+                           style="background:rgba(0,212,170,.1); color:#00d4aa; border:1px solid rgba(0,212,170,.2);">{{ $check['action_label'] ?? 'Resolve' }}</a>
                     @endif
                 </div>
             @endforeach
