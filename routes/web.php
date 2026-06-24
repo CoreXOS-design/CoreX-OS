@@ -2389,6 +2389,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{portalLead}/mark-notified', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'markNotified'])->name('mark-notified');
         });
 
+    // WhatsApp Outreach Summary board (agents × outreach states).
+    // Spec: .ai/specs/whatsapp-outreach-summary.md (AT-91)
+    Route::prefix('real-estate/outreach-summary')
+        ->middleware(['permission:outreach.summary.view', 'agency.required'])
+        ->name('corex.outreach-summary.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\WhatsappOutreachSummaryController::class, 'index'])->name('index');
+        });
+
     // Contacts
     Route::prefix('contacts')->middleware(['permission:access_contacts', 'agency.required'])->name('corex.contacts.')->group(function () {
         Route::get('/',                   [\App\Http\Controllers\CoreX\ContactController::class, 'index'])->name('index');

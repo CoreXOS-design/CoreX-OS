@@ -462,6 +462,8 @@ return [
         // See .ai/specs/seller-outreach-spec.md
         ['key' => 'outreach.compose',             'label' => 'Compose Seller Outreach',     'section' => 'outreach', 'type' => 'action', 'module' => 'outreach', 'sort_order' => 1],
         ['key' => 'outreach_templates.manage',    'label' => 'Manage Outreach Templates',   'section' => 'outreach', 'type' => 'action', 'module' => 'outreach', 'sort_order' => 2],
+        // AT-91 — WhatsApp Outreach Summary board (agents × outreach states). Oversight surface.
+        ['key' => 'outreach.summary.view',        'label' => 'View WhatsApp Outreach Summary', 'section' => 'outreach', 'type' => 'access', 'module' => 'outreach', 'sort_order' => 3],
 
         // ── Payroll ──
         ['key' => 'manage_payroll',        'label' => 'Manage Payroll (employees, types)', 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 120],
@@ -537,7 +539,7 @@ return [
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
                 'compliance.whistleblow.configure',
                 // Seller Outreach
-                'outreach.compose', 'outreach_templates.manage',
+                'outreach.compose', 'outreach_templates.manage', 'outreach.summary.view',
                 // MIC (Phase A2) — admin gets every MIC permission
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
@@ -645,7 +647,7 @@ return [
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
                 // Seller Outreach
-                'outreach.compose',
+                'outreach.compose', 'outreach.summary.view',
                 // MIC (Phase A2) — branch_manager (= spec "manager"): all
                 // EXCEPT regenerate_brief and view_ai_costs (admin+ only).
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
@@ -714,8 +716,9 @@ return [
                 'sidebar.section.agents', 'sidebar.section.tools',
                 // Whistleblower
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
-                // Seller Outreach — composer only; template management is admin
-                'outreach.compose',
+                // Seller Outreach — composer only; template management is admin.
+                // Summary board: agent sees their OWN row (ContactScope-enforced).
+                'outreach.compose', 'outreach.summary.view',
                 // MIC (Phase A2) — agent gets edit_address + upload_reports
                 // ONLY (per matrix §12.3). No merge, team, brief regen, or
                 // AI cost visibility for agents.

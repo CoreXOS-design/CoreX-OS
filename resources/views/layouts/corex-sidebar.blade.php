@@ -481,6 +481,13 @@
                 @endif
                 @endpermission
 
+                {{-- AT-91 — WhatsApp Outreach Summary board (agents × outreach states). --}}
+                @permission('outreach.summary.view')
+                @if(\Illuminate\Support\Facades\Route::has('corex.outreach-summary.index'))
+                <a href="{{ route('corex.outreach-summary.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-summary.*') ? 'active' : '' }}">WhatsApp Outreach</a>
+                @endif
+                @endpermission
+
                 @permission('access_core_matches')
                 @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
                 <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Core Matches</a>
