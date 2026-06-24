@@ -67,7 +67,7 @@
     {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="task-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Tasks</h1>
                 <div class="flex items-center gap-3 mt-1 text-sm flex-wrap" style="color: rgba(255,255,255,0.65);">
                     <span>{{ number_format($summary['open']) }} open</span>
@@ -83,8 +83,9 @@
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 {{-- View mode: Board / List --}}
-                <div class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.12);">
+                <div class="inline-flex rounded-md overflow-hidden" data-tour="task-view" style="background: rgba(255,255,255,0.12);">
                     @foreach(['kanban' => 'Board', 'list' => 'List'] as $vKey => $vLabel)
                         <a href="{{ route('command-center.tasks', array_merge(request()->query(), ['view' => $vKey])) }}"
                            class="px-3 py-1.5 text-xs font-semibold transition-colors"
@@ -108,7 +109,7 @@
                     </button>
                 </form>
 
-                <button @click="showCreateTask = true" class="corex-btn-primary">
+                <button @click="showCreateTask = true" class="corex-btn-primary" data-tour="task-add">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     New Task
                 </button>

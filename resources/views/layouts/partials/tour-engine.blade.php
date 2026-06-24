@@ -28,7 +28,10 @@
         $__tourProgress = \App\Models\UserTourProgress::where('user_id', auth()->id())
             ->where('tour_key', $__tour['key'])
             ->first();
-        $__tourAutoStart = ! ($__tourProgress && $__tourProgress->suppressesAutoStart());
+        // Force-start when arrived from the Guided Tours directory (?tour=<key>),
+        // even if the user has seen/dismissed it before. Otherwise honour progress.
+        $__tourForced   = request()->query('tour') === $__tour['key'];
+        $__tourAutoStart = $__tourForced || ! ($__tourProgress && $__tourProgress->suppressesAutoStart());
     @endphp
 
     {{-- Vendored assets — loaded once per page regardless of include count. --}}

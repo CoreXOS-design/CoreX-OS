@@ -23,11 +23,12 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="feedback-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Feedback Reports</h1>
                 <p class="text-sm text-white/60">Bug reports, enhancement requests and feedback submitted by your team.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-2 flex-wrap" data-tour="feedback-export">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('command-center.feedback-reports.export', ['format' => 'markdown']) }}"
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300 no-underline"
                    style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
@@ -51,7 +52,7 @@
     </div>
 
     {{-- Filters --}}
-    <div class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
+    <div class="rounded-md px-4 py-3" data-tour="feedback-filter" style="background:var(--surface);border:1px solid var(--border);">
         <div class="flex flex-wrap items-center gap-2">
             <a href="{{ route('command-center.feedback-reports') }}"
                class="text-xs font-semibold px-3 py-1.5 rounded-md no-underline transition-all duration-300"

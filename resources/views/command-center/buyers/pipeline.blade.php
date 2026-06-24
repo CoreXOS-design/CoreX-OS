@@ -6,13 +6,14 @@
     {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="buyers-intro">
                 <h1 class="text-xl font-bold text-white">Buyer Pipeline</h1>
                 <p class="text-sm text-white/60">Track buyer lifecycle: New → Warm → Cold → Lost</p>
             </div>
             <div class="flex items-center gap-3">
+                @include('layouts.partials.tour-header-launcher')
                 {{-- Pipeline scope toggle (Layer 3) --}}
-                <div class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);">
+                <div data-tour="buyers-scope" class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);">
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'own'])) }}"
                        class="px-2.5 py-1 text-[10px] font-semibold {{ ($pipelineScope ?? 'own') === 'own' ? 'text-white' : 'text-white/50' }}"
                        style="{{ ($pipelineScope ?? 'own') === 'own' ? 'background: var(--brand-button);' : '' }}">Mine</a>
@@ -26,7 +27,7 @@
                        style="{{ ($pipelineScope ?? '') === 'agency' ? 'background: var(--brand-button);' : '' }}">All</a>
                 </div>
                 {{-- View toggle --}}
-                <div class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
+                <div data-tour="buyers-view" class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('scope', 'state'), ['view' => 'kanban'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold {{ $view === 'kanban' ? 'text-white' : 'text-white/60' }}"
                        style="{{ $view === 'kanban' ? 'background: var(--brand-button);' : '' }}">Kanban</a>

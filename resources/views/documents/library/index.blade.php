@@ -9,9 +9,12 @@
 {{-- Page Header (Pattern A — branded) --}}
 <div class="rounded-md px-6 py-5 mb-6" style="background: var(--brand-default, #0b2a4a);">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div>
+        <div data-tour="docs-intro">
             <h1 class="text-xl font-bold text-white leading-tight">Document Library</h1>
             <p class="text-sm text-white/60">Upload, browse and manage shared documents.</p>
+        </div>
+        <div class="flex items-center gap-2">
+            @include('layouts.partials.tour-header-launcher')
         </div>
         @if($presentation)
             <div class="flex items-center gap-2">
@@ -86,7 +89,7 @@
         </div>
 
         {{-- Filters --}}
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4" data-tour="docs-filter" style="background: var(--surface); border: 1px solid var(--border);">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Filter</h2>
             <form method="GET" action="{{ route('documents.library.index') }}" class="space-y-3">
                 @if($presentationId)
