@@ -126,7 +126,9 @@ Single activity-log entry per delete operation:
 - **Modify:** [`app/Http/Controllers/Admin/UserManagementController.php`](../../app/Http/Controllers/Admin/UserManagementController.php) — split current `delete()` into:
   - `GET deletePreview(User)` → returns counts as JSON for the modal
   - `DELETE delete(User)` → accepts `target_user_id` + `secondary_handling`, runs the reassignment service, then existing flow
-- **Create:** `app/Services/Admin/AgentDeletionService.php` — the bulk reassignment + delete logic, transactional. Includes `reassignDeals()` (deal ownership + money move, dedup-safe across v1 + v2) and `preview()` returning `deals` / `has_deals`.
+- **Create:** `app/Services/Admin/AgentDeletionService.php` — the bulk reassignment + delete logic, transactional. Includes `reassignDeals()` (deal ownership + money move, dedup-safe across v1 + v2) and `preview()` returning `deals` / `has_deals`. `reassignDeals()` rebuilds `deal_money_lines` via `DealMoneyLineRebuilder` after the move (the observers that normally trigger this are bypassed by the raw writes).
+- **Modify:** `app/Services/DealMoneyLineRebuilder.php` — `rebuild()` now bypasses `DealBranchScope` (keeps `AgencyScope`) so a targeted recompute always finds its deal regardless of the caller's branch lens (required for cross-branch merges).
+- **Fix (pre-existing, surfaced here):** `deal_money_lines` is soft-deleted on every rebuild, so reads must exclude trashed rows or commission double-counts. Added `deleted_at IS NULL` filters to the raw readers: `WorksheetController` (stage + pipeline SUMs), `Admin\AgentPerformanceController`, `BM\AgentPerformanceController`, `EllieController`. Regression covered by `AgentDeleteDealReassignmentTest::test_rebuilt_deal_leaves_one_live_money_line_for_reporting`.
 - **Modify:** the user list/edit Blade view that holds the existing Delete button — wire it to fetch the preview and render the modal (Alpine.js).
 - **Modify:** `routes/web.php` — add `admin.users.delete-preview` route (under `/api/v1/admin/users/{user}/delete-preview` per non-negotiable #7, with `->name()` so it appears in `/admin/api`).
 - **No migration.**

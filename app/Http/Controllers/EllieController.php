@@ -306,6 +306,7 @@ class EllieController extends Controller
               $pipelineSub = DB::table('deal_money_lines as dml')
                   ->join('deals as d', 'd.id', '=', 'dml.deal_id')
                   ->where('dml.user_id', (int)$user->id)
+                  ->whereNull('dml.deleted_at') // exclude rebuilt-over (trashed) projection rows
                   ->whereIn('d.accepted_status', $pendingStatuses)
                   ->groupBy('dml.deal_id')
                   ->selectRaw('dml.deal_id as deal_id, MAX(d.property_value) as property_value_raw');

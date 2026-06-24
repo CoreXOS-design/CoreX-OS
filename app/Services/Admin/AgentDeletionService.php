@@ -3,6 +3,7 @@
 namespace App\Services\Admin;
 
 use App\Models\User;
+use App\Services\DealMoneyLineRebuilder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -220,9 +221,12 @@ class AgentDeletionService
      * What MOVES (ownership + money):
      *   - deal_user / deal_v2_agents           (agent role on each deal)
      *   - deal_settlements / deal_v2_settlements (commission split overrides)
-     *   - deal_money_lines                      (allocated money owed)
      *   - deals.managed_by_user_id              (named branch manager)
      *   - deals_v2.listing_agent_id / selling_agent_id
+     *
+     * What is REBUILT (not moved row-by-row):
+     *   - deal_money_lines                      (v1 commission projection,
+     *     regenerated from the moved deal_user/deal_settlements — see below)
      *
      * What is LEFT UNTOUCHED (audit / historical actor fields — rewriting them
      * would corrupt the record of who did what):
@@ -235,21 +239,40 @@ class AgentDeletionService
      * removed (soft-deleted where the table supports it) rather than moved, so
      * the unique key never clashes and commission is never double-counted.
      *
+     * `deal_money_lines` (the materialized v1 commission projection) is NOT
+     * re-pointed row-by-row — it is rebuilt from the moved deal_user /
+     * deal_settlements via DealMoneyLineRebuilder. The observers that normally
+     * trigger that rebuild are bypassed by the raw writes here, and a naive
+     * re-point would double-count commission on the dedup path, so we drive the
+     * canonical rebuilder directly instead.
+     *
      * @return array<string,int> rows changed per table.
      */
     public function reassignDeals(User $source, User $target, int $actorId): array
     {
+        // Merging an account into itself is a no-op — and would be destructive
+        // (every slot would "collide" with itself and get dropped).
+        if ((int) $source->id === (int) $target->id) {
+            return ['skipped_same_user' => 1];
+        }
+
         return DB::transaction(function () use ($source, $target, $actorId) {
             $now = now();
+
+            // v1 deals whose derived commission projection must be rebuilt after
+            // the move — captured BEFORE we touch any rows. Covers deals the agent
+            // is on as agent, or has a settlement / money-line for.
+            $v1DealIds = DB::table('deal_user')->where('user_id', $source->id)->pluck('deal_id')
+                ->merge(DB::table('deal_settlements')->where('user_id', $source->id)->pluck('deal_id'))
+                ->merge(DB::table('deal_money_lines')->where('user_id', $source->id)->pluck('deal_id'))
+                ->unique()
+                ->values();
 
             $counts = [
                 'deal_user'           => $this->moveAgentSlots('deal_user', $source, $target, $now),
                 'deal_settlements'    => $this->moveAgentSlots('deal_settlements', $source, $target, $now),
                 'deal_v2_agents'      => $this->moveAgentSlots('deal_v2_agents', $source, $target, $now),
                 'deal_v2_settlements' => $this->moveAgentSlots('deal_v2_settlements', $source, $target, $now),
-                'deal_money_lines'    => DB::table('deal_money_lines')
-                    ->where('user_id', $source->id)
-                    ->update(['user_id' => $target->id, 'updated_at' => $now]),
                 'deals_managed_by'    => DB::table('deals')
                     ->where('managed_by_user_id', $source->id)
                     ->update(['managed_by_user_id' => $target->id, 'updated_at' => $now]),
@@ -260,6 +283,16 @@ class AgentDeletionService
                     ->where('selling_agent_id', $source->id)
                     ->update(['selling_agent_id' => $target->id, 'updated_at' => $now]),
             ];
+
+            // Rebuild deal_money_lines from the now-moved deal_user/deal_settlements
+            // so the projection matches reality (and any dedup-dropped duplicate is
+            // collapsed rather than left double-counted).
+            $rebuilt = 0;
+            foreach ($v1DealIds as $dealId) {
+                DealMoneyLineRebuilder::rebuildDealId((int) $dealId);
+                $rebuilt++;
+            }
+            $counts['deal_money_lines_rebuilt'] = $rebuilt;
 
             Log::info('agent.deals_reassigned', [
                 'actor_user_id'    => $actorId,
@@ -293,11 +326,14 @@ class AgentDeletionService
         $changed = 0;
 
         foreach ($sourceRows as $row) {
+            // The unique key (deal_id, user_id, side) spans ALL rows — including
+            // soft-deleted ones — so the collision check must NOT filter by
+            // deleted_at, or moving onto a soft-deleted target slot would throw a
+            // duplicate-key error mid-transaction.
             $collision = DB::table($table)
                 ->where('deal_id', $row->deal_id)
                 ->where('side', $row->side)
                 ->where('user_id', $target->id)
-                ->when($softDeletes, fn ($q) => $q->whereNull('deleted_at'))
                 ->exists();
 
             if ($collision) {
