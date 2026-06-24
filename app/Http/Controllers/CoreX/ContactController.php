@@ -36,16 +36,38 @@ class ContactController extends Controller
 
         $query = Contact::with(['type', 'createdBy'])->orderBy('last_name')->orderBy('first_name');
 
+        // AT-91 — an EXPLICIT agent pick keys off contacts.agent_id (the
+        // operational responsible agent), NOT created_by_user_id (immutable
+        // creator). This reconciles the contacts list with the WhatsApp Outreach
+        // Summary board, which attributes rows by agent_id, so a board cell count
+        // and its drilled list are identical. 'unassigned' → contacts with no
+        // responsible agent. The no-pick default-narrowing paths are left on the
+        // original created_by basis (and ContactScope's own-row enforcement) so
+        // the everyday contacts page is unchanged.
         if ($canPickAgent) {
-            if ($filterAgentId !== '') {
-                $query->where('created_by_user_id', (int) $filterAgentId);
+            if ($filterAgentId === 'unassigned') {
+                $query->whereNull('agent_id');
+            } elseif ($filterAgentId !== '' && $filterAgentId !== 'all') {
+                $query->where('agent_id', (int) $filterAgentId);
             } elseif ($dataScope === 'branch' && $user->branch_id) {
                 $query->whereHas('createdBy', fn($q) => $q->where('branch_id', $user->branch_id));
             }
             // 'all' scope with no filter = show all contacts
         } else {
-            // 'own' scope: agents see only their own
+            // 'own' scope: agents see only their own (ContactScope also enforces this)
             $query->where('created_by_user_id', $user->id);
+        }
+
+        // AT-91 — WhatsApp Outreach Summary drill-through. ?channel=whatsapp
+        // narrows to the board population (contacts with a WhatsApp send), and
+        // ?outreach_state applies the SAME state condition the board counts by
+        // (Contact::outreachStateSql via the scope), so count == drilled length.
+        if ($request->query('channel') === 'whatsapp') {
+            $query->hasWhatsappOutreach();
+        }
+        $outreachState = (string) $request->query('outreach_state', '');
+        if ($outreachState !== '' && in_array($outreachState, Contact::OUTREACH_BOARD_STATES_ALL, true)) {
+            $query->outreachState($outreachState);
         }
 
         if ($request->filled('search')) {
