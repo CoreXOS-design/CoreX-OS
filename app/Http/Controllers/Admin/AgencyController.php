@@ -508,13 +508,33 @@ class AgencyController extends Controller
                     }
                 }
 
+                // Whether a given FK column accepts NULL — drives the choice between
+                // nulling the reference and hard-deleting the orphaned row.
+                $columnIsNullable = function (string $table, string $column) use ($driver): bool {
+                    if (in_array($driver, ['mysql', 'mariadb'], true)) {
+                        $row = DB::selectOne(
+                            "SELECT IS_NULLABLE
+                               FROM information_schema.COLUMNS
+                              WHERE TABLE_SCHEMA = DATABASE()
+                                AND TABLE_NAME = ?
+                                AND COLUMN_NAME = ?",
+                            [$table, $column]
+                        );
+                        return $row !== null && strtoupper($row->IS_NULLABLE) === 'YES';
+                    }
+                    // Non-MySQL drivers: assume nullable and let the null update proceed.
+                    return true;
+                };
+
                 foreach ($userRefs as $ref) {
                     $table  = $ref['table'];
                     $column = $ref['column'];
                     try {
                         // If the referencing table is tenant-scoped, hard-delete the rows.
-                        // Otherwise just null the FK so the user delete can proceed.
-                        if (Schema::hasColumn($table, 'agency_id')) {
+                        // Otherwise null the FK so the user delete can proceed — unless the
+                        // column is NOT NULL, in which case the row is meaningless without
+                        // its user reference, so hard-delete it instead.
+                        if (Schema::hasColumn($table, 'agency_id') || !$columnIsNullable($table, $column)) {
                             $deleted = DB::table($table)->whereIn($column, $userIdsToDelete)->delete();
                             if ($deleted > 0) {
                                 $counts[$table] = ($counts[$table] ?? 0) + $deleted;
