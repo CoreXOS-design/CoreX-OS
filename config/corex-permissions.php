@@ -241,6 +241,9 @@ return [
         ['key' => 'shared_drive.folders.create', 'label' => 'Create Folders',             'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 13],
         ['key' => 'shared_drive.folders.delete', 'label' => 'Delete Folders',             'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 14],
         ['key' => 'shared_drive.files.delete',   'label' => 'Delete Files',               'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 15],
+        ['key' => 'shared_drive.drives.create',            'label' => 'Create Shared Drives',                'section' => 'shared-drive', 'type' => 'action', 'module' => 'shared_drive', 'sort_order' => 16],
+        ['key' => 'shared_drive.drives.create_restricted', 'label' => 'Create Restricted (Locked) Drives',   'section' => 'shared-drive', 'type' => 'action', 'module' => 'shared_drive', 'sort_order' => 17],
+        ['key' => 'shared_drive.drives.manage',            'label' => 'Manage All Drives & Access',          'section' => 'shared-drive', 'type' => 'action', 'module' => 'shared_drive', 'sort_order' => 18],
 
         // ── Presentations ──
         ['key' => 'access_presentations',        'label' => 'Access Presentations',        'section' => 'presentations',    'type' => 'access',  'module' => 'presentations',    'sort_order' => 1],
@@ -609,6 +612,7 @@ return [
                 'access_shared_drive', 'shared_drive.view', 'shared_drive.upload',
                 'shared_drive.download', 'shared_drive.folders.create',
                 'shared_drive.folders.delete', 'shared_drive.files.delete',
+                'shared_drive.drives.create', 'shared_drive.drives.create_restricted',
                 'access_presentations', 'create_presentations', 'run_analysis',
                 'presentations.view', 'presentations.create', 'presentations.edit',
                 'access_filing_register',
@@ -687,6 +691,7 @@ return [
                 'access_document_library',
                 'access_shared_drive', 'shared_drive.view', 'shared_drive.upload',
                 'shared_drive.download', 'shared_drive.folders.create',
+                'shared_drive.drives.create',
                 'access_presentations',
                 'presentations.view', 'presentations.create', 'presentations.edit',
                 'access_filing_register',

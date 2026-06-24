@@ -3231,8 +3231,18 @@ Route::middleware(['auth', 'permission:access_shared_drive'])
     ->group(function () {
         Route::get('/', [\App\Http\Controllers\Documents\SharedDriveController::class, 'index'])
             ->name('index');
-        Route::get('/folder/{folder}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'index'])
+
+        // Drives (top-level containers, optionally access-restricted)
+        Route::post('/drives', [\App\Http\Controllers\Documents\SharedDriveController::class, 'storeDrive'])
+            ->name('drives.store');
+        Route::get('/drives/{drive}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'show'])
+            ->name('drive');
+        Route::get('/drives/{drive}/folder/{folder}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'show'])
             ->name('folder');
+        Route::put('/drives/{drive}/access', [\App\Http\Controllers\Documents\SharedDriveController::class, 'updateDriveAccess'])
+            ->name('drives.access');
+        Route::delete('/drives/{drive}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'destroyDrive'])
+            ->name('drives.destroy');
 
         Route::post('/folders', [\App\Http\Controllers\Documents\SharedDriveController::class, 'storeFolder'])
             ->name('folders.store');

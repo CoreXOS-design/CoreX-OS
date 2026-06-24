@@ -13,6 +13,7 @@ class SharedDriveFile extends Model
 
     protected $fillable = [
         'agency_id',
+        'drive_id',
         'folder_id',
         'original_name',
         'stored_path',
@@ -25,6 +26,11 @@ class SharedDriveFile extends Model
     protected $casts = [
         'bytes' => 'integer',
     ];
+
+    public function drive(): BelongsTo
+    {
+        return $this->belongsTo(SharedDrive::class, 'drive_id');
+    }
 
     public function folder(): BelongsTo
     {

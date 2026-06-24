@@ -2,8 +2,10 @@
 
 namespace App\Services\Documents;
 
+use App\Models\SharedDrive;
 use App\Models\SharedDriveFile;
 use App\Models\SharedDriveFolder;
+use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -60,10 +62,95 @@ class SharedDriveService
     }
 
     /**
-     * Store an uploaded file and create its DB record under the given folder
-     * (null folder = drive root). Returns the created model.
+     * Find (or lazily create) the agency's default "General" drive. Every
+     * agency has exactly one; it is never restricted and never deleted. Fresh
+     * agencies with no pre-v2 data get theirs on first visit to the drive list.
      */
-    public function storeUpload(UploadedFile $file, ?SharedDriveFolder $folder, int $agencyId, int $userId): SharedDriveFile
+    public function ensureDefaultDrive(int $agencyId, int $userId): SharedDrive
+    {
+        $drive = SharedDrive::where('agency_id', $agencyId)
+            ->where('is_default', true)
+            ->first();
+
+        if ($drive) {
+            return $drive;
+        }
+
+        return SharedDrive::create([
+            'agency_id'          => $agencyId,
+            'name'               => 'General',
+            'is_restricted'      => false,
+            'is_default'         => true,
+            'created_by_user_id' => $userId,
+        ]);
+    }
+
+    /** Create a new (non-default) drive. */
+    public function createDrive(string $name, bool $restricted, int $agencyId, int $userId): SharedDrive
+    {
+        return SharedDrive::create([
+            'agency_id'          => $agencyId,
+            'name'               => trim($name),
+            'is_restricted'      => $restricted,
+            'is_default'         => false,
+            'created_by_user_id' => $userId,
+        ]);
+    }
+
+    /**
+     * Active, agency-scoped members eligible to be granted drive access. Used
+     * both to populate the access-picker and to validate submitted user ids,
+     * so the two can never diverge (no cross-agency id can be smuggled in).
+     */
+    public function agencyMemberQuery(int $agencyId)
+    {
+        return User::agencyMembers()
+            ->where('is_active', 1)
+            ->where(function ($q) use ($agencyId) {
+                $q->where('agency_id', $agencyId)
+                    ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+            })
+            ->orderBy('name');
+    }
+
+    /**
+     * Replace a restricted drive's member list. Submitted ids are intersected
+     * with real agency members, so a forged id is silently dropped. Open drives
+     * carry no access rows (everyone sees them) — clear any that linger.
+     */
+    public function syncDriveAccess(SharedDrive $drive, array $userIds): void
+    {
+        if (!$drive->is_restricted) {
+            $drive->accessUsers()->sync([]);
+            return;
+        }
+
+        $valid = $this->agencyMemberQuery((int) $drive->agency_id)
+            ->whereIn('users.id', array_map('intval', $userIds))
+            ->pluck('users.id')
+            ->all();
+
+        $drive->accessUsers()->sync($valid);
+    }
+
+    /**
+     * Soft-delete an entire drive: every folder and file carries the drive_id,
+     * so we archive them directly (no recursion needed) then the drive itself.
+     * Physical files are KEPT for admin recovery (non-negotiable #1).
+     */
+    public function deleteDrive(SharedDrive $drive): void
+    {
+        SharedDriveFile::where('drive_id', $drive->id)->get()->each->delete();
+        SharedDriveFolder::where('drive_id', $drive->id)->get()->each->delete();
+        $drive->accessUsers()->detach();
+        $drive->delete();
+    }
+
+    /**
+     * Store an uploaded file and create its DB record under the given drive and
+     * folder (null folder = drive root). Returns the created model.
+     */
+    public function storeUpload(UploadedFile $file, SharedDrive $drive, ?SharedDriveFolder $folder, int $agencyId, int $userId): SharedDriveFile
     {
         $now = now();
         $slug = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'file';
@@ -74,6 +161,7 @@ class SharedDriveService
         $storedPath = $file->storeAs($dir, $filename, 'local');
 
         return SharedDriveFile::create([
+            'drive_id'            => $drive->id,
             'folder_id'           => $folder?->id,
             'original_name'       => $file->getClientOriginalName(),
             'stored_path'         => $storedPath,
@@ -86,12 +174,13 @@ class SharedDriveService
 
     /**
      * True if a folder with this name already exists (case-insensitive) in the
-     * same directory. Trashed folders are ignored (the model's soft-delete
-     * scope already excludes them).
+     * same directory of the same drive. Trashed folders are ignored (the
+     * model's soft-delete scope already excludes them).
      */
-    public function folderNameTaken(string $name, ?int $parentId): bool
+    public function folderNameTaken(string $name, int $driveId, ?int $parentId): bool
     {
         return SharedDriveFolder::query()
+            ->where('drive_id', $driveId)
             ->where('parent_id', $parentId)
             ->whereRaw('LOWER(name) = ?', [mb_strtolower(trim($name))])
             ->exists();

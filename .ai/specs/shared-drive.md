@@ -3,7 +3,86 @@
 > Status: DRAFT — Awaiting approval (Johan/Andre)
 > Module: Documents → Shared Drive (new standalone module)
 > Author: Andre
-> Last updated: 2026-06-19
+> Last updated: 2026-06-24
+
+---
+
+## v2 — Multiple Drives & Restricted (Locked) Access  *(2026-06-24, Andre)*
+
+v1 shipped a single agency-wide drive with role-level permissions only. v2
+introduces **multiple top-level Drives** with optional **per-drive access
+control**, so a user can create a "locked" drive only certain people can see.
+
+**Concept change.** The old flat root (folders/files with `parent_id`/`folder_id`
+null) becomes the contents of a **default "General" drive** that every agency
+member with `access_shared_drive` sees. Users with the new permission create
+additional drives that are either:
+
+- **Open** — visible to the whole agency (like General).
+- **Restricted** — visible only to the creator + an explicitly chosen list of
+  agency users. Owner/Admin roles (and anyone with `shared_drive.drives.manage`)
+  bypass the list and see every drive, consistent with how the Owner role
+  bypasses permissions elsewhere.
+
+Folders & files now live **inside a drive** (`drive_id`). Inside any drive the
+v1 behaviour is unchanged: create nested folders, upload, view, download,
+delete (all per existing permissions). Image upload (jpg/png/gif/webp) — already
+allowed server-side in v1 — is surfaced in the upload UI (accept filter +
+inline image viewer).
+
+### v2 data model additions
+- **`shared_drives`** — `id, agency_id, name, is_restricted (bool), is_default
+  (bool), created_by_user_id, timestamps, deleted_at`. `BelongsToAgency` +
+  `SoftDeletes`. Exactly one `is_default=true` "General" drive per agency
+  (ensured lazily on first visit). Default drive cannot be restricted or deleted.
+- **`shared_drive_access`** — pivot `drive_id, user_id` (unique together),
+  cascade-on-delete. Membership list for restricted drives.
+- **`shared_drive_folders.drive_id`** / **`shared_drive_files.drive_id`** —
+  nullable FK → `shared_drives`. A backfill migration creates each agency's
+  General drive and stamps existing rows onto it.
+
+### v2 permissions (added to the shared-drive section + role_defaults)
+| key | label | who gets it (fresh install) |
+|-----|-------|------|
+| `shared_drive.drives.create`            | Create Shared Drives                | admin, branch_manager, agent |
+| `shared_drive.drives.create_restricted` | Create Restricted (Locked) Drives   | admin, branch_manager |
+| `shared_drive.drives.manage`            | Manage All Drives & Access (see all) | admin (branch_manager: no) |
+
+**Visibility rule (read):** a drive is visible to a user iff
+`!is_restricted` **OR** user is `created_by_user_id` **OR** user is in
+`shared_drive_access` **OR** user `hasPermission('shared_drive.drives.manage')`
+**OR** user is Owner role. Enforced by `SharedDrive::scopeVisibleTo()` and a
+controller `authorizeDrive()` guard on every folder/file/upload action — so a
+restricted drive's contents are unreachable by URL, not merely hidden.
+
+**Create-access popup:** the "New Drive" modal exposes a Restricted toggle
+(only if `create_restricted`) that reveals a searchable checklist of all agency
+members (`User::agencyMembers()`); selections become `shared_drive_access` rows.
+A "Manage Access" action on a restricted drive (creator or `drives.manage`)
+reopens the same picker.
+
+### v2 routes (added to the existing `documents/shared-drive` group)
+- `GET /` → **drive list** (cards; lock badge on restricted) — new landing.
+- `GET /drives/{drive}` + `GET /drives/{drive}/folder/{folder}` → browse a drive.
+- `POST /drives` (create), `PUT /drives/{drive}/access` (edit members),
+  `DELETE /drives/{drive}` (soft delete; not the default drive).
+- Existing folder/file/upload routes gain `drive_id` context + access guard.
+
+### v2 acceptance criteria (in addition to §8 below)
+- [ ] A user with `drives.create` creates an Open drive; whole agency sees it.
+- [ ] A user with `drives.create_restricted` creates a Restricted drive and
+      picks members from the agency-user popup; only those members + creator
+      see it on the drive list.
+- [ ] A non-member gets 403 hitting `/drives/{id}` of a restricted drive by URL.
+- [ ] An Admin (or `drives.manage`) sees every restricted drive without being
+      added; Owner too.
+- [ ] The default "General" drive exists for every agency, cannot be deleted or
+      made restricted, and holds all pre-v2 folders/files after backfill.
+- [ ] Image upload (png/jpg/gif/webp) succeeds and previews inline.
+
+---
+
+## v1 (original)
 
 ---
 
