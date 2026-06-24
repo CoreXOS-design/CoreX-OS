@@ -53,7 +53,7 @@ These items have been identified and scoped. Each requires a full spec in `/.ai/
 
 | Module | Status | Notes |
 |--------|--------|-------|
-| Flow Map | ✅ Live (Staging) | Tools → Flow Map. Read-only permission-aware interconnection guide. Curated backbone (`config/flow-map.php`) + live event catalogue. Spec: `.ai/specs/flows-map.md`. NOT the Flow Runner (`flows.md`) |
+| Flow Map | ❌ Removed | Page deleted (controller, service, view, config, route, permission, spec). Removed 2026-06-24 |
 | Listings | ✅ Live | Multi-agent, P24 email parser, suburb extraction |
 | Contacts | ✅ Live | Basic — pillar linkage consolidation pending |
 | Agency Tracker | ✅ Live | Commission calculator, BM worksheet, branch dashboards |

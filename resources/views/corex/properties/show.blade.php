@@ -1384,6 +1384,7 @@
                 ['key'=>'overview',  'label'=>'Overview'],
                 ['key'=>'info',      'label'=>'Info'],
                 ['key'=>'gallery',   'label'=>'Gallery'],
+                ['key'=>'rental-images', 'label'=>'Rental Images'],
                 ['key'=>'contacts',  'label'=>'Contacts'],
                 ['key'=>'notes',     'label'=>'Notes'],
                 ['key'=>'history',   'label'=>'History'],
@@ -1392,6 +1393,9 @@
                 ['key'=>'core-matches', 'label'=>'Core Matches'],
             ] as $tab)
             @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
+                @continue
+            @endif
+            @if($tab['key'] === 'rental-images' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
                 @continue
             @endif
             <button type="button"
@@ -3901,6 +3905,251 @@
             {{-- Portal Agents section removed — agent info shown in live preview and sidebar --}}
 
         </div>
+
+        {{-- ── RENTAL IMAGES TAB ─────────────────────────────────────────────── --}}
+        @if(!$isNew && strtolower($property->listing_type ?? '') === 'rental')
+        <div x-show="activeTab === 'rental-images'" x-cloak class="p-6 space-y-4"
+             x-data="rentalImages({
+                csrf: '{{ csrf_token() }}',
+                urls: {
+                    upload: '{{ route('corex.properties.rental-images.upload', $property) }}',
+                    save:   '{{ route('corex.properties.rental-images.save', $property) }}',
+                    delete: '{{ route('corex.properties.rental-images.delete', $property) }}'
+                },
+                data: {{ Js::from($property->rentalImagesStructure()) }}
+             })">
+
+            <div class="flex items-start justify-between gap-4">
+                <p class="text-xs" style="color:var(--text-muted);max-width:42rem;">
+                    Inspection evidence for this rental. Each section is collapsed until you open it,
+                    carries its own date, and holds its own set of photos. Add as many extra sections
+                    as you need for handovers, snags or damage.
+                </p>
+                <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
+            </div>
+
+            {{-- In Inspection --}}
+                <div class="prop-section">
+                    <button type="button" class="prop-section-toggle" @click="toggle('in_inspection')">
+                        <h3 class="prop-section-heading">
+                            <span class="prop-section-heading-text">In Inspection</span>
+                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="'(' + data.in_inspection.images.length + ')'"></span>
+                        </h3>
+                        <svg class="prop-section-chevron" :class="open['in_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                    </button>
+                    <div x-show="open['in_inspection']" x-collapse class="prop-section-body space-y-4">
+                        <div>
+                            <label class="prop-label">Inspection date</label>
+                            <input type="date" class="prop-input" style="max-width:14rem;"
+                                   :value="data.in_inspection.date"
+                                   @change="setDate('in_inspection', null, $event)">
+                        </div>
+                        <p x-show="!data.in_inspection.images.length" class="text-xs" style="color:var(--text-muted);">No photos yet.</p>
+                        <div x-show="data.in_inspection.images.length" class="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                            <template x-for="(url, i) in data.in_inspection.images" :key="url + i">
+                                <div class="relative group rounded-md overflow-hidden" style="aspect-ratio:1/1;background:var(--surface-3);">
+                                    <img :src="url" class="w-full h-full object-cover" loading="lazy">
+                                    <button type="button" title="Delete" @click="deleteImage('in_inspection', null, i)"
+                                            class="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                            style="background:rgba(0,0,0,0.6);color:#fff;">&times;</button>
+                                </div>
+                            </template>
+                        </div>
+                        <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer text-sm transition-colors"
+                               style="border-color:var(--border-hover); color:var(--text-secondary);">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/></svg>
+                            <span x-text="busy ? 'Uploading…' : 'Add photos (multiple allowed)'"></span>
+                            <input type="file" multiple accept="image/*" class="hidden" :disabled="busy"
+                                   @change="uploadTo('in_inspection', null, $event)">
+                        </label>
+                    </div>
+                </div>
+
+            {{-- Out Inspection --}}
+                <div class="prop-section">
+                    <button type="button" class="prop-section-toggle" @click="toggle('out_inspection')">
+                        <h3 class="prop-section-heading">
+                            <span class="prop-section-heading-text">Out Inspection</span>
+                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="'(' + data.out_inspection.images.length + ')'"></span>
+                        </h3>
+                        <svg class="prop-section-chevron" :class="open['out_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                    </button>
+                    <div x-show="open['out_inspection']" x-collapse class="prop-section-body space-y-4">
+                        <div>
+                            <label class="prop-label">Inspection date</label>
+                            <input type="date" class="prop-input" style="max-width:14rem;"
+                                   :value="data.out_inspection.date"
+                                   @change="setDate('out_inspection', null, $event)">
+                        </div>
+                        <p x-show="!data.out_inspection.images.length" class="text-xs" style="color:var(--text-muted);">No photos yet.</p>
+                        <div x-show="data.out_inspection.images.length" class="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                            <template x-for="(url, i) in data.out_inspection.images" :key="url + i">
+                                <div class="relative group rounded-md overflow-hidden" style="aspect-ratio:1/1;background:var(--surface-3);">
+                                    <img :src="url" class="w-full h-full object-cover" loading="lazy">
+                                    <button type="button" title="Delete" @click="deleteImage('out_inspection', null, i)"
+                                            class="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                            style="background:rgba(0,0,0,0.6);color:#fff;">&times;</button>
+                                </div>
+                            </template>
+                        </div>
+                        <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer text-sm transition-colors"
+                               style="border-color:var(--border-hover); color:var(--text-secondary);">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/></svg>
+                            <span x-text="busy ? 'Uploading…' : 'Add photos (multiple allowed)'"></span>
+                            <input type="file" multiple accept="image/*" class="hidden" :disabled="busy"
+                                   @change="uploadTo('out_inspection', null, $event)">
+                        </label>
+                    </div>
+                </div>
+
+            {{-- Custom sections --}}
+            <template x-for="sec in data.custom" :key="sec.id">
+                <div class="prop-section">
+                    <button type="button" class="prop-section-toggle" @click="toggle(sec.id)">
+                        <h3 class="prop-section-heading">
+                            <span class="prop-section-heading-text" x-text="sec.name"></span>
+                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="'(' + sec.images.length + ')'"></span>
+                        </h3>
+                        <svg class="prop-section-chevron" :class="open[sec.id] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                    </button>
+                    <div x-show="open[sec.id]" x-collapse class="prop-section-body space-y-4">
+                        <div class="flex flex-wrap items-end gap-4">
+                            <div>
+                                <label class="prop-label">Inspection date</label>
+                                <input type="date" class="prop-input" style="max-width:14rem;"
+                                       :value="sec.date"
+                                       @change="setDate('custom', sec.id, $event)">
+                            </div>
+                            <button type="button" class="text-xs font-semibold px-3 py-2 rounded-md"
+                                    style="color:var(--brand-icon);background:var(--surface-2);"
+                                    @click="renameSection(sec.id)">Rename</button>
+                        </div>
+                        <p x-show="!sec.images.length" class="text-xs" style="color:var(--text-muted);">No photos yet.</p>
+                        <div x-show="sec.images.length" class="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                            <template x-for="(url, i) in sec.images" :key="url + i">
+                                <div class="relative group rounded-md overflow-hidden" style="aspect-ratio:1/1;background:var(--surface-3);">
+                                    <img :src="url" class="w-full h-full object-cover" loading="lazy">
+                                    <button type="button" title="Delete" @click="deleteImage('custom', sec.id, i)"
+                                            class="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                            style="background:rgba(0,0,0,0.6);color:#fff;">&times;</button>
+                                </div>
+                            </template>
+                        </div>
+                        <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer text-sm transition-colors"
+                               style="border-color:var(--border-hover); color:var(--text-secondary);">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/></svg>
+                            <span x-text="busy ? 'Uploading…' : 'Add photos (multiple allowed)'"></span>
+                            <input type="file" multiple accept="image/*" class="hidden" :disabled="busy"
+                                   @change="uploadTo('custom', sec.id, $event)">
+                        </label>
+                    </div>
+                </div>
+            </template>
+
+            {{-- Add section --}}
+            <button type="button" @click="addSection()" :disabled="busy"
+                    class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white"
+                    style="background:var(--brand-button,#0ea5e9);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                Add section
+            </button>
+        </div>
+
+        <script>
+        function rentalImages(config) {
+            return {
+                csrf: config.csrf,
+                urls: config.urls,
+                data: config.data,
+                open: {},
+                busy: false,
+                error: '',
+
+                toggle(key) { this.open[key] = !this.open[key]; },
+
+                async _post(url, body, isForm) {
+                    this.error = '';
+                    const opts = {
+                        method: 'POST',
+                        headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                        body: isForm ? body : JSON.stringify(body),
+                    };
+                    if (!isForm) opts.headers['Content-Type'] = 'application/json';
+                    const res = await fetch(url, opts);
+                    if (!res.ok) throw new Error('Request failed (HTTP ' + res.status + ').');
+                    return res.json();
+                },
+
+                async setDate(section, customId, ev) {
+                    try {
+                        const r = await this._post(this.urls.save, {
+                            action: 'set_date', section, custom_id: customId || '', date: ev.target.value || null,
+                        });
+                        this.data = r.rental_images;
+                    } catch (e) { this.error = e.message; }
+                },
+
+                async addSection() {
+                    const name = window.prompt('Name this section (e.g. "Garden handover")');
+                    if (!name || !name.trim()) return;
+                    this.busy = true;
+                    try {
+                        const r = await this._post(this.urls.save, { action: 'add_section', name: name.trim() });
+                        this.data = r.rental_images;
+                        const added = this.data.custom[this.data.custom.length - 1];
+                        if (added) this.open[added.id] = true;
+                    } catch (e) { this.error = e.message; }
+                    finally { this.busy = false; }
+                },
+
+                async renameSection(customId) {
+                    const sec = this.data.custom.find(c => c.id === customId);
+                    const name = window.prompt('Rename section', sec ? sec.name : '');
+                    if (!name || !name.trim()) return;
+                    try {
+                        const r = await this._post(this.urls.save, {
+                            action: 'rename_section', custom_id: customId, name: name.trim(),
+                        });
+                        this.data = r.rental_images;
+                    } catch (e) { this.error = e.message; }
+                },
+
+                async uploadTo(section, customId, ev) {
+                    const files = Array.from(ev.target.files || []);
+                    if (!files.length) return;
+                    this.busy = true;
+                    try {
+                        // Batch to stay under PHP max_file_uploads (default 20).
+                        const BATCH = 10;
+                        let latest = null;
+                        for (let i = 0; i < files.length; i += BATCH) {
+                            const fd = new FormData();
+                            fd.append('section', section);
+                            if (customId) fd.append('custom_id', customId);
+                            files.slice(i, i + BATCH).forEach(f => fd.append('images[]', f));
+                            latest = await this._post(this.urls.upload, fd, true);
+                        }
+                        if (latest && latest.rental_images) this.data = latest.rental_images;
+                    } catch (e) { this.error = e.message; }
+                    finally { this.busy = false; ev.target.value = ''; }
+                },
+
+                async deleteImage(section, customId, index) {
+                    if (!window.confirm('Delete this image?')) return;
+                    try {
+                        const r = await this._post(this.urls.delete, {
+                            section, custom_id: customId || '', index,
+                        });
+                        this.data = r.rental_images;
+                    } catch (e) { this.error = e.message; }
+                },
+            };
+        }
+        </script>
+        @endif
 
         {{-- ── CONTACTS TAB ─────────────────────────────────────────────────── --}}
         <div x-show="activeTab === 'contacts'" x-cloak class="p-6 space-y-6"

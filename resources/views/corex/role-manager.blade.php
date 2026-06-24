@@ -346,7 +346,7 @@
                                             @php $fOp = $fActionMap[$otherKey]; @endphp
                                             <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
                                                 <div>
-                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">{{ ucfirst($otherKey) }}</p>
+                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">{{ \Illuminate\Support\Str::headline($otherKey) }}</p>
                                                     <p class="text-xs mt-0.5" style="color:var(--text-muted);">{{ $fOp->label }}</p>
                                                 </div>
                                                 <div class="flex-shrink-0">

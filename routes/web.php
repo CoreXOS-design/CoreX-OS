@@ -736,13 +736,9 @@ use App\Http\Controllers\ToolsController;
 use App\Http\Controllers\Tools\PdfSplitterController;
 use App\Http\Controllers\Tools\PdfSuiteController;
 use App\Http\Controllers\Tools\ImageConverterController;
-use App\Http\Controllers\Tools\FlowMapController;
 
 Route::middleware(['auth'])->group(function () {
 
-
-    // Flow Map — read-only guide to how CoreX interconnects (spec: .ai/specs/flows-map.md)
-    Route::get('/tools/flow-map', [FlowMapController::class, 'index'])->middleware('permission:access_flow_map')->name('tools.flow-map');
 
     // Tools
     Route::get('/tools/commission', [ToolsController::class, 'commission'])->middleware('permission:access_calculators')->name('tools.commission');
@@ -2322,6 +2318,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // session-authed (the /api/v1 group has stateful middleware removed for
         // mobile, so it can't auth a cookie request). Spec: gallery-image-rotation.md
         Route::post('/{property}/rotate-image',[\App\Http\Controllers\CoreX\PropertyController::class, 'rotateImage'])->name('rotate-image');
+        // Rental inspection galleries — only surfaced for rental listings. Spec: rental-images.md
+        Route::post('/{property}/rental-images/upload',[\App\Http\Controllers\CoreX\PropertyController::class, 'uploadRentalImages'])->name('rental-images.upload');
+        Route::post('/{property}/rental-images/save',  [\App\Http\Controllers\CoreX\PropertyController::class, 'saveRentalImagesMeta'])->name('rental-images.save');
+        Route::post('/{property}/rental-images/delete',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteRentalImage'])->name('rental-images.delete');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');

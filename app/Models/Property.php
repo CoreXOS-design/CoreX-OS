@@ -85,6 +85,7 @@ class Property extends Model
         'gallery_images_json',
         'gallery_categories_json',
         'gallery_custom_tags',
+        'rental_images_json',
         'agent_id',
         'branch_id',
         // agency_id is the tenant key. It stays fillable so trusted non-auth ingress
@@ -171,6 +172,7 @@ class Property extends Model
         'gallery_images_json' => 'array',
         'gallery_categories_json' => 'array',
         'gallery_custom_tags'     => 'array',
+        'rental_images_json'      => 'array',
         'features_json'       => 'array',
         'features_json_meta'  => 'array',
         'pet_friendly'        => 'boolean',
@@ -814,6 +816,48 @@ class Property extends Model
         }
 
         return $tags;
+    }
+
+    /**
+     * Normalised rental-inspection gallery structure. The raw column may be null
+     * (sale property never touched it) or partially populated — this always
+     * returns the full shape so the controller and view never juggle missing keys.
+     *
+     * Shape: {
+     *   in_inspection:  { date: ?string, images: string[] },
+     *   out_inspection: { date: ?string, images: string[] },
+     *   custom: [ { id: string, name: string, date: ?string, images: string[] } ],
+     * }
+     */
+    public function rentalImagesStructure(): array
+    {
+        $raw = $this->rental_images_json ?? [];
+
+        $section = function ($s): array {
+            $s = is_array($s) ? $s : [];
+            return [
+                'date'   => isset($s['date']) && is_string($s['date']) ? $s['date'] : null,
+                'images' => array_values(array_filter(
+                    is_array($s['images'] ?? null) ? $s['images'] : [],
+                    'is_string'
+                )),
+            ];
+        };
+
+        $custom = [];
+        foreach ((is_array($raw['custom'] ?? null) ? $raw['custom'] : []) as $c) {
+            if (!is_array($c) || empty($c['id']) || !is_string($c['id'])) continue;
+            $custom[] = array_merge(
+                ['id' => $c['id'], 'name' => is_string($c['name'] ?? null) ? $c['name'] : 'Section'],
+                $section($c)
+            );
+        }
+
+        return [
+            'in_inspection'  => $section($raw['in_inspection']  ?? []),
+            'out_inspection' => $section($raw['out_inspection'] ?? []),
+            'custom'         => $custom,
+        ];
     }
 
     /** All images flattened into one array for convenience */
