@@ -4679,6 +4679,9 @@
             </div>
         @else
 
+            {{-- Compliance documents checklist (AT-94) — mirrors the marketing-readiness gate --}}
+            @include('corex.properties._compliance-checklist', ['complianceChecklist' => $complianceChecklist ?? [], 'property' => $property])
+
             {{-- Upload --}}
             <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload File</h3>

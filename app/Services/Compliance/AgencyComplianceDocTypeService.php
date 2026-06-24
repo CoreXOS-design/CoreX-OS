@@ -30,7 +30,7 @@ class AgencyComplianceDocTypeService
             ->whereNull('dt.deleted_at')
             ->where('dt.is_active', true)
             ->orderBy('dt.sort_order')
-            ->get(['dt.id', 'dt.slug', 'dt.label']);
+            ->get(['dt.id', 'dt.slug', 'dt.label', 'dt.grouping']);
     }
 
     /**
