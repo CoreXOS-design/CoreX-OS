@@ -77,8 +77,10 @@ class BackfillContactPropertyRoles extends Command
             if ($contactCount === 1) {
                 $msg = "INFER_SOLE prop={$row->property_id} contact={$row->contact_id}  NULL → '{$inferredRole}' (sole contact, {$listingType})";
                 if ($inferSole && $apply) {
+                    // Only the pivot role matters to the compliance gate. The
+                    // PropertySellerLink (seller-outreach) record is a separate
+                    // concern and needs an auth context — left for its own flow.
                     DB::table('contact_property')->where('id', $row->id)->update(['role' => $inferredRole]);
-                    \App\Models\PropertySellerLink::ensureExists($row->property_id, $row->contact_id);
                     $this->info($msg . '  [applied]');
                     $inferred++;
                 } else {
