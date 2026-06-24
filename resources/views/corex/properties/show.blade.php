@@ -3905,7 +3905,7 @@
              @if($isNew)
              x-data="pendingContactsManager('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from(isset($preLinkedContact) && $preLinkedContact ? [['id' => $preLinkedContact->id, 'name' => trim($preLinkedContact->full_name), 'phone' => $preLinkedContact->phone ?? '', 'email' => $preLinkedContact->email ?? '']] : []) }})"
              @else
-             x-data="propertyContactsManager('{{ route('corex.properties.contacts.search', $property) }}')"
+             x-data="propertyContactsManager('{{ route('corex.properties.contacts.search', $property) }}', '{{ $defaultLinkRole }}')"
              @endif>
         @if($isNew)
 
@@ -4042,6 +4042,14 @@
 
         @else
 
+            @php
+                // Canonical property↔contact roles (mirror PropertyContactController::LINK_ROLES).
+                // Default to the seller side for the listing type so the gate's
+                // seller/FICA check always sees a correctly-roled contact.
+                $linkRoleOptions = ['seller' => 'Seller', 'buyer' => 'Buyer', 'owner' => 'Owner', 'landlord' => 'Landlord', 'tenant' => 'Tenant', 'lessor' => 'Lessor'];
+                $defaultLinkRole = (($property->listing_type ?? 'sale') === 'rental') ? 'landlord' : 'seller';
+            @endphp
+
             {{-- Linked contacts --}}
             <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">
@@ -4088,6 +4096,19 @@
                     <div x-show="loading" class="absolute right-3 top-2.5">
                         <svg class="animate-spin w-4 h-4" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
                     </div>
+                </div>
+
+                {{-- Link as: role is captured per-link so the pivot is never NULL --}}
+                <div class="mb-3">
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Link as <span class="prop-required">*</span></label>
+                    <select x-model="linkRole"
+                            class="w-full rounded-md px-3 py-2 text-sm"
+                            style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        @foreach($linkRoleOptions as $value => $label)
+                        <option value="{{ $value }}" {{ $value === $defaultLinkRole ? 'selected' : '' }}>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <p class="mt-1 text-[11px]" style="color:var(--text-muted);">Sellers/owners/landlords drive compliance &amp; FICA. Pick the role this person plays on this property.</p>
                 </div>
 
                 <div x-show="results.length > 0" class="rounded-md overflow-hidden mb-3"
@@ -4163,10 +4184,14 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Role (optional)</label>
-                                <input type="text" name="role" placeholder="e.g. owner, buyer, tenant"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Role <span class="prop-required">*</span></label>
+                                <select name="role" required
+                                        class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    @foreach($linkRoleOptions as $value => $label)
+                                    <option value="{{ $value }}" {{ $value === $defaultLinkRole ? 'selected' : '' }}>{{ $label }}</option>
+                                    @endforeach
+                                </select>
                             </div>
                             {{-- A.2.5 — optional SA ID number with client-side hint. --}}
                             <div class="sm:col-span-2">
@@ -5384,13 +5409,14 @@ function updateDriveCreateList(input) {
 // Only defined for existing properties — the inline route() calls below need a
 // saved $property id, and on create the contacts tab uses pendingContactsManager.
 @if(!$isNew)
-function propertyContactsManager(searchUrl) {
+function propertyContactsManager(searchUrl, defaultRole) {
     return {
         query: '',
         results: [],
         loading: false,
         searched: false,
         submitting: false,
+        linkRole: defaultRole || 'seller',
         async search() {
             if (this.query.length < 1) { this.results = []; this.searched = false; return; }
             this.loading = true;
@@ -5427,7 +5453,7 @@ function propertyContactsManager(searchUrl) {
                         'X-Requested-With': 'XMLHttpRequest',
                         'X-CSRF-TOKEN': this._csrf(),
                     },
-                    body: JSON.stringify({ contact_id: r.id })
+                    body: JSON.stringify({ contact_id: r.id, role: this.linkRole })
                 });
                 if (!res.ok) { alert('Failed to link contact.'); return; }
                 const data = await res.json();

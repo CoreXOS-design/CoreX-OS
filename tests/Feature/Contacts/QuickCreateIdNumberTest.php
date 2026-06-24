@@ -36,6 +36,7 @@ final class QuickCreateIdNumberTest extends TestCase
                 'first_name' => 'Jane',
                 'last_name'  => 'Tester',
                 'phone'      => '0821234567',
+                'role'       => 'seller',
                 'id_number'  => '',
             ],
         );
@@ -56,6 +57,7 @@ final class QuickCreateIdNumberTest extends TestCase
             route('corex.properties.contacts.createAndLink', $propertyId),
             [
                 'first_name' => 'Jane', 'last_name' => 'Tester', 'phone' => '0821234567',
+                'role'       => 'seller',
                 // Last digit is wrong (checksum) — date OK, length OK.
                 'id_number'  => '7610025020082',
             ],
@@ -74,6 +76,7 @@ final class QuickCreateIdNumberTest extends TestCase
             route('corex.properties.contacts.createAndLink', $propertyId),
             [
                 'first_name' => 'Sam', 'last_name' => 'Test', 'phone' => '0821234567',
+                'role'       => 'seller',
                 'id_number'  => '7610025020081',
             ],
         );
