@@ -149,4 +149,21 @@ final class PropertyContactRoleTest extends TestCase
 
         $this->assertSame('owner', $this->linkRole());
     }
+
+    /** Regression: the role-select change must not 500 the property page with
+     *  an undefined $defaultLinkRole (the var is now defined in-blade). */
+    public function test_property_show_page_renders_with_role_select(): void
+    {
+        $resp = $this->actingAs($this->user)->get(route('corex.properties.show', $this->propertyId));
+        $resp->assertOk();
+        $resp->assertSee('Link as');            // the new role select label
+        $resp->assertSee('value="seller"', false); // canonical option, default on a sale listing
+    }
+
+    /** The create/new ($isNew) path renders the same view with a fresh
+     *  Property() — null-safe default must not blow up either. */
+    public function test_property_create_page_renders(): void
+    {
+        $this->actingAs($this->user)->get(route('corex.properties.create'))->assertOk();
+    }
 }
