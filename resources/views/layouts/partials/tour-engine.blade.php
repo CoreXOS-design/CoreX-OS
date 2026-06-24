@@ -18,6 +18,10 @@
 @php
     $__tourRouteName = \Illuminate\Support\Facades\Route::currentRouteName();
     $__tour          = \App\Support\Tours\TourRegistry::forRoute($__tourRouteName);
+    // Respect optional per-tour role-gating (defaults to "inherit the route's gate").
+    if ($__tour && ! \App\Support\Tours\TourRegistry::visibleTo($__tour, auth()->user())) {
+        $__tour = null;
+    }
 @endphp
 @if($__tour)
     @php

@@ -12,6 +12,7 @@
                 <p class="text-sm text-white/60">Manage your contacts and leads.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+            @include('layouts.partials.tour-header-launcher')
             @if(auth()->user()->effectiveRole() === 'super_admin')
             <form method="POST" action="{{ route('corex.contacts.destroy-all') }}"
                   onsubmit="return confirm('DELETE ALL CONTACTS? This permanently purges every contact in this agency — including already-archived (soft-deleted) ones — and all their related records. This cannot be undone. Are you sure?');">
