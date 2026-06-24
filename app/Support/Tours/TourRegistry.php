@@ -77,9 +77,14 @@ class TourRegistry
                         'body'    => 'Optional, but worth adding — it\'s also duplicate-checked and is what e-sign uses to deliver documents for signature.',
                     ],
                     [
+                        // FIX 1 (AT-41): agent-safe copy. The old text told the user to add
+                        // contact types in Settings — but only admins/owners can do that, and
+                        // the tour's audience is agents. Role-aware copy would need engine
+                        // support (static registry strings can't branch trivially), so per
+                        // the brief this is the pick-one version shown to everyone.
                         'element' => '[data-tour="contact-type"]',
                         'title'   => 'Contact type',
-                        'body'    => 'The type (Seller, Buyer, Landlord, Tenant…) maps to an e-sign role and drives automation. No types yet? Add them in Settings → Feature Settings → Contacts.',
+                        'body'    => 'Pick at least one — Seller, Buyer, Landlord or Tenant. The type tells CoreX how to work this person: it sets their role on e-sign documents and drives the right automation. Choose the one that matches how you\'re dealing with them.',
                     ],
                     [
                         'element' => '[data-tour="contact-save"]',
@@ -94,74 +99,68 @@ class TourRegistry
                 ],
             ],
 
-            // ── Property capture ─────────────────────────────────────────────
-            // Anchored against the live "New Property" workspace
-            // (corex.properties.create → corex/properties/show.blade.php, Info tab).
-            // Standard fields use scoped [name="…"] selectors inside the capture
-            // form (#prop-update-form); a few section/tab targets use dedicated
-            // data-tour / data-prop-tab anchors.
+            // ── Property capture (the 4-step WIZARD) ─────────────────────────
+            // FIX 2 (AT-41): re-pointed from the old single-form
+            // corex.properties.create (now the secondary "Classic form") to the
+            // canonical New Property WIZARD (corex.properties.wizard →
+            // corex/properties/wizard.blade.php). The prominent "New Property"
+            // CTA on the listings page goes here.
+            //
+            // Multi-step approach: the wizard advances only via its validated
+            // "Continue" button (goToStep is gated by canJumpTo/draft existence),
+            // and forcing the Alpine `step` mid-tour fights driver.js's popover
+            // positioning on x-show-hidden sections. So the tour anchors on
+            // Step 1 (Basics — where every real capture decision lives) plus the
+            // always-visible 4-step rail, and the rail + the Continue step narrate
+            // the Photos → Details → Review progression. Every anchor is present
+            // on the wizard's initial render — no empty spotlights.
             'property-capture' => [
                 'key'   => 'property-capture',
                 'title' => 'How to capture a property',
-                'route' => 'corex.properties.create',
+                'route' => 'corex.properties.wizard',
                 'setup' => [
                     ['action' => 'scrollTop'],
                 ],
                 'steps' => [
                     [
-                        'element' => '#prop-update-form [name="title"]',
-                        'title'   => 'Listing title',
-                        'body'    => 'Required. A short headline buyers see in search — e.g. "Stunning 4 Bed House in Uvongo". This is a marketing line, not the street address.',
+                        'element' => '[data-tour="wiz-rail"]',
+                        'title'   => 'Four quick steps',
+                        'body'    => 'Adding a property is just four steps — Basics, Photos, Details, then a final Review before you publish. This bar always shows where you are. Your work saves as a draft, so you can stop and come back any time. Let\'s do the Basics.',
                     ],
                     [
-                        'element' => '#prop-update-form [name="property_type"]',
+                        'element' => '[data-tour="wiz-listing-type"]',
+                        'title'   => 'For Sale or For Rental?',
+                        'body'    => 'Start here. Your choice changes the fields ahead — a rental asks for the monthly amount and lease details, a sale asks for the asking price.',
+                    ],
+                    [
+                        'element' => '[data-tour="wiz-headline"]',
+                        'title'   => 'Headline',
+                        'body'    => 'Required. The short line buyers see in search — e.g. "Stunning 3 Bed Family Home in Uvongo Beach". Sell the lifestyle; this is marketing, not the street address.',
+                    ],
+                    [
+                        'element' => '[data-tour="wiz-type"]',
                         'title'   => 'Property type',
-                        'body'    => 'House, flat, townhouse, sectional title, vacant land… This drives buyer matching and how the listing maps onto Property24 and Private Property.',
+                        'body'    => 'Required. House, flat, townhouse, vacant land… This drives buyer matching and how the listing maps onto Property24 and Private Property.',
                     ],
                     [
-                        'element' => '#prop-update-form [name="listing_type"]',
-                        'title'   => 'Sale or rental?',
-                        'body'    => 'Choose For Sale or For Rental. This unlocks the right fields (e.g. monthly rental and lease dates) and is locked after the first save — duplicate the listing to change it.',
-                    ],
-                    [
-                        'element' => '#prop-update-form [name="price"]',
+                        'element' => '[data-tour="wiz-price"]',
                         'title'   => 'Price',
-                        'body'    => 'Required. The asking price in Rands (e.g. 2 500 000). Rates &amp; taxes, levy and special levy sit alongside it for a complete cost picture.',
+                        'body'    => 'Required. The asking price (or monthly rental) in Rands — just type the number, CoreX formats it for you as you go.',
                     ],
                     [
-                        'element' => '[data-tour="prop-spaces"]',
-                        'title'   => 'Spaces',
-                        'body'    => 'Tap the +/- counters to set bedrooms, bathrooms, garages and more. These power buyer matching and the portal feeds — get them right.',
+                        'element' => '[data-tour="wiz-complex"]',
+                        'title'   => 'Complex or estate?',
+                        'body'    => 'If it\'s in a complex, estate or sectional-title scheme, add the unit, block and complex name so the address is complete. Standalone house? You can leave this blank.',
                     ],
                     [
-                        'element' => '[data-tour="prop-location"]',
+                        'element' => '[data-tour="wiz-location"]',
                         'title'   => 'Province · City · Suburb',
-                        'body'    => 'Type to search — these are backed by Property24\'s official list. You must pick a suburb P24 recognises (no free text), so the listing maps cleanly to the portals.',
+                        'body'    => 'Type to search — these come from Property24\'s official list. You must pick a suburb it recognises (no free text), so your listing maps cleanly to the portals.',
                     ],
                     [
-                        'element' => '#prop-update-form [name="description"]',
-                        'title'   => 'Description',
-                        'body'    => 'The full description shown on the listing page. Sell the lifestyle, not just the bricks — this is what turns a view into an enquiry.',
-                    ],
-                    [
-                        'element' => '#prop-update-form [name="mandate_type"]',
-                        'title'   => 'Mandate type',
-                        'body'    => 'Sole, Joint or Open — the mandate you hold on this property. It drives commission handling and compliance under the Property Practitioners Act.',
-                    ],
-                    [
-                        'element' => '#prop-update-form [name="agent_id"]',
-                        'title'   => 'Responsible agent',
-                        'body'    => 'The agent who holds this mandate. Their FFC and commission settings flow through to any deal that comes off this listing.',
-                    ],
-                    [
-                        'element' => '[data-prop-tab="gallery"]',
-                        'title'   => 'Photos live in the Gallery tab',
-                        'body'    => 'Switch to the Gallery tab to add images. On a new property they upload the moment you press Create Property.',
-                    ],
-                    [
-                        'element' => '[data-tour="prop-submit"]',
-                        'title'   => 'Create the listing',
-                        'body'    => 'This creates the Property in your Agency Stock. If anything required is missing, CoreX tells you exactly what — and takes you straight to it.',
+                        'element' => '[data-tour="wiz-continue"]',
+                        'title'   => 'Continue — and the rest',
+                        'body'    => 'When the Basics are in, this saves a draft and moves you to Step 2 · Photos (drag images in), then Step 3 · Details (beds, baths, mandate, agent), then Step 4 · Review to check everything before you publish. That\'s the whole capture — close this and add your first listing.',
                     ],
                 ],
             ],
@@ -197,6 +196,56 @@ class TourRegistry
                         'element' => '[data-tour="os-board"]',
                         'title'   => 'Every number is a doorway',
                         'body'    => 'Click any count and CoreX opens that exact list of contacts — already filtered to that agent, that outcome and WhatsApp. No searching. That\'s the whole board — close this and click a number to dive in.',
+                    ],
+                ],
+            ],
+
+            // ── Presentations / CMA — start a new presentation (queue #1) ────
+            // Entry screen presentations.create (single form). Sets the
+            // expectation that evidence upload + analysis happen on the NEXT
+            // screen. Field anchors use scoped [name="…"] selectors on the form.
+            'presentation-create' => [
+                'key'   => 'presentation-create',
+                'title' => 'Starting a CMA / presentation',
+                'route' => 'presentations.create',
+                'setup' => [
+                    ['action' => 'scrollTop'],
+                ],
+                'steps' => [
+                    [
+                        'element' => 'form [name="title"]',
+                        'title'   => 'Name the presentation',
+                        'body'    => 'A label just for you to find it later — e.g. "21 Dee Road — Seller Presentation". This isn\'t shown to the seller.',
+                    ],
+                    [
+                        'element' => 'form [name="property_address"]',
+                        'title'   => 'Property address',
+                        'body'    => 'Required. The street address of the home you\'re pitching to list. It anchors the whole CMA.',
+                    ],
+                    [
+                        'element' => 'form [name="suburb"]',
+                        'title'   => 'Suburb',
+                        'body'    => 'Required. CoreX pulls comparable sales from this suburb to value the property — so get it right.',
+                    ],
+                    [
+                        'element' => 'form [name="property_type"]',
+                        'title'   => 'Property type',
+                        'body'    => 'House, flat, townhouse… The CMA compares like with like, so a flat is valued against flats, not freestanding houses.',
+                    ],
+                    [
+                        'element' => 'form [name="asking_price_inc"]',
+                        'title'   => 'Asking price',
+                        'body'    => 'Required. The price the seller has in mind (or your opening estimate). The analysis will test it against the real market and suggest a realistic range.',
+                    ],
+                    [
+                        'element' => 'form [name="bedrooms"]',
+                        'title'   => 'Beds, baths & size',
+                        'body'    => 'Fill in the basics — beds, baths, erf and floor size, garages. The closer these match the real home, the sharper the comparable-sales match.',
+                    ],
+                    [
+                        'element' => '[data-tour="pres-submit"]',
+                        'title'   => 'Create — then the clever part',
+                        'body'    => 'This saves the property details and takes you to the next screen, where you upload the comparable-sales evidence and run the analysis that builds the seller\'s valuation. That\'s the start — close this and create your first presentation.',
                     ],
                 ],
             ],
