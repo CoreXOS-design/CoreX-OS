@@ -2080,12 +2080,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{userId}/toggle', [\App\Http\Controllers\Admin\DeveloperUserController::class, 'toggleActive'])->name('toggle');
     });
 
-    // Agency Management — index/create/store/destroy/toggle-active are owner-only.
+    // Agency Management — index/create/store/destroy/toggle-active/toggle-maintenance are owner-only.
     Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
         Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
         Route::post('/{agency}/toggle-active', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleActive'])->name('toggle-active');
+        // Per-agency maintenance mode (AT-93). Owner-only; owners bypass the
+        // gate so they can always lift it. Spec: .ai/specs/maintenance-mode.md
+        Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');
         Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
     });
 

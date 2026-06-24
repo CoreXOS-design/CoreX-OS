@@ -26,6 +26,17 @@ return Application::configure(basePath: dirname(__DIR__))
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
         ]);
 
+        // Per-agency maintenance gate (AT-93). Appended to the web group so it
+        // runs AFTER StartSession — the authenticated user, and therefore their
+        // agency, is resolvable. It acts ONLY on a logged-in non-owner whose
+        // resolved agency is flagged maintenance_mode; guests, the login page,
+        // System Owners and every other agency pass straight through. This is
+        // deliberately a TENANT-level gate, not a platform-wide one: the CoreX
+        // login always stays reachable. Spec: .ai/specs/maintenance-mode.md
+        $middleware->web(append: [
+            \App\Http\Middleware\AgencyMaintenanceGate::class,
+        ]);
+
         $middleware->alias([
             'tv' => \App\Http\Middleware\TvTokenMiddleware::class,
             'admin' => \App\Http\Middleware\AdminMiddleware::class,

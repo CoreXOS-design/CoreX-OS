@@ -200,6 +200,11 @@ class Agency extends Model
         'website_show_branches',
         'website_agent_order_mode',
         'website_branch_order_mode',
+        // Per-agency maintenance mode (AT-93) — tenant-level, enforced after
+        // login by AgencyMaintenanceGate. System Owners bypass.
+        'maintenance_mode',
+        'maintenance_message',
+        'maintenance_started_at',
     ];
 
     /** Website agent ordering modes. */
@@ -213,6 +218,9 @@ class Agency extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
+        // Per-agency maintenance mode (AT-93).
+        'maintenance_mode' => 'boolean',
+        'maintenance_started_at' => 'datetime',
         'ss_show_complex_section' => 'boolean',
         'ai_voice_enabled' => 'boolean',
         'ai_image_recognition_enabled' => 'boolean',
@@ -731,5 +739,41 @@ class Agency extends Model
     public function staffTakeOnRecords(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(Leave\StaffTakeOnRecord::class);
+    }
+
+    // ── Per-agency maintenance mode (AT-93) ──────────────────────────────
+
+    /**
+     * Is this agency currently in maintenance? Enforced after login by
+     * AgencyMaintenanceGate; System Owners bypass.
+     */
+    public function isInMaintenance(): bool
+    {
+        return (bool) $this->maintenance_mode;
+    }
+
+    /**
+     * Put this agency into maintenance. Reversible state change — no delete.
+     * Stamps the start time (for the "in maintenance since…" display) only on
+     * the transition into maintenance, so re-enabling doesn't reset it.
+     */
+    public function enterMaintenance(?string $message = null): void
+    {
+        $this->forceFill([
+            'maintenance_mode'       => true,
+            'maintenance_message'    => $message ?: $this->maintenance_message,
+            'maintenance_started_at' => $this->maintenance_started_at ?: now(),
+        ])->save();
+    }
+
+    /**
+     * Lift maintenance and restore normal access. Clears the start time.
+     */
+    public function exitMaintenance(): void
+    {
+        $this->forceFill([
+            'maintenance_mode'       => false,
+            'maintenance_started_at' => null,
+        ])->save();
     }
 }
