@@ -2320,6 +2320,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{property}/contacts/search',       [\App\Http\Controllers\CoreX\PropertyContactController::class, 'search'])->name('contacts.search');
         Route::post('/{property}/contacts/link',        [\App\Http\Controllers\CoreX\PropertyContactController::class, 'link'])->name('contacts.link');
         Route::post('/{property}/contacts/create-link', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'createAndLink'])->name('contacts.createAndLink');
+        Route::put('/{property}/contacts/{contact}/role', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'updateRole'])->name('contacts.updateRole');
         Route::delete('/{property}/contacts/{contact}', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'unlink'])->name('contacts.unlink');
         // Marketing
         Route::get('/{property}/marketing',              [\App\Http\Controllers\PropertyMarketingController::class, 'index'])->name('marketing.index');

@@ -320,6 +320,44 @@ class PropertyContactController extends Controller
         return back()->with('success', 'Contact unlinked.')->with('tab', 'contacts');
     }
 
+    /**
+     * Change the role on an existing property↔contact link (full CRUD on the
+     * link role — an agent who picked the wrong role edits it instead of
+     * unlink-and-relink). Same canonical normalise + validate as link().
+     */
+    public function updateRole(Request $request, Property $property, Contact $contact)
+    {
+        $this->authorizeProperty($property);
+
+        abort_unless(
+            $property->contacts()->where('contacts.id', $contact->id)->exists(),
+            404,
+            'Contact is not linked to this property.'
+        );
+
+        $this->normalizeRole($request);
+        $data = $request->validate([
+            'role' => ['required', 'string', Rule::in(self::LINK_ROLES)],
+        ]);
+
+        $property->contacts()->updateExistingPivot($contact->id, ['role' => $data['role']]);
+
+        // Keep the seller-link side-effect in step with the new role.
+        if (in_array($data['role'], ['owner', 'seller', 'landlord', 'lessor'], true)) {
+            \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
+        }
+
+        if ($request->expectsJson() || $request->wantsJson()) {
+            return response()->json([
+                'ok'   => true,
+                'id'   => $contact->id,
+                'role' => $data['role'],
+            ]);
+        }
+
+        return back()->with('success', 'Role updated.')->with('tab', 'contacts');
+    }
+
     /** Shape a contact row for AJAX consumers (matches the Blade row layout). */
     private function contactPayload(Property $property, Contact $contact, ?string $role): array
     {

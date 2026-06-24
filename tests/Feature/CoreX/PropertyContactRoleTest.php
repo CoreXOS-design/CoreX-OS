@@ -150,13 +150,68 @@ final class PropertyContactRoleTest extends TestCase
         $this->assertSame('owner', $this->linkRole());
     }
 
-    /** Regression: the role-select change must not 500 the property page with
-     *  an undefined $defaultLinkRole (the var is now defined in-blade). */
-    public function test_property_show_page_renders_with_role_select(): void
+    // ── updateRole (FIX 2 — edit role on an existing link) ──
+
+    private function link(Contact $c, string $role): void
     {
+        $this->actingAs($this->user)
+            ->postJson(route('corex.properties.contacts.link', $this->propertyId),
+                ['contact_id' => $c->id, 'role' => $role])
+            ->assertOk();
+    }
+
+    public function test_update_role_changes_pivot_and_normalizes(): void
+    {
+        $c = $this->makeContact('0820000010');
+        $this->link($c, 'buyer');
+        $this->assertSame('buyer', $this->linkRole());
+
+        $this->actingAs($this->user)
+            ->putJson(route('corex.properties.contacts.updateRole', [$this->propertyId, $c->id]),
+                ['role' => '  Seller '])
+            ->assertOk();
+
+        $this->assertSame('seller', $this->linkRole(), 'role updated + normalised without unlink/relink');
+        $this->assertDatabaseHas('property_seller_links', [
+            'property_id' => $this->propertyId, 'contact_id' => $c->id,
+        ]);
+    }
+
+    public function test_update_role_rejects_off_list(): void
+    {
+        $c = $this->makeContact('0820000011');
+        $this->link($c, 'seller');
+
+        $this->actingAs($this->user)
+            ->putJson(route('corex.properties.contacts.updateRole', [$this->propertyId, $c->id]),
+                ['role' => 'lead'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['role']);
+
+        $this->assertSame('seller', $this->linkRole(), 'rejected update leaves the role unchanged');
+    }
+
+    public function test_update_role_404_when_contact_not_linked(): void
+    {
+        $c = $this->makeContact('0820000012'); // never linked
+
+        $this->actingAs($this->user)
+            ->putJson(route('corex.properties.contacts.updateRole', [$this->propertyId, $c->id]),
+                ['role' => 'seller'])
+            ->assertStatus(404);
+    }
+
+    /** Regression: the role-select change must not 500 the property page; the
+     *  confirm-step "Link as" select + the inline "Edit role" affordance render. */
+    public function test_property_show_page_renders_role_ui(): void
+    {
+        $c = $this->makeContact('0820000013');
+        $this->link($c, 'seller');
+
         $resp = $this->actingAs($this->user)->get(route('corex.properties.show', $this->propertyId));
         $resp->assertOk();
-        $resp->assertSee('Link as');            // the new role select label
+        $resp->assertSee('Link as');               // confirm-step role select
+        $resp->assertSee('Edit role');             // inline edit on the linked row
         $resp->assertSee('value="seller"', false); // canonical option, default on a sale listing
     }
 
