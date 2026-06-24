@@ -177,26 +177,40 @@ class MarketingReadinessService
     {
         $ficaSlug = config('corex-compliance.fica_slug', 'fica');
         $driveTab = route('corex.properties.show', $property->id) . '?tab=drive';
+        $contactsTab = route('corex.properties.show', $property->id) . '?tab=contacts';
 
         $gates = [];
         foreach ($this->evaluateRequiredTypes($property) as $item) {
             $type = $item['type'];
             $present = $item['present'];
+            $isFica = $type->slug === $ficaSlug;
 
             if ($present) {
-                $detail = $type->label . ' on file';
-            } elseif ($type->slug === $ficaSlug) {
+                $detail = $isFica ? 'All sellers FICA approved' : ($type->label . ' on file');
+            } elseif ($isFica) {
                 $detail = $item['fica_detail'] ?? ('Missing: ' . $type->label);
             } else {
                 $detail = 'Missing: ' . $type->label . ' — upload the signed document to the property Drive';
             }
 
+            // FICA resolves at the seller contact (verify FICA), other types on the Drive.
+            $actionUrl = $isFica
+                ? ($this->primarySellerId($property)
+                    ? route('compliance.fica.create') . '?contact_id=' . $this->primarySellerId($property)
+                    : $contactsTab)
+                : $driveTab;
+            $actionLabel = $present
+                ? null
+                : ($isFica
+                    ? ($this->primarySellerId($property) ? 'Verify seller FICA' : 'Link a seller')
+                    : 'Upload ' . $type->label);
+
             $gates[$type->slug] = [
                 'passed' => $present,
                 'label' => $type->label,
                 'detail' => $detail,
-                'action_label' => $present ? null : 'Upload ' . $type->label,
-                'action_url' => $driveTab,
+                'action_label' => $actionLabel,
+                'action_url' => $actionUrl,
             ];
         }
 
@@ -208,10 +222,16 @@ class MarketingReadinessService
      * (requiredDocTypeGates) and the Drive-tab checklist (complianceChecklistFor)
      * derive from this — guaranteeing they never disagree.
      *
-     * Presence = a non-soft-deleted Drive Document of that type on the property
-     * OR on a seller contact (no approval status checked — instant-unlock
-     * doctrine). FICA additionally bridges to the authoritative fica_submissions
-     * approval so the existing FICA workflow never regresses.
+     * For ordinary required types, presence = a non-soft-deleted Drive Document
+     * of that type on the property OR on a seller contact (no approval status
+     * checked — instant-unlock doctrine).
+     *
+     * FICA is the exception: it is a CONTACT-level compliance fact, not a
+     * property document. The FICA required-type is satisfied only by the
+     * authoritative `fica_submissions` approval — every linked seller must be
+     * FICA-approved (and at least one seller must be linked). A FICA PDF on the
+     * property Drive does NOT satisfy it. This removes the duplicate weaker
+     * path and means a property cannot go live without a FICA-verified seller.
      *
      * @return list<array{type:object,present:bool,doc:?object,via:?string,fica_detail:?string}>
      */
@@ -259,30 +279,32 @@ class MarketingReadinessService
 
         $out = [];
         foreach ($requiredTypes as $type) {
-            $doc = $propertyDocs->get($type->id) ?? $contactDocs->get($type->id);
-            $via = $propertyDocs->has($type->id) ? 'property' : ($contactDocs->has($type->id) ? 'contact' : null);
-            $present = $doc !== null;
-            $rowFicaDetail = null;
-
-            if (!$present && $type->slug === $ficaSlug) {
+            // FICA: a contact-level gate on fica_submissions, NOT a Drive doc.
+            if ($type->slug === $ficaSlug) {
                 if (!$ficaChecked) {
                     [$ficaPass, $ficaDetail] = $this->checkSellersFicaSubmissions($property, $sellerIds);
                     $ficaChecked = true;
                 }
-                if ($ficaPass) {
-                    $present = true;
-                    $via = 'fica_bridge';
-                } else {
-                    $rowFicaDetail = $ficaDetail;
-                }
+                $out[] = [
+                    'type' => $type,
+                    'present' => $ficaPass,
+                    'doc' => null,
+                    'via' => $ficaPass ? 'contact_fica' : null,
+                    'fica_detail' => $ficaPass ? null : $ficaDetail,
+                ];
+                continue;
             }
+
+            // Ordinary required types: presence of a typed Drive document.
+            $doc = $propertyDocs->get($type->id) ?? $contactDocs->get($type->id);
+            $via = $propertyDocs->has($type->id) ? 'property' : ($contactDocs->has($type->id) ? 'contact' : null);
 
             $out[] = [
                 'type' => $type,
-                'present' => $present,
+                'present' => $doc !== null,
                 'doc' => $doc,
                 'via' => $via,
-                'fica_detail' => $rowFicaDetail,
+                'fica_detail' => null,
             ];
         }
 
@@ -313,19 +335,51 @@ class MarketingReadinessService
         $forceSatisfied = DevSetting::bool('compliance_checks_disabled')
             || $property->compliance_snapshot_at !== null;
 
-        // Primary seller for contact-level (e.g. FICA) upload routing.
+        $ficaSlug = config('corex-compliance.fica_slug', 'fica');
         $primarySeller = $property->contacts()
             ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
             ->first();
+        $sellerName = $primarySeller
+            ? (trim(($primarySeller->first_name ?? '') . ' ' . ($primarySeller->last_name ?? '')) ?: ($primarySeller->name ?? 'seller'))
+            : null;
 
         $filesStoreUrl = route('corex.properties.files.store', $property->id);
+        $contactsTab = route('corex.properties.show', $property->id) . '?tab=contacts';
 
         $rows = [];
         foreach ($items as $item) {
             $type = $item['type'];
             $present = $item['present'] || $forceSatisfied;
-            $isContactLevel = ($type->grouping ?? 'shared') === 'contact';
-            $routeToContact = $isContactLevel && $primarySeller !== null;
+
+            // FICA is a contact-level gate: no property upload — link to the
+            // seller's FICA (or prompt to link a seller). Satisfied only by the
+            // seller's fica_submissions approval, never a property Drive file.
+            if ($type->slug === $ficaSlug) {
+                $rows[] = [
+                    'slug' => $type->slug,
+                    'label' => $type->label,
+                    'type_id' => $type->id,
+                    'grouping' => 'contact',
+                    'present' => $present,
+                    'is_contact_fica' => true,
+                    'satisfied_by_snapshot' => $forceSatisfied && !$item['present'],
+                    'via' => $item['via'],
+                    'doc' => null,
+                    'detail' => $present
+                        ? 'Seller FICA approved'
+                        : ($item['fica_detail'] ?? 'Seller FICA outstanding'),
+                    'action_url' => $primarySeller
+                        ? route('compliance.fica.create') . '?contact_id=' . $primarySeller->id
+                        : $contactsTab,
+                    'action_label' => $present ? null : ($primarySeller ? 'Verify FICA' : 'Link a seller'),
+                    'seller_name' => $sellerName,
+                ];
+                continue;
+            }
+
+            // Other contact-grouped doc types (e.g. ID, proof of residence) still
+            // route their upload to the seller contact's drive when one exists.
+            $routeToContact = ($type->grouping ?? 'shared') === 'contact' && $primarySeller !== null;
 
             $rows[] = [
                 'slug' => $type->slug,
@@ -333,22 +387,19 @@ class MarketingReadinessService
                 'type_id' => $type->id,
                 'grouping' => $type->grouping ?? 'shared',
                 'present' => $present,
+                'is_contact_fica' => false,
                 'satisfied_by_snapshot' => $forceSatisfied && !$item['present'],
                 'via' => $item['via'],
                 'doc' => $item['doc'] ? [
                     'name' => $item['doc']->original_name,
                     'source' => $item['doc']->source_type, // 'esign' | 'upload' | ...
                 ] : null,
-                // Inline upload — reuses PropertyFileController::store. document
-                // type is pre-set so the agent can't mistype it; contact-level
-                // types also pass contact_id so the doc lands on the seller's
-                // drive (where the gate's contact-level check reads it).
+                // Inline upload — reuses PropertyFileController::store, document
+                // type pre-set so the agent can't mistype it.
                 'upload_url' => $filesStoreUrl,
                 'document_type_id' => $type->id,
                 'upload_contact_id' => $routeToContact ? $primarySeller->id : null,
-                'upload_contact_name' => $routeToContact
-                    ? trim(($primarySeller->first_name ?? '') . ' ' . ($primarySeller->last_name ?? '')) ?: ($primarySeller->name ?? 'seller')
-                    : null,
+                'upload_contact_name' => $routeToContact ? $sellerName : null,
             ];
         }
 
@@ -361,6 +412,16 @@ class MarketingReadinessService
         return $property->contacts()
             ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
             ->pluck('contacts.id');
+    }
+
+    /** First linked seller contact id (for routing the FICA action), or null. */
+    private function primarySellerId(Property $property): ?int
+    {
+        $id = $property->contacts()
+            ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->value('contacts.id');
+
+        return $id ? (int) $id : null;
     }
 
     /**

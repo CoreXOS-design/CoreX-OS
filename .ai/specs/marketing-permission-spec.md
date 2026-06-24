@@ -187,16 +187,26 @@ class ReadinessReport
 > document of a required type being **present** IS the gate — no approval
 > status is checked. See §5.5 (Doctrine) and §6.5.
 
+> **AMENDED² — AT-94 FICA model (2026-06-24, Johan final).** FICA is a
+> CONTACT-level compliance fact, not a property document. The `fica`
+> required-type is satisfied **only** by the seller's authoritative
+> `fica_submissions` approval — a FICA PDF on the property/contact Drive does
+> NOT satisfy it. This removes the duplicate, weaker property-doc path and
+> means **a property cannot go live without at least one linked seller whose
+> FICA is approved** (no-seller bypass closed). FICA stays in the
+> agency-configurable required list (default on; an agency can untick it).
+
 | Gate | Check | Source |
 |------|-------|--------|
-| Each agency-required document type present | For every document type the agency flags `is_compliance_required`, at least one non-soft-deleted `Document` of that `document_type_id` is linked to the property OR a seller/owner/landlord/lessor contact. HFC default required set: `mandate`, `fica`, `disclosure` (MDF). Presence = met; no approval status checked. | `documents` + `document_properties` + `document_contacts` + `agency_document_type_compliance` |
-| FICA bridge (when `fica` is required) | Satisfied by a `fica`-typed Drive document (above) OR every seller having a `fica_submission` with status `approved` (authoritative FICA workflow preserved — no regression). | `fica_submissions` (OR Drive) |
+| Each agency-required **property** document present | For every required document type *except FICA*, at least one non-soft-deleted `Document` of that `document_type_id` is linked to the property OR a seller/owner/landlord/lessor contact. HFC default property docs: `mandate`, `disclosure` (MDF). Presence = met; no approval status checked. | `documents` + `document_properties` + `document_contacts` + `agency_document_type_compliance` |
+| Seller FICA (when `fica` is required) | The property has ≥1 linked seller/owner/landlord/lessor contact AND **every** such contact has a `fica_submission` with status `approved`. Not satisfiable by any Drive document. Agency-configurable (default on). | `fica_submissions` + `contact_property` |
 | Listing has photos | `gallery_images_json` + `images_json` count ≥ minimum (hardcoded 4 in Phase 1) | `properties` JSON columns |
 | Listing details complete | Required fields present: address, suburb, town, province, price, property_type, erf_size_m2 | `properties` |
 
 Because e-signed documents auto-file to the Drive with their `document_type_id`
 (`SignatureService::autoFileSignedDocument`), an e-signed mandate satisfies the
-same gate as a manually-uploaded one — the gate is source-agnostic by design.
+property-doc gate the same as a manually-uploaded one — source-agnostic by
+design. (FICA is the exception: always the contact's `fica_submissions`.)
 
 ### 5.5 Doctrine — instant-unlock on typed upload (AT-94, standing, all agencies)
 
@@ -322,12 +332,13 @@ consume one private `evaluateRequiredTypes()` — they can never disagree). Each
 required type is ticked when present, or shown unticked with an inline
 **Upload** control. The Upload posts to the existing
 `PropertyFileController::store` with the **document type pre-set** (the agent
-can't mistype it); contact-level types (FICA, `grouping='contact'`) also pass
-the primary seller's `contact_id` so the document lands on the seller's drive
-where the gate's contact-level check reads it. On success the Drive tab
-reloads → checklist and readiness panel recompute. When the gate is
-short-circuited ready (dev override or an existing snapshot), every row
-reflects satisfied so the checklist agrees with a LIVE gate.
+can't mistype it). **FICA is the exception** — it renders as a *seller-contact*
+status row (not a property upload): unticked, it links to the seller's FICA
+(`compliance.fica.create?contact_id=…`), or prompts to link a seller when none
+is attached. On success the Drive tab reloads → checklist and readiness panel
+recompute. When the gate is short-circuited ready (dev override or an existing
+snapshot), every row reflects satisfied so the checklist agrees with a LIVE
+gate.
 
 ## 7. UI Surfaces
 
