@@ -80,6 +80,21 @@
                 margin-right: auto; cursor: pointer; user-select: none;
             }
             .driver-popover.corex-tour .corex-tour-dsa input { accent-color: var(--brand-button, #0ea5e9); }
+            /* AT-41: explicit "Close tour" control (overlay/X/ESC close disabled). */
+            .driver-popover.corex-tour .corex-tour-close {
+                background: transparent;
+                color: var(--text-muted, #9ca3af);
+                border: 1px solid var(--border, rgba(0,0,0,0.12));
+                border-radius: 6px;
+                padding: 5px 10px;
+                font-size: 0.72rem;
+                font-weight: 600;
+                cursor: pointer;
+            }
+            .driver-popover.corex-tour .corex-tour-close:hover {
+                color: var(--text-secondary, #475569);
+                border-color: var(--text-muted, #9ca3af);
+            }
             /* Floating fallback launcher (used only when no sidebar slot exists). */
             #corex-tour-launcher-floating {
                 position: fixed; right: 18px; bottom: 18px; z-index: 9990;
@@ -128,6 +143,7 @@
             inSlot: false,
             _driver: null,
             _finished: false,
+            _suppressWritten: false,
 
             init() {
                 // Relocate the launcher into the sidebar slot if the host page provides one.
@@ -200,7 +216,12 @@
 
                 this._driver = factory({
                     showProgress: true,
-                    allowClose: true,
+                    // AT-41 UX fix (Andre): a first-day agent must not lose the tour
+                    // by an accidental outside click. allowClose:false disables the
+                    // overlay-click close, the ESC close AND the popover X — so the
+                    // ONLY ways a tour ends are the explicit "Close tour" button
+                    // (injected below) or completing the last step.
+                    allowClose: false,
                     animate: true,
                     overlayColor: 'rgba(11,42,74,0.65)',
                     stagePadding: 6,
@@ -216,9 +237,12 @@
                         else self._driver.moveNext();
                     },
                     onPrevClick: () => self._driver.movePrevious(),
-                    onCloseClick: () => self._driver.destroy(),
+                    // Both "Close tour" and completing the last step end the tour
+                    // and mark it SEEN (completed_at) so it won't nag on next login.
+                    // "Don't show again" is handled separately (writes the suppress
+                    // flag without ending the tour) in _decoratePopover.
                     onDestroyed: () => {
-                        self._record(self._finished ? 'seen' : 'dismiss');
+                        self._record('seen');
                     },
                 });
 
@@ -226,24 +250,53 @@
             },
 
             _decoratePopover(popover, opts) {
-                // "Don't show again" on the first step only.
                 try {
+                    if (!popover || !popover.footer) return;
+                    const self = this;
                     const idx = (opts && opts.state && typeof opts.state.activeIndex === 'number')
                         ? opts.state.activeIndex : 0;
-                    if (idx !== 0 || !popover || !popover.footer) return;
-                    if (popover.footer.querySelector('[data-tour-dsa]')) return;
 
-                    const label = document.createElement('label');
-                    label.setAttribute('data-tour-dsa', '');
-                    label.className = 'corex-tour-dsa';
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox';
-                    label.appendChild(cb);
-                    label.appendChild(document.createTextNode("Don't show again"));
-                    cb.addEventListener('change', () => {
-                        if (cb.checked) { this._finished = false; this._driver.destroy(); }
-                    });
-                    popover.footer.insertBefore(label, popover.footer.firstChild);
+                    // (3) Explicit "Close tour" button — on EVERY step. The only
+                    //     manual way to end the tour now that the overlay/X/ESC are
+                    //     disabled. Ends the tour (→ onDestroyed marks it seen).
+                    //     For READ-ONLY tours (e-sign) this does nothing beyond
+                    //     ending the tour — it never touches the underlying page.
+                    if (!popover.footer.querySelector('[data-tour-close]')) {
+                        const closeBtn = document.createElement('button');
+                        closeBtn.type = 'button';
+                        closeBtn.setAttribute('data-tour-close', '');
+                        closeBtn.className = 'corex-tour-close';
+                        closeBtn.textContent = 'Close tour';
+                        closeBtn.addEventListener('click', () => {
+                            self._finished = true;       // close == seen (won't nag)
+                            self._driver.destroy();
+                        });
+                        // Sits at the start of the footer, left of Back/Next.
+                        popover.footer.insertBefore(closeBtn, popover.footer.firstChild);
+                    }
+
+                    // (2) "Don't show again" — first step only. Ticking it records
+                    //     the suppress preference (dismissed_at) so the tour won't
+                    //     AUTO-launch next session — but it does NOT end the current
+                    //     tour. The agent keeps stepping through.
+                    if (idx === 0 && !popover.footer.querySelector('[data-tour-dsa]')) {
+                        const label = document.createElement('label');
+                        label.setAttribute('data-tour-dsa', '');
+                        label.className = 'corex-tour-dsa';
+                        const cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        const txt = document.createTextNode("Don't show again");
+                        label.appendChild(cb);
+                        label.appendChild(txt);
+                        cb.addEventListener('change', () => {
+                            if (cb.checked && !self._suppressWritten) {
+                                self._suppressWritten = true;     // write once
+                                self._record('dismiss');          // flag only — no destroy
+                                txt.textContent = "Won't show again";
+                            }
+                        });
+                        popover.footer.insertBefore(label, popover.footer.firstChild);
+                    }
                 } catch (e) { /* decoration is optional */ }
             },
 
