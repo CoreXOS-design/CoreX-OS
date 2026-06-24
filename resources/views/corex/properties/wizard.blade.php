@@ -27,16 +27,19 @@
                 <h2 class="text-xl font-bold text-white tracking-tight">New Property</h2>
                 <p class="text-sm mt-1" style="color:rgba(255,255,255,0.65);">Add a listing in 4 quick steps. Save as draft any time.</p>
             </div>
-            <a href="{{ route('corex.properties.index') }}"
-               class="text-xs font-medium px-3 py-1.5 rounded-md transition-all duration-300"
-               style="background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.15);">
-                &larr; Back to listings
-            </a>
+            <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
+                <a href="{{ route('corex.properties.index') }}"
+                   class="text-xs font-medium px-3 py-1.5 rounded-md transition-all duration-300"
+                   style="background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.15);">
+                    &larr; Back to listings
+                </a>
+            </div>
         </div>
 
         {{-- Progress bar --}}
         <div class="mt-5">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2" data-tour="wiz-rail">
                 @foreach([1 => 'Basics', 2 => 'Photos', 3 => 'Details', 4 => 'Review'] as $n => $label)
                     <template x-if="{{ $n }} > 1">
                         <div class="flex-1 h-0.5 transition-all duration-300"
@@ -106,7 +109,7 @@
         <div class="p-6 space-y-5">
 
             {{-- Listing type tiles --}}
-            <div>
+            <div data-tour="wiz-listing-type">
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Listing type</label>
                 <div class="grid grid-cols-2 gap-3">
                     @foreach($listingTypes as $value => $label)
@@ -134,7 +137,7 @@
             </div>
 
             {{-- Title / Headline --}}
-            <div>
+            <div data-tour="wiz-headline">
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Headline <span class="text-red-500">*</span></label>
                 <input type="text" x-model="s1.title" maxlength="200"
                        placeholder="e.g. Stunning 3 Bed Family Home in Uvongo Beach"
@@ -145,7 +148,7 @@
 
             {{-- Property type --}}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
+                <div data-tour="wiz-type">
                     <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Property type <span class="text-red-500">*</span></label>
                     <select x-model="s1.property_type"
                             class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
@@ -156,7 +159,7 @@
                         @endforeach
                     </select>
                 </div>
-                <div>
+                <div data-tour="wiz-price">
                     <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">
                         <span x-show="s1.listing_type === 'sale'">Asking price (R) <span class="text-red-500">*</span></span>
                         <span x-show="s1.listing_type === 'rental'">Monthly rental (R) <span class="text-red-500">*</span></span>
@@ -178,7 +181,7 @@
             <div class="space-y-5">
 
                 {{-- Complex or Estate --}}
-                <div>
+                <div data-tour="wiz-complex">
                     <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Complex or Estate</div>
                     <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
                         <div class="grid grid-cols-2 gap-3">
@@ -220,7 +223,7 @@
                 {{-- Province / City / Suburb — Property24-backed typeahead.
                      User must pick a suburb P24 recognises; can't save free-text.
                      See _partials/p24-location-picker.blade.php. --}}
-                <div x-ref="p24Picker">
+                <div x-ref="p24Picker" data-tour="wiz-location">
                     <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Province / City / Suburb</div>
                     <div class="p-4 rounded-b-md" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
                         @include('corex._partials.p24-location-picker', [
@@ -325,6 +328,7 @@
         <footer class="px-6 py-4 flex items-center justify-between" style="background:var(--surface-2);border-top:1px solid var(--border);">
             <div class="text-[11px]" style="color:var(--text-muted);">Your work saves as a draft when you continue.</div>
             <button type="button" @click="submitStep1()"
+                    data-tour="wiz-continue"
                     :disabled="!step1Valid() || loading"
                     :style="'background:var(--brand-button,#0ea5e9);' + (!step1Valid() || loading ? 'opacity:0.5;cursor:not-allowed;' : '')"
                     class="inline-flex items-center gap-2 px-5 py-2.5 rounded-md text-sm font-semibold text-white shadow-lg transition-all duration-300">
