@@ -39,6 +39,64 @@
         </div>
     @endif
 
+    {{-- Maintenance mode (AT-93) — system-wide go-live lock. Owner-only.
+         When ON, every non-owner sees the branded down-page; System Owners
+         keep full access. Spec: .ai/specs/maintenance-mode.md --}}
+    <div class="rounded-md p-6"
+         style="background: var(--surface); border: 1px solid {{ $maintenanceActive ? 'var(--ds-amber, #f59e0b)' : 'var(--border)' }};">
+        <div class="flex items-start justify-between gap-6">
+            <div class="flex-1">
+                <div class="flex items-center gap-3">
+                    <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold"
+                          style="{{ $maintenanceActive
+                              ? 'background: color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color: var(--ds-amber, #f59e0b);'
+                              : 'background: color-mix(in srgb, var(--ds-green, #059669) 14%, transparent); color: var(--ds-green, #059669);' }}">
+                        <span style="width:8px;height:8px;border-radius:9999px;background: {{ $maintenanceActive ? 'var(--ds-amber, #f59e0b)' : 'var(--ds-green, #059669)' }};"></span>
+                        {{ $maintenanceActive ? 'Site in MAINTENANCE — owners only' : 'Site is LIVE' }}
+                    </span>
+                </div>
+                <h2 class="font-semibold mt-3" style="color: var(--text-primary);">Maintenance mode</h2>
+                <p class="text-sm mt-1" style="color: var(--text-secondary);">
+                    When ON, all users see a branded &ldquo;down for maintenance&rdquo; page. System Owners keep
+                    full normal access to run final go-live checks. Login is never blocked, so an owner can always
+                    sign in and lift it.
+                </p>
+                @if($maintenanceActive)
+                    <p class="text-xs mt-2" style="color: var(--text-secondary);">
+                        Enabled
+                        @if(!empty($maintenanceMeta['enabled_at']))
+                            {{ \Illuminate\Support\Carbon::parse($maintenanceMeta['enabled_at'])->diffForHumans() }}
+                        @endif
+                        @if(!empty($maintenanceMeta['enabled_by']))
+                            by {{ $maintenanceMeta['enabled_by'] }}
+                        @endif.
+                    </p>
+                @endif
+                <p class="text-xs mt-2" style="color: var(--text-secondary);">
+                    Escape hatch (if this page is ever unreachable):
+                    <code>php artisan corex:maintenance off</code>.
+                </p>
+            </div>
+            <div class="pt-1 self-center">
+                @if($maintenanceActive)
+                    <form method="POST" action="{{ route('admin.maintenance.disable') }}">
+                        @csrf
+                        <button type="submit" class="corex-btn-primary whitespace-nowrap">Go live (lift maintenance)</button>
+                    </form>
+                @else
+                    <form method="POST" action="{{ route('admin.maintenance.enable') }}"
+                          onsubmit="return confirm('This will block ALL non-owner users — they will see the maintenance page. System Owners keep access. Continue?');">
+                        @csrf
+                        <button type="submit" class="whitespace-nowrap rounded-md px-4 py-2 text-sm font-semibold text-white"
+                                style="background: var(--ds-amber, #f59e0b);">
+                            Enable maintenance mode
+                        </button>
+                    </form>
+                @endif
+            </div>
+        </div>
+    </div>
+
     <form method="POST" action="{{ route('admin.dev-settings.update') }}"
           class="rounded-md p-6 space-y-6"
           style="background: var(--surface); border: 1px solid var(--border);"

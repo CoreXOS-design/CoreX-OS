@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\DevSetting;
+use App\Services\MaintenanceMode;
 use Illuminate\Http\Request;
 
 class DevSettingsController extends Controller
@@ -14,12 +15,14 @@ class DevSettingsController extends Controller
      */
     private const DEMO_TOGGLE_PASSWORD = 'Demo@on&off@$';
 
-    public function index()
+    public function index(MaintenanceMode $maintenance)
     {
         return view('admin.dev-settings.index', [
             'complianceChecksDisabled' => DevSetting::bool('compliance_checks_disabled'),
             'demoModeEnabled'          => DevSetting::bool('demo_mode_enabled'),
             'isProduction'             => app()->environment('production'),
+            'maintenanceActive'        => $maintenance->isActive(),
+            'maintenanceMeta'          => $maintenance->meta(),
         ]);
     }
 

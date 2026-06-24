@@ -26,6 +26,28 @@ return Application::configure(basePath: dirname(__DIR__))
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
         ]);
 
+        // System-wide maintenance gate (AT-93). Appended to the web group so
+        // it runs AFTER StartSession (the authenticated user is resolvable)
+        // and BEFORE app route handlers. When maintenance is ON, only System
+        // Owners and the auth/toggle routes get through; everyone else sees
+        // the branded 503 down-page. When OFF it is a single filesystem stat
+        // with zero behaviour change. Spec: .ai/specs/maintenance-mode.md
+        $middleware->web(append: [
+            \App\Http\Middleware\MaintenanceGate::class,
+        ]);
+
+        // Run the gate BEFORE Authenticate so a logged-OUT visitor sees the
+        // branded down-page rather than being redirected to login by `auth`.
+        // It still runs after StartSession (which precedes Authenticate in the
+        // priority list), so the authenticated owner is resolvable.
+        // NB: the priority list references the AUTH CONTRACT, not the concrete
+        // Authenticate class — Laravel resolves middleware to their interfaces
+        // when sorting, so we must position relative to the contract.
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            prepend: \App\Http\Middleware\MaintenanceGate::class,
+        );
+
         $middleware->alias([
             'tv' => \App\Http\Middleware\TvTokenMiddleware::class,
             'admin' => \App\Http\Middleware\AdminMiddleware::class,

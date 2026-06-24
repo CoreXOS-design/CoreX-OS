@@ -2092,6 +2092,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
     });
 
+    // Maintenance mode toggle (AT-93) — owner-only. These routes are also
+    // exempted inside MaintenanceGate so an owner can always lift maintenance.
+    // Spec: .ai/specs/maintenance-mode.md
+    Route::middleware('owner_only')->prefix('admin/maintenance')->name('admin.maintenance.')->group(function () {
+        Route::post('/enable',  [\App\Http\Controllers\Admin\MaintenanceModeController::class, 'enable'])->name('enable');
+        Route::post('/disable', [\App\Http\Controllers\Admin\MaintenanceModeController::class, 'disable'])->name('disable');
+    });
+
     // Developer Users — System Owner / Developer roster, visible across all
     // agencies (cross-agency owner view). See .ai/specs/developer-users.md.
     Route::middleware('owner_only')->prefix('admin/developer-users')->name('admin.developer-users.')->group(function () {
