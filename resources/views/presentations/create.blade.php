@@ -11,10 +11,13 @@
                 <h2 class="text-xl font-bold text-white leading-tight">New Presentation</h2>
                 <div class="text-sm text-white/60">Enter the property details — you'll upload evidence and run analysis on the next screen.</div>
             </div>
-            <a href="{{ route('presentations.index') }}"
-               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
-                &larr; Back to Presentations
-            </a>
+            <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
+                <a href="{{ route('presentations.index') }}"
+                   class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+                    &larr; Back to Presentations
+                </a>
+            </div>
         </div>
     </div>
 
@@ -220,7 +223,7 @@
         </div>
 
         <div class="mt-6 flex items-center gap-3">
-            <button type="submit" class="corex-btn-primary">
+            <button type="submit" class="corex-btn-primary" data-tour="pres-submit">
                 Create Presentation &rarr;
             </button>
             <a href="{{ route('presentations.index') }}"
