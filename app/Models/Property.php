@@ -599,7 +599,14 @@ class Property extends Model
 
     public function formattedPrice(): string
     {
-        return 'R ' . number_format((int) $this->price, 0, '.', ' ');
+        // Rentals carry the monthly amount in rental_amount (the sale `price`
+        // column is 0/null for a rental). Use the right column per stock type so
+        // the header never shows R0 for a priced rental.
+        $amount = strtolower((string) $this->listing_type) === 'rental'
+            ? (float) ($this->rental_amount ?? 0)
+            : (float) ($this->price ?? 0);
+
+        return 'R ' . number_format((int) $amount, 0, '.', ' ');
     }
 
     /**
