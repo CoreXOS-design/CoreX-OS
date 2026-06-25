@@ -2354,6 +2354,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/p24-syndication/deactivate', [\App\Http\Controllers\Property24\P24SyndicationController::class, 'deactivate'])->name('p24-syndication.deactivate');
         Route::post('/{property}/p24-syndication/reactivate', [\App\Http\Controllers\Property24\P24SyndicationController::class, 'reactivate'])->name('p24-syndication.reactivate');
         Route::get('/{property}/p24-syndication/status',      [\App\Http\Controllers\Property24\P24SyndicationController::class, 'status'])->name('p24-syndication.status');
+        Route::get('/{property}/p24-syndication/sync-state',   [\App\Http\Controllers\Property24\P24SyndicationController::class, 'syncState'])->name('p24-syndication.sync-state');
         Route::get('/{property}/p24-syndication/readiness',   [\App\Http\Controllers\Property24\P24SyndicationController::class, 'readiness'])->name('p24-syndication.readiness');
         // Website syndication — per-(property × website key). Spec: agency-public-api.md §6.5.2
         Route::post('/{property}/website-syndication/{apiKey}/toggle',     [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'toggle'])->name('website-syndication.toggle');

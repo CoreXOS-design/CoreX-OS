@@ -1220,6 +1220,7 @@
                             {{-- Status line --}}
                             <div x-show="status && status !== ''" x-cloak class="text-xs px-1" style="color:var(--text-secondary);">
                                 <template x-if="p24Ref"><span>P24 Ref: <strong x-text="p24Ref" style="color:var(--text-primary);"></strong> &mdash; <span x-text="statusLabel()"></span></span></template>
+                                <template x-if="!p24Ref && status === 'submitting'"><span>Syncing to Property24… this can take up to a minute.</span></template>
                                 <template x-if="!p24Ref && status === 'submitted'"><span>Submitted, awaiting activation...</span></template>
                                 <template x-if="!p24Ref && status === 'pending'"><span>Ready to submit</span></template>
                                 <template x-if="status === 'error'"><span style="color:var(--ds-crimson);" x-text="'Error: ' + lastError"></span></template>
@@ -1264,7 +1265,7 @@
                             </div>
 
                             {{-- Active listing actions: View · Refresh · Deactivate --}}
-                            <div x-show="enabled && p24Ref && (status === 'active' || status === 'submitted')" x-cloak class="flex flex-wrap gap-2">
+                            <div x-show="enabled && p24Ref && (status === 'active' || status === 'submitted' || status === 'submitting')" x-cloak class="flex flex-wrap gap-2">
                                 <a :href="p24ListingUrl()" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
                                    style="background:#3b82f6; color:#fff;">
@@ -6791,12 +6792,12 @@ function p24Syndication(config) {
             return new Date(this.ppDelayUntilRaw) > new Date();
         },
         statusLabel() {
-            const labels = {'':'Disabled','pending':'Pending','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
+            const labels = {'':'Disabled','pending':'Pending','submitting':'Syncing…','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
             if (!this.enabled && !this.status) return 'Disabled';
             return labels[this.status] || 'Disabled';
         },
         statusBadgeStyle() {
-            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','submitted':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','active':'background:rgba(59,130,246,0.12);color:#3b82f6;','error':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','rejected':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
+            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','submitting':'background:rgba(59,130,246,0.12);color:#3b82f6;','submitted':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','active':'background:rgba(59,130,246,0.12);color:#3b82f6;','error':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','rejected':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
             if (!this.enabled && !this.status) return styles[''];
             return styles[this.status] || styles[''];
         },
@@ -6820,23 +6821,84 @@ function p24Syndication(config) {
                 else { this.showMessage(data.message || 'Toggle failed', 'error'); }
             } catch (e) { this.showMessage('Network error', 'error'); } finally { this.loading = false; }
         },
+        init() {
+            // If the page loads mid-sync (status persisted as 'submitting' from a
+            // queued push that hasn't finished), resume polling so the panel
+            // resolves to active/error without a manual reload.
+            if (this.status === 'submitting') { this.loading = true; this._pollP24SyncState('Listing synced to P24'); }
+        },
+        // Poll the lightweight DB-only sync-state endpoint until the queued
+        // SubmitListingToProperty24 job flips the status off 'submitting'. P24's
+        // saveListing takes 1-2 min for photo-heavy listings, so the UI never
+        // blocks on it — it shows "Syncing…" and resolves here.
+        _pollP24SyncState(successMsg) {
+            const startedAt = Date.now();
+            const maxMs = 180000; // ~2min P24 worst case + buffer
+            const tick = async () => {
+                if (Date.now() - startedAt > maxMs) {
+                    this.loading = false;
+                    this.showMessage('Still syncing in the background — reload in a moment to see the result.');
+                    return;
+                }
+                try {
+                    const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/sync-state`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                    const data = await res.json();
+                    const st = data.p24_syndication_status || '';
+                    if (st === 'submitting') { setTimeout(tick, 3000); return; }
+                    this.status = st;
+                    this.p24Ref = data.p24_ref || this.p24Ref;
+                    if (st === 'active' || st === 'submitted') {
+                        this.lastSubmitted = data.p24_last_submitted_at || this.lastSubmitted;
+                        this.lastError = ''; this.debugErrors = []; this.showDebug = false;
+                        this.showMessage(successMsg);
+                    } else if (st === 'error' || st === 'rejected') {
+                        this.lastError = data.p24_last_error || 'Sync failed';
+                        this.debugErrors = [this.lastError]; this.showDebug = true;
+                    } else {
+                        this.showMessage('Sync finished');
+                    }
+                    this.loading = false;
+                } catch (e) {
+                    setTimeout(tick, 3000); // transient network error — retry until maxMs
+                }
+            };
+            setTimeout(tick, 1500);
+        },
         async submitListing() {
             this.loading = true; this.debugErrors = []; this.showDebug = false;
             try {
                 const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({}) });
                 const data = await res.json();
-                if (data.success) { this.status = data.p24_syndication_status || 'submitted'; this.p24Ref = data.p24_ref || this.p24Ref; this.lastSubmitted = new Date().toLocaleDateString('en-ZA', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); this.lastError = ''; this.debugErrors = []; this.showDebug = false; this.showMessage(data.message || 'Submitted to P24'); }
-                else { this.status = data.p24_syndication_status || 'error'; this.lastError = data.message || 'Submission failed'; this.debugErrors = []; if (data.errors && data.errors.length > 0) { data.errors.forEach(e => this.debugErrors.push(typeof e === 'string' ? e : e.label || JSON.stringify(e))); } if (data.message) { this.debugErrors.push(data.message); } this.showDebug = true; }
-            } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; } finally { this.loading = false; }
+                if (data.success && data.queued) {
+                    this.status = 'submitting';
+                    this.lastError = ''; this.debugErrors = []; this.showDebug = false;
+                    this.showMessage(data.message || 'Syncing to Property24…');
+                    this._pollP24SyncState('Listing synced to P24');
+                    return; // keep loading=true; the poll clears it
+                }
+                // Not queued — a synchronous rejection (e.g. 422 missing fields)
+                this.status = data.p24_syndication_status || 'error'; this.lastError = data.message || 'Submission failed'; this.debugErrors = [];
+                if (data.errors && data.errors.length > 0) { data.errors.forEach(e => this.debugErrors.push(typeof e === 'string' ? e : e.label || JSON.stringify(e))); }
+                if (data.message) { this.debugErrors.push(data.message); }
+                this.showDebug = true; this.loading = false;
+            } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; this.loading = false; }
         },
         async refreshListing() {
             this.loading = true; this.debugErrors = []; this.showDebug = false;
             try {
                 const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({}) });
                 const data = await res.json();
-                if (data.success) { this.status = data.p24_syndication_status || 'active'; this.p24Ref = data.p24_ref || this.p24Ref; this.lastSubmitted = new Date().toLocaleDateString('en-ZA', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); this.lastError = ''; this.showMessage('Listing synced to P24'); }
-                else { this.lastError = data.message || 'Sync failed'; this.debugErrors = data.errors || [data.message]; this.showDebug = true; }
-            } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; } finally { this.loading = false; }
+                if (data.success && data.queued) {
+                    this.status = 'submitting';
+                    this.lastError = ''; this.debugErrors = []; this.showDebug = false;
+                    this.showMessage(data.message || 'Refreshing on Property24…');
+                    this._pollP24SyncState('Listing refreshed on P24');
+                    return;
+                }
+                this.lastError = data.message || 'Sync failed';
+                this.debugErrors = (data.errors && data.errors.length) ? data.errors.map(e => typeof e === 'string' ? e : (e.label || JSON.stringify(e))) : [this.lastError];
+                this.showDebug = true; this.loading = false;
+            } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; this.loading = false; }
         },
         async deactivateListing() {
             if (!confirm('Deactivate this listing on Property24?')) return;

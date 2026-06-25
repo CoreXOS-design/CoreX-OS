@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Property24;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SubmitListingToProperty24;
 use App\Models\Property;
 use App\Services\PermissionService;
 use App\Services\Syndication\Property24\Property24ListingMapper;
@@ -62,13 +63,39 @@ class P24SyndicationController extends Controller
             return response()->json(['success' => false, 'message' => 'Cannot submit — required fields are missing', 'p24_syndication_status' => 'error', 'p24_ref' => $property->p24_ref, 'errors' => $labels, 'missing_fields' => $missing], 422);
         }
 
-        $result = $this->syndicationService->submitListing($property);
+        // Queue the push instead of running it synchronously. P24's saveListing
+        // takes 1-2 minutes to ingest a photo-heavy listing, which would
+        // otherwise block the browser for the whole request. Mark 'submitting'
+        // so the UI shows a syncing state and polls sync-state until the queued
+        // SubmitListingToProperty24 job flips the status to active/error.
+        $property->update(['p24_syndication_status' => 'submitting', 'p24_last_error' => null]);
+        SubmitListingToProperty24::dispatch($property);
+
         return response()->json([
-            'success' => $result['success'], 'message' => $result['message'],
-            'p24_syndication_status' => $property->fresh()->p24_syndication_status,
-            'p24_ref' => $property->fresh()->p24_ref,
-            'errors' => $result['errors'] ?? [],
-        ], $result['success'] ? 200 : 422);
+            'success' => true,
+            'queued'  => true,
+            'message' => 'Syncing to Property24… this can take up to a minute.',
+            'p24_syndication_status' => 'submitting',
+            'p24_ref' => $property->p24_ref,
+        ], 202);
+    }
+
+    /**
+     * Lightweight DB-only status read for the frontend to poll after a queued
+     * submit. Unlike status(), this does NOT call P24 — it just reflects the
+     * columns the SubmitListingToProperty24 job writes when it finishes, so it
+     * is cheap enough to hit every few seconds.
+     */
+    public function syncState(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($property);
+        $fresh = $property->fresh();
+        return response()->json([
+            'p24_syndication_status' => $fresh->p24_syndication_status,
+            'p24_ref'                => $fresh->p24_ref,
+            'p24_last_error'         => $fresh->p24_last_error,
+            'p24_last_submitted_at'  => $fresh->p24_last_submitted_at?->format('d M Y H:i'),
+        ]);
     }
 
     public function readiness(Request $request, Property $property): JsonResponse
