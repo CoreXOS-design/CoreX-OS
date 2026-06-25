@@ -224,16 +224,17 @@ class Property24ApiClient
                 $headers['P24-UserGroupId'] = $this->userGroupId;
             }
 
-            // Read timeout MUST stay below SubmitListingToProperty24::$timeout
-            // (120s). When they were equal, a slow P24 response let Laravel's
-            // job timeout SIGKILL the job at the same instant the HTTP call
-            // gave up — before the catch below could mark the property 'error'.
-            // 45s comfortably covers a large base64 photo POST while letting a
-            // hung push fail fast and gracefully (caught, marked, retried)
-            // instead of blocking the worker for a full 2 minutes.
+            // P24's saveListing legitimately takes 1-2 minutes to ingest a
+            // photo-heavy listing (up to 30 base64 images) — observed 200s in
+            // p24_syndication_logs reach ~120s. So the read timeout stays
+            // generous (120s); connectTimeout(15) still fast-fails a dead host.
+            // The fix for the old 2-minute SIGKILL is to keep this BELOW the
+            // job timeout (SubmitListingToProperty24::$timeout = 180), so the
+            // HTTP layer times out first and the catch below marks the property
+            // 'error' gracefully instead of Laravel hard-killing the worker.
             $http = Http::withBasicAuth($this->username, $this->password)
                 ->withHeaders($headers)
-                ->timeout(45)
+                ->timeout(120)
                 ->connectTimeout(15);
 
             $response = match (strtoupper($method)) {

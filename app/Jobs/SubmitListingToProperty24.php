@@ -16,7 +16,11 @@ class SubmitListingToProperty24 implements ShouldQueue
 
     public int $tries = 3;
     public int $backoff = 60;
-    public int $timeout = 120;
+    // Must exceed Property24ApiClient's HTTP read timeout (120s) so the HTTP
+    // layer times out first and the ConnectionException is caught/handled —
+    // rather than Laravel SIGKILL-ing the job mid-request when the two are
+    // equal (the old 2-minute hard-kill + retry storm).
+    public int $timeout = 180;
 
     public function __construct(public Property $property) {}
 
