@@ -344,6 +344,7 @@ class MobilePropertyController extends Controller
         };
 
         $statuses = PropertySettingItem::group(PropertySettingItem::GROUP_STATUS)
+            ->where('active', true)
             ->get()
             ->map(function (PropertySettingItem $item) {
                 // Web stores status as a slug (strtolower + spaces→underscores).
