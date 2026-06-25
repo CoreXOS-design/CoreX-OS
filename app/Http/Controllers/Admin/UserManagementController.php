@@ -9,7 +9,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\Branch;
 use App\Services\Admin\AgentDeletionService;
-use App\Services\Images\AgentPhotoNormalizer;
+use App\Services\Images\AgentProfilePhotoService;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -197,9 +197,9 @@ class UserManagementController extends Controller
 
         // File uploads
         if ($request->hasFile('agent_photo')) {
-            $path = app(AgentPhotoNormalizer::class)
-                ->store($request->file('agent_photo'), $user->id, $user->agent_photo_path);
-            $user->update(['agent_photo_path' => $path]);
+            // One service keeps the file, the user_documents row and the legacy
+            // column in lockstep — admin uploads used to update only the column.
+            app(AgentProfilePhotoService::class)->set($user, $request->file('agent_photo'));
         }
         if ($request->hasFile('ffc_certificate')) {
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
@@ -402,9 +402,9 @@ class UserManagementController extends Controller
 
         // File uploads
         if ($request->hasFile('agent_photo')) {
-            $path = app(AgentPhotoNormalizer::class)
-                ->store($request->file('agent_photo'), $user->id, $user->agent_photo_path);
-            $user->update(['agent_photo_path' => $path]);
+            // One service keeps the file, the user_documents row and the legacy
+            // column in lockstep — admin uploads used to update only the column.
+            app(AgentProfilePhotoService::class)->set($user, $request->file('agent_photo'));
         }
         if ($request->hasFile('ffc_certificate')) {
             if ($user->ffc_certificate_path) {
@@ -681,9 +681,9 @@ class UserManagementController extends Controller
         ]);
 
         if ($request->hasFile('agent_photo')) {
-            $path = app(AgentPhotoNormalizer::class)
-                ->store($request->file('agent_photo'), $user->id, $user->agent_photo_path);
-            $user->update(['agent_photo_path' => $path]);
+            // One service keeps the file, the user_documents row and the legacy
+            // column in lockstep — admin uploads used to update only the column.
+            app(AgentProfilePhotoService::class)->set($user, $request->file('agent_photo'));
         }
 
         if ($request->hasFile('ffc_certificate')) {
@@ -725,8 +725,8 @@ class UserManagementController extends Controller
         $field = $request->input('field');
 
         if ($field === 'agent_photo' && $user->agent_photo_path) {
-            Storage::disk('public')->delete($user->agent_photo_path);
-            $user->update(['agent_photo_path' => null]);
+            // Clear the file, the user_documents row and the column together.
+            app(AgentProfilePhotoService::class)->clear($user);
             return back()->with('status', "Agent photo removed for {$user->name}.");
         }
 

@@ -527,22 +527,32 @@ class Property24SyndicationService
         // (User::profilePhotoUrl): a user_documents 'profile_photo' row first, then
         // the legacy agent_photo_path column. The sync previously read ONLY
         // agent_photo_path, so every agent whose photo lives in user_documents
-        // (the current upload flow) reached P24 with no photo — even on a manual
-        // refresh. That column-vs-document split is the "half the photos missing".
-        $photoPath = null;
+        // reached P24 with no photo. Pick the first candidate whose file actually
+        // EXISTS on disk — these two records routinely desync (a stale .jpg path
+        // recorded while the real normalised file is photo.webp), so trusting the
+        // document path blindly would upload nothing. If neither resolves on disk,
+        // keep the preferred path so the URL-fallback strategies below can try.
         $profileDoc = $user->documents()
             ->where('document_type', 'profile_photo')
             ->latest()
             ->first();
-        if ($profileDoc && !empty($profileDoc->file_path)) {
-            $photoPath = $profileDoc->file_path;
-        } elseif (!empty($user->agent_photo_path)) {
-            $photoPath = $user->agent_photo_path;
-        }
 
-        if (empty($photoPath)) {
+        $candidates = array_values(array_filter([
+            $profileDoc?->file_path,
+            $user->agent_photo_path,
+        ], fn ($p) => !empty($p)));
+
+        if (empty($candidates)) {
             $this->log('info', "Agent #{$user->id} has no profile photo (user_documents or agent_photo_path) — skipping P24 photo upload");
             return;
+        }
+
+        $photoPath = $candidates[0];
+        foreach ($candidates as $candidate) {
+            if (Storage::disk('public')->exists($candidate)) {
+                $photoPath = $candidate;
+                break;
+            }
         }
 
         $bytes = null;
