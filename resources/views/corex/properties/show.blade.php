@@ -2701,6 +2701,7 @@
                     'hideStreetNumber' => (bool) old('pp_hide_street_number', $property->pp_hide_street_number ?? false),
                     'hideComplexName' => (bool) old('pp_hide_complex_name', $property->pp_hide_complex_name ?? false),
                     'hideUnitNumber' => (bool) old('pp_hide_unit_number', $property->pp_hide_unit_number ?? false),
+                    'p24HideAddress' => (bool) old('p24_hide_address', $property->p24_hide_address ?? false),
                 ]) }})">
                     <p class="prop-subsection-heading">Address</p>
 
@@ -2950,8 +2951,28 @@
 
                             <div class="p-5 space-y-5">
                                 <p class="text-xs" style="color:var(--text-muted);">
-                                    This controls what is shown on portal feeds (Private Property, Property24, website). Unchecked fields are <strong>hidden</strong> from the public.
+                                    These four fields control <strong>Private Property &amp; the website feed</strong>. Toggle OFF = hidden from the public. Property24 has its own address control below.
                                 </p>
+
+                                {{-- Master convenience toggle — reflects/sets the 5 INDEPENDENT
+                                     flags (P24 + the 4 PP fields). ON = all hidden; OFF = all shown.
+                                     Does NOT fuse them: each child toggle below stays separately
+                                     editable, and the master recomputes from their combined state. --}}
+                                <div class="flex items-center justify-between px-4 py-3 rounded-md" style="border:1px solid var(--border); background:var(--surface-2);">
+                                    <div class="pr-3">
+                                        <p class="text-xs font-bold" style="color:var(--text-primary);">Do not display address anywhere</p>
+                                        <p class="text-xs" style="color:var(--text-muted);">Sets Property24 + all Private Property fields to hidden. Each stays independently editable below.</p>
+                                    </div>
+                                    {{-- ON (crimson) = hidden everywhere; semantics differ from the
+                                         green "shown" child toggles, hence the colour. --}}
+                                    <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
+                                           :style="masterHideAll ? 'background:var(--ds-crimson)' : 'background:var(--surface-3)'">
+                                        <input type="checkbox" :checked="masterHideAll" @change="toggleMasterHideAll()" class="sr-only">
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                              style="background:#fff; margin-top:2px;"
+                                              :style="masterHideAll ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                    </label>
+                                </div>
 
                                 {{-- Public preview --}}
                                 <div class="rounded-md px-4 py-3" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -3015,8 +3036,33 @@
                                     </div>
                                 </div>
 
+                                {{-- ===== PROPERTY24 — separate, independent address control =====
+                                     Drives properties.p24_hide_address → P24 showLocation=false.
+                                     Deliberately NOT merged with the PP toggles above: an agent can
+                                     hide on P24 while showing on PP, or vice-versa. --}}
+                                <div class="rounded-md overflow-hidden" style="border:1px solid var(--brand-icon);">
+                                    <div class="px-4 py-2" style="background:var(--brand-icon); color:#fff;">
+                                        <p class="text-[0.6875rem] font-bold uppercase tracking-wider">Property24</p>
+                                    </div>
+                                    <div class="flex items-center justify-between px-4 py-3">
+                                        <div class="pr-3">
+                                            <p class="text-xs font-semibold" style="color:var(--text-primary);">Show address on Property24</p>
+                                            <p class="text-xs" style="color:var(--text-muted);"
+                                               x-text="p24HideAddress ? 'Hidden — P24 shows suburb only (location off)' : 'Shown — P24 displays the street address &amp; map pin'"></p>
+                                        </div>
+                                        {{-- Green (ON) = address shown on P24. OFF = p24_hide_address set. --}}
+                                        <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
+                                               :style="!p24HideAddress ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
+                                            <input type="checkbox" name="p24_hide_address" value="1" :checked="p24HideAddress" @change="p24HideAddress = $el.checked" class="sr-only">
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                                  style="background:#fff; margin-top:2px;"
+                                                  :style="!p24HideAddress ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
                                 <p class="text-[0.6875rem]" style="color:var(--text-muted);">
-                                    Toggle ON (green) = visible on feeds. Toggle OFF = hidden. Changes apply when you save the property.
+                                    Toggle ON (green) = visible on feeds. Toggle OFF = hidden. Changes apply when you save the property. The Property24 control is independent of the Private Property fields above.
                                 </p>
                             </div>
 
@@ -6418,6 +6464,24 @@ function propertyAddress(config) {
         hideStreetNumber: config.hideStreetNumber || false,
         hideComplexName: config.hideComplexName || false,
         hideUnitNumber: config.hideUnitNumber || false,
+        p24HideAddress: config.p24HideAddress || false,
+
+        // Master "do not display address anywhere" — a CONVENIENCE that reflects
+        // and sets the 5 INDEPENDENT flags (P24 + the 4 PP fields). It does NOT
+        // fuse them: each child toggle stays separately editable, and the master
+        // simply recomputes from their combined state (the "select all" pattern).
+        get masterHideAll() {
+            return this.p24HideAddress && this.hideStreetNumber && this.hideStreetName
+                && this.hideComplexName && this.hideUnitNumber;
+        },
+        toggleMasterHideAll() {
+            const v = !this.masterHideAll;
+            this.p24HideAddress = v;
+            this.hideStreetNumber = v;
+            this.hideStreetName = v;
+            this.hideComplexName = v;
+            this.hideUnitNumber = v;
+        },
 
         get internalAddress() {
             let street = [this.streetNumber, this.streetName].filter(Boolean).join(' ');

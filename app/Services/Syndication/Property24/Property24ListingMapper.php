@@ -121,7 +121,13 @@ class Property24ListingMapper
             'streetNumber'    => $property->street_number ?? '',
             'streetName'      => $property->street_name ?? $this->parseStreetName($property->address),
             'sourceReference' => 'CoreX-' . $property->id,
-            'showLocation'    => (bool) ($property->latitude && $property->longitude),
+            // P24 address-display control. When p24_hide_address is set, tell P24
+            // not to display the location (showLocation=false) regardless of
+            // coords — this is the P24 "hide address" mechanism. Independent of
+            // the PP pp_hide_* flags. Otherwise keep the coords-driven default.
+            'showLocation'    => $property->p24_hide_address
+                ? false
+                : (bool) ($property->latitude && $property->longitude),
         ];
 
         if ($property->stand_number) $info['standNumber'] = $property->stand_number;
