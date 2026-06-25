@@ -320,11 +320,17 @@ class Property24SyndicationService
             'firstname'       => $parts[0] ?? '',
             'lastname'        => $parts[1] ?? $parts[0] ?? '',
             'emailAddress'    => $user->email ?? '',
-            'mobileNumber'    => $user->cell ?? $user->phone ?? '',
+            'mobileNumber'    => $this->normaliseSaPhone($user->cell ?? $user->phone),
             'sourceReference' => 'CoreX-Agent-' . $user->id,
             'published'       => true,
             'receiveStatsMail' => false,
             'countryId'       => 1, // South Africa
+            // jobTitle on the CREATE payload so an agent first registered via a
+            // listing submit carries their designation on P24 from the start —
+            // previously this path omitted it, so agents only ever got a title
+            // if someone later hit the Users-page "Sync to P24" button. That
+            // create-vs-update gap is the "half have titles, half don't" split.
+            'jobTitle'        => $user->designation ?: 'Sales Agent',
         ];
 
         // Check if agent already exists on P24 *under this agency*. Scoping to
@@ -338,7 +344,13 @@ class Property24SyndicationService
                 if ($ref === 'CoreX-Agent-' . $user->id) {
                     $p24AgentId = (int) $existing['id'];
                     $this->log('info', "Agent #{$user->id} already registered on P24 agency {$agencyIdStr} as #{$p24AgentId}");
-                    // Upload photo if agent has one and P24 might not
+                    // Keep the FULL profile (name, contact, jobTitle, active status)
+                    // in step with CoreX — not just the photo. Without this an agent
+                    // first registered via a listing submit never gains a jobTitle,
+                    // and later CoreX edits never reach P24 unless someone hits the
+                    // Users-page button. Best-effort: a profile-push failure must not
+                    // block the listing this agent is attached to.
+                    $this->pushAgentProfile($user, $p24AgentId, $agencyId);
                     $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
                     return true;
                 }
@@ -425,23 +437,44 @@ class Property24SyndicationService
             return $this->ensureAgentRegisteredByUser($user, $agencyId);
         }
 
-        $parts = explode(' ', trim($user->name), 2);
+        $pushed = $this->pushAgentProfile($user, $p24AgentId, $agencyId);
+        if ($pushed !== true) {
+            return $pushed;
+        }
 
+        if ($pushPhoto) {
+            $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
+        }
+
+        return true;
+    }
+
+    /**
+     * Build the COMPLETE P24 agent payload from the CoreX user and PUT it.
+     * Single source of truth for "a fully-synced P24 agent profile" — shared by
+     * the Users-page "Sync to P24" button (updateAgentOnP24) and the
+     * listing-submit path (ensureAgentRegisteredByUser), so an agent carries the
+     * same name / contact / jobTitle / active-status regardless of which path
+     * last touched them. Returns true, or an error string on failure.
+     */
+    private function pushAgentProfile(User $user, int $p24AgentId, int $agencyId): bool|string
+    {
+        $parts    = explode(' ', trim($user->name), 2);
         $isActive = (bool) $user->is_active && !$user->trashed();
 
         $payload = [
-            'id'              => $p24AgentId,
-            'agencyId'        => $agencyId,
-            'firstname'       => $parts[0] ?? '',
-            'lastname'        => $parts[1] ?? $parts[0] ?? '',
-            'emailAddress'    => $user->email ?? '',
-            'mobileNumber'    => $this->normaliseSaPhone($user->cell ?? $user->phone),
-            'sourceReference' => 'CoreX-Agent-' . $user->id,
-            'published'       => $isActive,   // hides the profile from P24 portal when deactivated
-            'status'          => $isActive ? 'Active' : 'Inactive',
-            'receiveStatsMail' => false,
-            'countryId'       => 1,
-            'jobTitle'        => $user->designation ?: 'Sales Agent',
+            'id'               => $p24AgentId,
+            'agencyId'         => $agencyId,
+            'firstname'        => $parts[0] ?? '',
+            'lastname'         => $parts[1] ?? $parts[0] ?? '',
+            'emailAddress'     => $user->email ?? '',
+            'mobileNumber'     => $this->normaliseSaPhone($user->cell ?? $user->phone),
+            'sourceReference'  => 'CoreX-Agent-' . $user->id,
+            'published'        => $isActive,   // hides the profile from P24 portal when deactivated
+            'status'           => $isActive ? 'Active' : 'Inactive',
+            'receiveStatsMail'  => false,
+            'countryId'        => 1,
+            'jobTitle'         => $user->designation ?: 'Sales Agent',
         ];
 
         // Only send workNumber if it looks like a SA landline (not mobile).
@@ -456,12 +489,8 @@ class Property24SyndicationService
 
         $result = $this->client->updateAgent($payload);
         if (!($result['success'] ?? false)) {
-            $this->log('error', "Agent update failed for #{$user->id}", ['result' => $result]);
+            $this->log('error', "Agent profile push failed for #{$user->id}", ['result' => $result]);
             return $result['message'] ?? 'Unknown agent update error';
-        }
-
-        if ($pushPhoto) {
-            $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
         }
 
         return true;
@@ -494,12 +523,28 @@ class Property24SyndicationService
      */
     private function uploadAgentPhotoIfAvailable(User $user, int $p24AgentId): void
     {
-        if (empty($user->agent_photo_path)) {
-            $this->log('info', "Agent #{$user->id} has no agent_photo_path — skipping P24 photo upload");
+        // Resolve the photo from the SAME canonical source the rest of CoreX uses
+        // (User::profilePhotoUrl): a user_documents 'profile_photo' row first, then
+        // the legacy agent_photo_path column. The sync previously read ONLY
+        // agent_photo_path, so every agent whose photo lives in user_documents
+        // (the current upload flow) reached P24 with no photo — even on a manual
+        // refresh. That column-vs-document split is the "half the photos missing".
+        $photoPath = null;
+        $profileDoc = $user->documents()
+            ->where('document_type', 'profile_photo')
+            ->latest()
+            ->first();
+        if ($profileDoc && !empty($profileDoc->file_path)) {
+            $photoPath = $profileDoc->file_path;
+        } elseif (!empty($user->agent_photo_path)) {
+            $photoPath = $user->agent_photo_path;
+        }
+
+        if (empty($photoPath)) {
+            $this->log('info', "Agent #{$user->id} has no profile photo (user_documents or agent_photo_path) — skipping P24 photo upload");
             return;
         }
 
-        $photoPath = $user->agent_photo_path;
         $bytes = null;
         $mime = 'image/jpeg';
 
