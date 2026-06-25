@@ -19,6 +19,31 @@ class Property extends Model
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
     /**
+     * Off-market / terminal listing statuses — the single source of truth for
+     * "this listing is NOT live on the market". Everything else (for_sale, incl.
+     * Reduced Price / Pending sub-labels, under_offer, on_show, on_auction,
+     * to_let, the legacy 'active', …) is considered ON MARKET. Use
+     * Property::OFF_MARKET_STATUSES / scopeOnMarket() everywhere instead of
+     * re-listing these literals — see BUILD_STANDARD §6 (fix the class).
+     *
+     * NOTE: distinct from scopeTransactionLive()'s mandate-liveness check, which
+     * is about mandate expiry, not on-market display.
+     */
+    public const OFF_MARKET_STATUSES = [
+        'sold', 'transferred', 'withdrawn', 'expired',
+        'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
+    ];
+
+    /**
+     * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
+     * canonical definition of "active"/live stock for dashboards and filters.
+     */
+    public function scopeOnMarket($query)
+    {
+        return $query->whereNotIn('status', self::OFF_MARKET_STATUSES);
+    }
+
+    /**
      * Derived public-website fields surfaced on every serialisation so the
      * listing's cosmetic slug and canonical public URL are available
      * everywhere CoreX shows the property. Both are computed (never stored),
