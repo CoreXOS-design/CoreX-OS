@@ -387,7 +387,7 @@ class PropertyController extends Controller
 
         $property           = new Property();
         $property->status   = 'active';
-        $property->listing_type = 'Sale';
+        $property->listing_type = 'sale';
         // Province intentionally not pre-filled — user must pick from the
         // P24 cascading picker so the suburb/city/province chain is real.
         $property->agent_id = $user->id;

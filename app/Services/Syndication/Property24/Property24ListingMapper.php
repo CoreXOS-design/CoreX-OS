@@ -28,7 +28,11 @@ class Property24ListingMapper
             'contactAgentIds'   => $this->resolveContactAgentIds($property, $agencyId),
             'listingType'       => $this->mapListingType($property->listing_type ?? $property->mandate_type),
             'status'            => $this->mapPropertyStatus($property),
-            'price'             => (float) ($property->price ?? 0),
+            // P24 carries the monthly rent in `price` for rentals (the sale price
+            // column is 0/null on a rental). Send rental_amount for rental stock.
+            'price'             => $this->mapListingType($property->listing_type ?? $property->mandate_type) === 'Rental'
+                                   ? (float) ($property->rental_amount ?? 0)
+                                   : (float) ($property->price ?? 0),
             'isPOA'             => (bool) $property->price_on_application,
             'listingVisibility' => 'Public',
             'expiryDate'        => $property->expiry_date?->format('Y-m-d\TH:i:s')

@@ -113,7 +113,7 @@ class P24ListingsCsvParser
                 'title'                => $raw['DescriptionHeader'] ?? null,
                 'headline'             => $raw['DescriptionHeader'] ?? null,
                 'description'          => $raw['Description'] ?? null,
-                'listing_type'         => $isRental ? 'Rental' : 'Sale',
+                'listing_type'         => $isRental ? 'rental' : 'sale',
                 'status'               => $statusResolution['status'],
                 'status_label'         => $statusResolution['label'],
                 'price'                => $isRental ? null : $price,
