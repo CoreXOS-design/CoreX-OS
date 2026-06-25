@@ -2132,7 +2132,15 @@
                     {{ (int)($property->beds  ?? 0) }},
                     {{ (int)($property->baths ?? 0) }},
                     {{ (int)($property->garages ?? 0) }}
-                )">
+                )"
+                    {{-- Spaces/features/beds/baths/garages only flow into the form via
+                         the hidden inputs' :value bindings below, which fire no native
+                         input/change events — so the dirty-tracker never sees them. Touch
+                         every reactive value here, then recompute on $nextTick (after Alpine
+                         has flushed the :value updates to the DOM) so any change to these
+                         marks the form dirty and arms the unsaved-changes guard. --}}
+                    x-effect="bedsCount; bathsCount; garagesCount; spacesJsonStr; aiReviewed;
+                              $nextTick(() => window.coreXPropDirty && window.coreXPropDirty.recompute())">
                     {{-- Hidden form inputs (beds/baths derived from spaces; spaces_json = full data) --}}
                     <input type="hidden" name="beds"        :value="bedsCount">
                     <input type="hidden" name="baths"       :value="bathsCount">
@@ -5318,6 +5326,10 @@
 
     function recompute() {
         var current = snapshot();
+        // Guard: if recompute fires before init() has captured the baseline
+        // (e.g. an Alpine x-effect runs on first paint), adopt the current
+        // state as the baseline rather than falsely flagging the form dirty.
+        if (initialSnapshot === null) { initialSnapshot = current; }
         dirty = (current !== initialSnapshot);
         paintSaveBtn();
     }
@@ -5878,7 +5890,7 @@ const _ALL_SPACE_TYPES = ['Bedroom','Bathroom','Garage','Parking','Kitchen','Gar
 const _FEATURE_CATEGORIES = {
     theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Communal Braai Area','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Sea View','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
     security:       { label: 'Security',     features: ['24 Hour Access','24 Hour Guard','Alarm System','Armed Response','Boomed Area','Burglar Bars','CCTV','Electric Fence','Electric Gate','Gated Community','Guard House','In Security','Indoor Beams','Intercom','Outdoor Beams','Partially Fenced','Perimeter Wall','Safe','Security Gate','Totally Fenced','Totally Walled','Security Complex','Automated Garage Doors','Security Estate'] },
-    connectivity:   { label: 'Connectivity', features: ['ADSL','Cable TV','Fast Internet','Fibre','Internet Port','Satellite Dish','Satellite Internet','Telephone Port','TV Port','Wi-Fi'] },
+    connectivity:   { label: 'Connectivity', features: ['ADSL','Cable TV','Fibre','Internet Port','Satellite Dish','Satellite Internet','Telephone Port','TV Port','Wi-Fi'] },
     sustainability: { label: 'Sustainability',features: ['Backup Battery','Backup Water','Borehole','Gas Geyser','Gas Hob','Gas Oven','Generator','Inverter','Septic Tank','Solar Geyser','Solar Heating','Solar Panel','Water Tank'] },
 };
 const _HALF_UNIT_SPACES = ['Bathroom','Parking'];
