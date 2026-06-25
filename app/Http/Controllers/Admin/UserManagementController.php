@@ -807,6 +807,28 @@ class UserManagementController extends Controller
     }
 
     /**
+     * Quick on/off toggle for an agent's Property24 opt-out (exclude_from_p24).
+     * Flips the flag and immediately pushes the new visibility to P24 on the
+     * queue: excluding PUTs published=false / status=Inactive (the agent
+     * vanishes from the portal); re-including republishes — and registers them
+     * if they were never on P24 yet (registerIfMissing follows the direction).
+     */
+    public function toggleP24(Request $request, User $user)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $user->update(['exclude_from_p24' => ! $user->exclude_from_p24]);
+        $fresh = $user->fresh();
+
+        SyncAgentToP24Job::dispatch($fresh->id, registerIfMissing: ! $fresh->exclude_from_p24);
+
+        return response()->json([
+            'success'          => true,
+            'exclude_from_p24' => (bool) $fresh->exclude_from_p24,
+        ]);
+    }
+
+    /**
      * JSON preview for the agent-delete modal: counts of attached records
      * and the list of eligible reassignment targets in the same agency.
      */
