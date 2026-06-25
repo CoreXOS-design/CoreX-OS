@@ -177,7 +177,15 @@ class Property24ApiClient
     public function createAgent(array $agentData): array
     {
         $result = $this->request('POST', '/agents', $agentData, null, 'create_agent');
-        self::$agentsCache = []; // a new agent must appear in the next lookup
+        // Patch the just-created agent into the warm cache (id from the response)
+        // rather than busting — busting forces a full re-fetch that can time out
+        // and strand the next listings with no resolvable agent.
+        $id = $result['data']['id'] ?? $result['data'] ?? null;
+        if (($result['success'] ?? false) && is_numeric($id)) {
+            $this->cacheUpsertAgent(array_merge($agentData, ['id' => (int) $id]));
+        } else {
+            self::$agentsCache = [];
+        }
         return $result;
     }
 
@@ -187,8 +195,47 @@ class Property24ApiClient
     public function updateAgent(array $agentData): array
     {
         $result = $this->request('PUT', '/agents', $agentData, null, 'update_agent');
-        self::$agentsCache = []; // sourceReference/details changed — refresh next lookup
+        // Adopt/update path carries id + sourceReference — patch it into the warm
+        // cache in place so resolveContactAgentIds finds it WITHOUT a re-fetch.
+        if (($result['success'] ?? false) && ! empty($agentData['id'])) {
+            $this->cacheUpsertAgent($agentData);
+        } else {
+            self::$agentsCache = [];
+        }
         return $result;
+    }
+
+    /**
+     * Insert-or-update an agent record inside the in-memory getAgents cache so a
+     * create/adopt is reflected immediately without re-fetching the whole list.
+     * Matches by agent id; scopes to the agent's agencyId when present.
+     */
+    private function cacheUpsertAgent(array $agent): void
+    {
+        if (empty($agent['id'])) {
+            return;
+        }
+        $agentAgency = isset($agent['agencyId']) ? (string) $agent['agencyId'] : null;
+
+        foreach (self::$agentsCache as $cacheKey => $entry) {
+            if ($agentAgency !== null && $agentAgency !== '' && $cacheKey !== $agentAgency) {
+                continue;
+            }
+            $list = $entry['data'] ?? [];
+            $found = false;
+            foreach ($list as $idx => $existing) {
+                if ((int) ($existing['id'] ?? 0) === (int) $agent['id']) {
+                    $list[$idx] = array_merge($existing, $agent);
+                    $found = true;
+                    break;
+                }
+            }
+            if (! $found) {
+                $list[] = $agent;
+            }
+            $entry['data'] = $list;
+            self::$agentsCache[$cacheKey] = $entry;
+        }
     }
 
     /**
