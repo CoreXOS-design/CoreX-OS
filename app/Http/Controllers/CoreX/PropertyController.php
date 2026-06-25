@@ -229,7 +229,7 @@ class PropertyController extends Controller
         $settingItems = [
             'categories'      => PropertySettingItem::group('category')->get(),
             'types'           => PropertySettingItem::group('property_type')->where('active', true)->get(),
-            'statuses'        => PropertySettingItem::group('property_status')->get(),
+            'statuses'        => PropertySettingItem::group('property_status')->where('active', true)->get(),
             'mandateTypes'    => PropertySettingItem::group('mandate_type')->get(),
             // Build 3 — condition levels drive CMA Middle band adjustment.
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
@@ -386,8 +386,8 @@ class PropertyController extends Controller
         $user = auth()->user();
 
         $property           = new Property();
-        $property->status   = 'for_sale';
-        $property->listing_type = 'Sale';
+        $property->status   = 'active';
+        $property->listing_type = 'sale';
         // Province intentionally not pre-filled — user must pick from the
         // P24 cascading picker so the suburb/city/province chain is real.
         $property->agent_id = $user->id;
@@ -434,7 +434,7 @@ class PropertyController extends Controller
         $settingItems = [
             'categories'      => PropertySettingItem::group('category')->get(),
             'types'           => PropertySettingItem::group('property_type')->where('active', true)->get(),
-            'statuses'        => PropertySettingItem::group('property_status')->get(),
+            'statuses'        => PropertySettingItem::group('property_status')->where('active', true)->get(),
             'mandateTypes'    => PropertySettingItem::group('mandate_type')->get(),
             // Build 3 — condition levels drive CMA Middle band adjustment.
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
@@ -494,6 +494,7 @@ class PropertyController extends Controller
             'mandate_type'     => 'nullable|string|max:50',
             'listing_type'     => 'nullable|string|in:sale,rental',
             'status'           => 'nullable|string|max:100',
+            'status_label'     => 'nullable|string|max:50',
             'features'         => 'nullable|array',
             'features.*'       => 'string|max:100',
             'spaces_json'      => 'nullable|string',
@@ -589,16 +590,19 @@ class PropertyController extends Controller
 
         if (! empty($data['publish'])) {
             $data['published_at'] = now();
-            // Two-tier model: publishing must NOT write the retired flat 'active'
-            // (that overwrites the canonical for_sale base). Promote only a
-            // draft/empty placeholder to the for_sale base; keep any existing
-            // on-market base status (and its sub-label) intact.
+            // Clean status model: on-market status is 'active' (the stock type
+            // For Sale/For Rent lives on listing_type). Promote only a draft/empty
+            // placeholder to active; keep any existing on-market base + sub-label.
             $cur = $data['status'] ?? '';
             if ($cur === '' || $cur === 'draft') {
-                $data['status'] = 'for_sale';
+                $data['status'] = 'active';
             }
         }
         unset($data['publish']);
+        // Sub-label banner is meaningful only on an on-market (active) listing.
+        if (($data['status'] ?? null) !== null && $data['status'] !== 'active') {
+            $data['status_label'] = null;
+        }
 
         // `status` is NOT NULL (DB default 'draft'). An empty status field
         // arrives as null via ConvertEmptyStringsToNull — strip it so the
@@ -829,6 +833,7 @@ class PropertyController extends Controller
             'mandate_type'     => 'nullable|string|max:50',
             'listing_type'     => 'nullable|string|in:sale,rental',
             'status'           => 'nullable|string|max:100',
+            'status_label'     => 'nullable|string|max:50',
             'features'         => 'nullable|array',
             'features.*'       => 'string|max:100',
             'spaces_json'      => 'nullable|string',
@@ -920,15 +925,20 @@ class PropertyController extends Controller
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();
-            // Two-tier model: do NOT write the retired flat 'active'. Promote only
-            // a draft/empty placeholder to for_sale; keep the existing on-market
-            // base status (and sub-label) intact.
+            // Clean status model: on-market status is 'active' (stock type lives on
+            // listing_type). Promote only a draft/empty placeholder to active; keep
+            // the existing on-market base status (and sub-label) intact.
             $cur = $data['status'] ?? $property->status ?? '';
             if ($cur === '' || $cur === 'draft') {
-                $data['status'] = 'for_sale';
+                $data['status'] = 'active';
             }
         }
         unset($data['publish']);
+        // Sub-label banner is meaningful only on an on-market (active) listing.
+        if (array_key_exists('status', $data) && $data['status'] !== null
+            && $data['status'] !== '' && $data['status'] !== 'active') {
+            $data['status_label'] = null;
+        }
 
         // `status` is NOT NULL. An empty status field arrives as null via
         // ConvertEmptyStringsToNull — never let that overwrite the existing
