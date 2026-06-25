@@ -3038,15 +3038,37 @@
                         <div>
                             <p class="prop-subsection-heading">Lifecycle</p>
                             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                                <div x-data="{ st: '{{ old('status', $property->status) }}' }" class="contents">
                                 <div>
                                     <label class="prop-label">Status <span class="prop-required">*</span></label>
-                                    <select name="status" required class="prop-select prop-field-lifecycle">
+                                    <select name="status" required x-model="st" class="prop-select prop-field-lifecycle">
                                         <option value="">— None —</option>
+                                        @php $stCurrent = old('status', $property->status); @endphp
+                                        {{-- Always surface the property's own status even if the item was retired/deactivated --}}
+                                        @if($stCurrent && !$settingItems['statuses']->contains(fn($i) => strtolower(str_replace(' ','_',$i->name)) === $stCurrent))
+                                            <option value="{{ $stCurrent }}" selected>{{ ucwords(str_replace('_',' ',$stCurrent)) }}</option>
+                                        @endif
                                         @foreach($settingItems['statuses'] as $item)
                                             @php $val = strtolower(str_replace(' ','_',$item->name)); @endphp
-                                            <option value="{{ $val }}" {{ old('status', $property->status) === $val ? 'selected' : '' }}>{{ $item->name }}</option>
+                                            <option value="{{ $val }}" {{ $stCurrent === $val ? 'selected' : '' }}>{{ $item->name }}</option>
                                         @endforeach
                                     </select>
+                                </div>
+                                <div>
+                                    <label class="prop-label">Banner / Sub-label</label>
+                                    {{-- P24 sub-label banner on an on-market (Active) listing. Fixed P24 vocabulary
+                                         (not agency-configurable). Disabled unless status = Active. --}}
+                                    <select name="status_label" class="prop-select prop-field-lifecycle"
+                                            :disabled="st !== 'active'"
+                                            :title="st !== 'active' ? 'Banners apply to on-market (Active) listings only' : 'Optional banner shown on this Active listing'">
+                                        <option value="">None</option>
+                                        @php $lblCurrent = old('status_label', $property->status_label); @endphp
+                                        @foreach(['Reduced Price','Pending','Back on Market','Raised Price'] as $lbl)
+                                            <option value="{{ $lbl }}" {{ $lblCurrent === $lbl ? 'selected' : '' }}>{{ $lbl }}</option>
+                                        @endforeach
+                                    </select>
+                                    <p class="text-xs mt-1" style="color:var(--text-muted);" x-show="st !== 'active'" x-cloak>Banners show only on Active (on-market) listings.</p>
+                                </div>
                                 </div>
                                 <div>
                                     <label class="prop-label">Mandate Type</label>

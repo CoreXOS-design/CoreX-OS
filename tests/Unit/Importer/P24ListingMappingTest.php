@@ -104,8 +104,8 @@ class P24ListingMappingTest extends TestCase
         $this->assertSame('let_out', $byId['1003']['mapped']['status']);
         $this->assertNull($byId['1003']['mapped']['status_label']);
 
-        // Row 1004: NewListing -> for_sale base, no label ; unknown type 99 -> Other + recorded error
-        $this->assertSame('for_sale', $byId['1004']['mapped']['status']);
+        // Row 1004: NewListing -> active base (on-market), no label ; unknown type 99 -> Other + recorded error
+        $this->assertSame('active', $byId['1004']['mapped']['status']);
         $this->assertNull($byId['1004']['mapped']['status_label']);
         $this->assertSame('Other', $byId['1004']['mapped']['property_type']);
         $this->assertNotEmpty(array_filter(
@@ -113,12 +113,12 @@ class P24ListingMappingTest extends TestCase
             fn ($e) => str_contains($e, 'Unknown PropertyTypeId')
         ));
 
-        // Row 1005: Reduced -> for_sale base + "Reduced Price" sub-label (two-tier)
-        $this->assertSame('for_sale', $byId['1005']['mapped']['status']);
+        // Row 1005: Reduced -> active base + "Reduced Price" sub-label banner
+        $this->assertSame('active', $byId['1005']['mapped']['status']);
         $this->assertSame('Reduced Price', $byId['1005']['mapped']['status_label']);
 
-        // Row 1006: Pending -> for_sale base + "Pending" sub-label (still for sale)
-        $this->assertSame('for_sale', $byId['1006']['mapped']['status']);
+        // Row 1006: Pending -> active base + "Pending" sub-label (still on market)
+        $this->assertSame('active', $byId['1006']['mapped']['status']);
         $this->assertSame('Pending', $byId['1006']['mapped']['status_label']);
     }
 
@@ -131,14 +131,16 @@ class P24ListingMappingTest extends TestCase
     {
         // [base status, sub-label, p24_ref, expected P24 status]
         $cases = [
-            // On-market: plain For Sale with no ref -> NewListing (matches old flat 'active'/'new_listing')
-            ['for_sale',  null,            null,        'NewListing'],
-            ['for_sale',  null,            'P24-1',     'Active'],       // re-syndicated established listing
+            // On-market base 'active', no ref -> NewListing; with ref -> Active.
+            // (for_sale is round-trip-identical — kept as a back-compat guard.)
+            ['active',    null,            null,        'NewListing'],
+            ['active',    null,            'P24-1',     'Active'],       // re-syndicated established listing
+            ['for_sale',  null,            null,        'NewListing'],   // legacy base still round-trips
             // Sub-label IS the P24 lifecycle signal (resolved first)
-            ['for_sale',  'Reduced Price', null,        'ReducedPrice'], // == old flat 'reduced_price'
-            ['for_sale',  'Pending',       null,        'Pending'],      // == old flat 'pending'
-            ['for_sale',  'Back on Market',null,        'BackOnMarket'],
-            ['for_sale',  'Raised Price',  null,        'RaisedPrice'],
+            ['active',    'Reduced Price', null,        'ReducedPrice'],
+            ['active',    'Pending',       null,        'Pending'],
+            ['active',    'Back on Market',null,        'BackOnMarket'],
+            ['active',    'Raised Price',  null,        'RaisedPrice'],
             // Terminal base statuses (no label) — unchanged from flat model
             ['withdrawn', null,            null,        'Withdrawn'],
             ['expired',   null,            null,        'Expired'],

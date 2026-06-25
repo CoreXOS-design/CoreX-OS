@@ -188,25 +188,26 @@ class P24ListingsCsvParser
     }
 
     /**
-     * Map a P24 source status → CoreX two-tier status: a BASE status (the
+     * Map a P24 source status → CoreX status: a BASE lifecycle status (the
      * slugified `property_setting_items` value the edit form stores) plus an
-     * optional SUB-LABEL banner. P24/Propcon model on-market lifecycle states
-     * (Reduced / Pending / Back on Market / Raised Price) as a banner ON a
-     * For-Sale base, NOT as separate statuses — see AT-P24. Returns
+     * optional SUB-LABEL banner. Clean model (see AT-P24): on-market lifecycle =
+     * base 'active' (the STOCK type For Sale/For Rent lives on listing_type, NOT
+     * status); Reduced / Pending / Back on Market / Raised Price are banners ON
+     * the active base, not separate statuses. Returns
      * ['status' => <base>, 'label' => <sub-label|null>].
      *
-     *   Active                  → for_sale, (no label)   (live on market)
-     *   NewListing / New        → for_sale, (no label)   (P24 derives "NewListing" from age on export)
-     *   Reduced                 → for_sale + "Reduced Price"
-     *   Pending                 → for_sale + "Pending"   (offer received, still for sale)
-     *   Back on Market          → for_sale + "Back on Market"
-     *   Raised Price            → for_sale + "Raised Price"
+     *   Active                  → active, (no label)   (on market)
+     *   NewListing / New        → active, (no label)   (P24 derives "NewListing" from age on export)
+     *   Reduced                 → active + "Reduced Price"
+     *   Pending                 → active + "Pending"   (offer received, still on market)
+     *   Back on Market          → active + "Back on Market"
+     *   Raised Price            → active + "Raised Price"
      *   Withdrawn               → withdrawn
      *   Expired                 → expired
      *   Cancelled               → cancelled
      *   Sold                    → sold
      *   Rented (concluded let)  → let_out
-     * Unknown/blank falls back to for_sale with no label (a freshly imported
+     * Unknown/blank falls back to active with no label (a freshly imported
      * on-market listing). The base+label pair round-trips correctly back to P24
      * via Property24ListingMapper::getP24Status (label resolved first).
      *
@@ -215,18 +216,18 @@ class P24ListingsCsvParser
     private function normaliseStatus(string $s): array
     {
         return match (strtolower(trim($s))) {
-            'active'                       => ['status' => 'for_sale', 'label' => null],
-            'newlisting', 'new'            => ['status' => 'for_sale', 'label' => null],
-            'reduced', 'reducedprice'      => ['status' => 'for_sale', 'label' => 'Reduced Price'],
-            'pending'                      => ['status' => 'for_sale', 'label' => 'Pending'],
-            'backonmarket', 'back on market' => ['status' => 'for_sale', 'label' => 'Back on Market'],
-            'raised', 'raisedprice'        => ['status' => 'for_sale', 'label' => 'Raised Price'],
+            'active'                       => ['status' => 'active', 'label' => null],
+            'newlisting', 'new'            => ['status' => 'active', 'label' => null],
+            'reduced', 'reducedprice'      => ['status' => 'active', 'label' => 'Reduced Price'],
+            'pending'                      => ['status' => 'active', 'label' => 'Pending'],
+            'backonmarket', 'back on market' => ['status' => 'active', 'label' => 'Back on Market'],
+            'raised', 'raisedprice'        => ['status' => 'active', 'label' => 'Raised Price'],
             'withdrawn'                    => ['status' => 'withdrawn', 'label' => null],
             'expired'                      => ['status' => 'expired', 'label' => null],
             'cancelled'                    => ['status' => 'cancelled', 'label' => null],
             'sold'                         => ['status' => 'sold', 'label' => null],
             'rented'                       => ['status' => 'let_out', 'label' => null],
-            default                        => ['status' => 'for_sale', 'label' => null],
+            default                        => ['status' => 'active', 'label' => null],
         };
     }
 }
