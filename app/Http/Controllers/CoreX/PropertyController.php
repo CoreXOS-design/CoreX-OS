@@ -86,6 +86,10 @@ class PropertyController extends Controller
 
         if ($status === 'published') {
             $query->whereNotNull('published_at');
+        } elseif ($status === 'on_market') {
+            // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
+            // i.e. NOT terminal/draft. Single source of truth on the model.
+            $query->whereNotIn('status', Property::OFF_MARKET_STATUSES);
         } elseif ($status !== '') {
             $query->where('status', $status);
         }
@@ -102,7 +106,7 @@ class PropertyController extends Controller
         // Marketing status filter
         $marketingFilter = $request->query('filter', '');
         if ($marketingFilter === 'marketing_pending') {
-            $query->whereNull('compliance_snapshot_at')->whereNotIn('status', ['sold', 'withdrawn', 'draft']);
+            $query->whereNull('compliance_snapshot_at')->whereNotIn('status', Property::OFF_MARKET_STATUSES);
         }
 
         if ($search !== '') {
@@ -113,9 +117,13 @@ class PropertyController extends Controller
         // (not just the current page), before sorting/pagination is applied.
         // Single aggregate query (conditional SUMs) instead of 5 separate COUNT
         // round-trips for the same filtered set.
+        // "On market" = live stock = status NOT IN the off-market terminal/draft
+        // set (single source of truth on the model). Values are code constants,
+        // never user input, so direct interpolation is safe.
+        $offMarketIn = "'" . implode("','", Property::OFF_MARKET_STATUSES) . "'";
         $agg = (clone $query)->selectRaw(
             "COUNT(*) as total,"
-            . " SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,"
+            . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
             . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
             . " SUM(CASE WHEN published_at IS NOT NULL THEN 1 ELSE 0 END) as synced"
@@ -162,7 +170,7 @@ class PropertyController extends Controller
             if ($p->compliance_snapshot_at !== null) {
                 $p->marketing_status = 'live';
                 $p->marketing_status_detail = 'Live since ' . $p->compliance_snapshot_at->format('j M Y');
-            } elseif (in_array($p->status, ['sold', 'withdrawn', 'draft'])) {
+            } elseif (in_array($p->status, Property::OFF_MARKET_STATUSES)) {
                 $p->marketing_status = 'n/a';
                 $p->marketing_status_detail = '';
             } else {
@@ -581,7 +589,14 @@ class PropertyController extends Controller
 
         if (! empty($data['publish'])) {
             $data['published_at'] = now();
-            $data['status']       = 'active';
+            // Two-tier model: publishing must NOT write the retired flat 'active'
+            // (that overwrites the canonical for_sale base). Promote only a
+            // draft/empty placeholder to the for_sale base; keep any existing
+            // on-market base status (and its sub-label) intact.
+            $cur = $data['status'] ?? '';
+            if ($cur === '' || $cur === 'draft') {
+                $data['status'] = 'for_sale';
+            }
         }
         unset($data['publish']);
 
@@ -905,7 +920,13 @@ class PropertyController extends Controller
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();
-            $data['status']       = 'active';
+            // Two-tier model: do NOT write the retired flat 'active'. Promote only
+            // a draft/empty placeholder to for_sale; keep the existing on-market
+            // base status (and sub-label) intact.
+            $cur = $data['status'] ?? $property->status ?? '';
+            if ($cur === '' || $cur === 'draft') {
+                $data['status'] = 'for_sale';
+            }
         }
         unset($data['publish']);
 
