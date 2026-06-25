@@ -51,7 +51,7 @@ class PrivatePropertyListingMapper
             'Province'                => $this->mapProvince($property->province),
             'Headline'                => $property->headline ?? $property->title ?? '',
             'Description'             => $property->description ?? '',
-            'Price'                   => (float) $property->price,
+            'Price'                   => $property->effectivePrice(), // rental_amount for rentals, price for sales (PP carries rent in Price + RentalPriceType)
             'Deposit'                 => $listingType === 'Rental' ? (float) ($property->deposit_amount ?? 0) : 0.0,
             'ListingDate'             => $property->created_at ? $property->created_at->format('Y-m-d\TH:i:s') : now()->format('Y-m-d\TH:i:s'),
             'ExpiryDate'              => $expiryDate,
@@ -288,7 +288,9 @@ class PrivatePropertyListingMapper
         ];
 
         foreach ($checks as $check) {
-            $value = $property->{$check['field']};
+            // Price uses effectivePrice() (rental_amount for rentals) so a priced
+            // rental is never flagged "missing Price" just because the sale column is 0.
+            $value = $check['field'] === 'price' ? $property->effectivePrice() : $property->{$check['field']};
             $empty = $value === null || $value === '' || $value === 0;
 
             if (isset($check['min']) && is_numeric($value) && (int) $value < $check['min']) {
