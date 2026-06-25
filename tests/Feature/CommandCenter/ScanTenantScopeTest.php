@@ -7,6 +7,7 @@ namespace Tests\Feature\CommandCenter;
 use App\Models\CommandCenter\NotificationDispatchLog;
 use App\Models\CommandCenter\NotificationEventType;
 use App\Models\CommandCenter\UserNotificationPreference;
+use App\Models\Contact;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -58,6 +59,42 @@ final class ScanTenantScopeTest extends TestCase
             ->count(), 'agent SHOULD be notified about a property in their own agency');
     }
 
+    public function test_contact_birthday_scan_skips_a_system_owner_with_no_agency(): void
+    {
+        [$agencyA, $agent] = $this->seedAgencyAgent();
+
+        // System-owner account: no agency, no branch — cannot hold contacts in-app.
+        // Force NULL directly: the BelongsToAgency creating-hook would otherwise
+        // stamp the only existing agency onto a user created with a null agency.
+        $owner = User::factory()->create(['role' => 'super_admin']);
+        DB::table('users')->where('id', $owner->id)->update(['agency_id' => null, 'branch_id' => null]);
+        $owner->refresh();
+
+        $this->makeBirthdayType();
+        // Enable the birthday pref for BOTH so the only thing that can stop the
+        // owner's email is the tenant guard, not a missing preference.
+        $this->enablePref($owner, 'contact.birthday');
+        $this->enablePref($agent, 'contact.birthday');
+
+        // A contact the owner created (in a real agency) — owner must NOT be emailed.
+        $ownerContact = $this->insertContact($owner->id, $agencyA);
+        // A contact the agent created in their own agency — agent SHOULD be emailed.
+        $agentContact = $this->insertContact($agent->id, $agencyA);
+
+        $this->artisan('notifications:scan-contacts')->assertExitCode(0);
+
+        $type = NotificationEventType::where('key', 'contact.birthday')->firstOrFail();
+
+        $this->assertSame(0, NotificationDispatchLog::where('user_id', $owner->id)
+            ->where('notification_event_type_id', $type->id)
+            ->count(), 'system owner (no agency) must NOT receive birthday notifications');
+
+        $this->assertGreaterThan(0, NotificationDispatchLog::where('user_id', $agent->id)
+            ->where('notification_event_type_id', $type->id)
+            ->where('subject_id', $agentContact)
+            ->count(), 'agent SHOULD receive the birthday notification for their own-agency contact');
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private function seedAgency(): int
@@ -106,6 +143,47 @@ final class ScanTenantScopeTest extends TestCase
         ]);
 
         return (int) $p->id;
+    }
+
+    private function insertContact(int $creatorId, int $agencyId): int
+    {
+        // Birthday with today's month/day so the scanner's date predicate matches.
+        $birthday = now()->subYears(30)->format('Y-m-d');
+
+        $c = new Contact();
+        $c->forceFill([
+            'first_name'         => 'Birthday',
+            'last_name'          => 'Person ' . Str::random(4),
+            'phone'              => '0820000000',
+            'created_by_user_id' => $creatorId,
+            'agency_id'          => $agencyId,
+            'birthday'           => $birthday,
+            'birthday_reminder'  => true,
+        ])->save();
+
+        return (int) $c->id;
+    }
+
+    private function makeBirthdayType(): NotificationEventType
+    {
+        return NotificationEventType::create([
+            'key'               => 'contact.birthday',
+            'pillar'            => 'contact',
+            'group_label'       => 'Activity',
+            'label'             => 'Contact birthday today',
+            'description'       => "Today is this contact's birthday.",
+            'default_enabled'   => true,
+            'threshold_unit'    => 'none',
+            'default_threshold' => null,
+            'threshold_min'     => null,
+            'threshold_max'     => null,
+            'supports_in_app'   => true,
+            'supports_email'    => true,
+            'supports_push'     => true,
+            'is_adapter'        => false,
+            'adapter_column'    => null,
+            'sort_order'        => 1,
+        ]);
     }
 
     private function makeDocsMissingType(): NotificationEventType

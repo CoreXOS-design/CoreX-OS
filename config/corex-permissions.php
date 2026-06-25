@@ -335,7 +335,9 @@ return [
 
         // ── Ad Manager (Tools) ──
         ['key' => 'access_ad_manager',           'label' => 'Access Ad Manager',           'section' => 'calculators',      'type' => 'access',  'module' => 'ad_manager',       'sort_order' => 1],
-        ['key' => 'ad_manager.all_agents',       'label' => 'Create Ads for All Agents',   'section' => 'calculators',      'type' => 'action',  'module' => 'ad_manager',       'sort_order' => 2],
+        // Data-scope view key — drives the None / Own / Branch / All selector in
+        // Role Manager (whose properties the user may build ads for).
+        ['key' => 'ad_manager.view',             'label' => 'View',                        'section' => 'calculators',      'type' => 'action',  'module' => 'ad_manager',       'sort_order' => 2],
 
         // ── Flow Map ──
         ['key' => 'access_flow_map',             'label' => 'Access Flow Map',             'section' => 'flow-map',         'type' => 'access',  'module' => 'flow_map',         'sort_order' => 1],
@@ -611,7 +613,7 @@ return [
                 'commercial_evals.view', 'commercial_evals.create', 'commercial_evals.edit',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create', 'sales_docs.edit',
-                'access_calculators', 'access_ad_manager', 'ad_manager.all_agents', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
+                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
@@ -689,7 +691,7 @@ return [
                 'commercial_evals.view', 'commercial_evals.create',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create',
-                'access_calculators', 'access_ad_manager', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
+                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'create_properties',

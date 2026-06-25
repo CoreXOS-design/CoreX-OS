@@ -195,13 +195,20 @@ A standalone page at **Tools → Ad Manager** (`/tools/ad-manager`) for producin
    **Download PNG** button, and the **AI description** (copy-to-clipboard). Optional "Include
    emojis ✨" toggle.
 
-**Permissions (role manager)** — new, catalogue-driven, under the **Tools → Ad Manager** feature:
+**Permissions (role manager)** — catalogue-driven, under the **Tools → Ad Manager** feature:
 - `access_ad_manager` (access) — use the page + see the nav entry.
-- `ad_manager.all_agents` (action) — generate ads for **any** agent's properties (and get the
-  agent picker). Without it, the user is limited to their **own** properties. Enforced
-  server-side per property in `generate()` — never trusted from the client.
-- Defaults: super_admin (all), admin + branch_manager → both; agent → `access_ad_manager`
-  only (own properties). This is the "Agents do their own, admins do all agents" rule.
+- `ad_manager.view` (action, **data-scope key**) — drives the **None / Own / Branch / All**
+  selector in Role Manager, deciding whose listings the user may build ads for:
+  - **None / Own** → only the user's own listings (no agent picker).
+  - **Branch** → the user's own listings + other agents' listings in the same branch
+    (agent picker shows branch agents).
+  - **All** → every agent's listings in the agency (full agent picker).
+  Enforced server-side per property in `index()`/`previews()`/`generate()` via
+  `AdManagerController::canAdvertise()` — never trusted from the client. The scope is read
+  with `PermissionService::getDataScope($user, 'ad_manager')`.
+- Defaults (`scope_defaults`): super_admin/admin → All; branch_manager → Branch;
+  agent → Own. This is the "Agents do their own, managers do their branch, admins do all"
+  rule. (Replaced the legacy boolean `ad_manager.all_agents`, removed 2026-06-25.)
 
 **Rendering** — the server renders the chosen pre-built template to HTML per property via the
 shared `_ad-templates` partial (fed by `Property::adTemplateVars()`); the client shows it and
