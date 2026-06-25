@@ -626,22 +626,56 @@ class Property24ListingMapper
      */
     private function mapPropertyStatus(Property $property): string
     {
-        return self::getP24Status($property->status, $property->p24_ref);
+        return self::getP24Status($property->status, $property->p24_ref, $property->status_label);
     }
 
     /**
-     * Static helper: convert CoreX status string to P24 ListingStatus.
-     * Used by both the mapper and the observer.
+     * Static helper: convert a CoreX two-tier status (base status + optional
+     * sub-label banner) to a P24 ListingStatus. Used by both the mapper and the
+     * observer.
+     *
+     * Two-tier model (mirrors P24/Propcon): a listing has a BASE status and an
+     * optional SUB-LABEL on an on-market base — e.g. For Sale + "Reduced Price",
+     * For Sale + "Pending", For Sale + "Back on Market". The sub-label IS the
+     * authoritative P24 lifecycle signal when present, so it is resolved FIRST;
+     * a For-Sale base with no label falls through to the base-status logic.
+     *
+     * Back-compat: $statusLabel is optional and defaults to null. With a null
+     * label this returns exactly what the prior flat-status version returned for
+     * every base status — proven by the AT-P24 before/after round-trip table —
+     * with one intentional fix: a let-out rental now maps to 'Rented' instead of
+     * silently falling through to 'NewListing'.
      */
-    public static function getP24Status(?string $corexStatus, ?string $p24Ref = null): string
+    public static function getP24Status(?string $corexStatus, ?string $p24Ref = null, ?string $statusLabel = null): string
     {
-        // Normalize: lowercase, strip bullets, replace underscores with spaces
-        $status = strtolower(str_replace(['•', '_'], ['', ' '], trim($corexStatus ?? '')));
-        $status = preg_replace('/\s+/', ' ', $status); // collapse multiple spaces
+        $normalise = static function (?string $v): string {
+            $v = strtolower(str_replace(['•', '_'], ['', ' '], trim($v ?? '')));
+            return preg_replace('/\s+/', ' ', $v); // collapse multiple spaces
+        };
+
+        // 1) Sub-label (banner) takes precedence — it is the P24 lifecycle state.
+        $label = $normalise($statusLabel);
+        if ($label !== '') {
+            $fromLabel = match (true) {
+                str_contains($label, 'reduced')        => 'ReducedPrice',
+                str_contains($label, 'raised')         => 'RaisedPrice',
+                str_contains($label, 'back on market') => 'BackOnMarket',
+                str_contains($label, 'under offer')
+                    || str_contains($label, 'pending') => 'Pending',
+                default                                => null,
+            };
+            if ($fromLabel !== null) {
+                return $fromLabel;
+            }
+        }
+
+        // 2) Base status.
+        $status = $normalise($corexStatus);
 
         return match (true) {
             str_contains($status, 'sold')              => 'Sold',
-            str_contains($status, 'rented')            => 'Rented',
+            str_contains($status, 'rented')
+                || str_contains($status, 'let out')     => 'Rented',
             str_contains($status, 'withdrawn')
                 || str_contains($status, 'unavailable') => 'Withdrawn',
             str_contains($status, 'under offer')

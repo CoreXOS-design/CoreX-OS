@@ -8078,6 +8078,7 @@ CREATE TABLE `properties` (
   `mandate_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `listing_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `status_label` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Optional sub-label banner on a base status (e.g. "Reduced Price", "Pending"). Two-tier P24/Propcon model — see AT-P24.',
   `images_json` json DEFAULT NULL,
   `dawn_images_json` json DEFAULT NULL,
   `noon_images_json` json DEFAULT NULL,
@@ -12133,3 +12134,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (866,'2026_06_24_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (867,'2026_06_24_000003_add_drive_id_to_shared_drive_tables',166);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (868,'2026_06_24_120000_add_rental_images_json_to_properties',166);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (869,'2026_06_24_120000_create_agency_document_type_compliance_table',166);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (870,'2026_06_25_140000_add_status_label_to_properties',167);

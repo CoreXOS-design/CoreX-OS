@@ -107,6 +107,9 @@
                     <div class="flex items-center gap-1.5 flex-wrap">
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
+                        @if(!empty($property->status_label))
+                            <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
+                        @endif
                         @if($property->isPublished())
                             <span class="ds-badge ds-badge-success">Published</span>
                         @endif
@@ -795,6 +798,9 @@
                         @endphp
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
+                        @if(!empty($property->status_label))
+                            <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
+                        @endif
                         <span class="text-xs" style="color:var(--text-secondary);">{{ $property->beds }}bd · {{ $property->baths }}ba{{ ($property->half_baths ?? 0) > 0 ? '+½' : '' }}</span>
                     </div>
                 </div>

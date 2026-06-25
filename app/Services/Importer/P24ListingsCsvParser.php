@@ -105,6 +105,8 @@ class P24ListingsCsvParser
                 'parking_bay_number' => trim((string)($raw['ParkingBayNumber'] ?? '')) ?: null,
             ], fn ($v) => $v !== null && $v !== '');
 
+            $statusResolution = $this->normaliseStatus($status);
+
             $mapped = [
                 'external_id'          => (string)$listingNumber,
                 'p24_listing_number'   => (string)$listingNumber,
@@ -112,7 +114,8 @@ class P24ListingsCsvParser
                 'headline'             => $raw['DescriptionHeader'] ?? null,
                 'description'          => $raw['Description'] ?? null,
                 'listing_type'         => $isRental ? 'Rental' : 'Sale',
-                'status'               => $this->normaliseStatus($status),
+                'status'               => $statusResolution['status'],
+                'status_label'         => $statusResolution['label'],
                 'price'                => $isRental ? null : $price,
                 'rental_amount'        => $isRental ? ($rentalRate ?: $price) : null,
                 'address'              => $address ?: null,
@@ -185,41 +188,45 @@ class P24ListingsCsvParser
     }
 
     /**
-     * Map a P24 source status → CoreX canonical property_status (the slugified
-     * `property_setting_items` value the edit form stores). The original
-     * importer emitted capitalised, non-canonical strings ("Active", "Rented",
-     * or the raw P24 word) which never matched the form select and rendered as
-     * "— None —".
+     * Map a P24 source status → CoreX two-tier status: a BASE status (the
+     * slugified `property_setting_items` value the edit form stores) plus an
+     * optional SUB-LABEL banner. P24/Propcon model on-market lifecycle states
+     * (Reduced / Pending / Back on Market / Raised Price) as a banner ON a
+     * For-Sale base, NOT as separate statuses — see AT-P24. Returns
+     * ['status' => <base>, 'label' => <sub-label|null>].
      *
-     * Each P24 lifecycle state maps 1:1 to its own canonical CoreX status so
-     * the status badge is accurate AND the value round-trips correctly back to
-     * P24 on syndication (see Property24ListingMapper::getP24Status):
-     *   Active                  → active        (live, syndicatable)
-     *   NewListing / New        → new_listing   (live; P24 shows "NewListing")
-     *   Reduced                 → reduced_price (live; drives P24 reduced banner)
-     *   Pending                 → pending       (NOT syndicatable — agent still working it)
+     *   Active                  → for_sale, (no label)   (live on market)
+     *   NewListing / New        → for_sale, (no label)   (P24 derives "NewListing" from age on export)
+     *   Reduced                 → for_sale + "Reduced Price"
+     *   Pending                 → for_sale + "Pending"   (offer received, still for sale)
+     *   Back on Market          → for_sale + "Back on Market"
+     *   Raised Price            → for_sale + "Raised Price"
      *   Withdrawn               → withdrawn
      *   Expired                 → expired
      *   Cancelled               → cancelled
      *   Sold                    → sold
      *   Rented (concluded let)  → let_out
-     * Unknown/blank falls back to new_listing (a freshly imported listing).
-     * NOTE: 'active', 'new_listing', 'expired', 'cancelled', 'let_out' are
-     * canonical property_status items added 2026-06-25 — keep them seeded.
+     * Unknown/blank falls back to for_sale with no label (a freshly imported
+     * on-market listing). The base+label pair round-trips correctly back to P24
+     * via Property24ListingMapper::getP24Status (label resolved first).
+     *
+     * @return array{status: string, label: ?string}
      */
-    private function normaliseStatus(string $s): string
+    private function normaliseStatus(string $s): array
     {
         return match (strtolower(trim($s))) {
-            'active'            => 'active',
-            'newlisting', 'new' => 'new_listing',
-            'reduced'           => 'reduced_price',
-            'pending'           => 'pending',
-            'withdrawn'         => 'withdrawn',
-            'expired'           => 'expired',
-            'cancelled'         => 'cancelled',
-            'sold'              => 'sold',
-            'rented'            => 'let_out',
-            default             => 'new_listing',
+            'active'                       => ['status' => 'for_sale', 'label' => null],
+            'newlisting', 'new'            => ['status' => 'for_sale', 'label' => null],
+            'reduced', 'reducedprice'      => ['status' => 'for_sale', 'label' => 'Reduced Price'],
+            'pending'                      => ['status' => 'for_sale', 'label' => 'Pending'],
+            'backonmarket', 'back on market' => ['status' => 'for_sale', 'label' => 'Back on Market'],
+            'raised', 'raisedprice'        => ['status' => 'for_sale', 'label' => 'Raised Price'],
+            'withdrawn'                    => ['status' => 'withdrawn', 'label' => null],
+            'expired'                      => ['status' => 'expired', 'label' => null],
+            'cancelled'                    => ['status' => 'cancelled', 'label' => null],
+            'sold'                         => ['status' => 'sold', 'label' => null],
+            'rented'                       => ['status' => 'let_out', 'label' => null],
+            default                        => ['status' => 'for_sale', 'label' => null],
         };
     }
 }
