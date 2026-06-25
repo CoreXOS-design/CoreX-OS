@@ -597,16 +597,24 @@ class Property extends Model
         return "{$base}/property/{$path}";
     }
 
-    public function formattedPrice(): string
+    /**
+     * The single source of truth for a listing's price across display,
+     * syndication payloads, and readiness gates. Rentals carry the amount in
+     * `rental_amount` (the sale `price` column is 0/null on a rental); sales use
+     * `price`. EVERY price consumer (formattedPrice, the P24 + PP mappers, the
+     * readiness checks) reads this so they can never diverge — a rental never
+     * needs the sale-price field filled manually.
+     */
+    public function effectivePrice(): float
     {
-        // Rentals carry the monthly amount in rental_amount (the sale `price`
-        // column is 0/null for a rental). Use the right column per stock type so
-        // the header never shows R0 for a priced rental.
-        $amount = strtolower((string) $this->listing_type) === 'rental'
+        return strtolower((string) $this->listing_type) === 'rental'
             ? (float) ($this->rental_amount ?? 0)
             : (float) ($this->price ?? 0);
+    }
 
-        return 'R ' . number_format((int) $amount, 0, '.', ' ');
+    public function formattedPrice(): string
+    {
+        return 'R ' . number_format((int) $this->effectivePrice(), 0, '.', ' ');
     }
 
     /**
