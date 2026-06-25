@@ -28,10 +28,46 @@ class PropertyController extends Controller
         /** @var User $user */
         $user           = auth()->user();
         $dataScope      = PermissionService::getDataScope($user, 'properties');
+        $canPickAgent   = in_array($dataScope, ['all', 'branch']);
+
+        // ── Filter persistence ────────────────────────────────────────────
+        // The whole active filter set (agents, status, search, every advanced
+        // filter) survives navigation for the life of the browser session —
+        // it is remembered until the user clears it or the session ends. A
+        // bare visit that carries no filter signal but has a saved set is
+        // redirected to the canonical URL so links, chips and pagination all
+        // carry the state. This replaces the previous behaviour that silently
+        // reset to "my listings" on any nav that dropped ?agent_id=.
+        $SESSION_KEY = 'corex.properties.filters';
+        $FILTER_KEYS = [
+            'status', 'search', 'listing_type', 'property_type', 'category',
+            'mandate_type', 'branch_id', 'price_min', 'price_max',
+            'beds_min', 'baths_min', 'sort', 'dir', 'agent_ids',
+        ];
+
+        // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
+        if ($request->boolean('clear')) {
+            $request->session()->forget($SESSION_KEY);
+            return redirect()->route('corex.properties.index');
+        }
+
+        // Did this request carry any filter signal? (incl. the legacy single
+        // ?agent_id and the compliance click-through ?filter=marketing_pending)
+        $hasFilterParam = $request->has('agent_id')
+            || $request->query('filter') === 'marketing_pending'
+            || collect($FILTER_KEYS)->contains(fn ($k) => $request->has($k));
+
+        // Bare visit + saved state → restore by redirecting to the canonical URL.
+        if (! $hasFilterParam) {
+            $saved = (array) $request->session()->get($SESSION_KEY, []);
+            if (! empty($saved)) {
+                return redirect()->route('corex.properties.index', $saved);
+            }
+        }
+
         $viewScope      = $request->query('scope', 'my');   // 'my' | 'branch'
         $status         = $request->query('status', '');    // '' | draft | active | sold | withdrawn
         $search         = trim($request->query('search', ''));
-        $filterAgentId  = $request->query('agent_id', '');  // admin/bm: view a specific agent's listings
 
         // Extended filters
         $listingType    = $request->query('listing_type', '');   // '' | sale | rental
@@ -47,34 +83,41 @@ class PropertyController extends Controller
 
         $query = Property::with(['agent', 'branch']);
 
-        $canPickAgent = in_array($dataScope, ['all', 'branch']);
-
-        // Agent filter with session persistence (mirrors ContactController).
-        // Defaults to self on fresh load UNLESS a compliance filter is active
-        // (card click-through shows full scope).
+        // ── Agent multi-select ────────────────────────────────────────────
+        // agent_ids = comma list of ids | 'all' | (absent). Falls back to the
+        // legacy single ?agent_id, then to the session, then to the user's own
+        // listings on a true fresh visit. An empty list ⇒ no agent restriction
+        // ("All agents", within the user's data scope).
+        $filterAgentIds = [];          // empty ⇒ All agents
         if ($canPickAgent) {
-            if ($request->has('agent_id')) {
-                // Explicit selection ("All" or another agent) — this browse only.
-                $filterAgentId = $request->query('agent_id', '');
+            if ($request->has('agent_ids')) {
+                $filterAgentIds = $this->parseAgentIds($request->query('agent_ids', ''));
+            } elseif ($request->has('agent_id')) {
+                $aid = (string) $request->query('agent_id', '');
+                $filterAgentIds = ($aid !== '' && ctype_digit($aid)) ? [$aid] : [];
             } elseif ($request->query('filter') === 'marketing_pending') {
-                // Compliance card click-through shows full scope.
-                $filterAgentId = '';
+                $filterAgentIds = [];   // compliance click-through ⇒ full scope
             } else {
-                // Always default to the current user's own listings on a fresh
-                // visit. Not persisted across visits.
-                $filterAgentId = (string) $user->id;
+                // Explicit-filter request without an agent signal: keep what the
+                // session remembers, else default to the user's own listings.
+                $saved = (array) $request->session()->get($SESSION_KEY, []);
+                $filterAgentIds = array_key_exists('agent_ids', $saved)
+                    ? $this->parseAgentIds((string) $saved['agent_ids'])
+                    : [(string) $user->id];
             }
         }
 
         // Scope
-        if ($canPickAgent && $filterAgentId !== '') {
-            // Admin/BM viewing a specific agent
-            $query->where('agent_id', (int) $filterAgentId);
-        } elseif ($dataScope === 'all') {
-            // Admin sees everything — no scope restriction
-        } elseif ($dataScope === 'branch') {
-            $branchId = $user->effectiveBranchId();
-            if ($branchId) $query->where('branch_id', $branchId);
+        if ($canPickAgent && ! empty($filterAgentIds)) {
+            // Admin/BM viewing one or more specific agents
+            $query->whereIn('agent_id', array_map('intval', $filterAgentIds));
+        } elseif ($canPickAgent) {
+            // All agents — still bounded by the user's data scope
+            if ($dataScope === 'branch') {
+                $branchId = $user->effectiveBranchId();
+                if ($branchId) $query->where('branch_id', $branchId);
+            }
+            // dataScope 'all' ⇒ no restriction
         } else {
             // Agent: 'my' = own listings only; 'branch' = all branch listings
             if ($viewScope === 'branch' && $user->branch_id) {
@@ -82,6 +125,22 @@ class PropertyController extends Controller
             } else {
                 $query->where('agent_id', $user->id);
             }
+        }
+
+        // Remember the active filter set for this session (only on an explicit
+        // filter interaction — a pure-default visit stays unsaved).
+        if ($hasFilterParam) {
+            $persist = [];
+            foreach (['status', 'search', 'listing_type', 'property_type', 'category',
+                      'mandate_type', 'branch_id', 'price_min', 'price_max',
+                      'beds_min', 'baths_min', 'sort', 'dir'] as $k) {
+                $v = $request->query($k);
+                if ($v !== null && $v !== '') $persist[$k] = $v;
+            }
+            if ($canPickAgent) {
+                $persist['agent_ids'] = empty($filterAgentIds) ? 'all' : implode(',', $filterAgentIds);
+            }
+            $request->session()->put($SESSION_KEY, $persist);
         }
 
         if ($status === 'published') {
@@ -190,10 +249,10 @@ class PropertyController extends Controller
         // Agent list for the picker (admin/bm only)
         $agentList = $canPickAgent ? $this->agentList()->values() : collect();
 
-        // Resolve the selected agent's name for the button label
-        $selectedAgent = ($canPickAgent && $filterAgentId !== '')
-            ? $agentList->firstWhere('id', (int) $filterAgentId)
-            : null;
+        // Resolve the selected agents for the button label / chips
+        $selectedAgents = ($canPickAgent && ! empty($filterAgentIds))
+            ? $agentList->whereIn('id', array_map('intval', $filterAgentIds))->values()
+            : collect();
 
         // Dropdown option lists (agency-managed via web settings)
         $filterOptions = [
@@ -216,9 +275,26 @@ class PropertyController extends Controller
 
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
-            'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
+            'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir'
         ));
+    }
+
+    /**
+     * Normalise an agent_ids filter value into an array of numeric id strings.
+     * Accepts a comma list ("3,5"), the 'all' sentinel, or an empty value
+     * (both ⇒ [] = no agent restriction).
+     */
+    private function parseAgentIds(string $raw): array
+    {
+        if ($raw === 'all' || trim($raw) === '') {
+            return [];
+        }
+
+        return collect(explode(',', $raw))
+            ->map(fn ($v) => trim($v))
+            ->filter(fn ($v) => $v !== '' && ctype_digit($v))
+            ->unique()->values()->all();
     }
 
     public function show(Property $property)
