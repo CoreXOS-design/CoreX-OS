@@ -1295,6 +1295,13 @@
                                 </button>
                             </div>
 
+                            {{-- P24 listing number — confirms the property is linked to a
+                                 specific P24 listing (so pushes update it, not duplicate). --}}
+                            <div x-show="p24Ref" x-cloak class="text-[0.6875rem] flex items-center gap-1.5" style="color:var(--text-muted);">
+                                <span>P24 Listing</span>
+                                <span class="font-mono font-semibold px-1.5 py-0.5 rounded" style="background:var(--surface-2);color:var(--text-primary);" x-text="'#' + p24Ref"></span>
+                            </div>
+
                             {{-- Last submitted timestamp --}}
                             <div x-show="lastSubmitted" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">
                                 Last submitted: <span x-text="lastSubmitted"></span>

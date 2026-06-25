@@ -2280,6 +2280,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/import-sold',          [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'form'])->name('import-sold');
             Route::post('/import-sold/preview', [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'preview'])->name('import-sold.preview');
             Route::post('/import-sold/confirm', [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'run'])->name('import-sold.run');
+
+            // P24 Listing-Number repair — backfill p24_ref from the original
+            // P24 CSV so pushes update originals instead of duplicating.
+            Route::post('/p24-fix/upload',  [\App\Http\Controllers\CoreX\P24ListingNumberFixController::class, 'upload'])->name('p24-fix.upload');
+            Route::post('/p24-fix/process', [\App\Http\Controllers\CoreX\P24ListingNumberFixController::class, 'process'])->name('p24-fix.process');
         });
 
         Route::get('/contacts/search',         [\App\Http\Controllers\CoreX\PropertyContactController::class, 'searchGlobal'])->name('contacts.search-global');

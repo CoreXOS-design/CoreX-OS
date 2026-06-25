@@ -18,6 +18,7 @@
                    title="Bulk-import sold listings from a spreadsheet">
                     Import Sold
                 </a>
+                @include('corex.properties.partials.p24-number-fix')
                 @endif
                 <a href="{{ route('corex.properties.create') }}"
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
