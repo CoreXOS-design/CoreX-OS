@@ -17,6 +17,18 @@ class Property24ApiClient
     private bool $sandbox;
     private ?string $userGroupId;
 
+    /**
+     * In-process memo of the P24 agent list per agency id, SHARED across client
+     * instances for the life of the request/command. getAgents() is otherwise
+     * called 2–3× per listing (ensureAgentRegistered + resolveContactAgentIds,
+     * each on its own client instance); against a slow/rate-limited P24 those
+     * repeated full-list fetches time out (~45s each) — the dominant cost of a
+     * sync AND the cause of spurious "must have one or more agents" rejections.
+     * Only SUCCESSFUL fetches are cached; busted on any agent create/update so a
+     * newly-registered agent is picked up on the next lookup. See AT-P24.
+     */
+    private static array $agentsCache = [];
+
     public function __construct(?Agency $agency = null)
     {
         $config = config('services.property24_syndication');
@@ -137,7 +149,26 @@ class Property24ApiClient
         $agencyId = $agencyIdOverride !== null && $agencyIdOverride !== ''
             ? $agencyIdOverride
             : $this->agencyId;
-        return $this->request('GET', "/agencies/{$agencyId}/agents", [], null, 'fetch_agents');
+
+        // Guard: never call /agencies//agents (empty id → 404, wasted ~35s).
+        if ($agencyId === null || $agencyId === '') {
+            return ['success' => false, 'message' => 'No P24 agency ID for agent lookup', 'data' => []];
+        }
+
+        $key = (string) $agencyId;
+        if (isset(self::$agentsCache[$key])) {
+            return self::$agentsCache[$key];
+        }
+
+        $result = $this->request('GET', "/agencies/{$agencyId}/agents", [], null, 'fetch_agents');
+
+        // Cache ONLY a successful fetch — never memoize a timeout/connection
+        // error, so a transient failure can't poison the whole run.
+        if ($result['success'] ?? false) {
+            self::$agentsCache[$key] = $result;
+        }
+
+        return $result;
     }
 
     /**
@@ -145,7 +176,9 @@ class Property24ApiClient
      */
     public function createAgent(array $agentData): array
     {
-        return $this->request('POST', '/agents', $agentData, null, 'create_agent');
+        $result = $this->request('POST', '/agents', $agentData, null, 'create_agent');
+        self::$agentsCache = []; // a new agent must appear in the next lookup
+        return $result;
     }
 
     /**
@@ -153,7 +186,9 @@ class Property24ApiClient
      */
     public function updateAgent(array $agentData): array
     {
-        return $this->request('PUT', '/agents', $agentData, null, 'update_agent');
+        $result = $this->request('PUT', '/agents', $agentData, null, 'update_agent');
+        self::$agentsCache = []; // sourceReference/details changed — refresh next lookup
+        return $result;
     }
 
     /**
