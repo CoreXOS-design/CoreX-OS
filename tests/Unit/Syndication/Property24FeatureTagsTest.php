@@ -41,17 +41,31 @@ class Property24FeatureTagsTest extends TestCase
         // Regression: a listing with "Fast Internet" (and "TV Port") but NOT
         // "Fibre" was showing "Fibre internet" on Property24 because the mapper
         // treated Fast Internet as fibre. Fast Internet has no P24 field, so it
-        // must not emit any internetAccess connection type.
+        // must never set fibre.
         $features = $this->buildPropertyFeatures(['Fast Internet', 'TV Port']);
 
-        $this->assertArrayNotHasKey('internetAccess', $features);
+        $this->assertFalse($features['internetAccess']['fibre']);
+        $this->assertFalse($features['internetAccess']['adsl']);
+        $this->assertFalse($features['internetAccess']['satellite']);
+    }
+
+    public function test_internet_access_is_always_sent_to_clear_stale_p24_values(): void
+    {
+        // The block must be emitted even when NO internet feature is selected,
+        // so a re-push deterministically clears a stale fibre/adsl/satellite a
+        // previous push set. Omitting it lets P24 retain the old value.
+        $features = $this->buildPropertyFeatures(['Sea View']);
+
+        $this->assertArrayHasKey('internetAccess', $features);
+        $this->assertFalse($features['internetAccess']['fibre']);
+        $this->assertFalse($features['internetAccess']['adsl']);
+        $this->assertFalse($features['internetAccess']['satellite']);
     }
 
     public function test_fibre_feature_maps_to_p24_fibre(): void
     {
         $features = $this->buildPropertyFeatures(['Fibre']);
 
-        $this->assertArrayHasKey('internetAccess', $features);
         $this->assertTrue($features['internetAccess']['fibre']);
         $this->assertFalse($features['internetAccess']['adsl']);
         $this->assertFalse($features['internetAccess']['satellite']);
@@ -61,7 +75,6 @@ class Property24FeatureTagsTest extends TestCase
     {
         $features = $this->buildPropertyFeatures(['ADSL', 'Satellite Internet']);
 
-        $this->assertArrayHasKey('internetAccess', $features);
         $this->assertTrue($features['internetAccess']['adsl']);
         $this->assertTrue($features['internetAccess']['satellite']);
         $this->assertFalse($features['internetAccess']['fibre']);

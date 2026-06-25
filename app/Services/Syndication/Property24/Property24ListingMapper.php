@@ -219,18 +219,20 @@ class Property24ListingMapper
         // Backup water
         if ($hasFeature('Backup Water', 'Water Tank', 'Borehole')) $features['hasBackupWater'] = true;
 
-        // Internet access — only map CoreX features that have a true P24
-        // InternetAccessInfo equivalent. "Fast Internet" and "Wi-Fi" are
-        // generic CoreX connectivity flags with NO P24 technology field, so
-        // they must NOT be inferred as fibre/adsl/satellite (doing so made
-        // Fast-Internet-only listings show "Fibre internet" on P24).
-        if ($hasFeature('ADSL', 'Fibre', 'Satellite Internet', 'Satellite Dish')) {
-            $features['internetAccess'] = [
-                'adsl'      => $hasFeature('ADSL'),
-                'fibre'     => $hasFeature('Fibre'),
-                'satellite' => $hasFeature('Satellite Internet', 'Satellite Dish'),
-            ];
-        }
+        // Internet access — ALWAYS sent so P24 reflects CoreX as the source of
+        // truth. Only CoreX features with a true P24 InternetAccessInfo
+        // equivalent are mapped; "Fast Internet" and "Wi-Fi" are generic flags
+        // with NO P24 technology field, so they never set fibre/adsl/satellite
+        // (inferring fibre from Fast Internet made listings show "Fibre
+        // internet" on P24). The block is emitted unconditionally — including
+        // all-false — so that a re-push deterministically CLEARS a stale
+        // fibre/adsl/satellite a previous push set; omitting it lets P24 retain
+        // the old value (P24 does not clear fields absent from the payload).
+        $features['internetAccess'] = [
+            'adsl'      => $hasFeature('ADSL'),
+            'fibre'     => $hasFeature('Fibre'),
+            'satellite' => $hasFeature('Satellite Internet', 'Satellite Dish'),
+        ];
 
         // Sustainability
         if ($hasFeature('Solar Panel', 'Solar Geyser', 'Gas Geyser', 'Water Tank', 'Borehole', 'Backup Battery', 'Inverter')) {
