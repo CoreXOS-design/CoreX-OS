@@ -349,25 +349,33 @@
                     @endif
 
                     {{-- Property24 opt-out. When excluded the agent is unpublished on
-                         P24 (status Inactive) and never attached to syndicated
-                         listings. The edit-mode switch pushes the new state to P24
-                         immediately (queued); the create-mode checkbox applies on save. --}}
+                         P24 (published=false / status=Inactive) and never attached to
+                         newly-syndicated listings. The edit-mode switch pushes the
+                         change to P24 immediately and reports P24's actual result;
+                         the create-mode checkbox applies on save. --}}
                     @if($isEdit)
-                    <div class="flex items-center gap-2.5 text-sm mt-3"
+                    <div class="flex items-center gap-2.5 text-sm mt-3 flex-wrap"
                          x-data="{
                             excluded: {{ (int)($user->exclude_from_p24 ?? 0) ? 'true' : 'false' }},
-                            loading: false, err: '',
+                            loading: false, note: '', noteErr: false,
                             csrf: '{{ csrf_token() }}',
                             url: '{{ route('admin.users.toggle-p24', $user) }}',
                             async toggle() {
                                 if (this.loading) return;
-                                this.loading = true; this.err = '';
+                                this.loading = true; this.note = '';
                                 const fd = new FormData(); fd.append('_token', this.csrf);
                                 try {
                                     const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
                                     const j = await r.json().catch(() => ({}));
-                                    if (r.ok && j.success) { this.excluded = j.exclude_from_p24; } else { this.err = j.message || ('HTTP ' + r.status); }
-                                } catch (e) { this.err = e.message || 'Network error'; }
+                                    if (r.ok && j.success) {
+                                        this.excluded = j.exclude_from_p24;
+                                        this.note = j.message || '';
+                                        this.noteErr = (j.p24_ok === false);
+                                    } else {
+                                        this.note = j.message || ('HTTP ' + r.status);
+                                        this.noteErr = true;
+                                    }
+                                } catch (e) { this.note = e.message || 'Network error'; this.noteErr = true; }
                                 this.loading = false;
                             }
                          }">
@@ -384,7 +392,8 @@
                               :style="excluded ? 'background:rgba(220,38,38,0.15); color:var(--ds-crimson);' : 'background:var(--surface-3); color:var(--text-muted);'"
                               x-text="excluded ? 'Hidden' : 'On P24'"></span>
                         <span x-show="loading" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">syncing…</span>
-                        <span x-show="err" x-cloak class="text-[0.6875rem]" style="color:var(--ds-crimson);" x-text="err"></span>
+                        <span x-show="!loading && note" x-cloak class="text-[0.6875rem]"
+                              :style="noteErr ? 'color:var(--ds-crimson);' : 'color:var(--ds-green);'" x-text="note"></span>
                     </div>
                     @else
                     <label class="flex items-center gap-2.5 text-sm cursor-pointer mt-3" style="color:var(--text-secondary);">

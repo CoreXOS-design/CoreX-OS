@@ -262,8 +262,42 @@ class Property24SyndicationService
         ];
     }
 
+    /**
+     * Reap listings frozen at 'submitting'. SubmitListingToProperty24::failed()
+     * already resolves an exhausted/timed-out job to 'error', but a HARD worker
+     * kill (OOM, deploy mid-job, SIGKILL the supervisor itself) never fires
+     * failed() — leaving the row stuck and the UI spinning "Syncing…" forever.
+     *
+     * A row's updated_at is stamped when the controller flips it to 'submitting'
+     * and nothing else touches a still-'submitting' row, so updated_at is a
+     * reliable "entered submitting at" marker. Max job wall-time is ~11 min
+     * (3 tries × 180s timeout + 2 × 60s backoff); 15 min means the job is
+     * definitively done and this row will never self-resolve. Flip to 'error'
+     * so the agent sees a retryable state instead of an eternal spinner.
+     */
+    public function reapStuckSubmits(int $staleMinutes = 15): int
+    {
+        $rows = Property::where('p24_syndication_status', 'submitting')
+            ->where('updated_at', '<', now()->subMinutes($staleMinutes))
+            ->get();
+
+        foreach ($rows as $property) {
+            $property->update([
+                'p24_syndication_status' => 'error',
+                'p24_last_error'         => 'Sync timed out — the background job did not finish. Please retry.',
+            ]);
+            $this->log('warning', "Reaped stuck 'submitting' property #{$property->id} (>{$staleMinutes}m)");
+        }
+
+        return $rows->count();
+    }
+
     public function syncAllActivations(): array
     {
+        // Self-heal any listings the submit job left frozen at 'submitting'
+        // before reconciling the live ones. See reapStuckSubmits().
+        $reaped = $this->reapStuckSubmits();
+
         // Include 'active' so live listings are periodically re-verified against
         // is-on-portal — otherwise a P24-side removal (expiry, moderation) leaves
         // CoreX showing 'active' forever. submitted/pending await first activation.
@@ -278,8 +312,8 @@ class Property24SyndicationService
             $result['success'] ? $synced++ : $errors++;
         }
 
-        $this->log('info', "P24 activation sync complete: {$synced} synced, {$errors} errors");
-        return ['synced' => $synced, 'errors' => $errors, 'total' => $properties->count()];
+        $this->log('info', "P24 activation sync complete: {$synced} synced, {$errors} errors, {$reaped} reaped");
+        return ['synced' => $synced, 'errors' => $errors, 'reaped' => $reaped, 'total' => $properties->count()];
     }
 
     /**

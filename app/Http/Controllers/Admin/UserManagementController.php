@@ -11,6 +11,7 @@ use App\Models\Branch;
 use App\Services\Admin\AgentDeletionService;
 use App\Services\Images\AgentProfilePhotoService;
 use App\Services\Syndication\Property24\Property24ApiClient;
+use App\Services\Syndication\Property24\Property24SyndicationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -814,23 +815,54 @@ class UserManagementController extends Controller
 
     /**
      * Quick on/off toggle for an agent's Property24 opt-out (exclude_from_p24).
-     * Flips the flag and immediately pushes the new visibility to P24 on the
-     * queue: excluding PUTs published=false / status=Inactive (the agent
-     * vanishes from the portal); re-including republishes — and registers them
-     * if they were never on P24 yet (registerIfMissing follows the direction).
+     *
+     * Flips the flag and pushes the visibility change to P24 SYNCHRONOUSLY (no
+     * photo), so the agent's published/status flips immediately AND P24's actual
+     * response is surfaced to the admin — rather than dying silently on the queue
+     * (the previous behaviour, which is why a ticked agent "still showed on P24"
+     * when no worker drained the job). Excluding PUTs published=false /
+     * status=Inactive — the same mechanism the deactivate-p24-agents command uses,
+     * the only way P24 lets you remove an agent (there is no delete-agent API).
+     *
+     * Re-including additionally queues a full re-sync so the agent's photo is
+     * restored on the worker.
+     *
+     * NOTE: this controls the agent's own P24 profile/roster visibility. An agent
+     * attached as the contact agent on listings already live on P24 stays on those
+     * listing cards until each listing is re-submitted — that is a separate path.
      */
-    public function toggleP24(Request $request, User $user)
+    public function toggleP24(Request $request, User $user, Property24SyndicationService $p24)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
         $user->update(['exclude_from_p24' => ! $user->exclude_from_p24]);
         $fresh = $user->fresh();
 
-        SyncAgentToP24Job::dispatch($fresh->id, registerIfMissing: ! $fresh->exclude_from_p24);
+        // Push the profile (published/status) inline — fast: one cached agent
+        // lookup + one PUT, no photo fetch, so it cannot self-deadlock the dev
+        // server and returns the real P24 outcome. Guard against any transport
+        // exception so the toggle never 500s — the opt-out flag is already saved.
+        try {
+            $result = $p24->updateAgentOnP24($fresh, pushPhoto: false);
+        } catch (\Throwable $e) {
+            $result = $e->getMessage();
+        }
+        \Illuminate\Support\Facades\Cache::forget('p24:agent-map:by-source-ref');
+
+        // Restore the photo / full profile on the worker when re-publishing.
+        if (! $fresh->exclude_from_p24) {
+            SyncAgentToP24Job::dispatch($fresh->id, registerIfMissing: true);
+        }
+
+        $p24Ok = ($result === true);
 
         return response()->json([
-            'success'          => true,
+            'success'          => true, // the opt-out flag itself persisted
             'exclude_from_p24' => (bool) $fresh->exclude_from_p24,
+            'p24_ok'           => $p24Ok,
+            'message'          => $p24Ok
+                ? ($fresh->exclude_from_p24 ? 'Hidden from Property24.' : 'Now visible on Property24.')
+                : 'Saved, but Property24 update failed: ' . (is_string($result) ? $result : 'unknown error'),
         ]);
     }
 

@@ -28,4 +28,33 @@ class SubmitListingToProperty24 implements ShouldQueue
     {
         $service->submitListing($this->property);
     }
+
+    /**
+     * Called by the queue after all $tries are exhausted — including a job
+     * SIGKILL'd on timeout, which throws MaxAttemptsExceededException on the
+     * final attempt. submitListing()'s own ->update(['error']) writes live
+     * INSIDE handle(), so a timed-out / hard-failed job never reaches them and
+     * the property would otherwise sit at 'submitting' forever (the UI shows
+     * "Syncing…" indefinitely). Resolve it to a visible, retryable 'error'.
+     *
+     * Only touch a row still mid-sync — never clobber a status the user or a
+     * later successful run has already moved on to.
+     */
+    public function failed(\Throwable $e): void
+    {
+        $fresh = $this->property->fresh();
+        if (! $fresh || ! in_array($fresh->p24_syndication_status, ['submitting', 'submitted'], true)) {
+            return;
+        }
+
+        $fresh->update([
+            'p24_syndication_status' => 'error',
+            'p24_last_error'         => 'Sync failed (job exhausted/timed out): ' . $e->getMessage(),
+        ]);
+
+        \Illuminate\Support\Facades\Log::channel('property24')->error(
+            "SubmitListingToProperty24 failed for property #{$this->property->id}",
+            ['error' => $e->getMessage()]
+        );
+    }
 }
