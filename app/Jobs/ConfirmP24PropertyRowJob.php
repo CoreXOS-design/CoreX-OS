@@ -27,12 +27,25 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
 
     public function handle(): void
     {
-        $row = P24ImportRow::with('run')->find($this->rowId);
+        $row = P24ImportRow::with(['run' => fn ($q) => $q->withTrashed()])->find($this->rowId);
         if (!$row || $row->row_type !== 'listing') return;
         if (in_array($row->status, ['confirmed', 'excluded'], true)) return;
 
-        $mapped = $row->mapped_json ?? [];
         $run = $row->run;
+
+        // The review run was cancelled or soft-deleted while this job waited in
+        // the queue. Stop immediately rather than churning through every
+        // remaining row in the background — a deleted review must not keep
+        // processing. Without this guard each queued job loads a null run,
+        // throws, and marks its row 'error' one at a time (thousands deep).
+        if (!$run || $run->trashed() || in_array($run->status, ['cancelled', 'completed', 'failed'], true)) {
+            if (!empty($row->processing_at)) {
+                $row->update(['processing_at' => null]);
+            }
+            return;
+        }
+
+        $mapped = $row->mapped_json ?? [];
         $propertyId = null;
         $imageUrls = [];
 
@@ -72,6 +85,22 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 foreach (['price', 'beds', 'baths', 'garages'] as $notNull) {
                     if (array_key_exists($notNull, $attrs) && $attrs[$notNull] === null) {
                         unset($attrs[$notNull]);
+                    }
+                }
+
+                // Link the P24 listing number so a later push UPDATES the
+                // existing P24 listing instead of CREATING a duplicate. The
+                // syndication push (Property24ListingMapper::map) decides
+                // update-vs-create on p24_ref — NOT p24_listing_number — so the
+                // import MUST set p24_ref too, or every imported property pushes
+                // as a brand-new duplicate. This stock is, by definition,
+                // already live on P24 (it came from a P24 export), so reflect
+                // that with an 'active' syndication status / activation stamp.
+                if (is_numeric($listingNumber)) {
+                    $attrs['p24_ref'] = (string) $listingNumber;
+                    if (empty($existing?->p24_syndication_status)) {
+                        $attrs['p24_syndication_status'] = 'active';
+                        $attrs['p24_activated_at'] = now();
                     }
                 }
 

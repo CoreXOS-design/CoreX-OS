@@ -20,14 +20,22 @@ use Illuminate\Support\Facades\Log;
  * properties import) exceed the request time limit. Queued — like the adjacent
  * MatchPropertyJob (Core Matches) — so saves stay fast and bulk inserts scale.
  *
- * No explicit queue is set, so it lands on `default`, the only queue the
- * corex workers drain.
+ * Runs on the dedicated `matching` queue (not `default`) so a bulk-import
+ * "herd" of match jobs can never starve time-sensitive P24 sync/push/confirm
+ * work on `default`. The corex worker must drain `default,matching` (in that
+ * priority order) — default is always processed first, matching only when
+ * default is idle. See MatchPropertyJob, which shares this queue.
  */
 class MatchPropertyProspectingJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function __construct(public int $propertyId) {}
+    public const QUEUE_NAME = 'matching';
+
+    public function __construct(public int $propertyId)
+    {
+        $this->onQueue(self::QUEUE_NAME);
+    }
 
     public function handle(ProspectingStockMatchService $service): void
     {

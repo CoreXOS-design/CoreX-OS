@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncAgentToP24Job;
 use App\Mail\UserInviteMail;
 use App\Models\Role;
 use App\Models\User;
@@ -10,7 +11,6 @@ use App\Models\Branch;
 use App\Services\Admin\AgentDeletionService;
 use App\Services\Images\AgentPhotoNormalizer;
 use App\Services\Syndication\Property24\Property24ApiClient;
-use App\Services\Syndication\Property24\Property24SyndicationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -212,23 +212,11 @@ class UserManagementController extends Controller
             // force-fill because email_verified_at is not in $fillable.
             $user->forceFill(['email_verified_at' => now()])->save();
 
-            // Register on P24 right away so the agent gets an ID.
-            $p24Note = '';
-            try {
-                $p24 = app(Property24SyndicationService::class);
-                $result = $p24->ensureAgentRegisteredByUser($user->fresh());
-                if ($result === true) {
-                    $agentId = $p24->getP24AgentId($user->fresh());
-                    Cache::forget('p24:agent-map:by-source-ref');
-                    $p24Note = $agentId ? " P24 agentId: {$agentId}." : ' Registered on P24.';
-                } else {
-                    $p24Note = ' P24 registration failed: ' . (is_string($result) ? $result : 'unknown');
-                }
-            } catch (\Throwable $e) {
-                $p24Note = ' P24 registration error: ' . $e->getMessage();
-            }
+            // Register on P24 so the agent gets an ID — on the queue, so the
+            // create request returns instantly instead of blocking on P24.
+            SyncAgentToP24Job::dispatch($user->id, registerIfMissing: true);
 
-            return redirect()->route('admin.users')->with('status', "Test agent \"{$fullName}\" created (no invite email sent).{$p24Note}");
+            return redirect()->route('admin.users')->with('status', "Test agent \"{$fullName}\" created (no invite email sent). Property24 registration queued — the agent ID will appear shortly.");
         }
 
         // Send invitation email
@@ -433,29 +421,19 @@ class UserManagementController extends Controller
     }
 
     /**
-     * Push the user's details to Property24.
+     * Push the user's details to Property24 on the queue.
      * Returns a short status string to append to the flash message.
-     * Silent if the user hasn't been synced to P24 yet (no agent ID on file).
+     *
+     * registerIfMissing is false here: incidental edits (save / role / toggle /
+     * delete) must never auto-register an agent who was never deliberately
+     * synced — the job no-ops for users not already on P24. Runs off the
+     * request so the page never blocks on P24. See SyncAgentToP24Job.
      */
     private function pushUserToP24(User $user): string
     {
-        try {
-            $p24 = app(Property24SyndicationService::class);
-            $existingId = $p24->getP24AgentId($user);
-            if (!$existingId) {
-                // Not on P24 yet — don't auto-register on every edit; require explicit sync.
-                return '';
-            }
+        SyncAgentToP24Job::dispatch($user->id, registerIfMissing: false);
 
-            $result = $p24->updateAgentOnP24($user, pushPhoto: true);
-            Cache::forget('p24:agent-map:by-source-ref');
-
-            return $result === true
-                ? ' Synced to Property24 (agent #' . $existingId . ').'
-                : ' P24 sync warning: ' . (is_string($result) ? $result : 'unknown');
-        } catch (\Throwable $e) {
-            return ' P24 sync error: ' . $e->getMessage();
-        }
+        return ' Property24 sync queued.';
     }
 
     public function updateDefaults(Request $request, User $user)
@@ -770,23 +748,12 @@ class UserManagementController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
-        try {
-            $p24 = app(Property24SyndicationService::class);
-            $result = $p24->ensureAgentRegisteredByUser($user);
+        // Run on the queue — the sync makes several blocking P24 round-trips
+        // plus a photo download/upload; inline it hangs the request (and the
+        // photo fetch self-deadlocks against the dev server). See SyncAgentToP24Job.
+        SyncAgentToP24Job::dispatch($user->id, registerIfMissing: true);
 
-            if ($result !== true) {
-                return back()->withErrors('P24 sync failed: ' . (is_string($result) ? $result : 'unknown error'));
-            }
-
-            $agentId = $p24->getP24AgentId($user);
-            Cache::forget('p24:agent-map:by-source-ref');
-
-            return back()->with('status', $agentId
-                ? "Synced {$user->name} to Property24. Agent ID: {$agentId}."
-                : "Synced {$user->name} to Property24 (agent ID unavailable).");
-        } catch (\Throwable $e) {
-            return back()->withErrors('P24 sync error: ' . $e->getMessage());
-        }
+        return back()->with('status', "Syncing {$user->name} to Property24 — the agent ID will appear here shortly. Refresh in a moment.");
     }
 
     public function toggle(User $user)
