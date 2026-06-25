@@ -171,6 +171,17 @@ Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()
 // P24 location tree sync — monthly on the 1st at 02:00
 Schedule::command('p24:sync-locations')->monthlyOn(1, '02:00')->withoutOverlapping();
 
+// P24 agent-list cache warm — nightly at 22:00 SAST. P24's GET /agencies/{id}/agents
+// takes ~90s; warming it off-hours keeps manual Refresh / agent sync fast (~7s) all
+// the next day (cache TTL outlives the day). runInBackground so the ~90s fetch
+// doesn't block the rest of the 22:00 schedule tick.
+Schedule::command('p24:warm-agents-cache')
+    ->dailyAt('22:00')
+    ->timezone('Africa/Johannesburg')
+    ->runInBackground()
+    ->onOneServer()
+    ->withoutOverlapping();
+
 // ── AI Narrative Cache hygiene (MIC Phase B2) ──
 // Daily: soft-delete expired rows at 03:00 SAST.
 Schedule::job(new \App\Jobs\AI\SweepExpiredNarrativeCacheJob())

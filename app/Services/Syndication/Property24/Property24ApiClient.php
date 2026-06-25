@@ -10,9 +10,18 @@ use Illuminate\Support\Facades\Log;
 
 class Property24ApiClient
 {
-    /** Cross-request cache (Redis/DB) key prefix + TTL for the agent list. */
+    /**
+     * Cross-request cache (Redis/DB) key prefix + TTL for the agent list. TTL is
+     * long (25h) because the list is kept current two ways regardless: every
+     * CoreX create/adopt/update patches the cache in place (cacheUpsertAgent), and
+     * a nightly warmer (p24:warm-agents-cache, 22:00) re-fetches it. A long TTL is
+     * what makes that nightly warm actually keep manual Refresh fast all day —
+     * a short TTL would expire mid-morning and put the ~90s cold fetch right back
+     * in the user's path. Only an agent changed DIRECTLY on the P24 portal (never
+     * via CoreX) is stale, and only until the next nightly warm.
+     */
     private const AGENTS_CACHE_PREFIX = 'p24:agents:';
-    private const AGENTS_CACHE_TTL    = 600; // seconds (10 min)
+    private const AGENTS_CACHE_TTL    = 90000; // seconds (25h — see note above)
 
     private string $baseUrl;
     private string $username;
@@ -152,7 +161,7 @@ class Property24ApiClient
      * CoreX tenant other than the config default, otherwise the result is
      * scoped to the wrong P24 profile and sourceReference lookups fail.
      */
-    public function getAgents(?string $agencyIdOverride = null): array
+    public function getAgents(?string $agencyIdOverride = null, bool $forceRefresh = false): array
     {
         $agencyId = $agencyIdOverride !== null && $agencyIdOverride !== ''
             ? $agencyIdOverride
@@ -164,22 +173,25 @@ class Property24ApiClient
         }
 
         $key = (string) $agencyId;
-
-        // 1. In-process memo — instant, and reflects any create/adopt upserts
-        //    made earlier in this same request/command.
-        if (isset(self::$agentsCache[$key])) {
-            return self::$agentsCache[$key];
-        }
-
-        // 2. Cross-request cache — P24's GET /agencies/{id}/agents takes ~90s, so
-        //    a cold manual Refresh would otherwise pay that every single time. A
-        //    short shared TTL means only the first request after expiry (or after
-        //    an agent write, which patches it) pays the cost; the rest are instant.
         $cacheKey = self::AGENTS_CACHE_PREFIX . $key;
-        $cached = Cache::get($cacheKey);
-        if (is_array($cached)) {
-            self::$agentsCache[$key] = $cached;
-            return $cached;
+
+        // $forceRefresh (used by the nightly warmer) skips both cache layers to
+        // pull a genuinely fresh list, but still writes the result back below.
+        if (! $forceRefresh) {
+            // 1. In-process memo — instant, and reflects any create/adopt upserts
+            //    made earlier in this same request/command.
+            if (isset(self::$agentsCache[$key])) {
+                return self::$agentsCache[$key];
+            }
+
+            // 2. Cross-request cache — P24's GET /agencies/{id}/agents takes ~90s,
+            //    so a cold manual Refresh would otherwise pay that every time. The
+            //    long shared TTL (kept warm nightly) means the rest are instant.
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached)) {
+                self::$agentsCache[$key] = $cached;
+                return $cached;
+            }
         }
 
         $result = $this->request('GET', "/agencies/{$agencyId}/agents", [], null, 'fetch_agents');
