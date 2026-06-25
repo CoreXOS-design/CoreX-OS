@@ -135,6 +135,20 @@ class SettingsController extends Controller
         $agencyId = $user?->effectiveAgencyId();
         $data['agency'] = $agencyId ? Agency::find($agencyId) : Agency::first();
 
+        // Feature Settings tab: Properties — agency-wide list ordering.
+        // The orderable list shows every configured status: saved priority order
+        // first (dropping any status that was since removed), then any remaining
+        // statuses appended so the list always stays complete.
+        $allStatusNames = $data['propStatuses']->pluck('name')->filter()->values()->all();
+        $savedStatusOrder = is_array($data['agency']?->properties_status_priority)
+            ? $data['agency']->properties_status_priority : [];
+        $orderedStatuses = array_values(array_filter($savedStatusOrder, fn ($n) => in_array($n, $allStatusNames, true)));
+        foreach ($allStatusNames as $n) {
+            if (!in_array($n, $orderedStatuses, true)) $orderedStatuses[] = $n;
+        }
+        $data['propertiesSortMode']    = $data['agency']?->properties_sort_mode ?? 'created';
+        $data['propertiesStatusOrder'] = $orderedStatuses;
+
         // Operations tab: Commission & Revenue Share (singleton per agency)
         $data['commissionSettings'] = CommissionSetting::forAgency($user?->effectiveAgencyId() ?? 1);
 
@@ -589,6 +603,43 @@ class SettingsController extends Controller
         ])['properties_per_page'];
         PerformanceSetting::updateOrCreate(['key' => 'properties_per_page'], ['value' => (int) $perPage]);
         return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
+    }
+
+    /**
+     * Agency-wide default ordering for the Properties list:
+     *   - 'created'         → newest first (default).
+     *   - 'status_priority' → order by the admin-defined status sequence, then
+     *                         newest within each status.
+     */
+    public function updatePropertiesSort(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('access_settings'), 403);
+
+        $data = $request->validate([
+            'properties_sort_mode'     => 'required|in:created,status_priority',
+            'properties_status_order'  => 'nullable|string',   // comma-separated status names
+        ]);
+
+        $agency = Agency::findOrFail(auth()->user()->effectiveAgencyId());
+
+        $order = [];
+        if (!empty($data['properties_status_order'])) {
+            // Keep only real, currently-configured statuses; preserve given order.
+            $valid = PropertySettingItem::group('property_status')->pluck('name')->all();
+            foreach (explode(',', $data['properties_status_order']) as $name) {
+                $name = trim($name);
+                if ($name !== '' && in_array($name, $valid, true) && !in_array($name, $order, true)) {
+                    $order[] = $name;
+                }
+            }
+        }
+
+        $agency->properties_sort_mode = $data['properties_sort_mode'];
+        $agency->properties_status_priority = $order;
+        $agency->save();
+
+        return redirect()->route('corex.settings', ['s' => 'feature-properties'])
+            ->with('success', 'Properties ordering updated.');
     }
 
     public function updateMatchesVisibilityScope(Request $request)

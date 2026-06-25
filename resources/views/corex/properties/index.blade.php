@@ -223,6 +223,9 @@
             {{-- Sort --}}
             <select name="sort" onchange="this.form.submit()" class="list-header-filter">
                 <option value="newest"     {{ ($filters['sort'] ?? 'newest') === 'newest'     ? 'selected' : '' }}>Newest first</option>
+                @if(($agencySortMode ?? 'created') === 'status_priority' || ($filters['sort'] ?? '') === 'status_priority')
+                <option value="status_priority" {{ ($filters['sort'] ?? '') === 'status_priority' ? 'selected' : '' }}>Status order (default)</option>
+                @endif
                 <option value="oldest"     {{ ($filters['sort'] ?? '') === 'oldest'     ? 'selected' : '' }}>Oldest first</option>
                 <option value="price_desc" {{ ($filters['sort'] ?? '') === 'price_desc' ? 'selected' : '' }}>Price: high → low</option>
                 <option value="price_asc"  {{ ($filters['sort'] ?? '') === 'price_asc'  ? 'selected' : '' }}>Price: low → high</option>
@@ -579,8 +582,17 @@
             $images = $property->allImages();
             $thumb  = $images[0] ?? null;
             $listingTypeLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
+            $statusKey   = strtolower((string) ($property->status ?: 'draft'));
             $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
             $brandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
+            // Sold listings get a red status pill; withdrawn/sold also grey out the P24 ref.
+            $isOffMarket    = in_array($statusKey, ['sold', 'withdrawn'], true);
+            $statusPillStyle = $statusKey === 'sold'
+                ? 'background:var(--ds-crimson); color:#fff; border:none;'
+                : $brandPillStyle;
+            $p24PillStyle = $isOffMarket
+                ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);'
+                : 'background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);';
         @endphp
         <div class="rounded-md overflow-hidden flex flex-col transition-all duration-300"
              style="background:var(--surface); border:1px solid var(--border);"
@@ -606,10 +618,13 @@
                 {{-- Price on image --}}
                 <span class="absolute bottom-2.5 left-3 text-base font-bold text-white" style="text-shadow:0 1px 3px rgba(0,0,0,0.4);">{{ $property->formattedPrice() }}</span>
 
-                {{-- Listing type + Status badges (left, side-by-side) --}}
-                <div class="absolute top-2.5 left-2.5 flex flex-row items-center gap-1.5">
+                {{-- Listing type + Status + Mandate badges (left) --}}
+                <div class="absolute top-2.5 left-2.5 right-12 flex flex-row flex-wrap items-center gap-1.5">
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
-                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
+                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $statusPillStyle }}">{{ $statusLabel }}</span>
+                    @if($property->mandate_type)
+                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }} Mandate</span>
+                    @endif
                 </div>
 
                 {{-- Live badge (moved to right to make room for branded pills) --}}
@@ -674,7 +689,7 @@
                 @if($property->p24_ref)
                 <div class="mt-1.5">
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold"
-                          style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);"
+                          style="{{ $p24PillStyle }}"
                           title="Property24 listing number">
                         P24: {{ $property->p24_ref }}
                     </span>
@@ -688,6 +703,11 @@
                     <div class="flex items-center gap-1.5 min-w-0">
                         <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">{{ strtoupper(substr($property->agent?->name ?? '?', 0, 1)) }}</span>
                         <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->agent?->name }}">{{ $property->agent?->name ?? '—' }}</span>
+                        @if(!empty($property->viewer_is_secondary))
+                        <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md flex-shrink-0"
+                              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);"
+                              title="You are the secondary (co-listing) agent on this property — the primary agent is {{ $property->agent?->name ?? 'unassigned' }}">Secondary</span>
+                        @endif
                     </div>
                     <div class="flex items-center gap-1">
                         <a href="{{ route('corex.properties.show', $property) }}"
@@ -756,8 +776,13 @@
                 @foreach($properties as $property)
                 @php
                     $rowListingLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
+                    $rowStatusKey   = strtolower((string) ($property->status ?: 'draft'));
                     $rowStatusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
                     $rowBrandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
+                    $rowIsOffMarket  = in_array($rowStatusKey, ['sold', 'withdrawn'], true);
+                    $rowStatusPillStyle = $rowStatusKey === 'sold'
+                        ? 'background:var(--ds-crimson); color:#fff; border:none;'
+                        : $rowBrandPillStyle;
                 @endphp
                 <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
                     onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
@@ -766,7 +791,7 @@
                             {{ Str::limit($property->title, 35) }}
                         </a>
                         @if($property->p24_ref)
-                        <div class="text-[10px] font-mono mt-0.5" style="color:var(--brand-icon);" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
+                        <div class="text-[10px] font-mono mt-0.5" style="color:{{ $rowIsOffMarket ? 'var(--text-muted)' : 'var(--brand-icon)' }};" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
                         @endif
                     </td>
                     <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">
@@ -780,7 +805,14 @@
                     </td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->beds ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->baths ?? '—' }}</td>
-                    <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">{{ $property->agent?->name ?? '—' }}</td>
+                    <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">
+                        {{ $property->agent?->name ?? '—' }}
+                        @if(!empty($property->viewer_is_secondary))
+                        <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ml-1 whitespace-nowrap"
+                              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);"
+                              title="You are the secondary (co-listing) agent on this property">2nd</span>
+                        @endif
+                    </td>
                     <td class="px-4 py-2.5 text-center hidden md:table-cell">
                         @php
                             $ms = $property->marketing_status ?? 'n/a';
@@ -800,7 +832,7 @@
                     <td class="px-4 py-2.5 text-left">
                         <div class="inline-flex flex-row gap-1.5 items-center">
                             <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowBrandPillStyle }}">{{ $rowListingLabel }}</span>
-                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowBrandPillStyle }}">{{ $rowStatusLabel }}</span>
+                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowStatusPillStyle }}">{{ $rowStatusLabel }}</span>
                         </div>
                     </td>
                     <td class="px-4 py-2.5 text-right">

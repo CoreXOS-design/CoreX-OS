@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Properties;
 
+use App\Models\Agency;
 use App\Models\Property;
+use App\Models\PropertySettingItem;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -75,6 +77,52 @@ final class PropertyFilterPersistenceTest extends TestCase
         // 4. ...so the next bare visit no longer redirects (defaults to "my").
         $this->get(route('corex.properties.index'))
             ->assertOk();
+    }
+
+    public function test_status_priority_orders_listings_by_agency_sequence(): void
+    {
+        [$agency, $admin] = $this->agencyWithAdmin();
+
+        // Agency default = order by status: Active first, then Sold.
+        DB::table('agencies')->where('id', $agency)->update([
+            'properties_sort_mode'       => 'status_priority',
+            'properties_status_priority' => json_encode(['Active', 'Sold']),
+        ]);
+
+        $this->actingAs($admin);
+        // The Sold listing is NEWER, so under created-date sort it would rank
+        // first. Status priority must override that and surface Active first.
+        $sold   = $this->property($agency, $admin, 'ZZZ-Sold-One');
+        $sold->forceFill(['status' => 'Sold', 'created_at' => now()])->save();
+        $active = $this->property($agency, $admin, 'ZZZ-Active-One');
+        $active->forceFill(['status' => 'Active', 'created_at' => now()->subDay()])->save();
+
+        $this->get(route('corex.properties.index'))
+            ->assertOk()
+            ->assertSeeInOrder(['ZZZ-Active-One', 'ZZZ-Sold-One']);
+    }
+
+    public function test_updating_properties_sort_persists_mode_and_order(): void
+    {
+        [$agency, $admin] = $this->agencyWithAdmin();
+        // Statuses must exist for the save to accept them (it filters to real ones).
+        foreach (['Active', 'Draft', 'Sold'] as $i => $name) {
+            PropertySettingItem::create([
+                'agency_id' => $agency, 'group' => 'property_status',
+                'name' => $name, 'sort_order' => $i, 'active' => true,
+            ]);
+        }
+
+        $this->actingAs($admin)
+            ->post(route('corex.settings.properties-sort'), [
+                'properties_sort_mode'    => 'status_priority',
+                'properties_status_order' => 'Active,Draft,Sold,Bogus',  // Bogus is dropped
+            ])
+            ->assertRedirect();
+
+        $fresh = Agency::find($agency);
+        $this->assertSame('status_priority', $fresh->properties_sort_mode);
+        $this->assertSame(['Active', 'Draft', 'Sold'], $fresh->properties_status_priority);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────

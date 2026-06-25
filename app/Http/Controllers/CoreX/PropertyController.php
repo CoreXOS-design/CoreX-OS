@@ -30,6 +30,12 @@ class PropertyController extends Controller
         $dataScope      = PermissionService::getDataScope($user, 'properties');
         $canPickAgent   = in_array($dataScope, ['all', 'branch']);
 
+        // Agency-wide default ordering (Settings → Properties). 'status_priority'
+        // orders by the admin-defined status sequence; otherwise newest first.
+        $agency          = $user?->effectiveAgencyId() ? \App\Models\Agency::find($user->effectiveAgencyId()) : null;
+        $agencySortMode  = $agency?->properties_sort_mode ?? 'created';
+        $defaultSort     = $agencySortMode === 'status_priority' ? 'status_priority' : 'newest';
+
         // ── Filter persistence ────────────────────────────────────────────
         // The whole active filter set (agents, status, search, every advanced
         // filter) survives navigation for the life of the browser session —
@@ -79,7 +85,7 @@ class PropertyController extends Controller
         $priceMax       = $request->query('price_max', '');
         $bedsMin        = $request->query('beds_min', '');
         $bathsMin       = $request->query('baths_min', '');
-        $sort           = $request->query('sort', 'newest');     // newest|oldest|price_asc|price_desc|title
+        $sort           = $request->query('sort', $defaultSort);  // newest|oldest|price_asc|price_desc|title|status_priority
 
         $query = Property::with(['agent', 'branch']);
 
@@ -108,9 +114,19 @@ class PropertyController extends Controller
         }
 
         // Scope
+        // Co-listing rule: a property may carry a secondary (co-listing) agent
+        // on `pp_second_agent_id`. Wherever a listing is scoped to an agent, it
+        // matches whether that agent is the PRIMARY (`agent_id`) or the SECONDARY
+        // — so a co-listed property appears under both agents' names. A property
+        // is a single row, so an `OR` match still returns it exactly once even
+        // when both the primary and secondary are in the selected set.
         if ($canPickAgent && ! empty($filterAgentIds)) {
             // Admin/BM viewing one or more specific agents
-            $query->whereIn('agent_id', array_map('intval', $filterAgentIds));
+            $ids = array_map('intval', $filterAgentIds);
+            $query->where(function ($q) use ($ids) {
+                $q->whereIn('agent_id', $ids)
+                  ->orWhereIn('pp_second_agent_id', $ids);
+            });
         } elseif ($canPickAgent) {
             // All agents — still bounded by the user's data scope
             if ($dataScope === 'branch') {
@@ -123,7 +139,10 @@ class PropertyController extends Controller
             if ($viewScope === 'branch' && $user->branch_id) {
                 $query->where('branch_id', $user->branch_id);
             } else {
-                $query->where('agent_id', $user->id);
+                $query->where(function ($q) use ($user) {
+                    $q->where('agent_id', $user->id)
+                      ->orWhere('pp_second_agent_id', $user->id);
+                });
             }
         }
 
@@ -209,7 +228,22 @@ class PropertyController extends Controller
             case 'price_desc': $sort = 'price'; $dir = 'desc'; break;
             case 'newest':     $sort = 'created_at'; $dir = 'desc'; break;
         }
-        if (isset($sortableColumns[$sort])) {
+        if ($sort === 'status_priority') {
+            // Agency-defined status sequence: ranked statuses first (in order),
+            // unranked last, newest within each. Names come from agency settings
+            // (admin input) so they are bound, never interpolated.
+            $priority = is_array($agency?->properties_status_priority) ? $agency->properties_status_priority : [];
+            $priority = array_values(array_filter(array_map('trim', $priority), fn ($n) => $n !== ''));
+            if (!empty($priority)) {
+                $lower = array_map(fn ($n) => mb_strtolower($n), $priority);
+                $placeholders = implode(',', array_fill(0, count($lower), '?'));
+                $query->orderByRaw("FIELD(LOWER(status), $placeholders) = 0", $lower)
+                      ->orderByRaw("FIELD(LOWER(status), $placeholders)", $lower)
+                      ->orderByDesc('created_at');
+            } else {
+                $query->orderByDesc('created_at');
+            }
+        } elseif (isset($sortableColumns[$sort])) {
             $query->orderBy($sortableColumns[$sort], $dir);
         } else {
             $query->orderByDesc('created_at');
@@ -225,7 +259,15 @@ class PropertyController extends Controller
 
         // Compute marketing status per property (batch-friendly for Phase 1)
         $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        $authId = (int) ($user->id ?? 0);
         foreach ($properties as $p) {
+            // Is the current viewer the SECONDARY (co-listing) agent on this
+            // listing rather than the primary? Drives the "Secondary" badge so a
+            // co-listed property is clearly distinguished from one the agent owns.
+            $p->viewer_is_secondary = $authId
+                && (int) ($p->pp_second_agent_id ?? 0) === $authId
+                && (int) ($p->agent_id ?? 0) !== $authId;
+
             if ($p->compliance_snapshot_at !== null) {
                 $p->marketing_status = 'live';
                 $p->marketing_status_detail = 'Live since ' . $p->compliance_snapshot_at->format('j M Y');
@@ -276,7 +318,7 @@ class PropertyController extends Controller
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
-            'filterOptions', 'filters', 'currentSort', 'currentDir'
+            'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode'
         ));
     }
 
