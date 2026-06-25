@@ -25,6 +25,48 @@ class Property24FeatureTagsTest extends TestCase
         return $method->invoke(new Property24ListingMapper(), $property);
     }
 
+    private function buildPropertyFeatures(array $features): array
+    {
+        $property = new Property();
+        $property->features_json = $features;
+
+        $method = new ReflectionMethod(Property24ListingMapper::class, 'buildPropertyFeatures');
+        $method->setAccessible(true);
+
+        return $method->invoke(new Property24ListingMapper(), $property);
+    }
+
+    public function test_fast_internet_does_not_imply_fibre_on_p24(): void
+    {
+        // Regression: a listing with "Fast Internet" (and "TV Port") but NOT
+        // "Fibre" was showing "Fibre internet" on Property24 because the mapper
+        // treated Fast Internet as fibre. Fast Internet has no P24 field, so it
+        // must not emit any internetAccess connection type.
+        $features = $this->buildPropertyFeatures(['Fast Internet', 'TV Port']);
+
+        $this->assertArrayNotHasKey('internetAccess', $features);
+    }
+
+    public function test_fibre_feature_maps_to_p24_fibre(): void
+    {
+        $features = $this->buildPropertyFeatures(['Fibre']);
+
+        $this->assertArrayHasKey('internetAccess', $features);
+        $this->assertTrue($features['internetAccess']['fibre']);
+        $this->assertFalse($features['internetAccess']['adsl']);
+        $this->assertFalse($features['internetAccess']['satellite']);
+    }
+
+    public function test_adsl_and_satellite_map_without_setting_fibre(): void
+    {
+        $features = $this->buildPropertyFeatures(['ADSL', 'Satellite Internet']);
+
+        $this->assertArrayHasKey('internetAccess', $features);
+        $this->assertTrue($features['internetAccess']['adsl']);
+        $this->assertTrue($features['internetAccess']['satellite']);
+        $this->assertFalse($features['internetAccess']['fibre']);
+    }
+
     public function test_sea_view_and_communal_braai_area_map_to_p24_tags(): void
     {
         $tags = $this->buildTags(['Sea View', 'Communal Braai Area']);
