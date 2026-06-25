@@ -227,15 +227,44 @@ class ImporterController extends Controller
                 ->pluck('id', 'p24_agent_id')
                 ->toArray();
 
+            // Fallback owner for listings whose P24 agent isn't in this agency.
+            // Rather than fail the row, assign it to an active admin so the
+            // listing still imports; it can be reassigned from the portal
+            // later. Prefer the admin running the import. The Agency Admin
+            // Rule (User::booted) guarantees ≥1 active admin per agency.
+            $fallbackAdmin = User::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->where('role', 'admin')
+                ->where('is_active', 1)
+                ->orderByRaw('CASE WHEN id = ? THEN 0 ELSE 1 END', [auth()->id()])
+                ->orderBy('id')
+                ->first();
+            $fallbackAdminId = $fallbackAdmin?->id;
+
             foreach ($listings as $r) {
                 $errors = $r['errors'];
                 $primary = $r['primary_agent_p24'];
                 $resolvedId = $primary ? ($agentMap[$primary] ?? null) : null;
                 if (!$resolvedId) {
-                    $errors[] = 'Primary agent not resolved (p24_agent_id=' . ($primary ?? 'null') . ')';
+                    if ($fallbackAdminId) {
+                        // Auto-assign to admin so the listing imports. Keep the
+                        // "Primary agent not resolved" phrase so the reassign
+                        // endpoints can detect and clear this note.
+                        $resolvedId = $fallbackAdminId;
+                        $errors[] = 'Primary agent not resolved (p24_agent_id=' . ($primary ?? 'null')
+                            . ') — auto-assigned to ' . ($fallbackAdmin->name ?? 'admin') . '; reassign if needed.';
+                    } else {
+                        // No admin to fall back to — keep it a hard error.
+                        $errors[] = 'Primary agent not resolved (p24_agent_id=' . ($primary ?? 'null') . ')';
+                    }
                 }
 
                 $urls = $images[$r['external_id']] ?? [];
+
+                // A row only blocks (status=error) on a fatal parser problem,
+                // or an unresolved agent with no admin fallback. An auto-assigned
+                // listing is importable, so it stays pending.
+                $isError = !empty($r['errors']) || !$resolvedId;
 
                 P24ImportRow::create([
                     'run_id'            => $run->id,
@@ -247,7 +276,7 @@ class ImporterController extends Controller
                     'image_urls_json'   => $urls,
                     'errors_json'       => $errors ?: null,
                     'action'            => $r['action'],
-                    'status'            => !empty($errors) ? 'error' : 'pending',
+                    'status'            => $isError ? 'error' : 'pending',
                 ]);
             }
 
