@@ -859,16 +859,27 @@ class Property extends Model
         return $tags;
     }
 
-    /** All images flattened into one array for convenience */
+    /**
+     * All images flattened into one array for convenience.
+     *
+     * De-duplicated on purpose: gallery_images_json and images_json
+     * intentionally hold the SAME ordered set (internal UI reads gallery,
+     * the public website / mobile API / readiness read images_json), so a
+     * naive merge double-counts every photo. That doubling previously pushed
+     * duplicate images into the Property24 payload (buildPhotos slices the
+     * first 30 of this list) and inflated every photo count. array_filter
+     * drops empty slots; array_unique keeps the first occurrence so order is
+     * preserved.
+     */
     public function allImages(): array
     {
-        return array_merge(
+        return array_values(array_unique(array_filter(array_merge(
             $this->dawn_images_json    ?? [],
             $this->noon_images_json    ?? [],
             $this->dusk_images_json    ?? [],
             $this->gallery_images_json ?? [],
             $this->images_json         ?? [],
-        );
+        ))));
     }
 
     /**
