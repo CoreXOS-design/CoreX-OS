@@ -699,14 +699,24 @@
                 <div class="flex-1"></div>
 
                 {{-- Footer --}}
-                <div class="flex items-center justify-between mt-2.5 pt-2.5" style="border-top:1px solid var(--border);">
-                    <div class="flex items-center gap-1.5 min-w-0">
-                        <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">{{ strtoupper(substr($property->agent?->name ?? '?', 0, 1)) }}</span>
-                        <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->agent?->name }}">{{ $property->agent?->name ?? '—' }}</span>
-                        @if(!empty($property->viewer_is_secondary))
-                        <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md flex-shrink-0"
-                              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);"
-                              title="You are the secondary (co-listing) agent on this property — the primary agent is {{ $property->agent?->name ?? 'unassigned' }}">Secondary</span>
+                <div class="flex items-center justify-between mt-2.5 pt-2.5 gap-2" style="border-top:1px solid var(--border);">
+                    <div class="flex flex-col gap-1 min-w-0">
+                        {{-- Primary agent --}}
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">{{ strtoupper(substr($property->agent?->name ?? '?', 0, 1)) }}</span>
+                            <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->agent?->name }}">{{ $property->agent?->name ?? '—' }}</span>
+                            @if($property->secondAgent)
+                            <span class="text-[8px] font-semibold uppercase tracking-wide flex-shrink-0" style="color:var(--text-muted);opacity:.7;">Primary</span>
+                            @endif
+                        </div>
+                        {{-- Secondary (co-listing) agent — shown underneath the primary --}}
+                        @if($property->secondAgent)
+                        <div class="flex items-center gap-1.5 min-w-0" title="Secondary (co-listing) agent">
+                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-icon,#0ea5e9);color:#fff;">{{ strtoupper(substr($property->secondAgent->name ?? '?', 0, 1)) }}</span>
+                            <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->secondAgent->name }}">{{ $property->secondAgent->name }}</span>
+                            <span class="text-[8px] font-bold uppercase px-1 py-0.5 rounded flex-shrink-0"
+                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);">{{ !empty($property->viewer_is_secondary) ? '2nd · You' : '2nd' }}</span>
+                        </div>
                         @endif
                     </div>
                     <div class="flex items-center gap-1">
@@ -806,11 +816,13 @@
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->beds ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->baths ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">
-                        {{ $property->agent?->name ?? '—' }}
-                        @if(!empty($property->viewer_is_secondary))
-                        <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ml-1 whitespace-nowrap"
-                              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);"
-                              title="You are the secondary (co-listing) agent on this property">2nd</span>
+                        <div>{{ $property->agent?->name ?? '—' }}</div>
+                        @if($property->secondAgent)
+                        <div class="mt-0.5 flex items-center gap-1" title="Secondary (co-listing) agent">
+                            <span style="color:var(--brand-icon,#0ea5e9);">{{ $property->secondAgent->name }}</span>
+                            <span class="text-[8px] font-bold uppercase px-1 py-0.5 rounded whitespace-nowrap"
+                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);">{{ !empty($property->viewer_is_secondary) ? '2nd · You' : '2nd' }}</span>
+                        </div>
                         @endif
                     </td>
                     <td class="px-4 py-2.5 text-center hidden md:table-cell">

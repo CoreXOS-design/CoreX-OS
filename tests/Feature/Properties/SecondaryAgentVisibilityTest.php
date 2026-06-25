@@ -75,6 +75,28 @@ final class SecondaryAgentVisibilityTest extends TestCase
             ->assertDontSee('ZZZ-OtherOnly-House');
     }
 
+    public function test_co_listed_property_counts_once_in_the_kpi_totals(): void
+    {
+        [$agency, $admin] = $this->agencyWithAdmin();
+        $primary   = $this->agencyUser($agency, 'agent');
+        $secondary = $this->agencyUser($agency, 'agent');
+
+        // A single co-listed property carrying BOTH agents.
+        $this->property($agency, $primary, 'ZZZ-CoListed-House', $secondary);
+
+        $this->actingAs($admin);
+
+        // Filter by both agents — the property matches the scope on two grounds
+        // (primary AND secondary) but is one row, so it must count exactly once
+        // in Total and On Market, not twice.
+        $stats = $this->get(route('corex.properties.index', [
+            'agent_ids' => $primary->id . ',' . $secondary->id,
+        ]))->assertOk()->viewData('stats');
+
+        $this->assertSame(1, $stats['total'], 'Co-listed property must count once in Total.');
+        $this->assertSame(1, $stats['active'], 'Co-listed property must count once in On Market.');
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:User} */

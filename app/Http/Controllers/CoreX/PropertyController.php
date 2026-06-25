@@ -87,7 +87,7 @@ class PropertyController extends Controller
         $bathsMin       = $request->query('baths_min', '');
         $sort           = $request->query('sort', $defaultSort);  // newest|oldest|price_asc|price_desc|title|status_priority
 
-        $query = Property::with(['agent', 'branch']);
+        $query = Property::with(['agent', 'branch', 'secondAgent']);
 
         // ── Agent multi-select ────────────────────────────────────────────
         // agent_ids = comma list of ids | 'all' | (absent). Falls back to the
