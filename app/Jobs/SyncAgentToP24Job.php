@@ -34,6 +34,16 @@ class SyncAgentToP24Job implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    // The agent sync makes several sequential P24 round-trips — a cold getAgents
+    // alone is ~90s, plus create/update + a photo fetch/upload. With no $timeout
+    // here AND no --timeout on the worker command, the effective limit was
+    // Laravel's 60s default: every cold run threw TimeoutExceededException and
+    // SIGKILL'd the single worker mid-job, stranding whatever else was in flight
+    // (including interactive listing submits) at 'submitting'. Give it headroom.
+    public int $timeout = 180;
+    public int $tries = 2;
+    public int $backoff = 60;
+
     /**
      * @param int  $userId           CoreX user to sync.
      * @param bool $registerIfMissing When true (explicit "Sync to P24" / test-agent
