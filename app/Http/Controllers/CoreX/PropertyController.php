@@ -532,6 +532,7 @@ class PropertyController extends Controller
             'pp_hide_street_number' => 'nullable|boolean',
             'pp_hide_complex_name'  => 'nullable|boolean',
             'pp_hide_unit_number'   => 'nullable|boolean',
+            'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'               => 'nullable|array',
             'dawn_images.*'             => 'image|max:51200',
@@ -871,6 +872,7 @@ class PropertyController extends Controller
             'pp_hide_street_number' => 'nullable|boolean',
             'pp_hide_complex_name'  => 'nullable|boolean',
             'pp_hide_unit_number'   => 'nullable|boolean',
+            'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'      => 'nullable|array',
             'dawn_images.*'    => 'image|max:51200',
@@ -919,6 +921,9 @@ class PropertyController extends Controller
         $data['pp_hide_street_number'] = $request->boolean('pp_hide_street_number');
         $data['pp_hide_complex_name']  = $request->boolean('pp_hide_complex_name');
         $data['pp_hide_unit_number']   = $request->boolean('pp_hide_unit_number');
+        // P24 address-display flag — independent of the PP flags above. Unchecked
+        // checkboxes don't submit, so coerce explicitly on every save.
+        $data['p24_hide_address']      = $request->boolean('p24_hide_address');
 
         $data = $this->processSpacesJson($data);
         $data = $this->applyP24Location($data);
