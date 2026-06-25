@@ -74,6 +74,7 @@ class Property extends Model
         'mandate_type',
         'listing_type',
         'status',
+        'status_label',
         'features_json',
         'features_json_meta',
         'pet_friendly',
@@ -943,9 +944,13 @@ class Property extends Model
         $size    = $this->size_m2 ? number_format($this->size_m2) . ' M²' : null;
 
         // Status badge — honest label derived from the listing, never fabricated.
+        // NOTE: 'pending' is NOT "under offer". Under the two-tier model Pending is
+        // a SUB-LABEL on a For-Sale base (For Sale + Pending banner), so a pending
+        // listing is still actively FOR SALE on the marketing card. Only a genuine
+        // 'under_offer' base status reads "UNDER OFFER".
         $statusBadge = match (true) {
             in_array($this->status, ['sold', 'transferred'], true)       => 'SOLD',
-            in_array($this->status, ['under_offer', 'pending'], true)    => 'UNDER OFFER',
+            $this->status === 'under_offer'                              => 'UNDER OFFER',
             ($this->listing_type === 'rental' || $this->listing_type === 'to_let') => 'TO LET',
             default                                                      => 'FOR SALE',
         };
