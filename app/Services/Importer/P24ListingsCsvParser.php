@@ -189,22 +189,37 @@ class P24ListingsCsvParser
      * `property_setting_items` value the edit form stores). The original
      * importer emitted capitalised, non-canonical strings ("Active", "Rented",
      * or the raw P24 word) which never matched the form select and rendered as
-     * "— None —". This mapping mirrors the agreed P24→canonical decision:
-     *   on-market (Active/NewListing/Reduced/Pending) → for_sale
-     *   off-market (Withdrawn/Expired/Cancelled)       → withdrawn
-     *   Sold                                            → sold
-     *   Rented (concluded rental)                       → let_out
-     * Unknown words fall back to for_sale (a live, visible default) rather than
-     * persisting a non-canonical string.
+     * "— None —".
+     *
+     * Each P24 lifecycle state maps 1:1 to its own canonical CoreX status so
+     * the status badge is accurate AND the value round-trips correctly back to
+     * P24 on syndication (see Property24ListingMapper::getP24Status):
+     *   Active                  → active        (live, syndicatable)
+     *   NewListing / New        → new_listing   (live; P24 shows "NewListing")
+     *   Reduced                 → reduced_price (live; drives P24 reduced banner)
+     *   Pending                 → pending       (NOT syndicatable — agent still working it)
+     *   Withdrawn               → withdrawn
+     *   Expired                 → expired
+     *   Cancelled               → cancelled
+     *   Sold                    → sold
+     *   Rented (concluded let)  → let_out
+     * Unknown/blank falls back to new_listing (a freshly imported listing).
+     * NOTE: 'active', 'new_listing', 'expired', 'cancelled', 'let_out' are
+     * canonical property_status items added 2026-06-25 — keep them seeded.
      */
     private function normaliseStatus(string $s): string
     {
         return match (strtolower(trim($s))) {
-            'newlisting', 'new', 'active', 'reduced', 'pending' => 'for_sale',
-            'withdrawn', 'expired', 'cancelled'                 => 'withdrawn',
-            'sold'                                              => 'sold',
-            'rented'                                            => 'let_out',
-            default                                             => 'for_sale',
+            'active'            => 'active',
+            'newlisting', 'new' => 'new_listing',
+            'reduced'           => 'reduced_price',
+            'pending'           => 'pending',
+            'withdrawn'         => 'withdrawn',
+            'expired'           => 'expired',
+            'cancelled'         => 'cancelled',
+            'sold'              => 'sold',
+            'rented'            => 'let_out',
+            default             => 'new_listing',
         };
     }
 }

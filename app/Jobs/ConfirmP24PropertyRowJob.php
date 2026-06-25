@@ -88,12 +88,23 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                         ->leftJoin('p24_provinces as pr', 'pr.id', '=', 'c.p24_province_id')
                         ->where('s.p24_id', $suburbId)
                         ->whereNull('s.deleted_at')
-                        ->selectRaw('s.name as suburb, c.name as town, pr.name as province')
+                        ->selectRaw('s.id as suburb_pk, s.name as suburb,
+                                     c.id as city_pk, c.name as town,
+                                     pr.id as province_pk, pr.name as province')
                         ->first();
                     if ($loc) {
+                        // Text columns (denormalised display copies).
                         if (!empty($loc->suburb))   $attrs['suburb']   = $loc->suburb;
-                        if (!empty($loc->town))     $attrs['town']     = $loc->town;
+                        if (!empty($loc->town))     { $attrs['town'] = $loc->town; $attrs['city'] = $loc->town; }
                         if (!empty($loc->province)) $attrs['province'] = $this->canonicalProvince($loc->province);
+                        // FK id columns — the Internal Address modal's cascading
+                        // Province/City/Suburb selectors are gated on these
+                        // (p24_province_id/p24_city_id/p24_suburb_id → p24_*
+                        // table PKs). Without them the picker renders blank even
+                        // when the text columns are set.
+                        if (!empty($loc->suburb_pk))   $attrs['p24_suburb_id']   = $loc->suburb_pk;
+                        if (!empty($loc->city_pk))     $attrs['p24_city_id']     = $loc->city_pk;
+                        if (!empty($loc->province_pk)) $attrs['p24_province_id'] = $loc->province_pk;
                     }
                 }
 

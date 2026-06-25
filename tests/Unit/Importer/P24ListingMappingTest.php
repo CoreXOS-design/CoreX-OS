@@ -96,8 +96,8 @@ class P24ListingMappingTest extends TestCase
         // Row 1003: Rented -> let_out (new canonical rental-concluded status)
         $this->assertSame('let_out', $byId['1003']['mapped']['status']);
 
-        // Row 1004: NewListing -> for_sale ; unknown type 99 -> Other + recorded error
-        $this->assertSame('for_sale', $byId['1004']['mapped']['status']);
+        // Row 1004: NewListing -> new_listing ; unknown type 99 -> Other + recorded error
+        $this->assertSame('new_listing', $byId['1004']['mapped']['status']);
         $this->assertSame('Other', $byId['1004']['mapped']['property_type']);
         $this->assertNotEmpty(array_filter(
             $byId['1004']['errors'],
