@@ -616,6 +616,11 @@ class Property24SyndicationService
             return;
         }
 
+        // P24's profile-picture endpoint rejects WebP (returns HTTP 500). Our
+        // photos are stored as WebP (smaller/sharper for every in-app surface),
+        // so transcode to JPEG — which P24 accepts — at this boundary only.
+        [$bytes, $mime] = $this->toP24SafeImage($bytes, $mime);
+
         $imageData = [
             'bytes'           => base64_encode($bytes),
             'mimeContentType' => $mime,
@@ -633,6 +638,52 @@ class Property24SyndicationService
     private function log(string $level, string $message, array $context = []): void
     {
         Log::channel('property24')->{$level}($message, $context);
+    }
+
+    /**
+     * Return image bytes in a format P24's profile-picture endpoint accepts.
+     * P24 rejects WebP (HTTP 500); JPEG and PNG are fine. JPEG/PNG pass through
+     * untouched; anything else (WebP) is re-encoded to JPEG via GD, flattening
+     * any alpha onto white. On any decode failure the original bytes are returned
+     * so the upload is still attempted rather than silently skipped.
+     *
+     * @return array{0: string, 1: string} [bytes, mimeContentType]
+     */
+    private function toP24SafeImage(string $bytes, string $mime): array
+    {
+        if ($mime === 'image/jpeg' || $mime === 'image/png') {
+            return [$bytes, $mime];
+        }
+
+        if (!function_exists('imagecreatefromstring')) {
+            $this->log('warning', 'P24 photo transcode skipped: GD not available');
+            return [$bytes, $mime];
+        }
+
+        $img = @imagecreatefromstring($bytes);
+        if (!$img instanceof \GdImage) {
+            $this->log('warning', 'P24 photo transcode: GD could not decode source; sending original bytes');
+            return [$bytes, $mime];
+        }
+
+        // Flatten onto white — P24 profile pictures are opaque JPEGs.
+        $w = imagesx($img);
+        $h = imagesy($img);
+        $canvas = imagecreatetruecolor($w, $h);
+        imagefilledrectangle($canvas, 0, 0, $w, $h, imagecolorallocate($canvas, 255, 255, 255));
+        imagecopy($canvas, $img, 0, 0, 0, 0, $w, $h);
+        imagedestroy($img);
+
+        ob_start();
+        imagejpeg($canvas, null, 88);
+        $jpeg = (string) ob_get_clean();
+        imagedestroy($canvas);
+
+        if ($jpeg === '') {
+            return [$bytes, $mime];
+        }
+
+        return [$jpeg, 'image/jpeg'];
     }
 
     /**
