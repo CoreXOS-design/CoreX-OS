@@ -313,11 +313,17 @@ class UserManagementController extends Controller
         $user->is_admin   = in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0;
         $user->branch_id  = $data['branch_id'] ?: null;
         $user->designation = $data['designation'] ?: null;
-        $user->show_on_website = isset($data['show_on_website']) && $data['show_on_website'] == '1' ? 1 : 0;
-        // Per-agent P24 opt-out. The pushUserToP24() call at the end of this
-        // method PUTs the new published/status to P24, so flipping this on
-        // immediately unpublishes an already-synced agent from the portal.
-        $user->exclude_from_p24 = isset($data['exclude_from_p24']) && $data['exclude_from_p24'] == '1' ? 1 : 0;
+        // show_on_website and exclude_from_p24 are managed in edit mode by their
+        // own instant AJAX switches, which submit NO field on the main form. Only
+        // assign them when the request actually carries the field — otherwise a
+        // plain Save would clobber a value the switch just set back to 0. (Create
+        // mode posts a hidden 0 + checkbox, so the field is always present there.)
+        if ($request->has('show_on_website')) {
+            $user->show_on_website = $request->input('show_on_website') == '1' ? 1 : 0;
+        }
+        if ($request->has('exclude_from_p24')) {
+            $user->exclude_from_p24 = $request->input('exclude_from_p24') == '1' ? 1 : 0;
+        }
 
         $user->agent_cut_percent         = $data['agent_cut_percent'] ?? $user->agent_cut_percent;
         $user->paye_method               = $data['paye_method'] ?? $user->paye_method;
