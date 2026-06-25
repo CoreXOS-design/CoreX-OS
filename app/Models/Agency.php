@@ -93,6 +93,8 @@ class Agency extends Model
         'require_external_access_authorization',
         'dashboard_settings_mode',
         'split_branches_enabled',
+        'properties_sort_mode',
+        'properties_status_priority',
         'p24_agency_id',
         'p24_agency_label',
         'p24_username',
@@ -253,6 +255,8 @@ class Agency extends Model
         'whistleblow_tier_recipients' => 'array',
         // AT-50 — per-agency override of which deals_v2 statuses count as live.
         'outreach_live_deal_statuses' => 'array',
+        // Properties list default ordering (agency-wide).
+        'properties_status_priority' => 'array',
         // Communication Archive ingestion filter (AT-43) — null = inherit config default.
         'communication_ingest_drop_noreply'      => 'boolean',
         'communication_ingest_blocklist_domains' => 'array',

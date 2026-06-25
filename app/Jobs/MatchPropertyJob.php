@@ -15,11 +15,25 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Core Matches: notify agents when a property matches a contact's wishlist.
+ *
+ * Runs on the dedicated `matching` queue (not `default`) so a bulk-import
+ * "herd" of match jobs can never starve time-sensitive P24 sync/push/confirm
+ * work on `default`. The corex worker must drain `default,matching` (in that
+ * priority order) — default is always processed first, matching only when
+ * default is idle. Shared with MatchPropertyProspectingJob.
+ */
 class MatchPropertyJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function __construct(public int $propertyId) {}
+    public const QUEUE_NAME = 'matching';
+
+    public function __construct(public int $propertyId)
+    {
+        $this->onQueue(self::QUEUE_NAME);
+    }
 
     public function handle(MatchingService $matching): void
     {

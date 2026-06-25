@@ -432,6 +432,9 @@ Route::middleware('auth')->group(function () {
     // Agency Public API — quick website-visibility toggle per agent. Spec §2 (layer 3).
     Route::post('/admin/users/{user}/toggle-website', [App\Http\Controllers\Admin\UserManagementController::class, 'toggleWebsite'])
         ->middleware('permission:manage_users')->name('admin.users.toggle-website');
+    // Property24 — quick visibility toggle per agent (exclude_from_p24).
+    Route::post('/admin/users/{user}/toggle-p24', [App\Http\Controllers\Admin\UserManagementController::class, 'toggleP24'])
+        ->middleware('permission:manage_users')->name('admin.users.toggle-p24');
 
     Route::post('/admin/users/{user}/delete', [App\Http\Controllers\Admin\UserManagementController::class, 'delete'])
         ->middleware('permission:manage_users')->name('admin.users.delete');
@@ -1915,6 +1918,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/matches-visibility-scope', [CoreXSettingsController::class, 'updateMatchesVisibilityScope'])->middleware('permission:access_settings')->name('corex.settings.matches-visibility-scope');
     Route::post('/settings/contacts-per-page', [CoreXSettingsController::class, 'updateContactsPerPage'])->middleware('permission:access_settings')->name('corex.settings.contacts-per-page');
     Route::post('/settings/properties-per-page', [CoreXSettingsController::class, 'updatePropertiesPerPage'])->middleware('permission:access_settings')->name('corex.settings.properties-per-page');
+    Route::post('/settings/properties-sort', [CoreXSettingsController::class, 'updatePropertiesSort'])->middleware('permission:access_settings')->name('corex.settings.properties-sort');
     Route::post('/settings/remote-access', [CoreXSettingsController::class, 'updateRemoteAccess'])->middleware('permission:agency.manage_access_authorization')->name('corex.settings.remote-access');
     // Old compliance-officers endpoint — kept for backwards compat, redirects
     Route::post('/settings/compliance-officers', function () {
@@ -2293,6 +2297,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/import-sold',          [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'form'])->name('import-sold');
             Route::post('/import-sold/preview', [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'preview'])->name('import-sold.preview');
             Route::post('/import-sold/confirm', [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'run'])->name('import-sold.run');
+
+            // P24 Listing-Number repair — backfill p24_ref from the original
+            // P24 CSV so pushes update originals instead of duplicating.
+            Route::post('/p24-fix/upload',  [\App\Http\Controllers\CoreX\P24ListingNumberFixController::class, 'upload'])->name('p24-fix.upload');
+            Route::post('/p24-fix/process', [\App\Http\Controllers\CoreX\P24ListingNumberFixController::class, 'process'])->name('p24-fix.process');
         });
 
         Route::get('/contacts/search',         [\App\Http\Controllers\CoreX\PropertyContactController::class, 'searchGlobal'])->name('contacts.search-global');
@@ -2366,6 +2375,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/p24-syndication/deactivate', [\App\Http\Controllers\Property24\P24SyndicationController::class, 'deactivate'])->name('p24-syndication.deactivate');
         Route::post('/{property}/p24-syndication/reactivate', [\App\Http\Controllers\Property24\P24SyndicationController::class, 'reactivate'])->name('p24-syndication.reactivate');
         Route::get('/{property}/p24-syndication/status',      [\App\Http\Controllers\Property24\P24SyndicationController::class, 'status'])->name('p24-syndication.status');
+        Route::get('/{property}/p24-syndication/sync-state',   [\App\Http\Controllers\Property24\P24SyndicationController::class, 'syncState'])->name('p24-syndication.sync-state');
         Route::get('/{property}/p24-syndication/readiness',   [\App\Http\Controllers\Property24\P24SyndicationController::class, 'readiness'])->name('p24-syndication.readiness');
         // Website syndication — per-(property × website key). Spec: agency-public-api.md §6.5.2
         Route::post('/{property}/website-syndication/{apiKey}/toggle',     [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'toggle'])->name('website-syndication.toggle');

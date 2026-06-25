@@ -393,7 +393,7 @@ class PropertyObserver
 
         // If status changed, send a lightweight status update to P24
         if (isset($dirty['status'])) {
-            $p24Status = Property24ListingMapper::getP24Status($property->status, $property->p24_ref);
+            $p24Status = Property24ListingMapper::getP24Status($property->status, $property->p24_ref, $property->status_label);
 
             try {
                 $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
@@ -476,8 +476,11 @@ class PropertyObserver
     private function isOffMarketStatus(string $status): bool
     {
         $s = strtolower($status);
-        foreach (['sold', 'rented', 'withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $needle) {
-            if (str_contains($s, $needle)) {
+        // Single source of truth — Property::OFF_MARKET_STATUSES (BUILD_STANDARD §6).
+        // Substring match handles variants like "sold • cash"; the space form
+        // covers underscored slugs (e.g. let_out / "let out").
+        foreach (Property::OFF_MARKET_STATUSES as $needle) {
+            if (str_contains($s, $needle) || str_contains($s, str_replace('_', ' ', $needle))) {
                 return true;
             }
         }

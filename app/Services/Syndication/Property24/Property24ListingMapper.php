@@ -28,7 +28,9 @@ class Property24ListingMapper
             'contactAgentIds'   => $this->resolveContactAgentIds($property, $agencyId),
             'listingType'       => $this->mapListingType($property->listing_type ?? $property->mandate_type),
             'status'            => $this->mapPropertyStatus($property),
-            'price'             => (float) ($property->price ?? 0),
+            // P24 carries the monthly rent in `price` for rentals; effectivePrice()
+            // returns rental_amount for rental stock, price for sales — one source.
+            'price'             => $property->effectivePrice(),
             'isPOA'             => (bool) $property->price_on_application,
             'listingVisibility' => 'Public',
             'expiryDate'        => $property->expiry_date?->format('Y-m-d\TH:i:s')
@@ -40,6 +42,14 @@ class Property24ListingMapper
             'youTubeVideoId'    => $this->extractYouTubeId($property->youtube_video_id),
             'matterportSpaceId' => $property->matterport_id ?: null,
         ];
+
+        // Detailed feature tags (P24 `tags` array) — amenities that have no
+        // dedicated propertyFeatures field (sea view, communal braai, security
+        // detail, ports, etc.). Optional and purely additive.
+        $tags = $this->buildTags($property);
+        if (!empty($tags)) {
+            $listing['tags'] = $tags;
+        }
 
         if ($property->latitude && $property->longitude) {
             $listing['propertyInfo']['geographicLocation'] = [
@@ -56,7 +66,8 @@ class Property24ListingMapper
             }
         }
 
-        // Complex info
+        // Complex info — always sent (P24 needs the full address regardless of
+        // the public-display flag).
         if ($property->complex_name || $property->unit_number) {
             $listing['complexInfo'] = [
                 'complexName' => $property->complex_name ?? null,
@@ -105,13 +116,21 @@ class Property24ListingMapper
 
     private function buildPropertyInfo(Property $property, ?int $suburbId, ?int $propertyTypeId): array
     {
+        // P24 "hide address" affects ONLY public display, never the data we send.
+        // P24's verification team REQUIRES the full address always (to vet
+        // legitimacy, link/group properties, confirm the address is real), so the
+        // street number/name, stand number, complex/unit and GPS are ALWAYS sent.
+        // p24_hide_address=1 merely sets showLocation=false so P24 does not show
+        // the address publicly. Independent of the PP pp_hide_* flags.
         $info = [
             'suburbId'        => $suburbId,
             'propertyTypeId'  => $propertyTypeId,
             'streetNumber'    => $property->street_number ?? '',
             'streetName'      => $property->street_name ?? $this->parseStreetName($property->address),
             'sourceReference' => 'CoreX-' . $property->id,
-            'showLocation'    => (bool) ($property->latitude && $property->longitude),
+            'showLocation'    => $property->p24_hide_address
+                ? false
+                : (bool) ($property->latitude && $property->longitude),
         ];
 
         if ($property->stand_number) $info['standNumber'] = $property->stand_number;
@@ -198,14 +217,20 @@ class Property24ListingMapper
         // Backup water
         if ($hasFeature('Backup Water', 'Water Tank', 'Borehole')) $features['hasBackupWater'] = true;
 
-        // Internet access
-        if ($hasFeature('ADSL', 'Fibre', 'Fast Internet', 'Satellite Internet', 'Wi-Fi')) {
-            $features['internetAccess'] = [
-                'adsl'      => $hasFeature('ADSL'),
-                'fibre'     => $hasFeature('Fibre', 'Fast Internet'),
-                'satellite' => $hasFeature('Satellite Internet', 'Satellite Dish'),
-            ];
-        }
+        // Internet access — ALWAYS sent so P24 reflects CoreX as the source of
+        // truth. Only CoreX features with a true P24 InternetAccessInfo
+        // equivalent are mapped; "Fast Internet" and "Wi-Fi" are generic flags
+        // with NO P24 technology field, so they never set fibre/adsl/satellite
+        // (inferring fibre from Fast Internet made listings show "Fibre
+        // internet" on P24). The block is emitted unconditionally — including
+        // all-false — so that a re-push deterministically CLEARS a stale
+        // fibre/adsl/satellite a previous push set; omitting it lets P24 retain
+        // the old value (P24 does not clear fields absent from the payload).
+        $features['internetAccess'] = [
+            'adsl'      => $hasFeature('ADSL'),
+            'fibre'     => $hasFeature('Fibre'),
+            'satellite' => $hasFeature('Satellite Internet', 'Satellite Dish'),
+        ];
 
         // Sustainability
         if ($hasFeature('Solar Panel', 'Solar Geyser', 'Gas Geyser', 'Water Tank', 'Borehole', 'Backup Battery', 'Inverter')) {
@@ -254,6 +279,84 @@ class Property24ListingMapper
         return $features;
     }
 
+    /**
+     * CoreX feature label → P24 `Tag` enum value.
+     *
+     * Only amenities that have NO dedicated propertyFeatures field live here —
+     * everything else is already covered by buildPropertyFeatures(). Every value
+     * on the right is a verified member of the P24 v53 `Tag` enum
+     * (storage/p24_swagger.json); an unrecognised value would be rejected by the
+     * portal, so do NOT add a mapping without confirming the enum string first.
+     */
+    private const FEATURE_TAG_MAP = [
+        // Views / setting
+        'Sea View'               => 'Sea',
+        'Communal Braai Area'    => 'Communalbraaiarea',
+        // Storey / floor position
+        'Single Storey'          => 'SingleStorey',
+        'Ground Floor Unit'      => 'GroundFloor',
+        'Second Floor and Above' => 'Secondfloorandabove',
+        'Top Floor'              => 'TopFloor',
+        // Security
+        'Alarm System'           => 'AlarmSystem',
+        'Electric Gate'          => 'ElectricGate',
+        'Electric Fence'         => 'Electricfencing',
+        'Security Gate'          => 'SecurityGate',
+        'Burglar Bars'           => 'BurglarBars',
+        'CCTV'                   => 'ClosedCircuitTV',
+        'Intercom'               => 'Intercom',
+        '24 Hour Access'         => 'TwentyFourHourAccess',
+        '24 Hour Guard'          => 'Guard',
+        'Guard House'            => 'GuardHouse',
+        'Boomed Area'            => 'BoomedArea',
+        'Indoor Beams'           => 'IndoorBeams',
+        'Outdoor Beams'          => 'OutdoorBeams',
+        'Partially Fenced'       => 'PartiallyFenced',
+        'Totally Fenced'         => 'TotallyFenced',
+        'Totally Walled'         => 'TotallyWalled',
+        'Perimeter Wall'         => 'PerimeterWall',
+        'Gated Community'        => 'GatedCommunity',
+        'Security Complex'       => 'SecurityComplex',
+        'Security Estate'        => 'SecurityEstate',
+        // Connectivity
+        'Internet Port'          => 'InternetPort',
+        'Telephone Port'         => 'TelephonePort',
+        'TV Port'                => 'TVPort',
+        'Satellite Dish'         => 'SatelliteDish',
+        // Sustainability
+        'Solar Heating'          => 'SolarHeating',
+        'Septic Tank'            => 'SepticTank',
+    ];
+
+    /**
+     * Build the P24 `tags` array from the property's selected feature labels.
+     * Case-insensitive match against FEATURE_TAG_MAP; deduped; values are valid
+     * P24 Tag enum members only.
+     */
+    private function buildTags(Property $property): array
+    {
+        $feats = $property->features_json ?? [];
+        if (empty($feats)) {
+            return [];
+        }
+
+        // Lower-cased lookup so a stored 'sea view' still resolves to 'Sea View'.
+        $lookup = [];
+        foreach (self::FEATURE_TAG_MAP as $label => $tag) {
+            $lookup[strtolower($label)] = $tag;
+        }
+
+        $tags = [];
+        foreach ($feats as $feat) {
+            $key = strtolower(trim((string) $feat));
+            if (isset($lookup[$key])) {
+                $tags[] = $lookup[$key];
+            }
+        }
+
+        return array_values(array_unique($tags));
+    }
+
     public function validate(array $payload): array
     {
         $errors = [];
@@ -276,7 +379,7 @@ class Property24ListingMapper
             }
         }
         if (empty($property->property_type)) $missing[] = ['field' => 'property_type', 'label' => 'Property Type'];
-        if (empty($property->price) && !$property->price_on_application) $missing[] = ['field' => 'price', 'label' => 'Price (or enable Price On Application)'];
+        if ($property->effectivePrice() <= 0 && !$property->price_on_application) $missing[] = ['field' => 'price', 'label' => 'Price (or enable Price On Application)'];
         if (empty($property->allImages())) $missing[] = ['field' => 'images', 'label' => 'At least one photo'];
         if (empty($property->listing_type) && empty($property->mandate_type)) $missing[] = ['field' => 'listing_type', 'label' => 'Listing Type (Sale/Rental)'];
         if (empty($property->resolveP24AgencyId())) {
@@ -578,8 +681,16 @@ class Property24ListingMapper
         $agents = $result['data'] ?? [];
         $ids = [];
 
+        // Agents who opted out of P24 must never be attached to a syndicated
+        // listing, even if a stale P24 record still carries their sourceReference.
+        $excludedUserIds = \App\Models\User::withTrashed()
+            ->whereIn('id', array_filter([$property->agent_id, $property->pp_second_agent_id]))
+            ->where('exclude_from_p24', true)
+            ->pluck('id')
+            ->all();
+
         // Primary agent
-        if ($property->agent_id) {
+        if ($property->agent_id && !in_array((int) $property->agent_id, $excludedUserIds, true)) {
             $sourceRef = 'CoreX-Agent-' . $property->agent_id;
             foreach ($agents as $agent) {
                 if (($agent['sourceReference'] ?? '') === $sourceRef) {
@@ -590,7 +701,7 @@ class Property24ListingMapper
         }
 
         // Second agent
-        if ($property->pp_second_agent_id) {
+        if ($property->pp_second_agent_id && !in_array((int) $property->pp_second_agent_id, $excludedUserIds, true)) {
             $sourceRef = 'CoreX-Agent-' . $property->pp_second_agent_id;
             foreach ($agents as $agent) {
                 if (($agent['sourceReference'] ?? '') === $sourceRef) {
@@ -626,22 +737,56 @@ class Property24ListingMapper
      */
     private function mapPropertyStatus(Property $property): string
     {
-        return self::getP24Status($property->status, $property->p24_ref);
+        return self::getP24Status($property->status, $property->p24_ref, $property->status_label);
     }
 
     /**
-     * Static helper: convert CoreX status string to P24 ListingStatus.
-     * Used by both the mapper and the observer.
+     * Static helper: convert a CoreX two-tier status (base status + optional
+     * sub-label banner) to a P24 ListingStatus. Used by both the mapper and the
+     * observer.
+     *
+     * Two-tier model (mirrors P24/Propcon): a listing has a BASE status and an
+     * optional SUB-LABEL on an on-market base — e.g. For Sale + "Reduced Price",
+     * For Sale + "Pending", For Sale + "Back on Market". The sub-label IS the
+     * authoritative P24 lifecycle signal when present, so it is resolved FIRST;
+     * a For-Sale base with no label falls through to the base-status logic.
+     *
+     * Back-compat: $statusLabel is optional and defaults to null. With a null
+     * label this returns exactly what the prior flat-status version returned for
+     * every base status — proven by the AT-P24 before/after round-trip table —
+     * with one intentional fix: a let-out rental now maps to 'Rented' instead of
+     * silently falling through to 'NewListing'.
      */
-    public static function getP24Status(?string $corexStatus, ?string $p24Ref = null): string
+    public static function getP24Status(?string $corexStatus, ?string $p24Ref = null, ?string $statusLabel = null): string
     {
-        // Normalize: lowercase, strip bullets, replace underscores with spaces
-        $status = strtolower(str_replace(['•', '_'], ['', ' '], trim($corexStatus ?? '')));
-        $status = preg_replace('/\s+/', ' ', $status); // collapse multiple spaces
+        $normalise = static function (?string $v): string {
+            $v = strtolower(str_replace(['•', '_'], ['', ' '], trim($v ?? '')));
+            return preg_replace('/\s+/', ' ', $v); // collapse multiple spaces
+        };
+
+        // 1) Sub-label (banner) takes precedence — it is the P24 lifecycle state.
+        $label = $normalise($statusLabel);
+        if ($label !== '') {
+            $fromLabel = match (true) {
+                str_contains($label, 'reduced')        => 'ReducedPrice',
+                str_contains($label, 'raised')         => 'RaisedPrice',
+                str_contains($label, 'back on market') => 'BackOnMarket',
+                str_contains($label, 'under offer')
+                    || str_contains($label, 'pending') => 'Pending',
+                default                                => null,
+            };
+            if ($fromLabel !== null) {
+                return $fromLabel;
+            }
+        }
+
+        // 2) Base status.
+        $status = $normalise($corexStatus);
 
         return match (true) {
             str_contains($status, 'sold')              => 'Sold',
-            str_contains($status, 'rented')            => 'Rented',
+            str_contains($status, 'rented')
+                || str_contains($status, 'let out')     => 'Rented',
             str_contains($status, 'withdrawn')
                 || str_contains($status, 'unavailable') => 'Withdrawn',
             str_contains($status, 'under offer')

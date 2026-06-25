@@ -7,6 +7,7 @@ use App\Listeners\Leads\PushNewPortalLeadToMobile;
 use App\Models\Agency;
 use App\Models\DeviceToken;
 use App\Models\PortalLead;
+use App\Models\Property;
 use App\Models\User;
 use App\Services\Push\Contracts\PushTransport;
 use App\Services\Push\PushNotificationService;
@@ -19,7 +20,8 @@ use Tests\TestCase;
  * The portal-lead listener was the primary storm surface: a single
  * NewPortalLeadReceived event fanned out to every device in the agency with no
  * guard, and the 5-minute P24 poller could re-fire it for the same lead. This
- * proves the listener now funnels through the guarded service, keyed on the
+ * proves the listener now (a) routes ONLY to the lead's own agent(s) — not the
+ * whole agency — and (b) funnels through the guarded service, keyed on the
  * lead, so re-firing buzzes each device exactly once.
  */
 class PortalLeadPushStormTest extends TestCase
@@ -39,11 +41,12 @@ class PortalLeadPushStormTest extends TestCase
         $this->app->forgetInstance(PushNotificationService::class);
     }
 
-    public function test_refiring_the_same_lead_event_buzzes_each_device_once_and_skips_other_agencies(): void
+    public function test_refiring_routes_only_to_the_listing_agent_once_and_skips_everyone_else(): void
     {
         $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal']);
-        $agentA = User::factory()->create(['agency_id' => $agency->id, 'role' => 'agent']);
-        $agentB = User::factory()->create(['agency_id' => $agency->id, 'role' => 'agent']);
+        $branch = \App\Models\Branch::forceCreate(['name' => 'Main', 'agency_id' => $agency->id]);
+        $agentA = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']); // listing agent
+        $agentB = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']); // same agency, NOT on the listing
 
         $other      = Agency::create(['name' => 'Rival Realty', 'slug' => 'rival']);
         $otherAgent = User::factory()->create(['agency_id' => $other->id, 'role' => 'agent']);
@@ -52,10 +55,21 @@ class PortalLeadPushStormTest extends TestCase
         DeviceToken::create(['user_id' => $agentB->id, 'platform' => 'android', 'token' => 'B-phone', 'last_seen_at' => now()]);
         DeviceToken::create(['user_id' => $otherAgent->id, 'platform' => 'ios', 'token' => 'X-phone', 'last_seen_at' => now()]);
 
+        // The lead is an enquiry about agentA's listing.
+        $listing = new Property();
+        $listing->forceFill([
+            'title'     => 'Beachfront Villa',
+            'agent_id'  => $agentA->id,
+            'agency_id' => $agency->id,
+            'branch_id' => $branch->id,
+            'status'    => 'active',
+        ])->save();
+
         $lead = new PortalLead([
             'portal'             => PortalLead::PORTAL_P24,
             'lead_type'          => 'Email',
             'name'               => 'Jane Buyer',
+            'listing_id'         => $listing->id,
             'listing_portal_ref' => 'P24-12345',
             'received_at'        => now(),
         ]);
@@ -69,8 +83,8 @@ class PortalLeadPushStormTest extends TestCase
             $listener->handle(new NewPortalLeadReceived($lead));
         }
 
-        $this->assertSame(1, $this->spy->timesSentTo('A-phone'));
-        $this->assertSame(1, $this->spy->timesSentTo('B-phone'));
+        $this->assertSame(1, $this->spy->timesSentTo('A-phone'), 'the listing agent is buzzed exactly once');
+        $this->assertSame(0, $this->spy->timesSentTo('B-phone'), 'an agent not on the listing must not be pushed');
         $this->assertSame(0, $this->spy->timesSentTo('X-phone'), 'other agency must never be pushed');
     }
 }

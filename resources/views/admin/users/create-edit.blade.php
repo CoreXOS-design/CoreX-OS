@@ -388,6 +388,63 @@
                         </label>
                         @endif
                     @endif
+
+                    {{-- Property24 opt-out. When excluded the agent is unpublished on
+                         P24 (published=false / status=Inactive) and never attached to
+                         newly-syndicated listings. The edit-mode switch pushes the
+                         change to P24 immediately and reports P24's actual result;
+                         the create-mode checkbox applies on save. --}}
+                    @if($isEdit)
+                    <div class="flex items-center gap-2.5 text-sm mt-3 flex-wrap"
+                         x-data="{
+                            excluded: {{ (int)($user->exclude_from_p24 ?? 0) ? 'true' : 'false' }},
+                            loading: false, note: '', noteErr: false,
+                            csrf: '{{ csrf_token() }}',
+                            url: '{{ route('admin.users.toggle-p24', $user) }}',
+                            async toggle() {
+                                if (this.loading) return;
+                                this.loading = true; this.note = '';
+                                const fd = new FormData(); fd.append('_token', this.csrf);
+                                try {
+                                    const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                                    const j = await r.json().catch(() => ({}));
+                                    if (r.ok && j.success) {
+                                        this.excluded = j.exclude_from_p24;
+                                        this.note = j.message || '';
+                                        this.noteErr = (j.p24_ok === false);
+                                    } else {
+                                        this.note = j.message || ('HTTP ' + r.status);
+                                        this.noteErr = true;
+                                    }
+                                } catch (e) { this.note = e.message || 'Network error'; this.noteErr = true; }
+                                this.loading = false;
+                            }
+                         }">
+                        <button type="button" @click.stop="toggle()" :disabled="loading"
+                                class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                                :style="excluded ? 'background:var(--ds-crimson)' : 'background:var(--surface-3)'"
+                                role="switch" :aria-checked="excluded">
+                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                  style="background:#fff; margin-top:2px;"
+                                  :style="excluded ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                        </button>
+                        <span style="color:var(--text-secondary);">Exclude from Property24</span>
+                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase"
+                              :style="excluded ? 'background:rgba(220,38,38,0.15); color:var(--ds-crimson);' : 'background:var(--surface-3); color:var(--text-muted);'"
+                              x-text="excluded ? 'Hidden' : 'On P24'"></span>
+                        <span x-show="loading" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">syncing…</span>
+                        <span x-show="!loading && note" x-cloak class="text-[0.6875rem]"
+                              :style="noteErr ? 'color:var(--ds-crimson);' : 'color:var(--ds-green);'" x-text="note"></span>
+                    </div>
+                    @else
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer mt-3" style="color:var(--text-secondary);">
+                        <input type="hidden" name="exclude_from_p24" value="0">
+                        <input type="checkbox" name="exclude_from_p24" value="1" class="rounded"
+                               style="accent-color:var(--brand-icon, #0ea5e9);"
+                               {{ old('exclude_from_p24') ? 'checked' : '' }}>
+                        Exclude from Property24 <span style="color:var(--text-muted);">(hide this agent on P24)</span>
+                    </label>
+                    @endif
                 </div>
             </div>
         </div>

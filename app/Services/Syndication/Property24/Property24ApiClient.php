@@ -4,11 +4,25 @@ namespace App\Services\Syndication\Property24;
 
 use App\Models\Agency;
 use App\Models\P24SyndicationLog;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class Property24ApiClient
 {
+    /**
+     * Cross-request cache (Redis/DB) key prefix + TTL for the agent list. TTL is
+     * long (25h) because the list is kept current two ways regardless: every
+     * CoreX create/adopt/update patches the cache in place (cacheUpsertAgent), and
+     * a nightly warmer (p24:warm-agents-cache, 22:00) re-fetches it. A long TTL is
+     * what makes that nightly warm actually keep manual Refresh fast all day —
+     * a short TTL would expire mid-morning and put the ~90s cold fetch right back
+     * in the user's path. Only an agent changed DIRECTLY on the P24 portal (never
+     * via CoreX) is stale, and only until the next nightly warm.
+     */
+    private const AGENTS_CACHE_PREFIX = 'p24:agents:';
+    private const AGENTS_CACHE_TTL    = 90000; // seconds (25h — see note above)
+
     private string $baseUrl;
     private string $username;
     private string $password;
@@ -16,6 +30,21 @@ class Property24ApiClient
     private string $apiVersion;
     private bool $sandbox;
     private ?string $userGroupId;
+
+    /**
+     * In-process memo of the P24 agent list per agency id, SHARED across client
+     * instances for the life of the request/command. getAgents() is otherwise
+     * called 2–3× per listing (ensureAgentRegistered + resolveContactAgentIds,
+     * each on its own client instance); against a slow/rate-limited P24 those
+     * repeated full-list fetches time out (~45s each) — the dominant cost of a
+     * sync AND the cause of spurious "must have one or more agents" rejections.
+     * Only SUCCESSFUL fetches are cached. This is the FAST in-process layer; a
+     * cross-request cache (see getAgents) sits behind it so a fresh request — e.g.
+     * a manual Refresh — doesn't pay P24's ~90s /agents fetch every time. Agent
+     * create/update patches BOTH layers in place (cacheUpsertAgent) so a manual
+     * refresh, which always PUTs the agent, keeps the cache warm. See AT-P24.
+     */
+    private static array $agentsCache = [];
 
     public function __construct(?Agency $agency = null)
     {
@@ -132,12 +161,49 @@ class Property24ApiClient
      * CoreX tenant other than the config default, otherwise the result is
      * scoped to the wrong P24 profile and sourceReference lookups fail.
      */
-    public function getAgents(?string $agencyIdOverride = null): array
+    public function getAgents(?string $agencyIdOverride = null, bool $forceRefresh = false): array
     {
         $agencyId = $agencyIdOverride !== null && $agencyIdOverride !== ''
             ? $agencyIdOverride
             : $this->agencyId;
-        return $this->request('GET', "/agencies/{$agencyId}/agents", [], null, 'fetch_agents');
+
+        // Guard: never call /agencies//agents (empty id → 404, wasted ~35s).
+        if ($agencyId === null || $agencyId === '') {
+            return ['success' => false, 'message' => 'No P24 agency ID for agent lookup', 'data' => []];
+        }
+
+        $key = (string) $agencyId;
+        $cacheKey = self::AGENTS_CACHE_PREFIX . $key;
+
+        // $forceRefresh (used by the nightly warmer) skips both cache layers to
+        // pull a genuinely fresh list, but still writes the result back below.
+        if (! $forceRefresh) {
+            // 1. In-process memo — instant, and reflects any create/adopt upserts
+            //    made earlier in this same request/command.
+            if (isset(self::$agentsCache[$key])) {
+                return self::$agentsCache[$key];
+            }
+
+            // 2. Cross-request cache — P24's GET /agencies/{id}/agents takes ~90s,
+            //    so a cold manual Refresh would otherwise pay that every time. The
+            //    long shared TTL (kept warm nightly) means the rest are instant.
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached)) {
+                self::$agentsCache[$key] = $cached;
+                return $cached;
+            }
+        }
+
+        $result = $this->request('GET', "/agencies/{$agencyId}/agents", [], null, 'fetch_agents');
+
+        // Cache ONLY a successful fetch — never memoize a timeout/connection
+        // error, so a transient failure can't poison the whole run.
+        if ($result['success'] ?? false) {
+            self::$agentsCache[$key] = $result;
+            Cache::put($cacheKey, $result, self::AGENTS_CACHE_TTL);
+        }
+
+        return $result;
     }
 
     /**
@@ -145,7 +211,17 @@ class Property24ApiClient
      */
     public function createAgent(array $agentData): array
     {
-        return $this->request('POST', '/agents', $agentData, null, 'create_agent');
+        $result = $this->request('POST', '/agents', $agentData, null, 'create_agent');
+        // Patch the just-created agent into the warm cache (id from the response)
+        // rather than busting — busting forces a full re-fetch that can time out
+        // and strand the next listings with no resolvable agent.
+        $id = $result['data']['id'] ?? $result['data'] ?? null;
+        if (($result['success'] ?? false) && is_numeric($id)) {
+            $this->cacheUpsertAgent(array_merge($agentData, ['id' => (int) $id]));
+        } else {
+            self::$agentsCache = [];
+        }
+        return $result;
     }
 
     /**
@@ -153,7 +229,65 @@ class Property24ApiClient
      */
     public function updateAgent(array $agentData): array
     {
-        return $this->request('PUT', '/agents', $agentData, null, 'update_agent');
+        $result = $this->request('PUT', '/agents', $agentData, null, 'update_agent');
+        // Adopt/update path carries id + sourceReference — patch it into the warm
+        // cache in place so resolveContactAgentIds finds it WITHOUT a re-fetch.
+        if (($result['success'] ?? false) && ! empty($agentData['id'])) {
+            $this->cacheUpsertAgent($agentData);
+        } else {
+            self::$agentsCache = [];
+        }
+        return $result;
+    }
+
+    /**
+     * Insert-or-update an agent record inside the getAgents cache so a create/
+     * adopt/update is reflected immediately without re-fetching the whole list.
+     * Patches BOTH the in-process memo AND the cross-request cache so a manual
+     * refresh (which always PUTs the agent) keeps the ~90s fetch from recurring.
+     * Matches by agent id; scoped to the agent's agencyId.
+     */
+    private function cacheUpsertAgent(array $agent): void
+    {
+        if (empty($agent['id'])) {
+            return;
+        }
+        $agentAgency = isset($agent['agencyId']) ? (string) $agent['agencyId'] : null;
+        if ($agentAgency === null || $agentAgency === '') {
+            // Agency unknown — can't target a key; drop the in-process memo so the
+            // next read re-fetches rather than serving a list missing this agent.
+            self::$agentsCache = [];
+            return;
+        }
+
+        // Base the patch on whichever layer already holds the list (in-process
+        // first, else the cross-request cache) so we never trigger a full
+        // ~90s re-fetch just to record one agent change.
+        $entry = self::$agentsCache[$agentAgency]
+            ?? Cache::get(self::AGENTS_CACHE_PREFIX . $agentAgency);
+
+        if (! is_array($entry) || ! isset($entry['data']) || ! is_array($entry['data'])) {
+            // Nothing cached for this agency yet — nothing to patch. The next
+            // getAgents will fetch fresh and naturally include this agent.
+            return;
+        }
+
+        $list = $entry['data'];
+        $found = false;
+        foreach ($list as $idx => $existing) {
+            if ((int) ($existing['id'] ?? 0) === (int) $agent['id']) {
+                $list[$idx] = array_merge($existing, $agent);
+                $found = true;
+                break;
+            }
+        }
+        if (! $found) {
+            $list[] = $agent;
+        }
+        $entry['data'] = $list;
+
+        self::$agentsCache[$agentAgency] = $entry;
+        Cache::put(self::AGENTS_CACHE_PREFIX . $agentAgency, $entry, self::AGENTS_CACHE_TTL);
     }
 
     /**
@@ -224,6 +358,14 @@ class Property24ApiClient
                 $headers['P24-UserGroupId'] = $this->userGroupId;
             }
 
+            // P24's saveListing legitimately takes 1-2 minutes to ingest a
+            // photo-heavy listing (up to 30 base64 images) — observed 200s in
+            // p24_syndication_logs reach ~120s. So the read timeout stays
+            // generous (120s); connectTimeout(15) still fast-fails a dead host.
+            // The fix for the old 2-minute SIGKILL is to keep this BELOW the
+            // job timeout (SubmitListingToProperty24::$timeout = 180), so the
+            // HTTP layer times out first and the catch below marks the property
+            // 'error' gracefully instead of Laravel hard-killing the worker.
             $http = Http::withBasicAuth($this->username, $this->password)
                 ->withHeaders($headers)
                 ->timeout(120)

@@ -14,6 +14,7 @@ class PortalLeadController extends Controller
     public function index(Request $request): View
     {
         $query = PortalLead::query()
+            ->visibleTo($request->user())
             ->with(['listing:id,title,agent_id', 'contact:id,first_name,last_name,email,phone,created_by_user_id', 'existingContactAgent:id,name'])
             ->orderByDesc('received_at');
 
@@ -53,13 +54,15 @@ class PortalLeadController extends Controller
     }
 
     /**
-     * JSON endpoint for the Alpine toast poller — returns leads received in
-     * the current agency that have not yet been shown (notified_at IS NULL).
+     * JSON endpoint for the Alpine toast poller — returns leads the current
+     * user may see (their own, or wider per the Portal Leads Data Scope) that
+     * have not yet been shown (notified_at IS NULL).
      */
     public function poll(Request $request): JsonResponse
     {
         $sinceParam = $request->get('since');
         $unshown = PortalLead::query()
+            ->visibleTo($request->user())
             ->whereNull('notified_at')
             ->when($sinceParam, fn ($q) => $q->where('received_at', '>=', $sinceParam))
             ->orderByDesc('received_at')

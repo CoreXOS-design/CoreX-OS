@@ -105,6 +105,15 @@ Schedule::job(new \App\Jobs\ProcessPrivatePropertyEventFeed())
     ->withoutOverlapping()
     ->name('pp-event-feed');
 
+// Queue worker healthcheck — runs every 5 minutes on the scheduler (independent
+// of the worker), so a STOPPED/wedged worker is caught in minutes instead of the
+// ~1.5h silent stall on 2026-06-25. Logs Log::critical when the queue isn't drained.
+Schedule::command('corex:queue-healthcheck')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('queue-healthcheck');
+
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
 
@@ -170,6 +179,17 @@ Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()
 
 // P24 location tree sync — monthly on the 1st at 02:00
 Schedule::command('p24:sync-locations')->monthlyOn(1, '02:00')->withoutOverlapping();
+
+// P24 agent-list cache warm — nightly at 22:00 SAST. P24's GET /agencies/{id}/agents
+// takes ~90s; warming it off-hours keeps manual Refresh / agent sync fast (~7s) all
+// the next day (cache TTL outlives the day). runInBackground so the ~90s fetch
+// doesn't block the rest of the 22:00 schedule tick.
+Schedule::command('p24:warm-agents-cache')
+    ->dailyAt('22:00')
+    ->timezone('Africa/Johannesburg')
+    ->runInBackground()
+    ->onOneServer()
+    ->withoutOverlapping();
 
 // ── AI Narrative Cache hygiene (MIC Phase B2) ──
 // Daily: soft-delete expired rows at 03:00 SAST.

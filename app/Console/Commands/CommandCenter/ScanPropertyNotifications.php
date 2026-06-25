@@ -29,6 +29,17 @@ class ScanPropertyNotifications extends Command
                     $agent = User::find($property->agent_id);
                     if (! $agent) continue;
 
+                    // Tenant guard. This command runs in a console context where
+                    // AgencyScope is inert (no Auth::user()), so the query above
+                    // sweeps EVERY agency. Without this check an agent assigned to
+                    // a property under a different agency (e.g. a stale assignment
+                    // from before an agency move) would be pushed alerts for a
+                    // listing they cannot even see in-app. Strict match: the
+                    // property must carry the agent's own agency_id. NULL agency_id
+                    // is an orphan and never notifies (see .ai/specs/multi-tenancy.md).
+                    $agencyId = $this->agencyIdFor($agent);
+                    if (! $agencyId || (int) ($property->agency_id ?? 0) !== $agencyId) continue;
+
                     // property.documents_missing
                     $eff = $prefs->effective($agent, 'property.documents_missing');
                     if ($eff && $eff['enabled'] && $eff['threshold']) {
@@ -81,5 +92,25 @@ class ScanPropertyNotifications extends Command
             });
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve an agent's effective agency without touching the session
+     * (this runs in a scheduler/console context where no session is bound).
+     * Mirrors User::effectiveAgencyId() minus the owner switcher override,
+     * which never applies during a batch scan.
+     */
+    private function agencyIdFor(User $agent): ?int
+    {
+        if ($agent->agency_id) {
+            return (int) $agent->agency_id;
+        }
+        if ($agent->branch_id) {
+            $branch = \App\Models\Branch::find($agent->branch_id);
+            if ($branch?->agency_id) {
+                return (int) $branch->agency_id;
+            }
+        }
+        return null;
     }
 }

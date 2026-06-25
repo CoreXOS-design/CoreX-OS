@@ -107,6 +107,9 @@
                     <div class="flex items-center gap-1.5 flex-wrap">
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
+                        @if(!empty($property->status_label))
+                            <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
+                        @endif
                         @if($property->isPublished())
                             <span class="ds-badge ds-badge-success">Published</span>
                         @endif
@@ -795,6 +798,9 @@
                         @endphp
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
+                        @if(!empty($property->status_label))
+                            <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
+                        @endif
                         <span class="text-xs" style="color:var(--text-secondary);">{{ $property->beds }}bd · {{ $property->baths }}ba{{ ($property->half_baths ?? 0) > 0 ? '+½' : '' }}</span>
                     </div>
                 </div>
@@ -1214,6 +1220,7 @@
                             {{-- Status line --}}
                             <div x-show="status && status !== ''" x-cloak class="text-xs px-1" style="color:var(--text-secondary);">
                                 <template x-if="p24Ref"><span>P24 Ref: <strong x-text="p24Ref" style="color:var(--text-primary);"></strong> &mdash; <span x-text="statusLabel()"></span></span></template>
+                                <template x-if="!p24Ref && status === 'submitting'"><span>Syncing to Property24… this can take up to a minute.</span></template>
                                 <template x-if="!p24Ref && status === 'submitted'"><span>Submitted, awaiting activation...</span></template>
                                 <template x-if="!p24Ref && status === 'pending'"><span>Ready to submit</span></template>
                                 <template x-if="status === 'error'"><span style="color:var(--ds-crimson);" x-text="'Error: ' + lastError"></span></template>
@@ -1258,7 +1265,7 @@
                             </div>
 
                             {{-- Active listing actions: View · Refresh · Deactivate --}}
-                            <div x-show="enabled && p24Ref && (status === 'active' || status === 'submitted')" x-cloak class="flex flex-wrap gap-2">
+                            <div x-show="enabled && p24Ref && (status === 'active' || status === 'submitted' || status === 'submitting')" x-cloak class="flex flex-wrap gap-2">
                                 <a :href="p24ListingUrl()" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
                                    style="background:#3b82f6; color:#fff;">
@@ -1287,6 +1294,13 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Reactivate
                                 </button>
+                            </div>
+
+                            {{-- P24 listing number — confirms the property is linked to a
+                                 specific P24 listing (so pushes update it, not duplicate). --}}
+                            <div x-show="p24Ref" x-cloak class="text-[0.6875rem] flex items-center gap-1.5" style="color:var(--text-muted);">
+                                <span>P24 Listing</span>
+                                <span class="font-mono font-semibold px-1.5 py-0.5 rounded" style="background:var(--surface-2);color:var(--text-primary);" x-text="'#' + p24Ref"></span>
                             </div>
 
                             {{-- Last submitted timestamp --}}
@@ -2122,7 +2136,15 @@
                     {{ (int)($property->beds  ?? 0) }},
                     {{ (int)($property->baths ?? 0) }},
                     {{ (int)($property->garages ?? 0) }}
-                )">
+                )"
+                    {{-- Spaces/features/beds/baths/garages only flow into the form via
+                         the hidden inputs' :value bindings below, which fire no native
+                         input/change events — so the dirty-tracker never sees them. Touch
+                         every reactive value here, then recompute on $nextTick (after Alpine
+                         has flushed the :value updates to the DOM) so any change to these
+                         marks the form dirty and arms the unsaved-changes guard. --}}
+                    x-effect="bedsCount; bathsCount; garagesCount; spacesJsonStr; aiReviewed;
+                              $nextTick(() => window.coreXPropDirty && window.coreXPropDirty.recompute())">
                     {{-- Hidden form inputs (beds/baths derived from spaces; spaces_json = full data) --}}
                     <input type="hidden" name="beds"        :value="bedsCount">
                     <input type="hidden" name="baths"       :value="bathsCount">
@@ -2691,6 +2713,7 @@
                     'hideStreetNumber' => (bool) old('pp_hide_street_number', $property->pp_hide_street_number ?? false),
                     'hideComplexName' => (bool) old('pp_hide_complex_name', $property->pp_hide_complex_name ?? false),
                     'hideUnitNumber' => (bool) old('pp_hide_unit_number', $property->pp_hide_unit_number ?? false),
+                    'p24HideAddress' => (bool) old('p24_hide_address', $property->p24_hide_address ?? false),
                 ]) }})">
                     <p class="prop-subsection-heading">Address</p>
 
@@ -2940,8 +2963,28 @@
 
                             <div class="p-5 space-y-5">
                                 <p class="text-xs" style="color:var(--text-muted);">
-                                    This controls what is shown on portal feeds (Private Property, Property24, website). Unchecked fields are <strong>hidden</strong> from the public.
+                                    These four fields control <strong>Private Property &amp; the website feed</strong>. Toggle OFF = hidden from the public. Property24 has its own address control below.
                                 </p>
+
+                                {{-- Master convenience toggle — reflects/sets the 5 INDEPENDENT
+                                     flags (P24 + the 4 PP fields). ON = all hidden; OFF = all shown.
+                                     Does NOT fuse them: each child toggle below stays separately
+                                     editable, and the master recomputes from their combined state. --}}
+                                <div class="flex items-center justify-between px-4 py-3 rounded-md" style="border:1px solid var(--border); background:var(--surface-2);">
+                                    <div class="pr-3">
+                                        <p class="text-xs font-bold" style="color:var(--text-primary);">Do not display address anywhere</p>
+                                        <p class="text-xs" style="color:var(--text-muted);">Sets Property24 + all Private Property fields to hidden. Each stays independently editable below.</p>
+                                    </div>
+                                    {{-- ON (crimson) = hidden everywhere; semantics differ from the
+                                         green "shown" child toggles, hence the colour. --}}
+                                    <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
+                                           :style="masterHideAll ? 'background:var(--ds-crimson)' : 'background:var(--surface-3)'">
+                                        <input type="checkbox" :checked="masterHideAll" @change="toggleMasterHideAll()" class="sr-only">
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                              style="background:#fff; margin-top:2px;"
+                                              :style="masterHideAll ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                    </label>
+                                </div>
 
                                 {{-- Public preview --}}
                                 <div class="rounded-md px-4 py-3" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -3005,8 +3048,33 @@
                                     </div>
                                 </div>
 
+                                {{-- ===== PROPERTY24 — separate, independent address control =====
+                                     Drives properties.p24_hide_address → P24 showLocation=false.
+                                     Deliberately NOT merged with the PP toggles above: an agent can
+                                     hide on P24 while showing on PP, or vice-versa. --}}
+                                <div class="rounded-md overflow-hidden" style="border:1px solid var(--brand-icon);">
+                                    <div class="px-4 py-2" style="background:var(--brand-icon); color:#fff;">
+                                        <p class="text-[0.6875rem] font-bold uppercase tracking-wider">Property24</p>
+                                    </div>
+                                    <div class="flex items-center justify-between px-4 py-3">
+                                        <div class="pr-3">
+                                            <p class="text-xs font-semibold" style="color:var(--text-primary);">Show address on Property24</p>
+                                            <p class="text-xs" style="color:var(--text-muted);"
+                                               x-text="p24HideAddress ? 'Hidden — P24 shows suburb only (location off)' : 'Shown — P24 displays the street address &amp; map pin'"></p>
+                                        </div>
+                                        {{-- Green (ON) = address shown on P24. OFF = p24_hide_address set. --}}
+                                        <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
+                                               :style="!p24HideAddress ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
+                                            <input type="checkbox" name="p24_hide_address" value="1" :checked="p24HideAddress" @change="p24HideAddress = $el.checked" class="sr-only">
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                                  style="background:#fff; margin-top:2px;"
+                                                  :style="!p24HideAddress ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
                                 <p class="text-[0.6875rem]" style="color:var(--text-muted);">
-                                    Toggle ON (green) = visible on feeds. Toggle OFF = hidden. Changes apply when you save the property.
+                                    Toggle ON (green) = visible on feeds. Toggle OFF = hidden. Changes apply when you save the property. The Property24 control is independent of the Private Property fields above.
                                 </p>
                             </div>
 
@@ -3032,15 +3100,37 @@
                         <div>
                             <p class="prop-subsection-heading">Lifecycle</p>
                             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                                <div x-data="{ st: '{{ old('status', $property->status) }}' }" class="contents">
                                 <div>
                                     <label class="prop-label">Status <span class="prop-required">*</span></label>
-                                    <select name="status" required class="prop-select prop-field-lifecycle">
+                                    <select name="status" required x-model="st" class="prop-select prop-field-lifecycle">
                                         <option value="">— None —</option>
+                                        @php $stCurrent = old('status', $property->status); @endphp
+                                        {{-- Always surface the property's own status even if the item was retired/deactivated --}}
+                                        @if($stCurrent && !$settingItems['statuses']->contains(fn($i) => strtolower(str_replace(' ','_',$i->name)) === $stCurrent))
+                                            <option value="{{ $stCurrent }}" selected>{{ ucwords(str_replace('_',' ',$stCurrent)) }}</option>
+                                        @endif
                                         @foreach($settingItems['statuses'] as $item)
                                             @php $val = strtolower(str_replace(' ','_',$item->name)); @endphp
-                                            <option value="{{ $val }}" {{ old('status', $property->status) === $val ? 'selected' : '' }}>{{ $item->name }}</option>
+                                            <option value="{{ $val }}" {{ $stCurrent === $val ? 'selected' : '' }}>{{ $item->name }}</option>
                                         @endforeach
                                     </select>
+                                </div>
+                                <div>
+                                    <label class="prop-label">Banner / Sub-label</label>
+                                    {{-- P24 sub-label banner on an on-market (Active) listing. Fixed P24 vocabulary
+                                         (not agency-configurable). Disabled unless status = Active. --}}
+                                    <select name="status_label" class="prop-select prop-field-lifecycle"
+                                            :disabled="st !== 'active'"
+                                            :title="st !== 'active' ? 'Banners apply to on-market (Active) listings only' : 'Optional banner shown on this Active listing'">
+                                        <option value="">None</option>
+                                        @php $lblCurrent = old('status_label', $property->status_label); @endphp
+                                        @foreach(['Reduced Price','Pending','Back on Market','Raised Price'] as $lbl)
+                                            <option value="{{ $lbl }}" {{ $lblCurrent === $lbl ? 'selected' : '' }}>{{ $lbl }}</option>
+                                        @endforeach
+                                    </select>
+                                    <p class="text-xs mt-1" style="color:var(--text-muted);" x-show="st !== 'active'" x-cloak>Banners show only on Active (on-market) listings.</p>
+                                </div>
                                 </div>
                                 <div>
                                     <label class="prop-label">Mandate Type</label>
@@ -5600,6 +5690,10 @@
 
     function recompute() {
         var current = snapshot();
+        // Guard: if recompute fires before init() has captured the baseline
+        // (e.g. an Alpine x-effect runs on first paint), adopt the current
+        // state as the baseline rather than falsely flagging the form dirty.
+        if (initialSnapshot === null) { initialSnapshot = current; }
         dirty = (current !== initialSnapshot);
         paintSaveBtn();
     }
@@ -6158,9 +6252,9 @@ const _DEFAULT_SPACE_FEATURES = {
 };
 const _ALL_SPACE_TYPES = ['Bedroom','Bathroom','Garage','Parking','Kitchen','Garden','Pool','Flatlet','Study','Domestic Room','Lounge','Dining Room','Outside Toilet','Domestic Bathroom','Entrance Hall','Bar','Boardroom','Boat Launch','Boathouse','Braai Room','Cellar','Changing Room','Clubhouse','Courtyard','Gazebo','Greenhouse','Gym','Jacuzzi','Jetty','Lapa','Laundry Room','Linen Room','Loft','Office','Patio','Pool Shed','Reception Room','Sauna','Scullery','Shed','Squash Court','Stable','Storeroom','Studio','Tennis Court','TV Room','Veranda','Wendy House','Workshop','Yard'];
 const _FEATURE_CATEGORIES = {
-    theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
+    theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Communal Braai Area','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Sea View','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
     security:       { label: 'Security',     features: ['24 Hour Access','24 Hour Guard','Alarm System','Armed Response','Boomed Area','Burglar Bars','CCTV','Electric Fence','Electric Gate','Gated Community','Guard House','In Security','Indoor Beams','Intercom','Outdoor Beams','Partially Fenced','Perimeter Wall','Safe','Security Gate','Totally Fenced','Totally Walled','Security Complex','Automated Garage Doors','Security Estate'] },
-    connectivity:   { label: 'Connectivity', features: ['ADSL','Cable TV','Fast Internet','Fibre','Internet Port','Satellite Dish','Satellite Internet','Telephone Port','TV Port','Wi-Fi'] },
+    connectivity:   { label: 'Connectivity', features: ['ADSL','Cable TV','Fibre','Internet Port','Satellite Dish','Satellite Internet','Telephone Port','TV Port','Wi-Fi'] },
     sustainability: { label: 'Sustainability',features: ['Backup Battery','Backup Water','Borehole','Gas Geyser','Gas Hob','Gas Oven','Generator','Inverter','Septic Tank','Solar Geyser','Solar Heating','Solar Panel','Water Tank'] },
 };
 const _HALF_UNIT_SPACES = ['Bathroom','Parking'];
@@ -6746,6 +6840,24 @@ function propertyAddress(config) {
         hideStreetNumber: config.hideStreetNumber || false,
         hideComplexName: config.hideComplexName || false,
         hideUnitNumber: config.hideUnitNumber || false,
+        p24HideAddress: config.p24HideAddress || false,
+
+        // Master "do not display address anywhere" — a CONVENIENCE that reflects
+        // and sets the 5 INDEPENDENT flags (P24 + the 4 PP fields). It does NOT
+        // fuse them: each child toggle stays separately editable, and the master
+        // simply recomputes from their combined state (the "select all" pattern).
+        get masterHideAll() {
+            return this.p24HideAddress && this.hideStreetNumber && this.hideStreetName
+                && this.hideComplexName && this.hideUnitNumber;
+        },
+        toggleMasterHideAll() {
+            const v = !this.masterHideAll;
+            this.p24HideAddress = v;
+            this.hideStreetNumber = v;
+            this.hideStreetName = v;
+            this.hideComplexName = v;
+            this.hideUnitNumber = v;
+        },
 
         get internalAddress() {
             let street = [this.streetNumber, this.streetName].filter(Boolean).join(' ');
@@ -7120,12 +7232,12 @@ function p24Syndication(config) {
             return new Date(this.ppDelayUntilRaw) > new Date();
         },
         statusLabel() {
-            const labels = {'':'Disabled','pending':'Pending','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
+            const labels = {'':'Disabled','pending':'Pending','submitting':'Syncing…','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
             if (!this.enabled && !this.status) return 'Disabled';
             return labels[this.status] || 'Disabled';
         },
         statusBadgeStyle() {
-            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','submitted':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','active':'background:rgba(59,130,246,0.12);color:#3b82f6;','error':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','rejected':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
+            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','submitting':'background:rgba(59,130,246,0.12);color:#3b82f6;','submitted':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','active':'background:rgba(59,130,246,0.12);color:#3b82f6;','error':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','rejected':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
             if (!this.enabled && !this.status) return styles[''];
             return styles[this.status] || styles[''];
         },
@@ -7149,23 +7261,84 @@ function p24Syndication(config) {
                 else { this.showMessage(data.message || 'Toggle failed', 'error'); }
             } catch (e) { this.showMessage('Network error', 'error'); } finally { this.loading = false; }
         },
+        init() {
+            // If the page loads mid-sync (status persisted as 'submitting' from a
+            // queued push that hasn't finished), resume polling so the panel
+            // resolves to active/error without a manual reload.
+            if (this.status === 'submitting') { this.loading = true; this._pollP24SyncState('Listing synced to P24'); }
+        },
+        // Poll the lightweight DB-only sync-state endpoint until the queued
+        // SubmitListingToProperty24 job flips the status off 'submitting'. P24's
+        // saveListing takes 1-2 min for photo-heavy listings, so the UI never
+        // blocks on it — it shows "Syncing…" and resolves here.
+        _pollP24SyncState(successMsg) {
+            const startedAt = Date.now();
+            const maxMs = 180000; // ~2min P24 worst case + buffer
+            const tick = async () => {
+                if (Date.now() - startedAt > maxMs) {
+                    this.loading = false;
+                    this.showMessage('Still syncing in the background — reload in a moment to see the result.');
+                    return;
+                }
+                try {
+                    const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/sync-state`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                    const data = await res.json();
+                    const st = data.p24_syndication_status || '';
+                    if (st === 'submitting') { setTimeout(tick, 3000); return; }
+                    this.status = st;
+                    this.p24Ref = data.p24_ref || this.p24Ref;
+                    if (st === 'active' || st === 'submitted') {
+                        this.lastSubmitted = data.p24_last_submitted_at || this.lastSubmitted;
+                        this.lastError = ''; this.debugErrors = []; this.showDebug = false;
+                        this.showMessage(successMsg);
+                    } else if (st === 'error' || st === 'rejected') {
+                        this.lastError = data.p24_last_error || 'Sync failed';
+                        this.debugErrors = [this.lastError]; this.showDebug = true;
+                    } else {
+                        this.showMessage('Sync finished');
+                    }
+                    this.loading = false;
+                } catch (e) {
+                    setTimeout(tick, 3000); // transient network error — retry until maxMs
+                }
+            };
+            setTimeout(tick, 1500);
+        },
         async submitListing() {
             this.loading = true; this.debugErrors = []; this.showDebug = false;
             try {
                 const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({}) });
                 const data = await res.json();
-                if (data.success) { this.status = data.p24_syndication_status || 'submitted'; this.p24Ref = data.p24_ref || this.p24Ref; this.lastSubmitted = new Date().toLocaleDateString('en-ZA', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); this.lastError = ''; this.debugErrors = []; this.showDebug = false; this.showMessage(data.message || 'Submitted to P24'); }
-                else { this.status = data.p24_syndication_status || 'error'; this.lastError = data.message || 'Submission failed'; this.debugErrors = []; if (data.errors && data.errors.length > 0) { data.errors.forEach(e => this.debugErrors.push(typeof e === 'string' ? e : e.label || JSON.stringify(e))); } if (data.message) { this.debugErrors.push(data.message); } this.showDebug = true; }
-            } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; } finally { this.loading = false; }
+                if (data.success && data.queued) {
+                    this.status = 'submitting';
+                    this.lastError = ''; this.debugErrors = []; this.showDebug = false;
+                    this.showMessage(data.message || 'Syncing to Property24…');
+                    this._pollP24SyncState('Listing synced to P24');
+                    return; // keep loading=true; the poll clears it
+                }
+                // Not queued — a synchronous rejection (e.g. 422 missing fields)
+                this.status = data.p24_syndication_status || 'error'; this.lastError = data.message || 'Submission failed'; this.debugErrors = [];
+                if (data.errors && data.errors.length > 0) { data.errors.forEach(e => this.debugErrors.push(typeof e === 'string' ? e : e.label || JSON.stringify(e))); }
+                if (data.message) { this.debugErrors.push(data.message); }
+                this.showDebug = true; this.loading = false;
+            } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; this.loading = false; }
         },
         async refreshListing() {
             this.loading = true; this.debugErrors = []; this.showDebug = false;
             try {
                 const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({}) });
                 const data = await res.json();
-                if (data.success) { this.status = data.p24_syndication_status || 'active'; this.p24Ref = data.p24_ref || this.p24Ref; this.lastSubmitted = new Date().toLocaleDateString('en-ZA', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); this.lastError = ''; this.showMessage('Listing synced to P24'); }
-                else { this.lastError = data.message || 'Sync failed'; this.debugErrors = data.errors || [data.message]; this.showDebug = true; }
-            } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; } finally { this.loading = false; }
+                if (data.success && data.queued) {
+                    this.status = 'submitting';
+                    this.lastError = ''; this.debugErrors = []; this.showDebug = false;
+                    this.showMessage(data.message || 'Refreshing on Property24…');
+                    this._pollP24SyncState('Listing refreshed on P24');
+                    return;
+                }
+                this.lastError = data.message || 'Sync failed';
+                this.debugErrors = (data.errors && data.errors.length) ? data.errors.map(e => typeof e === 'string' ? e : (e.label || JSON.stringify(e))) : [this.lastError];
+                this.showDebug = true; this.loading = false;
+            } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; this.loading = false; }
         },
         async deactivateListing() {
             if (!confirm('Deactivate this listing on Property24?')) return;

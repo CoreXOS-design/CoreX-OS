@@ -18,6 +18,7 @@
                    title="Bulk-import sold listings from a spreadsheet">
                     Import Sold
                 </a>
+                @include('corex.properties.partials.p24-number-fix')
                 @endif
                 <a href="{{ route('corex.properties.create') }}"
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
@@ -54,14 +55,14 @@
     @php
         $kpiIcons = [
             'Total'     => '<path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>',
-            'Active'    => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
+            'On Market' => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
             'Draft'     => '<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>',
             'Sold'      => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
             'Published' => '<path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918"/>',
         ];
         $kpiColors = [
             'Total'     => ['bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)',  'fg' => 'var(--brand-icon)'],
-            'Active'    => ['bg' => 'color-mix(in srgb, var(--ds-green) 12%, transparent)',    'fg' => 'var(--ds-green)'],
+            'On Market' => ['bg' => 'color-mix(in srgb, var(--ds-green) 12%, transparent)',    'fg' => 'var(--ds-green)'],
             'Draft'     => ['bg' => 'color-mix(in srgb, var(--ds-amber) 12%, transparent)',    'fg' => 'var(--ds-amber)'],
             'Sold'      => ['bg' => 'color-mix(in srgb, var(--ds-navy) 12%, transparent)',     'fg' => 'var(--ds-navy)'],
             'Published' => ['bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)',  'fg' => 'var(--brand-icon)'],
@@ -70,7 +71,7 @@
     @php
         $kpiTiles = [
             ['label' => 'Total',     'value' => $stats['total'],  'filter' => ''],
-            ['label' => 'Active',    'value' => $stats['active'], 'filter' => 'active'],
+            ['label' => 'On Market', 'value' => $stats['active'], 'filter' => 'on_market'],
             ['label' => 'Draft',     'value' => $stats['draft'],  'filter' => 'draft'],
             ['label' => 'Sold',      'value' => $stats['sold'],   'filter' => 'sold'],
             ['label' => 'Published', 'value' => $stats['synced'], 'filter' => 'published'],
@@ -133,21 +134,32 @@
             agentSearch: '',
             advancedOpen: {{ $advancedActive ? 'true' : 'false' }},
             agents: {{ Illuminate\Support\Js::from($agentList) }},
+            selected: {{ Illuminate\Support\Js::from(array_map('intval', $filterAgentIds)) }},
             get filtered() {
                 if (!this.agentSearch) return this.agents;
                 const q = this.agentSearch.toLowerCase();
                 return this.agents.filter(a => a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q));
             },
-            // Submit the live filter form with the chosen agent_id so the typed
+            isSelected(id) { return this.selected.includes(id); },
+            toggle(id) {
+                this.selected = this.isSelected(id)
+                    ? this.selected.filter(x => x !== id)
+                    : [...this.selected, id];
+            },
+            // Submit the live filter form with the chosen agent set so the typed
             // search term (and every other active filter) is preserved — never
-            // navigate off a stale, server-rendered link. id '' = All agents.
-            pickAgent(id) {
+            // navigate off a stale, server-rendered link. Empty set = All agents.
+            apply() {
                 const f = this.$refs.filterForm;
-                let h = f.querySelector('input[name=agent_id]');
-                if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'agent_id'; f.appendChild(h); }
-                h.value = (id == null) ? '' : id;
+                let h = f.querySelector('input[name=agent_ids]');
+                if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'agent_ids'; f.appendChild(h); }
+                h.value = this.selected.length ? this.selected.join(',') : 'all';
+                const legacy = f.querySelector('input[name=agent_id]');
+                if (legacy) legacy.remove();
                 f.submit();
-            }
+            },
+            setSingle(id) { this.selected = (id === '' || id == null) ? [] : [parseInt(id)]; this.apply(); },
+            selectAll() { this.selected = []; this.apply(); }
          }"
          class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
 
@@ -169,21 +181,21 @@
             @if($canPickAgent)
             @php
                 $pcuId      = (string) auth()->id();
-                $pcIsMine   = (string) $filterAgentId === $pcuId;
-                $pcIsAll    = $filterAgentId === '';
-                $pcCarry    = request()->except(['agent_id', 'page']);
-                $pcMineUrl  = route('corex.properties.index', array_merge($pcCarry, ['agent_id' => $pcuId]));
-                $pcAllUrl   = route('corex.properties.index', array_merge($pcCarry, ['agent_id' => '']));
+                $pcIsAll    = empty($filterAgentIds);
+                $pcIsMine   = count($filterAgentIds) === 1 && (string) $filterAgentIds[0] === $pcuId;
+                $pcCarry    = request()->except(['agent_id', 'agent_ids', 'page']);
+                $pcMineUrl  = route('corex.properties.index', array_merge($pcCarry, ['agent_ids' => $pcuId]));
+                $pcAllUrl   = route('corex.properties.index', array_merge($pcCarry, ['agent_ids' => 'all']));
                 $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
-                <a href="{{ $pcMineUrl }}" @click.prevent="pickAgent('{{ $pcuId }}')"
+                <a href="{{ $pcMineUrl }}" @click.prevent="setSingle('{{ $pcuId }}')"
                    class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
                    style="{{ $pcIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
                    title="Show only my properties">
                     My Properties
                 </a>
-                <a href="{{ $pcAllUrl }}" @click.prevent="pickAgent('')"
+                <a href="{{ $pcAllUrl }}" @click.prevent="selectAll()"
                    class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
                    style="border-left:1px solid var(--border); {{ $pcIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
                    title="Show all {{ $pcAllLabel }} properties">
@@ -195,7 +207,7 @@
             {{-- Status --}}
             <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
-                <option value="active" {{ $status === 'active' ? 'selected' : '' }}>Active</option>
+                <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>On Market</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
                 <option value="sold" {{ $status === 'sold' ? 'selected' : '' }}>Sold</option>
                 <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
@@ -211,6 +223,9 @@
             {{-- Sort --}}
             <select name="sort" onchange="this.form.submit()" class="list-header-filter">
                 <option value="newest"     {{ ($filters['sort'] ?? 'newest') === 'newest'     ? 'selected' : '' }}>Newest first</option>
+                @if(($agencySortMode ?? 'created') === 'status_priority' || ($filters['sort'] ?? '') === 'status_priority')
+                <option value="status_priority" {{ ($filters['sort'] ?? '') === 'status_priority' ? 'selected' : '' }}>Status order (default)</option>
+                @endif
                 <option value="oldest"     {{ ($filters['sort'] ?? '') === 'oldest'     ? 'selected' : '' }}>Oldest first</option>
                 <option value="price_desc" {{ ($filters['sort'] ?? '') === 'price_desc' ? 'selected' : '' }}>Price: high → low</option>
                 <option value="price_asc"  {{ ($filters['sort'] ?? '') === 'price_asc'  ? 'selected' : '' }}>Price: low → high</option>
@@ -231,30 +246,36 @@
             </button>
 
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route('corex.properties.index') }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
+            <a href="{{ route('corex.properties.index', ['clear' => 1]) }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
             @endif
 
-            {{-- Agent picker (admin/bm only) — right-aligned modal --}}
+            {{-- Agent picker (admin/bm only) — right-aligned modal, multi-select --}}
             @if($canPickAgent)
-            <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
+            @php
+                $agentCount = count($filterAgentIds);
+                $agentBtnLabel = $agentCount === 0
+                    ? 'All Agents'
+                    : ($agentCount === 1 ? ($selectedAgents->first()->name ?? '1 agent') : $agentCount . ' agents');
+            @endphp
+            {{-- Carries the active agent set on any non-agent form submit so it's preserved --}}
+            <input type="hidden" name="agent_ids" value="{{ $agentCount ? implode(',', $filterAgentIds) : 'all' }}">
             <div class="ml-auto flex items-center gap-1">
                 <button type="button" @click="agentPicker = true"
                         class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
-                        style="{{ $selectedAgent ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : '' }}">
+                        style="{{ $agentCount ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : '' }}">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <circle cx="9" cy="7" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 21v-1a6 6 0 016-6h0M16 19l2 2 4-4"/>
                     </svg>
-                    {{ $selectedAgent ? $selectedAgent->name : 'All Agents' }}
+                    {{ $agentBtnLabel }}
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                     </svg>
                 </button>
 
-                @if($selectedAgent)
-                <a href="{{ route('corex.properties.index', ['status' => $status, 'search' => $search, 'agent_id' => '']) }}"
-                   @click.prevent="pickAgent('')"
-                   class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300"
-                   style="color:var(--text-muted);" title="Clear agent filter">&times;</a>
+                @if($agentCount)
+                <button type="button" @click="selectAll()"
+                   class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300 cursor-pointer"
+                   style="color:var(--text-muted);" title="Clear agent filter">&times;</button>
                 @endif
             </div>
 
@@ -265,11 +286,13 @@
                  @click.self="agentPicker = false"
                  @keydown.escape.window="agentPicker = false"
                  x-transition.opacity>
-                <div class="w-full max-w-md rounded-md overflow-hidden"
-                     style="background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                <div class="w-full max-w-md rounded-md overflow-hidden flex flex-col" style="max-height:80vh;
+                     background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
 
-                    <div class="flex items-center justify-between px-4 py-3" style="border-bottom:1px solid var(--border);">
-                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Select Agent</h3>
+                    <div class="flex items-center justify-between px-4 py-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
+                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">
+                            Select Agents <span class="font-normal" style="color:var(--text-muted);" x-show="selected.length" x-text="'(' + selected.length + ')'"></span>
+                        </h3>
                         <button type="button" @click="agentPicker = false"
                                 class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300"
                                 style="color:var(--text-muted);"
@@ -280,7 +303,7 @@
                         </button>
                     </div>
 
-                    <div class="p-3" style="border-bottom:1px solid var(--border);">
+                    <div class="p-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
                         <div class="relative">
                             <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35"/>
@@ -291,24 +314,31 @@
                         </div>
                     </div>
 
-                    <div style="max-height:55vh;overflow-y:auto;">
-                        <a href="{{ route('corex.properties.index', ['status' => $status, 'search' => $search, 'agent_id' => '']) }}"
-                           @click.prevent="pickAgent('')"
-                           class="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300"
+                    <div class="flex-1" style="overflow-y:auto;">
+                        {{-- "All agents" = clear selection --}}
+                        <button type="button" @click="selectAll()"
+                           class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300 text-left"
                            style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
-                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold" style="background:var(--surface-2);color:var(--text-secondary);">
+                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0" style="background:var(--surface-2);color:var(--text-secondary);">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1h5M12 12a4 4 0 100-8 4 4 0 000 8z"/></svg>
                             </span>
                             All agents
-                        </a>
+                            <template x-if="selected.length === 0">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                            </template>
+                        </button>
 
                         <template x-for="agent in filtered" :key="agent.id">
-                            <a :href="`{{ route('corex.properties.index') }}?agent_id=${agent.id}&status={{ $status }}&search={{ urlencode($search) }}`"
-                               @click.prevent="pickAgent(agent.id)"
-                               class="flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300"
-                               :style="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? 'background:var(--surface-2);' : '')"
-                               onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                            <button type="button" @click="toggle(agent.id)"
+                               class="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300 text-left"
+                               :style="isSelected(agent.id) ? 'background:var(--surface-2);' : ''"
+                               onmouseover="this.style.background='var(--surface-2)'" :onmouseout="isSelected(agent.id) ? `this.style.background='var(--surface-2)'` : `this.style.background=''`">
+                                {{-- checkbox --}}
+                                <span class="inline-flex items-center justify-center w-4 h-4 rounded flex-shrink-0 transition-all"
+                                      :style="isSelected(agent.id) ? 'background:var(--brand-icon,#0ea5e9);border:1px solid var(--brand-icon,#0ea5e9);' : 'border:1px solid var(--border);'">
+                                    <svg x-show="isSelected(agent.id)" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" style="color:#fff;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                </span>
                                 <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0"
                                       style="background:var(--brand-default,#0b2a4a);color:#fff;"
                                       x-text="agent.name.charAt(0).toUpperCase()">
@@ -317,17 +347,21 @@
                                     <div class="font-semibold truncate" style="color:var(--text-primary);" x-text="agent.name"></div>
                                     <div class="truncate" style="color:var(--text-muted);" x-text="agent.email"></div>
                                 </div>
-                                <template x-if="{{ $filterAgentId ? $filterAgentId : 0 }} === agent.id">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                                    </svg>
-                                </template>
-                            </a>
+                            </button>
                         </template>
 
                         <div x-show="filtered.length === 0" class="px-4 py-4 text-xs text-center" style="color:var(--text-muted);">
                             No agents found
                         </div>
+                    </div>
+
+                    {{-- Footer: apply --}}
+                    <div class="flex items-center justify-between gap-2 px-4 py-3 flex-shrink-0" style="border-top:1px solid var(--border);">
+                        <span class="text-xs" style="color:var(--text-muted);"
+                              x-text="selected.length ? (selected.length + ' selected') : 'Showing all agents'"></span>
+                        <button type="button" @click="apply()" class="corex-btn-primary text-xs px-4 py-1.5">
+                            Apply
+                        </button>
                     </div>
                 </div>
             </div>
@@ -452,7 +486,7 @@
             $chipBase = request()->except(['page']);
             $chips = [];
             if ($search !== '')                       $chips[] = ['label' => 'Search: "'.$search.'"',                'key' => 'search'];
-            if ($status !== '')                       $chips[] = ['label' => 'Status: '.ucfirst($status),            'key' => 'status'];
+            if ($status !== '')                       $chips[] = ['label' => 'Status: '.ucwords(str_replace('_', ' ', $status)), 'key' => 'status'];
             if (($filters['listingType'] ?? '') !== '')  $chips[] = ['label' => $filters['listingType'] === 'sale' ? 'For Sale' : 'For Rental', 'key' => 'listing_type'];
             if (($filters['propertyType'] ?? '') !== '') $chips[] = ['label' => 'Type: '.$filters['propertyType'],   'key' => 'property_type'];
             if (($filters['category'] ?? '') !== '')     $chips[] = ['label' => 'Category: '.$filters['category'],   'key' => 'category'];
@@ -465,13 +499,32 @@
             if (($filters['bathsMin'] ?? '') !== '')  $chips[] = ['label' => $filters['bathsMin'].'+ baths','key' => 'baths_min'];
             if (($filters['priceMin'] ?? '') !== '')  $chips[] = ['label' => 'Min R '.number_format((int) $filters['priceMin'], 0, '.', ' '), 'key' => 'price_min'];
             if (($filters['priceMax'] ?? '') !== '')  $chips[] = ['label' => 'Max R '.number_format((int) $filters['priceMax'], 0, '.', ' '), 'key' => 'price_max'];
+            // Agent chip — only for an explicit selection other than the plain
+            // "My Properties" default (the My/All pills already show that state).
+            if ($canPickAgent && !empty($filterAgentIds)) {
+                $isJustMe = count($filterAgentIds) === 1 && (string) $filterAgentIds[0] === (string) auth()->id();
+                if (! $isJustMe) {
+                    $agentChipLabel = count($filterAgentIds) === 1
+                        ? 'Agent: '.($selectedAgents->first()->name ?? '1 agent')
+                        : 'Agents: '.count($filterAgentIds);
+                    // Removing the agent chip falls back to "All agents".
+                    $chips[] = [
+                        'label' => $agentChipLabel,
+                        'key'   => 'agent_ids',
+                        'url'   => route('corex.properties.index', array_merge(collect($chipBase)->except(['agent_id', 'agent_ids'])->toArray(), ['agent_ids' => 'all'])),
+                    ];
+                }
+            }
         @endphp
         @if(count($chips))
         <div class="flex flex-wrap items-center gap-1.5 mt-3 pt-3" style="border-top:1px dashed var(--border);">
             <span class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Active:</span>
             @foreach($chips as $chip)
-                @php $params = $chipBase; unset($params[$chip['key']]); @endphp
-                <a href="{{ route('corex.properties.index', $params) }}"
+                @php
+                    if (isset($chip['url'])) { $chipHref = $chip['url']; }
+                    else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route('corex.properties.index', $params); }
+                @endphp
+                <a href="{{ $chipHref }}"
                    class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-300"
                    style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);"
                    onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 18%, transparent)'"
@@ -516,7 +569,7 @@
                 Create my first listing
             </a>
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route('corex.properties.index') }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
+            <a href="{{ route('corex.properties.index', ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
             @endif
         </div>
     </div>
@@ -529,8 +582,17 @@
             $images = $property->allImages();
             $thumb  = $images[0] ?? null;
             $listingTypeLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
+            $statusKey   = strtolower((string) ($property->status ?: 'draft'));
             $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
             $brandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
+            // Sold listings get a red status pill; withdrawn/sold also grey out the P24 ref.
+            $isOffMarket    = in_array($statusKey, ['sold', 'withdrawn'], true);
+            $statusPillStyle = $statusKey === 'sold'
+                ? 'background:var(--ds-crimson); color:#fff; border:none;'
+                : $brandPillStyle;
+            $p24PillStyle = $isOffMarket
+                ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);'
+                : 'background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);';
         @endphp
         <div class="rounded-md overflow-hidden flex flex-col transition-all duration-300"
              style="background:var(--surface); border:1px solid var(--border);"
@@ -556,10 +618,13 @@
                 {{-- Price on image --}}
                 <span class="absolute bottom-2.5 left-3 text-base font-bold text-white" style="text-shadow:0 1px 3px rgba(0,0,0,0.4);">{{ $property->formattedPrice() }}</span>
 
-                {{-- Listing type + Status badges (left, side-by-side) --}}
-                <div class="absolute top-2.5 left-2.5 flex flex-row items-center gap-1.5">
+                {{-- Listing type + Status + Mandate badges (left) --}}
+                <div class="absolute top-2.5 left-2.5 right-12 flex flex-row flex-wrap items-center gap-1.5">
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
-                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
+                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $statusPillStyle }}">{{ $statusLabel }}</span>
+                    @if($property->mandate_type)
+                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
+                    @endif
                 </div>
 
                 {{-- Live badge (moved to right to make room for branded pills) --}}
@@ -624,7 +689,7 @@
                 @if($property->p24_ref)
                 <div class="mt-1.5">
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold"
-                          style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);"
+                          style="{{ $p24PillStyle }}"
                           title="Property24 listing number">
                         P24: {{ $property->p24_ref }}
                     </span>
@@ -634,10 +699,20 @@
                 <div class="flex-1"></div>
 
                 {{-- Footer --}}
-                <div class="flex items-center justify-between mt-2.5 pt-2.5" style="border-top:1px solid var(--border);">
-                    <div class="flex items-center gap-1.5 min-w-0">
-                        <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">{{ strtoupper(substr($property->agent?->name ?? '?', 0, 1)) }}</span>
-                        <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->agent?->name }}">{{ $property->agent?->name ?? '—' }}</span>
+                <div class="flex items-center justify-between mt-2.5 pt-2.5 gap-2" style="border-top:1px solid var(--border);">
+                    <div class="flex flex-col gap-1 min-w-0">
+                        {{-- Primary agent --}}
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">{{ strtoupper(substr($property->agent?->name ?? '?', 0, 1)) }}</span>
+                            <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->agent?->name }}">{{ $property->agent?->name ?? '—' }}</span>
+                        </div>
+                        {{-- Secondary (co-listing) agent — shown underneath the primary --}}
+                        @if($property->secondAgent)
+                        <div class="flex items-center gap-1.5 min-w-0" title="Secondary (co-listing) agent">
+                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">{{ strtoupper(substr($property->secondAgent->name ?? '?', 0, 1)) }}</span>
+                            <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->secondAgent->name }}">{{ $property->secondAgent->name }}</span>
+                        </div>
+                        @endif
                     </div>
                     <div class="flex items-center gap-1">
                         <a href="{{ route('corex.properties.show', $property) }}"
@@ -706,8 +781,13 @@
                 @foreach($properties as $property)
                 @php
                     $rowListingLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
+                    $rowStatusKey   = strtolower((string) ($property->status ?: 'draft'));
                     $rowStatusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
                     $rowBrandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
+                    $rowIsOffMarket  = in_array($rowStatusKey, ['sold', 'withdrawn'], true);
+                    $rowStatusPillStyle = $rowStatusKey === 'sold'
+                        ? 'background:var(--ds-crimson); color:#fff; border:none;'
+                        : $rowBrandPillStyle;
                 @endphp
                 <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
                     onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
@@ -716,7 +796,7 @@
                             {{ Str::limit($property->title, 35) }}
                         </a>
                         @if($property->p24_ref)
-                        <div class="text-[10px] font-mono mt-0.5" style="color:var(--brand-icon);" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
+                        <div class="text-[10px] font-mono mt-0.5" style="color:{{ $rowIsOffMarket ? 'var(--text-muted)' : 'var(--brand-icon)' }};" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
                         @endif
                     </td>
                     <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">
@@ -730,7 +810,12 @@
                     </td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->beds ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->baths ?? '—' }}</td>
-                    <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">{{ $property->agent?->name ?? '—' }}</td>
+                    <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">
+                        <div>{{ $property->agent?->name ?? '—' }}</div>
+                        @if($property->secondAgent)
+                        <div class="mt-0.5" title="Secondary (co-listing) agent">{{ $property->secondAgent->name }}</div>
+                        @endif
+                    </td>
                     <td class="px-4 py-2.5 text-center hidden md:table-cell">
                         @php
                             $ms = $property->marketing_status ?? 'n/a';
@@ -750,7 +835,7 @@
                     <td class="px-4 py-2.5 text-left">
                         <div class="inline-flex flex-row gap-1.5 items-center">
                             <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowBrandPillStyle }}">{{ $rowListingLabel }}</span>
-                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowBrandPillStyle }}">{{ $rowStatusLabel }}</span>
+                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowStatusPillStyle }}">{{ $rowStatusLabel }}</span>
                         </div>
                     </td>
                     <td class="px-4 py-2.5 text-right">

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands\CommandCenter;
 
+use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\User;
 use App\Services\CommandCenter\NotificationDispatcher;
@@ -21,6 +22,17 @@ class ScanContactNotifications extends Command
                 foreach ($contacts as $contact) {
                     $agent = User::find($contact->created_by_user_id);
                     if (! $agent) continue;
+
+                    // Tenant guard. This command runs in a console context where
+                    // AgencyScope is inert (no Auth::user()), so the query above
+                    // sweeps EVERY agency's contacts — including contacts created
+                    // by a system-owner account (NULL agency_id). Without this
+                    // check that owner, who can't even hold contacts in-app, still
+                    // gets birthday emails. Strict match: the contact must carry
+                    // the recipient's own agency_id. NULL agency_id is an orphan
+                    // and never notifies (see .ai/specs/multi-tenancy.md).
+                    $agencyId = $this->agencyIdFor($agent);
+                    if (! $agencyId || (int) ($contact->agency_id ?? 0) !== $agencyId) continue;
 
                     // contact.birthday — daily, fires once per (year-month-day) via threshold_hit_at = today.
                     // Opt-in only: agents are never reminded about a birthday unless they explicitly
@@ -49,5 +61,26 @@ class ScanContactNotifications extends Command
             });
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve an agent's effective agency without touching the session
+     * (this runs in a scheduler/console context where no session is bound).
+     * Mirrors User::effectiveAgencyId() minus the owner switcher override,
+     * which never applies during a batch scan. A system-owner account with no
+     * agency resolves to null here and is therefore never notified.
+     */
+    private function agencyIdFor(User $agent): ?int
+    {
+        if ($agent->agency_id) {
+            return (int) $agent->agency_id;
+        }
+        if ($agent->branch_id) {
+            $branch = Branch::find($agent->branch_id);
+            if ($branch?->agency_id) {
+                return (int) $branch->agency_id;
+            }
+        }
+        return null;
     }
 }

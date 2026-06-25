@@ -28,10 +28,52 @@ class PropertyController extends Controller
         /** @var User $user */
         $user           = auth()->user();
         $dataScope      = PermissionService::getDataScope($user, 'properties');
+        $canPickAgent   = in_array($dataScope, ['all', 'branch']);
+
+        // Agency-wide default ordering (Settings → Properties). 'status_priority'
+        // orders by the admin-defined status sequence; otherwise newest first.
+        $agency          = $user?->effectiveAgencyId() ? \App\Models\Agency::find($user->effectiveAgencyId()) : null;
+        $agencySortMode  = $agency?->properties_sort_mode ?? 'created';
+        $defaultSort     = $agencySortMode === 'status_priority' ? 'status_priority' : 'newest';
+
+        // ── Filter persistence ────────────────────────────────────────────
+        // The whole active filter set (agents, status, search, every advanced
+        // filter) survives navigation for the life of the browser session —
+        // it is remembered until the user clears it or the session ends. A
+        // bare visit that carries no filter signal but has a saved set is
+        // redirected to the canonical URL so links, chips and pagination all
+        // carry the state. This replaces the previous behaviour that silently
+        // reset to "my listings" on any nav that dropped ?agent_id=.
+        $SESSION_KEY = 'corex.properties.filters';
+        $FILTER_KEYS = [
+            'status', 'search', 'listing_type', 'property_type', 'category',
+            'mandate_type', 'branch_id', 'price_min', 'price_max',
+            'beds_min', 'baths_min', 'sort', 'dir', 'agent_ids',
+        ];
+
+        // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
+        if ($request->boolean('clear')) {
+            $request->session()->forget($SESSION_KEY);
+            return redirect()->route('corex.properties.index');
+        }
+
+        // Did this request carry any filter signal? (incl. the legacy single
+        // ?agent_id and the compliance click-through ?filter=marketing_pending)
+        $hasFilterParam = $request->has('agent_id')
+            || $request->query('filter') === 'marketing_pending'
+            || collect($FILTER_KEYS)->contains(fn ($k) => $request->has($k));
+
+        // Bare visit + saved state → restore by redirecting to the canonical URL.
+        if (! $hasFilterParam) {
+            $saved = (array) $request->session()->get($SESSION_KEY, []);
+            if (! empty($saved)) {
+                return redirect()->route('corex.properties.index', $saved);
+            }
+        }
+
         $viewScope      = $request->query('scope', 'my');   // 'my' | 'branch'
         $status         = $request->query('status', '');    // '' | draft | active | sold | withdrawn
         $search         = trim($request->query('search', ''));
-        $filterAgentId  = $request->query('agent_id', '');  // admin/bm: view a specific agent's listings
 
         // Extended filters
         $listingType    = $request->query('listing_type', '');   // '' | sale | rental
@@ -43,49 +85,89 @@ class PropertyController extends Controller
         $priceMax       = $request->query('price_max', '');
         $bedsMin        = $request->query('beds_min', '');
         $bathsMin       = $request->query('baths_min', '');
-        $sort           = $request->query('sort', 'newest');     // newest|oldest|price_asc|price_desc|title
+        $sort           = $request->query('sort', $defaultSort);  // newest|oldest|price_asc|price_desc|title|status_priority
 
-        $query = Property::with(['agent', 'branch']);
+        $query = Property::with(['agent', 'branch', 'secondAgent']);
 
-        $canPickAgent = in_array($dataScope, ['all', 'branch']);
-
-        // Agent filter with session persistence (mirrors ContactController).
-        // Defaults to self on fresh load UNLESS a compliance filter is active
-        // (card click-through shows full scope).
+        // ── Agent multi-select ────────────────────────────────────────────
+        // agent_ids = comma list of ids | 'all' | (absent). Falls back to the
+        // legacy single ?agent_id, then to the session, then to the user's own
+        // listings on a true fresh visit. An empty list ⇒ no agent restriction
+        // ("All agents", within the user's data scope).
+        $filterAgentIds = [];          // empty ⇒ All agents
         if ($canPickAgent) {
-            if ($request->has('agent_id')) {
-                // Explicit selection ("All" or another agent) — this browse only.
-                $filterAgentId = $request->query('agent_id', '');
+            if ($request->has('agent_ids')) {
+                $filterAgentIds = $this->parseAgentIds($request->query('agent_ids', ''));
+            } elseif ($request->has('agent_id')) {
+                $aid = (string) $request->query('agent_id', '');
+                $filterAgentIds = ($aid !== '' && ctype_digit($aid)) ? [$aid] : [];
             } elseif ($request->query('filter') === 'marketing_pending') {
-                // Compliance card click-through shows full scope.
-                $filterAgentId = '';
+                $filterAgentIds = [];   // compliance click-through ⇒ full scope
             } else {
-                // Always default to the current user's own listings on a fresh
-                // visit. Not persisted across visits.
-                $filterAgentId = (string) $user->id;
+                // Explicit-filter request without an agent signal: keep what the
+                // session remembers, else default to the user's own listings.
+                $saved = (array) $request->session()->get($SESSION_KEY, []);
+                $filterAgentIds = array_key_exists('agent_ids', $saved)
+                    ? $this->parseAgentIds((string) $saved['agent_ids'])
+                    : [(string) $user->id];
             }
         }
 
         // Scope
-        if ($canPickAgent && $filterAgentId !== '') {
-            // Admin/BM viewing a specific agent
-            $query->where('agent_id', (int) $filterAgentId);
-        } elseif ($dataScope === 'all') {
-            // Admin sees everything — no scope restriction
-        } elseif ($dataScope === 'branch') {
-            $branchId = $user->effectiveBranchId();
-            if ($branchId) $query->where('branch_id', $branchId);
+        // Co-listing rule: a property may carry a secondary (co-listing) agent
+        // on `pp_second_agent_id`. Wherever a listing is scoped to an agent, it
+        // matches whether that agent is the PRIMARY (`agent_id`) or the SECONDARY
+        // — so a co-listed property appears under both agents' names. A property
+        // is a single row, so an `OR` match still returns it exactly once even
+        // when both the primary and secondary are in the selected set.
+        if ($canPickAgent && ! empty($filterAgentIds)) {
+            // Admin/BM viewing one or more specific agents
+            $ids = array_map('intval', $filterAgentIds);
+            $query->where(function ($q) use ($ids) {
+                $q->whereIn('agent_id', $ids)
+                  ->orWhereIn('pp_second_agent_id', $ids);
+            });
+        } elseif ($canPickAgent) {
+            // All agents — still bounded by the user's data scope
+            if ($dataScope === 'branch') {
+                $branchId = $user->effectiveBranchId();
+                if ($branchId) $query->where('branch_id', $branchId);
+            }
+            // dataScope 'all' ⇒ no restriction
         } else {
             // Agent: 'my' = own listings only; 'branch' = all branch listings
             if ($viewScope === 'branch' && $user->branch_id) {
                 $query->where('branch_id', $user->branch_id);
             } else {
-                $query->where('agent_id', $user->id);
+                $query->where(function ($q) use ($user) {
+                    $q->where('agent_id', $user->id)
+                      ->orWhere('pp_second_agent_id', $user->id);
+                });
             }
+        }
+
+        // Remember the active filter set for this session (only on an explicit
+        // filter interaction — a pure-default visit stays unsaved).
+        if ($hasFilterParam) {
+            $persist = [];
+            foreach (['status', 'search', 'listing_type', 'property_type', 'category',
+                      'mandate_type', 'branch_id', 'price_min', 'price_max',
+                      'beds_min', 'baths_min', 'sort', 'dir'] as $k) {
+                $v = $request->query($k);
+                if ($v !== null && $v !== '') $persist[$k] = $v;
+            }
+            if ($canPickAgent) {
+                $persist['agent_ids'] = empty($filterAgentIds) ? 'all' : implode(',', $filterAgentIds);
+            }
+            $request->session()->put($SESSION_KEY, $persist);
         }
 
         if ($status === 'published') {
             $query->whereNotNull('published_at');
+        } elseif ($status === 'on_market') {
+            // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
+            // i.e. NOT terminal/draft. Single source of truth on the model.
+            $query->whereNotIn('status', Property::OFF_MARKET_STATUSES);
         } elseif ($status !== '') {
             $query->where('status', $status);
         }
@@ -102,7 +184,7 @@ class PropertyController extends Controller
         // Marketing status filter
         $marketingFilter = $request->query('filter', '');
         if ($marketingFilter === 'marketing_pending') {
-            $query->whereNull('compliance_snapshot_at')->whereNotIn('status', ['sold', 'withdrawn', 'draft']);
+            $query->whereNull('compliance_snapshot_at')->whereNotIn('status', Property::OFF_MARKET_STATUSES);
         }
 
         if ($search !== '') {
@@ -113,9 +195,13 @@ class PropertyController extends Controller
         // (not just the current page), before sorting/pagination is applied.
         // Single aggregate query (conditional SUMs) instead of 5 separate COUNT
         // round-trips for the same filtered set.
+        // "On market" = live stock = status NOT IN the off-market terminal/draft
+        // set (single source of truth on the model). Values are code constants,
+        // never user input, so direct interpolation is safe.
+        $offMarketIn = "'" . implode("','", Property::OFF_MARKET_STATUSES) . "'";
         $agg = (clone $query)->selectRaw(
             "COUNT(*) as total,"
-            . " SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,"
+            . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
             . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
             . " SUM(CASE WHEN published_at IS NOT NULL THEN 1 ELSE 0 END) as synced"
@@ -142,7 +228,22 @@ class PropertyController extends Controller
             case 'price_desc': $sort = 'price'; $dir = 'desc'; break;
             case 'newest':     $sort = 'created_at'; $dir = 'desc'; break;
         }
-        if (isset($sortableColumns[$sort])) {
+        if ($sort === 'status_priority') {
+            // Agency-defined status sequence: ranked statuses first (in order),
+            // unranked last, newest within each. Names come from agency settings
+            // (admin input) so they are bound, never interpolated.
+            $priority = is_array($agency?->properties_status_priority) ? $agency->properties_status_priority : [];
+            $priority = array_values(array_filter(array_map('trim', $priority), fn ($n) => $n !== ''));
+            if (!empty($priority)) {
+                $lower = array_map(fn ($n) => mb_strtolower($n), $priority);
+                $placeholders = implode(',', array_fill(0, count($lower), '?'));
+                $query->orderByRaw("FIELD(LOWER(status), $placeholders) = 0", $lower)
+                      ->orderByRaw("FIELD(LOWER(status), $placeholders)", $lower)
+                      ->orderByDesc('created_at');
+            } else {
+                $query->orderByDesc('created_at');
+            }
+        } elseif (isset($sortableColumns[$sort])) {
             $query->orderBy($sortableColumns[$sort], $dir);
         } else {
             $query->orderByDesc('created_at');
@@ -158,11 +259,19 @@ class PropertyController extends Controller
 
         // Compute marketing status per property (batch-friendly for Phase 1)
         $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        $authId = (int) ($user->id ?? 0);
         foreach ($properties as $p) {
+            // Is the current viewer the SECONDARY (co-listing) agent on this
+            // listing rather than the primary? Drives the "Secondary" badge so a
+            // co-listed property is clearly distinguished from one the agent owns.
+            $p->viewer_is_secondary = $authId
+                && (int) ($p->pp_second_agent_id ?? 0) === $authId
+                && (int) ($p->agent_id ?? 0) !== $authId;
+
             if ($p->compliance_snapshot_at !== null) {
                 $p->marketing_status = 'live';
                 $p->marketing_status_detail = 'Live since ' . $p->compliance_snapshot_at->format('j M Y');
-            } elseif (in_array($p->status, ['sold', 'withdrawn', 'draft'])) {
+            } elseif (in_array($p->status, Property::OFF_MARKET_STATUSES)) {
                 $p->marketing_status = 'n/a';
                 $p->marketing_status_detail = '';
             } else {
@@ -182,10 +291,10 @@ class PropertyController extends Controller
         // Agent list for the picker (admin/bm only)
         $agentList = $canPickAgent ? $this->agentList()->values() : collect();
 
-        // Resolve the selected agent's name for the button label
-        $selectedAgent = ($canPickAgent && $filterAgentId !== '')
-            ? $agentList->firstWhere('id', (int) $filterAgentId)
-            : null;
+        // Resolve the selected agents for the button label / chips
+        $selectedAgents = ($canPickAgent && ! empty($filterAgentIds))
+            ? $agentList->whereIn('id', array_map('intval', $filterAgentIds))->values()
+            : collect();
 
         // Dropdown option lists (agency-managed via web settings)
         $filterOptions = [
@@ -208,9 +317,26 @@ class PropertyController extends Controller
 
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
-            'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
-            'filterOptions', 'filters', 'currentSort', 'currentDir'
+            'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
+            'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode'
         ));
+    }
+
+    /**
+     * Normalise an agent_ids filter value into an array of numeric id strings.
+     * Accepts a comma list ("3,5"), the 'all' sentinel, or an empty value
+     * (both ⇒ [] = no agent restriction).
+     */
+    private function parseAgentIds(string $raw): array
+    {
+        if ($raw === 'all' || trim($raw) === '') {
+            return [];
+        }
+
+        return collect(explode(',', $raw))
+            ->map(fn ($v) => trim($v))
+            ->filter(fn ($v) => $v !== '' && ctype_digit($v))
+            ->unique()->values()->all();
     }
 
     public function show(Property $property)
@@ -221,7 +347,7 @@ class PropertyController extends Controller
         $settingItems = [
             'categories'      => PropertySettingItem::group('category')->get(),
             'types'           => PropertySettingItem::group('property_type')->where('active', true)->get(),
-            'statuses'        => PropertySettingItem::group('property_status')->get(),
+            'statuses'        => PropertySettingItem::group('property_status')->where('active', true)->get(),
             'mandateTypes'    => PropertySettingItem::group('mandate_type')->get(),
             // Build 3 — condition levels drive CMA Middle band adjustment.
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
@@ -378,8 +504,8 @@ class PropertyController extends Controller
         $user = auth()->user();
 
         $property           = new Property();
-        $property->status   = 'for_sale';
-        $property->listing_type = 'Sale';
+        $property->status   = 'active';
+        $property->listing_type = 'sale';
         // Province intentionally not pre-filled — user must pick from the
         // P24 cascading picker so the suburb/city/province chain is real.
         $property->agent_id = $user->id;
@@ -426,7 +552,7 @@ class PropertyController extends Controller
         $settingItems = [
             'categories'      => PropertySettingItem::group('category')->get(),
             'types'           => PropertySettingItem::group('property_type')->where('active', true)->get(),
-            'statuses'        => PropertySettingItem::group('property_status')->get(),
+            'statuses'        => PropertySettingItem::group('property_status')->where('active', true)->get(),
             'mandateTypes'    => PropertySettingItem::group('mandate_type')->get(),
             // Build 3 — condition levels drive CMA Middle band adjustment.
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
@@ -486,6 +612,7 @@ class PropertyController extends Controller
             'mandate_type'     => 'nullable|string|max:50',
             'listing_type'     => 'nullable|string|in:sale,rental',
             'status'           => 'nullable|string|max:100',
+            'status_label'     => 'nullable|string|max:50',
             'features'         => 'nullable|array',
             'features.*'       => 'string|max:100',
             'spaces_json'      => 'nullable|string',
@@ -523,6 +650,7 @@ class PropertyController extends Controller
             'pp_hide_street_number' => 'nullable|boolean',
             'pp_hide_complex_name'  => 'nullable|boolean',
             'pp_hide_unit_number'   => 'nullable|boolean',
+            'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'               => 'nullable|array',
             'dawn_images.*'             => 'image|max:51200',
@@ -581,9 +709,19 @@ class PropertyController extends Controller
 
         if (! empty($data['publish'])) {
             $data['published_at'] = now();
-            $data['status']       = 'active';
+            // Clean status model: on-market status is 'active' (the stock type
+            // For Sale/For Rent lives on listing_type). Promote only a draft/empty
+            // placeholder to active; keep any existing on-market base + sub-label.
+            $cur = $data['status'] ?? '';
+            if ($cur === '' || $cur === 'draft') {
+                $data['status'] = 'active';
+            }
         }
         unset($data['publish']);
+        // Sub-label banner is meaningful only on an on-market (active) listing.
+        if (($data['status'] ?? null) !== null && $data['status'] !== 'active') {
+            $data['status_label'] = null;
+        }
 
         // `status` is NOT NULL (DB default 'draft'). An empty status field
         // arrives as null via ConvertEmptyStringsToNull — strip it so the
@@ -814,6 +952,7 @@ class PropertyController extends Controller
             'mandate_type'     => 'nullable|string|max:50',
             'listing_type'     => 'nullable|string|in:sale,rental',
             'status'           => 'nullable|string|max:100',
+            'status_label'     => 'nullable|string|max:50',
             'features'         => 'nullable|array',
             'features.*'       => 'string|max:100',
             'spaces_json'      => 'nullable|string',
@@ -851,6 +990,7 @@ class PropertyController extends Controller
             'pp_hide_street_number' => 'nullable|boolean',
             'pp_hide_complex_name'  => 'nullable|boolean',
             'pp_hide_unit_number'   => 'nullable|boolean',
+            'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'      => 'nullable|array',
             'dawn_images.*'    => 'image|max:51200',
@@ -899,15 +1039,29 @@ class PropertyController extends Controller
         $data['pp_hide_street_number'] = $request->boolean('pp_hide_street_number');
         $data['pp_hide_complex_name']  = $request->boolean('pp_hide_complex_name');
         $data['pp_hide_unit_number']   = $request->boolean('pp_hide_unit_number');
+        // P24 address-display flag — independent of the PP flags above. Unchecked
+        // checkboxes don't submit, so coerce explicitly on every save.
+        $data['p24_hide_address']      = $request->boolean('p24_hide_address');
 
         $data = $this->processSpacesJson($data);
         $data = $this->applyP24Location($data);
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();
-            $data['status']       = 'active';
+            // Clean status model: on-market status is 'active' (stock type lives on
+            // listing_type). Promote only a draft/empty placeholder to active; keep
+            // the existing on-market base status (and sub-label) intact.
+            $cur = $data['status'] ?? $property->status ?? '';
+            if ($cur === '' || $cur === 'draft') {
+                $data['status'] = 'active';
+            }
         }
         unset($data['publish']);
+        // Sub-label banner is meaningful only on an on-market (active) listing.
+        if (array_key_exists('status', $data) && $data['status'] !== null
+            && $data['status'] !== '' && $data['status'] !== 'active') {
+            $data['status_label'] = null;
+        }
 
         // `status` is NOT NULL. An empty status field arrives as null via
         // ConvertEmptyStringsToNull — never let that overwrite the existing

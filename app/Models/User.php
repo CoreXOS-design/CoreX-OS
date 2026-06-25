@@ -39,6 +39,9 @@ class User extends Authenticatable
         'agency_id',
         'is_active',
         'show_on_website',
+        // Per-agent opt-out from Property24 — hides the agent on the P24 portal
+        // and keeps them off syndicated listings. See Property24SyndicationService.
+        'exclude_from_p24',
         'website_order',
 
         // Admin-controlled commission defaults
@@ -154,6 +157,7 @@ class User extends Authenticatable
         'password' => 'hashed',
         'is_active' => 'boolean',
         'show_on_website' => 'boolean',
+        'exclude_from_p24' => 'boolean',
         'website_order' => 'integer',
 
         'agent_cut_percent' => 'decimal:2',

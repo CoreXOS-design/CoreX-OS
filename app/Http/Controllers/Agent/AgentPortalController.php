@@ -16,7 +16,7 @@ use App\Models\TrainingCompletion;
 use App\Models\TrainingCourse;
 use App\Models\User;
 use App\Models\UserDocument;
-use App\Services\Images\AgentPhotoNormalizer;
+use App\Services\Images\AgentProfilePhotoService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -338,20 +338,17 @@ class AgentPortalController extends Controller
         $documentType = $docTypeMap[$type] ?? UserDocument::DOCUMENT_TYPE_OTHER;
         $isPhoto = $documentType === UserDocument::DOCUMENT_TYPE_PROFILE_PHOTO;
 
-        // Profile photos are normalized to a uniform 1200×1200 square WebP so the
-        // agent looks identical everywhere (spec: .ai/specs/agent-photo.md). Other
-        // documents store as-is.
+        // Profile photos go through one service that writes the normalised
+        // 1200×1200 WebP file, the user_documents row, and the legacy
+        // agent_photo_path column TOGETHER — so the three can never desync (the
+        // cause of photos vanishing from profiles and P24). Spec:
+        // .ai/specs/agent-photo.md. Other document types store as-is.
         if ($isPhoto) {
-            $path = app(AgentPhotoNormalizer::class)->store($file, $user->id, $user->agent_photo_path);
-            $fileName = 'photo.webp';
-            $mimeType = 'image/webp';
-            $fileSize = \Illuminate\Support\Facades\Storage::disk('public')->size($path);
-        } else {
-            $path = $file->store('agent-docs/' . $user->id, 'public');
-            $fileName = $file->getClientOriginalName();
-            $mimeType = $file->getMimeType();
-            $fileSize = $file->getSize();
+            app(AgentProfilePhotoService::class)->set($user, $file);
+            return back()->with('success', 'Photo uploaded.');
         }
+
+        $path = $file->store('agent-docs/' . $user->id, 'public');
 
         // Create UserDocument record (source of truth)
         UserDocument::create([
@@ -359,12 +356,12 @@ class AgentPortalController extends Controller
             'agency_id'     => $user->agency_id,
             'document_type' => $documentType,
             'file_path'     => $path,
-            'file_name'     => $fileName,
-            'file_size'     => $fileSize,
-            'mime_type'     => $mimeType,
-            'status'        => $isPhoto ? 'verified' : 'pending',
-            'verified_at'   => $isPhoto ? now() : null,
-            'verified_by'   => $isPhoto ? $user->id : null,
+            'file_name'     => $file->getClientOriginalName(),
+            'file_size'     => $file->getSize(),
+            'mime_type'     => $file->getMimeType(),
+            'status'        => 'pending',
+            'verified_at'   => null,
+            'verified_by'   => null,
             'uploaded_by'   => $user->id,
             'expiry_date'   => $request->expiry_date,
         ]);
@@ -377,13 +374,9 @@ class AgentPortalController extends Controller
                 $updates['ffc_expiry_date'] = $request->expiry_date;
             }
             $user->update($updates);
-        } elseif ($type === 'photo') {
-            $user->update(['agent_photo_path' => $path]);
         }
 
-        $message = $isPhoto ? 'Photo uploaded.' : 'Document uploaded — pending verification.';
-
-        return back()->with('success', $message);
+        return back()->with('success', 'Document uploaded — pending verification.');
     }
 
     // ══════════════════════════════════════════════════════════════

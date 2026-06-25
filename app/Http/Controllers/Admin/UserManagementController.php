@@ -3,12 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncAgentToP24Job;
 use App\Mail\UserInviteMail;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Branch;
 use App\Services\Admin\AgentDeletionService;
-use App\Services\Images\AgentPhotoNormalizer;
+use App\Services\Images\AgentProfilePhotoService;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use App\Services\Syndication\Property24\Property24SyndicationService;
 use Illuminate\Http\Request;
@@ -103,8 +104,7 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        // Agency-scoped role list (owner roles included for filtering in-view).
-        $roles = Role::allRoles($agencyId);
+        $roles = Role::orderBy('sort_order')->get();
 
         return view('admin.users.create-edit', [
             'user'         => null,
@@ -128,7 +128,7 @@ class UserManagementController extends Controller
             'fax'           => ['nullable', 'string', 'max:50'],
             'ffc_number'    => ['nullable', 'string', 'max:100'],
             'website'       => ['nullable', 'string', 'max:255'],
-            'role'          => ['required', Rule::in(Role::roleNames(auth()->user()?->effectiveAgencyId()))],
+            'role'          => ['required', Rule::in(Role::roleNames())],
             'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
             'designation'   => ['nullable', 'string', 'max:100'],
             'agent_cut_percent'           => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -144,10 +144,11 @@ class UserManagementController extends Controller
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'test_agent'      => ['nullable', 'in:0,1'],
             'show_on_website' => ['nullable', 'in:0,1'],
+            'exclude_from_p24' => ['nullable', 'in:0,1'],
         ]);
 
         // The owner role cannot be created through user management.
-        $submittedRole = Role::allRoles(auth()->user()?->effectiveAgencyId())->firstWhere('name', $data['role']);
+        $submittedRole = Role::allRoles()->firstWhere('name', $data['role']);
         if ($submittedRole && $submittedRole->is_owner) {
             abort(403, 'The owner role cannot be assigned through user management.');
         }
@@ -186,6 +187,7 @@ class UserManagementController extends Controller
             'ffc_number'                  => $data['ffc_number'] ?? null,
             'website'                     => $data['website'] ?? null,
             'show_on_website'             => isset($data['show_on_website']) && $data['show_on_website'] == '1' ? 1 : 0,
+            'exclude_from_p24'            => isset($data['exclude_from_p24']) && $data['exclude_from_p24'] == '1' ? 1 : 0,
         ]);
 
         // Sync branch_assignments
@@ -198,9 +200,9 @@ class UserManagementController extends Controller
 
         // File uploads
         if ($request->hasFile('agent_photo')) {
-            $path = app(AgentPhotoNormalizer::class)
-                ->store($request->file('agent_photo'), $user->id, $user->agent_photo_path);
-            $user->update(['agent_photo_path' => $path]);
+            // One service keeps the file, the user_documents row and the legacy
+            // column in lockstep — admin uploads used to update only the column.
+            app(AgentProfilePhotoService::class)->set($user, $request->file('agent_photo'));
         }
         if ($request->hasFile('ffc_certificate')) {
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
@@ -213,23 +215,11 @@ class UserManagementController extends Controller
             // force-fill because email_verified_at is not in $fillable.
             $user->forceFill(['email_verified_at' => now()])->save();
 
-            // Register on P24 right away so the agent gets an ID.
-            $p24Note = '';
-            try {
-                $p24 = app(Property24SyndicationService::class);
-                $result = $p24->ensureAgentRegisteredByUser($user->fresh());
-                if ($result === true) {
-                    $agentId = $p24->getP24AgentId($user->fresh());
-                    Cache::forget('p24:agent-map:by-source-ref');
-                    $p24Note = $agentId ? " P24 agentId: {$agentId}." : ' Registered on P24.';
-                } else {
-                    $p24Note = ' P24 registration failed: ' . (is_string($result) ? $result : 'unknown');
-                }
-            } catch (\Throwable $e) {
-                $p24Note = ' P24 registration error: ' . $e->getMessage();
-            }
+            // Register on P24 so the agent gets an ID — on the queue, so the
+            // create request returns instantly instead of blocking on P24.
+            SyncAgentToP24Job::dispatch($user->id, registerIfMissing: true);
 
-            return redirect()->route('admin.users')->with('status', "Test agent \"{$fullName}\" created (no invite email sent).{$p24Note}");
+            return redirect()->route('admin.users')->with('status', "Test agent \"{$fullName}\" created (no invite email sent). Property24 registration queued — the agent ID will appear shortly.");
         }
 
         // Send invitation email
@@ -250,8 +240,7 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        // Agency-scoped role list (owner roles included for filtering in-view).
-        $roles = Role::allRoles($agencyId);
+        $roles = Role::orderBy('sort_order')->get();
 
         return view('admin.users.create-edit', compact('user', 'branches', 'designations', 'roles'));
     }
@@ -273,7 +262,7 @@ class UserManagementController extends Controller
             'id_number'     => ['nullable', 'string', 'max:20'],
             'ppra_status'   => ['nullable', 'string', 'in:active,pending,expired,suspended'],
             'website'       => ['nullable', 'string', 'max:255'],
-            'role'          => ['required', Rule::in(Role::roleNames(auth()->user()?->effectiveAgencyId()))],
+            'role'          => ['required', Rule::in(Role::roleNames())],
             'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
             'designation'   => ['nullable', 'string', 'max:100'],
             'agent_cut_percent'           => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -289,15 +278,11 @@ class UserManagementController extends Controller
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'password'        => ['nullable', 'string', 'min:8'],
             'show_on_website' => ['nullable', 'in:0,1'],
-            // Admin Multi-Branch Manager — branches this user manages + the one
-            // they log in as (default). Only honoured for admin roles below.
-            'managed_branches'   => ['nullable', 'array'],
-            'managed_branches.*' => ['integer'],
-            'default_branch_id'  => ['nullable', 'integer'],
+            'exclude_from_p24' => ['nullable', 'in:0,1'],
         ]);
 
         // The owner role cannot be assigned through user management.
-        $submittedRole = Role::allRoles(auth()->user()?->effectiveAgencyId())->firstWhere('name', $data['role']);
+        $submittedRole = Role::allRoles()->firstWhere('name', $data['role']);
         if ($submittedRole && $submittedRole->is_owner && !$user->isOwnerRole()) {
             abort(403, 'The owner role cannot be assigned through user management.');
         }
@@ -329,7 +314,17 @@ class UserManagementController extends Controller
         $user->is_admin   = in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0;
         $user->branch_id  = $data['branch_id'] ?: null;
         $user->designation = $data['designation'] ?: null;
-        $user->show_on_website = isset($data['show_on_website']) && $data['show_on_website'] == '1' ? 1 : 0;
+        // show_on_website and exclude_from_p24 are managed in edit mode by their
+        // own instant AJAX switches, which submit NO field on the main form. Only
+        // assign them when the request actually carries the field — otherwise a
+        // plain Save would clobber a value the switch just set back to 0. (Create
+        // mode posts a hidden 0 + checkbox, so the field is always present there.)
+        if ($request->has('show_on_website')) {
+            $user->show_on_website = $request->input('show_on_website') == '1' ? 1 : 0;
+        }
+        if ($request->has('exclude_from_p24')) {
+            $user->exclude_from_p24 = $request->input('exclude_from_p24') == '1' ? 1 : 0;
+        }
 
         $user->agent_cut_percent         = $data['agent_cut_percent'] ?? $user->agent_cut_percent;
         $user->paye_method               = $data['paye_method'] ?? $user->paye_method;
@@ -363,22 +358,6 @@ class UserManagementController extends Controller
         }
 
         $user->save();
-
-        // ── Admin Multi-Branch Manager ───────────────────────────────────────
-        // Only admins can manage multiple branches and act as their manager.
-        // Resolve the EDITED user's real agency (never the editor's session)
-        // so foreign branches are rejected correctly.
-        if (in_array($data['role'], ['admin', 'super_admin'], true)) {
-            $editedAgencyId = $user->agency_id ?: optional(Branch::find($user->branch_id))->agency_id;
-            $user->syncManagedBranches(
-                $request->input('managed_branches', []),
-                $request->input('default_branch_id'),
-                $editedAgencyId ? (int) $editedAgencyId : null
-            );
-        } else {
-            // Demoted out of an admin role → drop any managed-branch assignments.
-            DB::table('user_managed_branches')->where('user_id', $user->id)->delete();
-        }
 
         // ── Domain events (spec corex-domain-events-spec.md) ─────────────────
         $fresh = $user->fresh() ?? $user;
@@ -437,9 +416,9 @@ class UserManagementController extends Controller
 
         // File uploads
         if ($request->hasFile('agent_photo')) {
-            $path = app(AgentPhotoNormalizer::class)
-                ->store($request->file('agent_photo'), $user->id, $user->agent_photo_path);
-            $user->update(['agent_photo_path' => $path]);
+            // One service keeps the file, the user_documents row and the legacy
+            // column in lockstep — admin uploads used to update only the column.
+            app(AgentProfilePhotoService::class)->set($user, $request->file('agent_photo'));
         }
         if ($request->hasFile('ffc_certificate')) {
             if ($user->ffc_certificate_path) {
@@ -456,29 +435,19 @@ class UserManagementController extends Controller
     }
 
     /**
-     * Push the user's details to Property24.
+     * Push the user's details to Property24 on the queue.
      * Returns a short status string to append to the flash message.
-     * Silent if the user hasn't been synced to P24 yet (no agent ID on file).
+     *
+     * registerIfMissing is false here: incidental edits (save / role / toggle /
+     * delete) must never auto-register an agent who was never deliberately
+     * synced — the job no-ops for users not already on P24. Runs off the
+     * request so the page never blocks on P24. See SyncAgentToP24Job.
      */
     private function pushUserToP24(User $user): string
     {
-        try {
-            $p24 = app(Property24SyndicationService::class);
-            $existingId = $p24->getP24AgentId($user);
-            if (!$existingId) {
-                // Not on P24 yet — don't auto-register on every edit; require explicit sync.
-                return '';
-            }
+        SyncAgentToP24Job::dispatch($user->id, registerIfMissing: false);
 
-            $result = $p24->updateAgentOnP24($user, pushPhoto: true);
-            Cache::forget('p24:agent-map:by-source-ref');
-
-            return $result === true
-                ? ' Synced to Property24 (agent #' . $existingId . ').'
-                : ' P24 sync warning: ' . (is_string($result) ? $result : 'unknown');
-        } catch (\Throwable $e) {
-            return ' P24 sync error: ' . $e->getMessage();
-        }
+        return ' Property24 sync queued.';
     }
 
     public function updateDefaults(Request $request, User $user)
@@ -635,7 +604,7 @@ class UserManagementController extends Controller
         }
 
         $data = $request->validate([
-            'role' => ['required', Rule::in(Role::roleNames(auth()->user()?->effectiveAgencyId()))],
+            'role' => ['required', Rule::in(Role::roleNames())],
             'designation' => ['nullable', 'string', 'max:100'],
             'branch_id' => ['nullable', 'integer'],
         ]);
@@ -643,7 +612,7 @@ class UserManagementController extends Controller
         $role = (string)$data['role'];
 
         // Guard 2: Cannot downgrade an owner to a non-owner role
-        $submittedRole = Role::allRoles(auth()->user()?->effectiveAgencyId())->firstWhere('name', $role);
+        $submittedRole = Role::allRoles()->firstWhere('name', $role);
         if ($user->isOwnerRole() && (!$submittedRole || !$submittedRole->is_owner)) {
             return back()->withErrors("Cannot change an owner's role.");
         }
@@ -726,9 +695,9 @@ class UserManagementController extends Controller
         ]);
 
         if ($request->hasFile('agent_photo')) {
-            $path = app(AgentPhotoNormalizer::class)
-                ->store($request->file('agent_photo'), $user->id, $user->agent_photo_path);
-            $user->update(['agent_photo_path' => $path]);
+            // One service keeps the file, the user_documents row and the legacy
+            // column in lockstep — admin uploads used to update only the column.
+            app(AgentProfilePhotoService::class)->set($user, $request->file('agent_photo'));
         }
 
         if ($request->hasFile('ffc_certificate')) {
@@ -770,8 +739,8 @@ class UserManagementController extends Controller
         $field = $request->input('field');
 
         if ($field === 'agent_photo' && $user->agent_photo_path) {
-            Storage::disk('public')->delete($user->agent_photo_path);
-            $user->update(['agent_photo_path' => null]);
+            // Clear the file, the user_documents row and the column together.
+            app(AgentProfilePhotoService::class)->clear($user);
             return back()->with('status', "Agent photo removed for {$user->name}.");
         }
 
@@ -793,23 +762,12 @@ class UserManagementController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
-        try {
-            $p24 = app(Property24SyndicationService::class);
-            $result = $p24->ensureAgentRegisteredByUser($user);
+        // Run on the queue — the sync makes several blocking P24 round-trips
+        // plus a photo download/upload; inline it hangs the request (and the
+        // photo fetch self-deadlocks against the dev server). See SyncAgentToP24Job.
+        SyncAgentToP24Job::dispatch($user->id, registerIfMissing: true);
 
-            if ($result !== true) {
-                return back()->withErrors('P24 sync failed: ' . (is_string($result) ? $result : 'unknown error'));
-            }
-
-            $agentId = $p24->getP24AgentId($user);
-            Cache::forget('p24:agent-map:by-source-ref');
-
-            return back()->with('status', $agentId
-                ? "Synced {$user->name} to Property24. Agent ID: {$agentId}."
-                : "Synced {$user->name} to Property24 (agent ID unavailable).");
-        } catch (\Throwable $e) {
-            return back()->withErrors('P24 sync error: ' . $e->getMessage());
-        }
+        return back()->with('status', "Syncing {$user->name} to Property24 — the agent ID will appear here shortly. Refresh in a moment.");
     }
 
     public function toggle(User $user)
@@ -852,6 +810,59 @@ class UserManagementController extends Controller
         return response()->json([
             'success'         => true,
             'show_on_website' => (bool) $user->show_on_website,
+        ]);
+    }
+
+    /**
+     * Quick on/off toggle for an agent's Property24 opt-out (exclude_from_p24).
+     *
+     * Flips the flag and pushes the visibility change to P24 SYNCHRONOUSLY (no
+     * photo), so the agent's published/status flips immediately AND P24's actual
+     * response is surfaced to the admin — rather than dying silently on the queue
+     * (the previous behaviour, which is why a ticked agent "still showed on P24"
+     * when no worker drained the job). Excluding PUTs published=false /
+     * status=Inactive — the same mechanism the deactivate-p24-agents command uses,
+     * the only way P24 lets you remove an agent (there is no delete-agent API).
+     *
+     * Re-including additionally queues a full re-sync so the agent's photo is
+     * restored on the worker.
+     *
+     * NOTE: this controls the agent's own P24 profile/roster visibility. An agent
+     * attached as the contact agent on listings already live on P24 stays on those
+     * listing cards until each listing is re-submitted — that is a separate path.
+     */
+    public function toggleP24(Request $request, User $user, Property24SyndicationService $p24)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $user->update(['exclude_from_p24' => ! $user->exclude_from_p24]);
+        $fresh = $user->fresh();
+
+        // Push the profile (published/status) inline — fast: one cached agent
+        // lookup + one PUT, no photo fetch, so it cannot self-deadlock the dev
+        // server and returns the real P24 outcome. Guard against any transport
+        // exception so the toggle never 500s — the opt-out flag is already saved.
+        try {
+            $result = $p24->updateAgentOnP24($fresh, pushPhoto: false);
+        } catch (\Throwable $e) {
+            $result = $e->getMessage();
+        }
+        \Illuminate\Support\Facades\Cache::forget('p24:agent-map:by-source-ref');
+
+        // Restore the photo / full profile on the worker when re-publishing.
+        if (! $fresh->exclude_from_p24) {
+            SyncAgentToP24Job::dispatch($fresh->id, registerIfMissing: true);
+        }
+
+        $p24Ok = ($result === true);
+
+        return response()->json([
+            'success'          => true, // the opt-out flag itself persisted
+            'exclude_from_p24' => (bool) $fresh->exclude_from_p24,
+            'p24_ok'           => $p24Ok,
+            'message'          => $p24Ok
+                ? ($fresh->exclude_from_p24 ? 'Hidden from Property24.' : 'Now visible on Property24.')
+                : 'Saved, but Property24 update failed: ' . (is_string($result) ? $result : 'unknown error'),
         ]);
     }
 
@@ -937,26 +948,6 @@ class UserManagementController extends Controller
 
             $target = User::findOrFail($data['target_user_id']);
             $service->reassignAndCleanup($user, $target, $data['secondary_handling'], (int) auth()->id());
-        }
-
-        // Deals are handled separately: the admin chooses to leave them under
-        // the departing agent (default) or move every deal + commission/
-        // settlement allocation to another agent (used to merge duplicate
-        // accounts). Spec: agent-delete-reassignment.md
-        if ($counts['has_deals']) {
-            $dealData = $request->validate([
-                'deal_handling'       => ['required', Rule::in(['leave', 'move'])],
-                'deal_target_user_id' => ['required_if:deal_handling,move', 'nullable', 'integer', 'different:user', Rule::exists('users', 'id')->where($sameAgencyActive)],
-            ], [
-                'deal_handling.required'          => 'Choose whether to leave or move this agent\'s deals.',
-                'deal_target_user_id.required_if' => 'Choose an agent to move the deals to.',
-                'deal_target_user_id.exists'      => 'The chosen deals agent is not a valid active user in this agency.',
-            ]);
-
-            if ($dealData['deal_handling'] === 'move') {
-                $dealTarget = User::findOrFail($dealData['deal_target_user_id']);
-                $service->reassignDeals($user, $dealTarget, (int) auth()->id());
-            }
         }
 
         DB::table('branch_assignments')->where('user_id', $user->id)->delete();

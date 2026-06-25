@@ -6,7 +6,9 @@ use App\Exceptions\AiCopyUnavailableException;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\PropertyAdTemplate;
+use App\Models\User;
 use App\Services\MarketingCopyService;
+use App\Services\PermissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -16,11 +18,47 @@ use Illuminate\Http\Request;
  * Select many properties (optionally agent-by-agent), pick a template, and
  * generate an ad per property: a rendered image (download) + a grounded AI
  * description (copy). Scope is permission-driven:
- *   - access_ad_manager       → can use the page
- *   - ad_manager.all_agents    → ads for ANY agency agent; without it, own only
+ *   - access_ad_manager → can use the page
+ *   - ad_manager.view   → data scope (None / Own / Branch / All) deciding whose
+ *                         listings the user may build ads for. Own = own only;
+ *                         Branch = own + same-branch agents; All = whole agency.
  */
 class AdManagerController extends Controller
 {
+    /**
+     * Resolve the user's Ad Manager data scope to one of 'own' | 'branch' | 'all'.
+     * None/null collapses to 'own' — page access already gates entry, so a user
+     * who reaches the page can at minimum advertise their own listings.
+     */
+    private function adScope(User $user): string
+    {
+        $scope = PermissionService::getDataScope($user, 'ad_manager');
+
+        return in_array($scope, ['all', 'branch'], true) ? $scope : 'own';
+    }
+
+    /**
+     * Server-side enforcement: may this user build an ad for this property?
+     * Own listings are always allowed; 'all' allows any agency listing;
+     * 'branch' allows listings in the user's own branch.
+     */
+    private function canAdvertise(User $user, Property $p, string $scope): bool
+    {
+        if ((int) $p->agent_id === (int) $user->id) {
+            return true;
+        }
+        if ($scope === 'all') {
+            return true;
+        }
+        if ($scope === 'branch') {
+            $branchId = $user->effectiveBranchId();
+
+            return $branchId && (int) $p->branch_id === (int) $branchId;
+        }
+
+        return false;
+    }
+
     /** Platform sizes the ad can be generated at (w/h in px, base font for em scaling). */
     private function platforms(): array
     {
@@ -56,15 +94,17 @@ class AdManagerController extends Controller
     {
         /** @var \App\Models\User $user */
         $user      = auth()->user();
-        $allAgents = $user->hasPermission('ad_manager.all_agents');
+        $scope     = $this->adScope($user);
+        $allAgents = $scope !== 'own';   // 'branch' or 'all' → can see other agents
 
         // Only ACTIVE listings that are LIVE somewhere (company website / P24 / PP) —
         // never drafts, sold or rented. "Live somewhere" mirrors Property::portalLinks().
         $websiteLiveIds = \App\Models\PropertyWebsiteSyndication::where('enabled', true)
             ->pluck('property_id')->all();
 
-        // Property queries are agency-scoped (AgencyScope), so an all-agents user
-        // gets every property in THEIR agency; an own-only user gets their own.
+        // Property queries are agency-scoped (AgencyScope). Within the agency the
+        // data scope narrows further: 'all' = every agent, 'branch' = own branch
+        // (+ own listings), 'own' = only the user's own listings.
         $query = Property::with('agent:id,name')
             ->whereNotIn('status', ['Sold', 'sold', 'Rented', 'rented', 'Draft', 'draft', 'Withdrawn', 'withdrawn', 'Expired', 'expired', 'Cancelled', 'cancelled', 'Archived', 'archived'])
             ->where(function ($q) use ($websiteLiveIds) {
@@ -79,8 +119,16 @@ class AdManagerController extends Controller
             })
             ->orderBy('title');
 
-        if (! $allAgents) {
+        if ($scope === 'own') {
             $query->where('agent_id', $user->id);
+        } elseif ($scope === 'branch') {
+            $branchId = $user->effectiveBranchId();
+            $query->where(function ($q) use ($branchId, $user) {
+                if ($branchId) {
+                    $q->where('branch_id', $branchId);
+                }
+                $q->orWhere('agent_id', $user->id);
+            });
         }
 
         $props = $query->get()->map(function (Property $p) {
@@ -131,8 +179,8 @@ class AdManagerController extends Controller
         ]);
 
         /** @var \App\Models\User $user */
-        $user      = auth()->user();
-        $allAgents = $user->hasPermission('ad_manager.all_agents');
+        $user  = auth()->user();
+        $scope = $this->adScope($user);
 
         $platforms = $this->platforms();
         $plat      = $platforms[$data['platform'] ?? 'facebook'] ?? $platforms['facebook'];
@@ -141,7 +189,7 @@ class AdManagerController extends Controller
         if (! $p) {
             abort(404);
         }
-        if (! $allAgents && (int) $p->agent_id !== (int) $user->id) {
+        if (! $this->canAdvertise($user, $p, $scope)) {
             abort(403);
         }
 
@@ -173,10 +221,10 @@ class AdManagerController extends Controller
         ]);
 
         /** @var \App\Models\User $user */
-        $user      = auth()->user();
-        $allAgents = $user->hasPermission('ad_manager.all_agents');
-        $emojis    = (bool) ($data['emojis'] ?? false);
-        $tpl       = $data['template'];
+        $user   = auth()->user();
+        $scope  = $this->adScope($user);
+        $emojis = (bool) ($data['emojis'] ?? false);
+        $tpl    = $data['template'];
 
         $platforms = $this->platforms();
         $plat      = $platforms[$data['platform'] ?? 'facebook'] ?? $platforms['facebook'];
@@ -204,9 +252,9 @@ class AdManagerController extends Controller
         $results = [];
 
         foreach ($props as $p) {
-            // Server-side scope enforcement — own-only users cannot advertise
-            // another agent's listings even if a client sends the id.
-            if (! $allAgents && (int) $p->agent_id !== (int) $user->id) {
+            // Server-side scope enforcement — a user cannot advertise a listing
+            // outside their data scope even if a client sends the id.
+            if (! $this->canAdvertise($user, $p, $scope)) {
                 continue;
             }
 

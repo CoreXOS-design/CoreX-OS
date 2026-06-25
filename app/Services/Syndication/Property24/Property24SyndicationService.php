@@ -262,8 +262,42 @@ class Property24SyndicationService
         ];
     }
 
+    /**
+     * Reap listings frozen at 'submitting'. SubmitListingToProperty24::failed()
+     * already resolves an exhausted/timed-out job to 'error', but a HARD worker
+     * kill (OOM, deploy mid-job, SIGKILL the supervisor itself) never fires
+     * failed() — leaving the row stuck and the UI spinning "Syncing…" forever.
+     *
+     * A row's updated_at is stamped when the controller flips it to 'submitting'
+     * and nothing else touches a still-'submitting' row, so updated_at is a
+     * reliable "entered submitting at" marker. Max job wall-time is ~11 min
+     * (3 tries × 180s timeout + 2 × 60s backoff); 15 min means the job is
+     * definitively done and this row will never self-resolve. Flip to 'error'
+     * so the agent sees a retryable state instead of an eternal spinner.
+     */
+    public function reapStuckSubmits(int $staleMinutes = 15): int
+    {
+        $rows = Property::where('p24_syndication_status', 'submitting')
+            ->where('updated_at', '<', now()->subMinutes($staleMinutes))
+            ->get();
+
+        foreach ($rows as $property) {
+            $property->update([
+                'p24_syndication_status' => 'error',
+                'p24_last_error'         => 'Sync timed out — the background job did not finish. Please retry.',
+            ]);
+            $this->log('warning', "Reaped stuck 'submitting' property #{$property->id} (>{$staleMinutes}m)");
+        }
+
+        return $rows->count();
+    }
+
     public function syncAllActivations(): array
     {
+        // Self-heal any listings the submit job left frozen at 'submitting'
+        // before reconciling the live ones. See reapStuckSubmits().
+        $reaped = $this->reapStuckSubmits();
+
         // Include 'active' so live listings are periodically re-verified against
         // is-on-portal — otherwise a P24-side removal (expiry, moderation) leaves
         // CoreX showing 'active' forever. submitted/pending await first activation.
@@ -278,8 +312,8 @@ class Property24SyndicationService
             $result['success'] ? $synced++ : $errors++;
         }
 
-        $this->log('info', "P24 activation sync complete: {$synced} synced, {$errors} errors");
-        return ['synced' => $synced, 'errors' => $errors, 'total' => $properties->count()];
+        $this->log('info', "P24 activation sync complete: {$synced} synced, {$errors} errors, {$reaped} reaped");
+        return ['synced' => $synced, 'errors' => $errors, 'reaped' => $reaped, 'total' => $properties->count()];
     }
 
     /**
@@ -320,11 +354,17 @@ class Property24SyndicationService
             'firstname'       => $parts[0] ?? '',
             'lastname'        => $parts[1] ?? $parts[0] ?? '',
             'emailAddress'    => $user->email ?? '',
-            'mobileNumber'    => $user->cell ?? $user->phone ?? '',
+            'mobileNumber'    => $this->normaliseSaPhone($user->cell ?? $user->phone),
             'sourceReference' => 'CoreX-Agent-' . $user->id,
-            'published'       => true,
+            'published'       => !$user->exclude_from_p24,
             'receiveStatsMail' => false,
             'countryId'       => 1, // South Africa
+            // jobTitle on the CREATE payload so an agent first registered via a
+            // listing submit carries their designation on P24 from the start —
+            // previously this path omitted it, so agents only ever got a title
+            // if someone later hit the Users-page "Sync to P24" button. That
+            // create-vs-update gap is the "half have titles, half don't" split.
+            'jobTitle'        => $user->designation ?: 'Sales Agent',
         ];
 
         // Check if agent already exists on P24 *under this agency*. Scoping to
@@ -338,11 +378,26 @@ class Property24SyndicationService
                 if ($ref === 'CoreX-Agent-' . $user->id) {
                     $p24AgentId = (int) $existing['id'];
                     $this->log('info', "Agent #{$user->id} already registered on P24 agency {$agencyIdStr} as #{$p24AgentId}");
-                    // Upload photo if agent has one and P24 might not
+                    // Keep the FULL profile (name, contact, jobTitle, active status)
+                    // in step with CoreX — not just the photo. Without this an agent
+                    // first registered via a listing submit never gains a jobTitle,
+                    // and later CoreX edits never reach P24 unless someone hits the
+                    // Users-page button. Best-effort: a profile-push failure must not
+                    // block the listing this agent is attached to.
+                    $this->pushAgentProfile($user, $p24AgentId, $agencyId);
                     $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
                     return true;
                 }
             }
+        }
+
+        // Agent opted out of P24 and isn't on the portal yet — never create a
+        // fresh record just to immediately unpublish it. The existing-agent
+        // branch above already handles the "on P24 but now excluded" case by
+        // pushing published=false.
+        if ($user->exclude_from_p24) {
+            $this->log('info', "Agent #{$user->id} is excluded from P24 and not yet registered — skipping registration");
+            return true;
         }
 
         // Register new agent
@@ -425,23 +480,49 @@ class Property24SyndicationService
             return $this->ensureAgentRegisteredByUser($user, $agencyId);
         }
 
-        $parts = explode(' ', trim($user->name), 2);
+        $pushed = $this->pushAgentProfile($user, $p24AgentId, $agencyId);
+        if ($pushed !== true) {
+            return $pushed;
+        }
 
-        $isActive = (bool) $user->is_active && !$user->trashed();
+        if ($pushPhoto) {
+            $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
+        }
+
+        return true;
+    }
+
+    /**
+     * Build the COMPLETE P24 agent payload from the CoreX user and PUT it.
+     * Single source of truth for "a fully-synced P24 agent profile" — shared by
+     * the Users-page "Sync to P24" button (updateAgentOnP24) and the
+     * listing-submit path (ensureAgentRegisteredByUser), so an agent carries the
+     * same name / contact / jobTitle / active-status regardless of which path
+     * last touched them. Returns true, or an error string on failure.
+     */
+    private function pushAgentProfile(User $user, int $p24AgentId, int $agencyId): bool|string
+    {
+        $parts    = explode(' ', trim($user->name), 2);
+        // An agent is shown on P24 only when active, not deleted, AND not
+        // explicitly opted out via the per-agent "Exclude from Property24" flag.
+        // Toggling exclude_from_p24 on for an already-synced agent therefore PUTs
+        // published=false / status=Inactive — actively removing them from the
+        // portal rather than just halting future syncs.
+        $isActive = (bool) $user->is_active && !$user->trashed() && !$user->exclude_from_p24;
 
         $payload = [
-            'id'              => $p24AgentId,
-            'agencyId'        => $agencyId,
-            'firstname'       => $parts[0] ?? '',
-            'lastname'        => $parts[1] ?? $parts[0] ?? '',
-            'emailAddress'    => $user->email ?? '',
-            'mobileNumber'    => $this->normaliseSaPhone($user->cell ?? $user->phone),
-            'sourceReference' => 'CoreX-Agent-' . $user->id,
-            'published'       => $isActive,   // hides the profile from P24 portal when deactivated
-            'status'          => $isActive ? 'Active' : 'Inactive',
-            'receiveStatsMail' => false,
-            'countryId'       => 1,
-            'jobTitle'        => $user->designation ?: 'Sales Agent',
+            'id'               => $p24AgentId,
+            'agencyId'         => $agencyId,
+            'firstname'        => $parts[0] ?? '',
+            'lastname'         => $parts[1] ?? $parts[0] ?? '',
+            'emailAddress'     => $user->email ?? '',
+            'mobileNumber'     => $this->normaliseSaPhone($user->cell ?? $user->phone),
+            'sourceReference'  => 'CoreX-Agent-' . $user->id,
+            'published'        => $isActive,   // hides the profile from P24 portal when deactivated or opted out
+            'status'           => $isActive ? 'Active' : 'Inactive',
+            'receiveStatsMail'  => false,
+            'countryId'        => 1,
+            'jobTitle'         => $user->designation ?: 'Sales Agent',
         ];
 
         // Only send workNumber if it looks like a SA landline (not mobile).
@@ -456,12 +537,8 @@ class Property24SyndicationService
 
         $result = $this->client->updateAgent($payload);
         if (!($result['success'] ?? false)) {
-            $this->log('error', "Agent update failed for #{$user->id}", ['result' => $result]);
+            $this->log('error', "Agent profile push failed for #{$user->id}", ['result' => $result]);
             return $result['message'] ?? 'Unknown agent update error';
-        }
-
-        if ($pushPhoto) {
-            $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
         }
 
         return true;
@@ -494,12 +571,38 @@ class Property24SyndicationService
      */
     private function uploadAgentPhotoIfAvailable(User $user, int $p24AgentId): void
     {
-        if (empty($user->agent_photo_path)) {
-            $this->log('info', "Agent #{$user->id} has no agent_photo_path — skipping P24 photo upload");
+        // Resolve the photo from the SAME canonical source the rest of CoreX uses
+        // (User::profilePhotoUrl): a user_documents 'profile_photo' row first, then
+        // the legacy agent_photo_path column. The sync previously read ONLY
+        // agent_photo_path, so every agent whose photo lives in user_documents
+        // reached P24 with no photo. Pick the first candidate whose file actually
+        // EXISTS on disk — these two records routinely desync (a stale .jpg path
+        // recorded while the real normalised file is photo.webp), so trusting the
+        // document path blindly would upload nothing. If neither resolves on disk,
+        // keep the preferred path so the URL-fallback strategies below can try.
+        $profileDoc = $user->documents()
+            ->where('document_type', 'profile_photo')
+            ->latest()
+            ->first();
+
+        $candidates = array_values(array_filter([
+            $profileDoc?->file_path,
+            $user->agent_photo_path,
+        ], fn ($p) => !empty($p)));
+
+        if (empty($candidates)) {
+            $this->log('info', "Agent #{$user->id} has no profile photo (user_documents or agent_photo_path) — skipping P24 photo upload");
             return;
         }
 
-        $photoPath = $user->agent_photo_path;
+        $photoPath = $candidates[0];
+        foreach ($candidates as $candidate) {
+            if (Storage::disk('public')->exists($candidate)) {
+                $photoPath = $candidate;
+                break;
+            }
+        }
+
         $bytes = null;
         $mime = 'image/jpeg';
 
@@ -561,6 +664,11 @@ class Property24SyndicationService
             return;
         }
 
+        // P24's profile-picture endpoint rejects WebP (returns HTTP 500). Our
+        // photos are stored as WebP (smaller/sharper for every in-app surface),
+        // so transcode to JPEG — which P24 accepts — at this boundary only.
+        [$bytes, $mime] = $this->toP24SafeImage($bytes, $mime);
+
         $imageData = [
             'bytes'           => base64_encode($bytes),
             'mimeContentType' => $mime,
@@ -578,6 +686,52 @@ class Property24SyndicationService
     private function log(string $level, string $message, array $context = []): void
     {
         Log::channel('property24')->{$level}($message, $context);
+    }
+
+    /**
+     * Return image bytes in a format P24's profile-picture endpoint accepts.
+     * P24 rejects WebP (HTTP 500); JPEG and PNG are fine. JPEG/PNG pass through
+     * untouched; anything else (WebP) is re-encoded to JPEG via GD, flattening
+     * any alpha onto white. On any decode failure the original bytes are returned
+     * so the upload is still attempted rather than silently skipped.
+     *
+     * @return array{0: string, 1: string} [bytes, mimeContentType]
+     */
+    private function toP24SafeImage(string $bytes, string $mime): array
+    {
+        if ($mime === 'image/jpeg' || $mime === 'image/png') {
+            return [$bytes, $mime];
+        }
+
+        if (!function_exists('imagecreatefromstring')) {
+            $this->log('warning', 'P24 photo transcode skipped: GD not available');
+            return [$bytes, $mime];
+        }
+
+        $img = @imagecreatefromstring($bytes);
+        if (!$img instanceof \GdImage) {
+            $this->log('warning', 'P24 photo transcode: GD could not decode source; sending original bytes');
+            return [$bytes, $mime];
+        }
+
+        // Flatten onto white — P24 profile pictures are opaque JPEGs.
+        $w = imagesx($img);
+        $h = imagesy($img);
+        $canvas = imagecreatetruecolor($w, $h);
+        imagefilledrectangle($canvas, 0, 0, $w, $h, imagecolorallocate($canvas, 255, 255, 255));
+        imagecopy($canvas, $img, 0, 0, 0, 0, $w, $h);
+        imagedestroy($img);
+
+        ob_start();
+        imagejpeg($canvas, null, 88);
+        $jpeg = (string) ob_get_clean();
+        imagedestroy($canvas);
+
+        if ($jpeg === '') {
+            return [$bytes, $mime];
+        }
+
+        return [$jpeg, 'image/jpeg'];
     }
 
     /**

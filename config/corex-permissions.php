@@ -241,9 +241,6 @@ return [
         ['key' => 'shared_drive.folders.create', 'label' => 'Create Folders',             'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 13],
         ['key' => 'shared_drive.folders.delete', 'label' => 'Delete Folders',             'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 14],
         ['key' => 'shared_drive.files.delete',   'label' => 'Delete Files',               'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 15],
-        ['key' => 'shared_drive.drives.create',            'label' => 'Create Shared Drives',                'section' => 'shared-drive', 'type' => 'action', 'module' => 'shared_drive', 'sort_order' => 16],
-        ['key' => 'shared_drive.drives.create_restricted', 'label' => 'Create Restricted (Locked) Drives',   'section' => 'shared-drive', 'type' => 'action', 'module' => 'shared_drive', 'sort_order' => 17],
-        ['key' => 'shared_drive.drives.manage',            'label' => 'Manage All Drives & Access',          'section' => 'shared-drive', 'type' => 'action', 'module' => 'shared_drive', 'sort_order' => 18],
 
         // ── Presentations ──
         ['key' => 'access_presentations',        'label' => 'Access Presentations',        'section' => 'presentations',    'type' => 'access',  'module' => 'presentations',    'sort_order' => 1],
@@ -338,7 +335,12 @@ return [
 
         // ── Ad Manager (Tools) ──
         ['key' => 'access_ad_manager',           'label' => 'Access Ad Manager',           'section' => 'calculators',      'type' => 'access',  'module' => 'ad_manager',       'sort_order' => 1],
-        ['key' => 'ad_manager.all_agents',       'label' => "See & advertise ALL agents' properties (off = own listings only)", 'section' => 'calculators',      'type' => 'action',  'module' => 'ad_manager',       'sort_order' => 2],
+        // Data-scope view key — drives the None / Own / Branch / All selector in
+        // Role Manager (whose properties the user may build ads for).
+        ['key' => 'ad_manager.view',             'label' => 'View',                        'section' => 'calculators',      'type' => 'action',  'module' => 'ad_manager',       'sort_order' => 2],
+
+        // ── Flow Map ──
+        ['key' => 'access_flow_map',             'label' => 'Access Flow Map',             'section' => 'flow-map',         'type' => 'access',  'module' => 'flow_map',         'sort_order' => 1],
 
         // ── Ellie AI ──
         ['key' => 'access_ellie',                'label' => 'Access Ellie AI',             'section' => 'ellie',            'type' => 'access',  'module' => 'ellie',            'sort_order' => 1],
@@ -437,19 +439,15 @@ return [
 
         // ── Command Center ──
         ['key' => 'command_center.view',             'label' => 'View Command Center',          'section' => 'command-center',   'type' => 'access',  'module' => 'command_center',   'sort_order' => 1],
-        // Calendar — own matrix module so it gets an independent Data Scope toggle.
-        // .view is type 'action' so Role Manager renders the None/Own/Branch/All
-        // scope control and savePermissions persists the chosen scope.
-        ['key' => 'command_center.calendar.view',    'label' => 'View Calendar',                'section' => 'command-center',   'type' => 'action',  'module' => 'command_center_calendar', 'sort_order' => 2],
-        ['key' => 'command_center.calendar.create',  'label' => 'Create Calendar Events',       'section' => 'command-center',   'type' => 'action',  'module' => 'command_center_calendar', 'sort_order' => 3],
-        ['key' => 'command_center.calendar.edit',    'label' => 'Edit Calendar Events',         'section' => 'command-center',   'type' => 'action',  'module' => 'command_center_calendar', 'sort_order' => 4],
-        ['key' => 'command_center.calendar.delete',  'label' => 'Delete Calendar Events',       'section' => 'command-center',   'type' => 'action',  'module' => 'command_center_calendar', 'sort_order' => 5],
-        // Tasks — own matrix module with its own Data Scope toggle.
-        ['key' => 'command_center.tasks.view',       'label' => 'View Task Board',              'section' => 'command-center',   'type' => 'action',  'module' => 'command_center_tasks',    'sort_order' => 6],
-        ['key' => 'command_center.tasks.create',     'label' => 'Create Tasks',                 'section' => 'command-center',   'type' => 'action',  'module' => 'command_center_tasks',    'sort_order' => 7],
-        ['key' => 'command_center.tasks.edit',       'label' => 'Edit Tasks',                   'section' => 'command-center',   'type' => 'action',  'module' => 'command_center_tasks',    'sort_order' => 8],
-        ['key' => 'command_center.tasks.assign',     'label' => 'Assign Tasks to Others',       'section' => 'command-center',   'type' => 'action',  'module' => 'command_center_tasks',    'sort_order' => 9],
-        ['key' => 'command_center.tasks.delete',     'label' => 'Delete Tasks',                 'section' => 'command-center',   'type' => 'action',  'module' => 'command_center_tasks',    'sort_order' => 10],
+        ['key' => 'command_center.calendar.view',    'label' => 'View Calendar',                'section' => 'command-center',   'type' => 'access',  'module' => 'command_center',   'sort_order' => 2],
+        ['key' => 'command_center.calendar.create',  'label' => 'Create Calendar Events',       'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 3],
+        ['key' => 'command_center.calendar.edit',    'label' => 'Edit Calendar Events',         'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 4],
+        ['key' => 'command_center.calendar.delete',  'label' => 'Delete Calendar Events',       'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 5],
+        ['key' => 'command_center.tasks.view',       'label' => 'View Task Board',              'section' => 'command-center',   'type' => 'access',  'module' => 'command_center',   'sort_order' => 6],
+        ['key' => 'command_center.tasks.create',     'label' => 'Create Tasks',                 'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 7],
+        ['key' => 'command_center.tasks.edit',       'label' => 'Edit Tasks',                   'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 8],
+        ['key' => 'command_center.tasks.assign',     'label' => 'Assign Tasks to Others',       'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 9],
+        ['key' => 'command_center.tasks.delete',     'label' => 'Delete Tasks',                 'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 10],
         ['key' => 'command_center.health.view',      'label' => 'View Property Health',         'section' => 'command-center',   'type' => 'access',  'module' => 'command_center',   'sort_order' => 11],
         ['key' => 'command_center.scorecards.own',   'label' => 'View Own Scorecard',           'section' => 'command-center',   'type' => 'access',  'module' => 'command_center',   'sort_order' => 12],
         ['key' => 'command_center.scorecards.branch','label' => 'View Branch Scorecards',       'section' => 'command-center',   'type' => 'access',  'module' => 'command_center',   'sort_order' => 13],
@@ -499,11 +497,6 @@ return [
         ['key' => 'branches.view_all',               'label' => 'View Across All Branches',      'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 1],
         ['key' => 'branches.switch',                 'label' => 'Switch Branch View',            'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 2],
         ['key' => 'branches.edit_all',               'label' => 'Edit Across All Branches',      'section' => 'branches',        'type' => 'action',  'module' => 'branches',         'sort_order' => 3],
-        // self_assign_managed = an admin self-assigns which branches they
-        // manage (+ a default) on their own profile, and may "act as" the
-        // branch manager of those branches. Identity only — does NOT change
-        // data scope. See .ai/specs/admin-multi-branch-manager.md.
-        ['key' => 'branches.self_assign_managed',    'label' => 'Self-Assign Managed Branches',  'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 4],
 
         // ── Sidebar — section visibility (entire sidebar groups) ──
         // When OFF, the sidebar heading and every item under it (until the
@@ -612,7 +605,6 @@ return [
                 'access_shared_drive', 'shared_drive.view', 'shared_drive.upload',
                 'shared_drive.download', 'shared_drive.folders.create',
                 'shared_drive.folders.delete', 'shared_drive.files.delete',
-                'shared_drive.drives.create', 'shared_drive.drives.create_restricted',
                 'access_presentations', 'create_presentations', 'run_analysis',
                 'presentations.view', 'presentations.create', 'presentations.edit',
                 'access_filing_register',
@@ -621,7 +613,7 @@ return [
                 'commercial_evals.view', 'commercial_evals.create', 'commercial_evals.edit',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create', 'sales_docs.edit',
-                'access_calculators', 'access_ad_manager', 'ad_manager.all_agents', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai',
+                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
@@ -691,7 +683,6 @@ return [
                 'access_document_library',
                 'access_shared_drive', 'shared_drive.view', 'shared_drive.upload',
                 'shared_drive.download', 'shared_drive.folders.create',
-                'shared_drive.drives.create',
                 'access_presentations',
                 'presentations.view', 'presentations.create', 'presentations.edit',
                 'access_filing_register',
@@ -700,7 +691,7 @@ return [
                 'commercial_evals.view', 'commercial_evals.create',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create',
-                'access_calculators', 'access_ad_manager', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai',
+                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'create_properties',
@@ -755,7 +746,7 @@ return [
                 'access_filing_register', 'filing.view',
                 'access_commercial_evaluations', 'commercial_evals.view',
                 'access_sales_documents', 'sales_docs.view',
-                'access_calculators', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai',
+                'access_calculators', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'properties.view',
                 'access_contacts', 'contacts.view', 'contacts.export',

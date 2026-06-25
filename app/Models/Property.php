@@ -19,6 +19,31 @@ class Property extends Model
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
     /**
+     * Off-market / terminal listing statuses — the single source of truth for
+     * "this listing is NOT live on the market". Everything else (for_sale, incl.
+     * Reduced Price / Pending sub-labels, under_offer, on_show, on_auction,
+     * to_let, the legacy 'active', …) is considered ON MARKET. Use
+     * Property::OFF_MARKET_STATUSES / scopeOnMarket() everywhere instead of
+     * re-listing these literals — see BUILD_STANDARD §6 (fix the class).
+     *
+     * NOTE: distinct from scopeTransactionLive()'s mandate-liveness check, which
+     * is about mandate expiry, not on-market display.
+     */
+    public const OFF_MARKET_STATUSES = [
+        'sold', 'transferred', 'withdrawn', 'expired',
+        'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
+    ];
+
+    /**
+     * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
+     * canonical definition of "active"/live stock for dashboards and filters.
+     */
+    public function scopeOnMarket($query)
+    {
+        return $query->whereNotIn('status', self::OFF_MARKET_STATUSES);
+    }
+
+    /**
      * Derived public-website fields surfaced on every serialisation so the
      * listing's cosmetic slug and canonical public URL are available
      * everywhere CoreX shows the property. Both are computed (never stored),
@@ -74,6 +99,7 @@ class Property extends Model
         'mandate_type',
         'listing_type',
         'status',
+        'status_label',
         'features_json',
         'features_json_meta',
         'pet_friendly',
@@ -85,7 +111,6 @@ class Property extends Model
         'gallery_images_json',
         'gallery_categories_json',
         'gallery_custom_tags',
-        'rental_images_json',
         'agent_id',
         'branch_id',
         // agency_id is the tenant key. It stays fillable so trusted non-auth ingress
@@ -138,6 +163,7 @@ class Property extends Model
         'pp_hide_street_number',
         'pp_hide_complex_name',
         'pp_hide_unit_number',
+        'p24_hide_address',
         'youtube_video_id',
         'matterport_id',
         'virtual_tour_url',
@@ -172,7 +198,6 @@ class Property extends Model
         'gallery_images_json' => 'array',
         'gallery_categories_json' => 'array',
         'gallery_custom_tags'     => 'array',
-        'rental_images_json'      => 'array',
         'features_json'       => 'array',
         'features_json_meta'  => 'array',
         'pet_friendly'        => 'boolean',
@@ -226,6 +251,7 @@ class Property extends Model
         'pp_hide_street_number'     => 'boolean',
         'pp_hide_complex_name'      => 'boolean',
         'pp_hide_unit_number'       => 'boolean',
+        'p24_hide_address'          => 'boolean',
         'p24_syndication_enabled'     => 'boolean',
         'p24_last_submitted_at'       => 'datetime',
         'p24_activated_at'            => 'datetime',
@@ -573,9 +599,24 @@ class Property extends Model
         return "{$base}/property/{$path}";
     }
 
+    /**
+     * The single source of truth for a listing's price across display,
+     * syndication payloads, and readiness gates. Rentals carry the amount in
+     * `rental_amount` (the sale `price` column is 0/null on a rental); sales use
+     * `price`. EVERY price consumer (formattedPrice, the P24 + PP mappers, the
+     * readiness checks) reads this so they can never diverge — a rental never
+     * needs the sale-price field filled manually.
+     */
+    public function effectivePrice(): float
+    {
+        return strtolower((string) $this->listing_type) === 'rental'
+            ? (float) ($this->rental_amount ?? 0)
+            : (float) ($this->price ?? 0);
+    }
+
     public function formattedPrice(): string
     {
-        return 'R ' . number_format((int) $this->price, 0, '.', ' ');
+        return 'R ' . number_format((int) $this->effectivePrice(), 0, '.', ' ');
     }
 
     /**
@@ -819,57 +860,26 @@ class Property extends Model
     }
 
     /**
-     * Normalised rental-inspection gallery structure. The raw column may be null
-     * (sale property never touched it) or partially populated — this always
-     * returns the full shape so the controller and view never juggle missing keys.
+     * All images flattened into one array for convenience.
      *
-     * Shape: {
-     *   in_inspection:  { date: ?string, images: string[] },
-     *   out_inspection: { date: ?string, images: string[] },
-     *   custom: [ { id: string, name: string, date: ?string, images: string[] } ],
-     * }
+     * De-duplicated on purpose: gallery_images_json and images_json
+     * intentionally hold the SAME ordered set (internal UI reads gallery,
+     * the public website / mobile API / readiness read images_json), so a
+     * naive merge double-counts every photo. That doubling previously pushed
+     * duplicate images into the Property24 payload (buildPhotos slices the
+     * first 30 of this list) and inflated every photo count. array_filter
+     * drops empty slots; array_unique keeps the first occurrence so order is
+     * preserved.
      */
-    public function rentalImagesStructure(): array
-    {
-        $raw = $this->rental_images_json ?? [];
-
-        $section = function ($s): array {
-            $s = is_array($s) ? $s : [];
-            return [
-                'date'   => isset($s['date']) && is_string($s['date']) ? $s['date'] : null,
-                'images' => array_values(array_filter(
-                    is_array($s['images'] ?? null) ? $s['images'] : [],
-                    'is_string'
-                )),
-            ];
-        };
-
-        $custom = [];
-        foreach ((is_array($raw['custom'] ?? null) ? $raw['custom'] : []) as $c) {
-            if (!is_array($c) || empty($c['id']) || !is_string($c['id'])) continue;
-            $custom[] = array_merge(
-                ['id' => $c['id'], 'name' => is_string($c['name'] ?? null) ? $c['name'] : 'Section'],
-                $section($c)
-            );
-        }
-
-        return [
-            'in_inspection'  => $section($raw['in_inspection']  ?? []),
-            'out_inspection' => $section($raw['out_inspection'] ?? []),
-            'custom'         => $custom,
-        ];
-    }
-
-    /** All images flattened into one array for convenience */
     public function allImages(): array
     {
-        return array_merge(
+        return array_values(array_unique(array_filter(array_merge(
             $this->dawn_images_json    ?? [],
             $this->noon_images_json    ?? [],
             $this->dusk_images_json    ?? [],
             $this->gallery_images_json ?? [],
             $this->images_json         ?? [],
-        );
+        ))));
     }
 
     /**
@@ -987,9 +997,13 @@ class Property extends Model
         $size    = $this->size_m2 ? number_format($this->size_m2) . ' M²' : null;
 
         // Status badge — honest label derived from the listing, never fabricated.
+        // NOTE: 'pending' is NOT "under offer". Under the two-tier model Pending is
+        // a SUB-LABEL on a For-Sale base (For Sale + Pending banner), so a pending
+        // listing is still actively FOR SALE on the marketing card. Only a genuine
+        // 'under_offer' base status reads "UNDER OFFER".
         $statusBadge = match (true) {
             in_array($this->status, ['sold', 'transferred'], true)       => 'SOLD',
-            in_array($this->status, ['under_offer', 'pending'], true)    => 'UNDER OFFER',
+            $this->status === 'under_offer'                              => 'UNDER OFFER',
             ($this->listing_type === 'rental' || $this->listing_type === 'to_let') => 'TO LET',
             default                                                      => 'FOR SALE',
         };

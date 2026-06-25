@@ -248,8 +248,11 @@
                         <template x-if="!rowState[{{ $row->id }}]?.status">
                             @if ($isProcessing)
                                 <span class="px-2 py-0.5 rounded-md text-xs bg-amber-500/20 text-amber-700">processing…</span>
-                            @elseif (!empty($errs))
+                            @elseif ($row->status === 'error')
                                 <span class="px-2 py-0.5 rounded-md text-xs bg-red-500/20 text-red-700" title="{{ implode('; ', $errs) }}">error</span>
+                            @elseif (!empty($errs))
+                                {{-- Importable, but flagged (e.g. agent auto-assigned to admin — reassign if needed). --}}
+                                <span class="px-2 py-0.5 rounded-md text-xs bg-amber-500/20 text-amber-700" title="{{ implode('; ', $errs) }}">review</span>
                             @else
                                 <span class="px-2 py-0.5 rounded-md text-xs bg-surface-2">{{ $row->status }}</span>
                             @endif

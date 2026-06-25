@@ -132,7 +132,7 @@ return [
         ],
         'connectivity' => [
             'label'    => 'Connectivity',
-            'features' => ['ADSL','Cable TV','Fast Internet','Fibre','Internet Port','Satellite Dish','Satellite Internet','Telephone Port','TV Port','Wi-Fi'],
+            'features' => ['ADSL','Cable TV','Fibre','Internet Port','Satellite Dish','Satellite Internet','Telephone Port','TV Port','Wi-Fi'],
         ],
         'sustainability' => [
             'label'    => 'Sustainability',
