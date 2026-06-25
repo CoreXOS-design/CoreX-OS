@@ -50,10 +50,19 @@ class DownloadP24RowImagesJob implements ShouldQueue
                 $reqs = [];
                 foreach ($batch as $idx => $url) {
                     $reqs[] = $pool->as((string) $idx)
-                        ->timeout(10)
+                        ->timeout(15)
+                        // Retry transient CDN throttling/timeouts. The original
+                        // bulk import ran with tries=1 and no retry, so a burst
+                        // of rate-limited responses from images.prop24.com
+                        // silently dropped most of each gallery (0-1 survived).
+                        ->retry(3, 400, throw: false)
                         ->withHeaders([
                             'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                             'Accept'     => 'image/*,*/*;q=0.8',
+                            // P24's image CDN hotlink-checks; a portal Referer
+                            // keeps it serving full-size bytes rather than a
+                            // placeholder/redirect.
+                            'Referer'    => 'https://www.property24.com/',
                         ])
                         ->get($url);
                 }
