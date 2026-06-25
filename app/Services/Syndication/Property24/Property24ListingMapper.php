@@ -28,11 +28,9 @@ class Property24ListingMapper
             'contactAgentIds'   => $this->resolveContactAgentIds($property, $agencyId),
             'listingType'       => $this->mapListingType($property->listing_type ?? $property->mandate_type),
             'status'            => $this->mapPropertyStatus($property),
-            // P24 carries the monthly rent in `price` for rentals (the sale price
-            // column is 0/null on a rental). Send rental_amount for rental stock.
-            'price'             => $this->mapListingType($property->listing_type ?? $property->mandate_type) === 'Rental'
-                                   ? (float) ($property->rental_amount ?? 0)
-                                   : (float) ($property->price ?? 0),
+            // P24 carries the monthly rent in `price` for rentals; effectivePrice()
+            // returns rental_amount for rental stock, price for sales — one source.
+            'price'             => $property->effectivePrice(),
             'isPOA'             => (bool) $property->price_on_application,
             'listingVisibility' => 'Public',
             'expiryDate'        => $property->expiry_date?->format('Y-m-d\TH:i:s')
@@ -280,7 +278,7 @@ class Property24ListingMapper
             }
         }
         if (empty($property->property_type)) $missing[] = ['field' => 'property_type', 'label' => 'Property Type'];
-        if (empty($property->price) && !$property->price_on_application) $missing[] = ['field' => 'price', 'label' => 'Price (or enable Price On Application)'];
+        if ($property->effectivePrice() <= 0 && !$property->price_on_application) $missing[] = ['field' => 'price', 'label' => 'Price (or enable Price On Application)'];
         if (empty($property->allImages())) $missing[] = ['field' => 'images', 'label' => 'At least one photo'];
         if (empty($property->listing_type) && empty($property->mandate_type)) $missing[] = ['field' => 'listing_type', 'label' => 'Listing Type (Sale/Rental)'];
         if (empty($property->resolveP24AgencyId())) {
