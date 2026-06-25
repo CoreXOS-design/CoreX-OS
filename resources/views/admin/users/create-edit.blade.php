@@ -347,6 +347,17 @@
                         </label>
                         @endif
                     @endif
+
+                    {{-- Property24 opt-out. When ticked the agent is unpublished on
+                         P24 (status Inactive) and never attached to syndicated
+                         listings. Saving the form pushes the new state to P24. --}}
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer mt-3" style="color:var(--text-secondary);">
+                        <input type="hidden" name="exclude_from_p24" value="0">
+                        <input type="checkbox" name="exclude_from_p24" value="1" class="rounded"
+                               style="accent-color:var(--brand-icon, #0ea5e9);"
+                               {{ old('exclude_from_p24', $isEdit ? (int)($user->exclude_from_p24 ?? 0) : 0) ? 'checked' : '' }}>
+                        Exclude from Property24 <span style="color:var(--text-muted);">(hide this agent on P24)</span>
+                    </label>
                 </div>
             </div>
         </div>

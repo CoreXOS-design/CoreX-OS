@@ -580,8 +580,16 @@ class Property24ListingMapper
         $agents = $result['data'] ?? [];
         $ids = [];
 
+        // Agents who opted out of P24 must never be attached to a syndicated
+        // listing, even if a stale P24 record still carries their sourceReference.
+        $excludedUserIds = \App\Models\User::withTrashed()
+            ->whereIn('id', array_filter([$property->agent_id, $property->pp_second_agent_id]))
+            ->where('exclude_from_p24', true)
+            ->pluck('id')
+            ->all();
+
         // Primary agent
-        if ($property->agent_id) {
+        if ($property->agent_id && !in_array((int) $property->agent_id, $excludedUserIds, true)) {
             $sourceRef = 'CoreX-Agent-' . $property->agent_id;
             foreach ($agents as $agent) {
                 if (($agent['sourceReference'] ?? '') === $sourceRef) {
@@ -592,7 +600,7 @@ class Property24ListingMapper
         }
 
         // Second agent
-        if ($property->pp_second_agent_id) {
+        if ($property->pp_second_agent_id && !in_array((int) $property->pp_second_agent_id, $excludedUserIds, true)) {
             $sourceRef = 'CoreX-Agent-' . $property->pp_second_agent_id;
             foreach ($agents as $agent) {
                 if (($agent['sourceReference'] ?? '') === $sourceRef) {

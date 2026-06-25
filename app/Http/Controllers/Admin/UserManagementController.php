@@ -143,6 +143,7 @@ class UserManagementController extends Controller
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'test_agent'      => ['nullable', 'in:0,1'],
             'show_on_website' => ['nullable', 'in:0,1'],
+            'exclude_from_p24' => ['nullable', 'in:0,1'],
         ]);
 
         // The owner role cannot be created through user management.
@@ -185,6 +186,7 @@ class UserManagementController extends Controller
             'ffc_number'                  => $data['ffc_number'] ?? null,
             'website'                     => $data['website'] ?? null,
             'show_on_website'             => isset($data['show_on_website']) && $data['show_on_website'] == '1' ? 1 : 0,
+            'exclude_from_p24'            => isset($data['exclude_from_p24']) && $data['exclude_from_p24'] == '1' ? 1 : 0,
         ]);
 
         // Sync branch_assignments
@@ -275,6 +277,7 @@ class UserManagementController extends Controller
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'password'        => ['nullable', 'string', 'min:8'],
             'show_on_website' => ['nullable', 'in:0,1'],
+            'exclude_from_p24' => ['nullable', 'in:0,1'],
         ]);
 
         // The owner role cannot be assigned through user management.
@@ -311,6 +314,10 @@ class UserManagementController extends Controller
         $user->branch_id  = $data['branch_id'] ?: null;
         $user->designation = $data['designation'] ?: null;
         $user->show_on_website = isset($data['show_on_website']) && $data['show_on_website'] == '1' ? 1 : 0;
+        // Per-agent P24 opt-out. The pushUserToP24() call at the end of this
+        // method PUTs the new published/status to P24, so flipping this on
+        // immediately unpublishes an already-synced agent from the portal.
+        $user->exclude_from_p24 = isset($data['exclude_from_p24']) && $data['exclude_from_p24'] == '1' ? 1 : 0;
 
         $user->agent_cut_percent         = $data['agent_cut_percent'] ?? $user->agent_cut_percent;
         $user->paye_method               = $data['paye_method'] ?? $user->paye_method;

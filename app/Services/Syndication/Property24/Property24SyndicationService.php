@@ -322,7 +322,7 @@ class Property24SyndicationService
             'emailAddress'    => $user->email ?? '',
             'mobileNumber'    => $this->normaliseSaPhone($user->cell ?? $user->phone),
             'sourceReference' => 'CoreX-Agent-' . $user->id,
-            'published'       => true,
+            'published'       => !$user->exclude_from_p24,
             'receiveStatsMail' => false,
             'countryId'       => 1, // South Africa
             // jobTitle on the CREATE payload so an agent first registered via a
@@ -355,6 +355,15 @@ class Property24SyndicationService
                     return true;
                 }
             }
+        }
+
+        // Agent opted out of P24 and isn't on the portal yet — never create a
+        // fresh record just to immediately unpublish it. The existing-agent
+        // branch above already handles the "on P24 but now excluded" case by
+        // pushing published=false.
+        if ($user->exclude_from_p24) {
+            $this->log('info', "Agent #{$user->id} is excluded from P24 and not yet registered — skipping registration");
+            return true;
         }
 
         // Register new agent
@@ -460,7 +469,12 @@ class Property24SyndicationService
     private function pushAgentProfile(User $user, int $p24AgentId, int $agencyId): bool|string
     {
         $parts    = explode(' ', trim($user->name), 2);
-        $isActive = (bool) $user->is_active && !$user->trashed();
+        // An agent is shown on P24 only when active, not deleted, AND not
+        // explicitly opted out via the per-agent "Exclude from Property24" flag.
+        // Toggling exclude_from_p24 on for an already-synced agent therefore PUTs
+        // published=false / status=Inactive — actively removing them from the
+        // portal rather than just halting future syncs.
+        $isActive = (bool) $user->is_active && !$user->trashed() && !$user->exclude_from_p24;
 
         $payload = [
             'id'               => $p24AgentId,
@@ -470,7 +484,7 @@ class Property24SyndicationService
             'emailAddress'     => $user->email ?? '',
             'mobileNumber'     => $this->normaliseSaPhone($user->cell ?? $user->phone),
             'sourceReference'  => 'CoreX-Agent-' . $user->id,
-            'published'        => $isActive,   // hides the profile from P24 portal when deactivated
+            'published'        => $isActive,   // hides the profile from P24 portal when deactivated or opted out
             'status'           => $isActive ? 'Active' : 'Inactive',
             'receiveStatsMail'  => false,
             'countryId'        => 1,
