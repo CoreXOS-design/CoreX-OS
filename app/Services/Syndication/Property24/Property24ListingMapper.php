@@ -43,6 +43,14 @@ class Property24ListingMapper
             'matterportSpaceId' => $property->matterport_id ?: null,
         ];
 
+        // Detailed feature tags (P24 `tags` array) — amenities that have no
+        // dedicated propertyFeatures field (sea view, communal braai, security
+        // detail, ports, etc.). Optional and purely additive.
+        $tags = $this->buildTags($property);
+        if (!empty($tags)) {
+            $listing['tags'] = $tags;
+        }
+
         if ($property->latitude && $property->longitude) {
             $listing['propertyInfo']['geographicLocation'] = [
                 'latitude'  => (float) $property->latitude,
@@ -254,6 +262,84 @@ class Property24ListingMapper
         }
 
         return $features;
+    }
+
+    /**
+     * CoreX feature label → P24 `Tag` enum value.
+     *
+     * Only amenities that have NO dedicated propertyFeatures field live here —
+     * everything else is already covered by buildPropertyFeatures(). Every value
+     * on the right is a verified member of the P24 v53 `Tag` enum
+     * (storage/p24_swagger.json); an unrecognised value would be rejected by the
+     * portal, so do NOT add a mapping without confirming the enum string first.
+     */
+    private const FEATURE_TAG_MAP = [
+        // Views / setting
+        'Sea View'               => 'Sea',
+        'Communal Braai Area'    => 'Communalbraaiarea',
+        // Storey / floor position
+        'Single Storey'          => 'SingleStorey',
+        'Ground Floor Unit'      => 'GroundFloor',
+        'Second Floor and Above' => 'Secondfloorandabove',
+        'Top Floor'              => 'TopFloor',
+        // Security
+        'Alarm System'           => 'AlarmSystem',
+        'Electric Gate'          => 'ElectricGate',
+        'Electric Fence'         => 'Electricfencing',
+        'Security Gate'          => 'SecurityGate',
+        'Burglar Bars'           => 'BurglarBars',
+        'CCTV'                   => 'ClosedCircuitTV',
+        'Intercom'               => 'Intercom',
+        '24 Hour Access'         => 'TwentyFourHourAccess',
+        '24 Hour Guard'          => 'Guard',
+        'Guard House'            => 'GuardHouse',
+        'Boomed Area'            => 'BoomedArea',
+        'Indoor Beams'           => 'IndoorBeams',
+        'Outdoor Beams'          => 'OutdoorBeams',
+        'Partially Fenced'       => 'PartiallyFenced',
+        'Totally Fenced'         => 'TotallyFenced',
+        'Totally Walled'         => 'TotallyWalled',
+        'Perimeter Wall'         => 'PerimeterWall',
+        'Gated Community'        => 'GatedCommunity',
+        'Security Complex'       => 'SecurityComplex',
+        'Security Estate'        => 'SecurityEstate',
+        // Connectivity
+        'Internet Port'          => 'InternetPort',
+        'Telephone Port'         => 'TelephonePort',
+        'TV Port'                => 'TVPort',
+        'Satellite Dish'         => 'SatelliteDish',
+        // Sustainability
+        'Solar Heating'          => 'SolarHeating',
+        'Septic Tank'            => 'SepticTank',
+    ];
+
+    /**
+     * Build the P24 `tags` array from the property's selected feature labels.
+     * Case-insensitive match against FEATURE_TAG_MAP; deduped; values are valid
+     * P24 Tag enum members only.
+     */
+    private function buildTags(Property $property): array
+    {
+        $feats = $property->features_json ?? [];
+        if (empty($feats)) {
+            return [];
+        }
+
+        // Lower-cased lookup so a stored 'sea view' still resolves to 'Sea View'.
+        $lookup = [];
+        foreach (self::FEATURE_TAG_MAP as $label => $tag) {
+            $lookup[strtolower($label)] = $tag;
+        }
+
+        $tags = [];
+        foreach ($feats as $feat) {
+            $key = strtolower(trim((string) $feat));
+            if (isset($lookup[$key])) {
+                $tags[] = $lookup[$key];
+            }
+        }
+
+        return array_values(array_unique($tags));
     }
 
     public function validate(array $payload): array
