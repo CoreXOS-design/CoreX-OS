@@ -127,6 +127,11 @@ class P24ListingsCsvParser
                 'size_m2'              => $floorArea,
                 'property_type'        => $typeResolution['type'],
                 'category'             => $typeResolution['category'] ?? null,
+                // Carry the raw P24 SuburbId so the confirm step can resolve
+                // suburb/town/province from p24_suburbs → p24_cities →
+                // p24_provinces (the import previously ignored location data
+                // entirely, leaving every property with NULL town/suburb).
+                'p24_suburb_id'        => is_numeric($raw['SuburbId'] ?? null) ? (int)$raw['SuburbId'] : null,
                 'occupation_date'      => $raw['OccupationDate'] ?? null,
                 'expiry_date'          => $raw['ExpiryDate'] ?? null,
                 'levy'                 => is_numeric($raw['MonthlyLevy'] ?? null) ? (float)$raw['MonthlyLevy'] : null,
@@ -179,15 +184,27 @@ class P24ListingsCsvParser
         return null;
     }
 
+    /**
+     * Map a P24 source status → CoreX canonical property_status (the slugified
+     * `property_setting_items` value the edit form stores). The original
+     * importer emitted capitalised, non-canonical strings ("Active", "Rented",
+     * or the raw P24 word) which never matched the form select and rendered as
+     * "— None —". This mapping mirrors the agreed P24→canonical decision:
+     *   on-market (Active/NewListing/Reduced/Pending) → for_sale
+     *   off-market (Withdrawn/Expired/Cancelled)       → withdrawn
+     *   Sold                                            → sold
+     *   Rented (concluded rental)                       → let_out
+     * Unknown words fall back to for_sale (a live, visible default) rather than
+     * persisting a non-canonical string.
+     */
     private function normaliseStatus(string $s): string
     {
         return match (strtolower(trim($s))) {
-            'newlisting', 'new' => 'Active',
-            'active'            => 'Active',
-            'reduced'           => 'Active',
-            'rented'            => 'Rented',
-            'sold'              => 'Sold',
-            default             => $s ?: 'Active',
+            'newlisting', 'new', 'active', 'reduced', 'pending' => 'for_sale',
+            'withdrawn', 'expired', 'cancelled'                 => 'withdrawn',
+            'sold'                                              => 'sold',
+            'rented'                                            => 'let_out',
+            default                                             => 'for_sale',
         };
     }
 }

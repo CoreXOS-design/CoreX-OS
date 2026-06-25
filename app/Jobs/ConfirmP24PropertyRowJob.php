@@ -75,6 +75,28 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                     }
                 }
 
+                // Resolve suburb / town / province from the P24 SuburbId via the
+                // p24_suburbs → p24_cities → p24_provinces reference tables. The
+                // CSV carries no suburb/town text — only SuburbId — so the
+                // original importer left every property with NULL location.
+                // Left unset when the id is missing or does not resolve, so the
+                // property is flagged for manual review rather than guessed.
+                $suburbId = $mapped['p24_suburb_id'] ?? null;
+                if ($suburbId) {
+                    $loc = DB::table('p24_suburbs as s')
+                        ->leftJoin('p24_cities as c', 'c.id', '=', 's.p24_city_id')
+                        ->leftJoin('p24_provinces as pr', 'pr.id', '=', 'c.p24_province_id')
+                        ->where('s.p24_id', $suburbId)
+                        ->whereNull('s.deleted_at')
+                        ->selectRaw('s.name as suburb, c.name as town, pr.name as province')
+                        ->first();
+                    if ($loc) {
+                        if (!empty($loc->suburb))   $attrs['suburb']   = $loc->suburb;
+                        if (!empty($loc->town))     $attrs['town']     = $loc->town;
+                        if (!empty($loc->province)) $attrs['province'] = $this->canonicalProvince($loc->province);
+                    }
+                }
+
                 if ($existing) {
                     $existing->fill($attrs)->save();
                     $property = $existing;
@@ -120,11 +142,38 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
             }
         } catch (\Throwable $e) {
             Log::error('ConfirmP24PropertyRowJob failed', ['row_id' => $row->id, 'error' => $e->getMessage()]);
-            $row->update([
-                'status'        => 'error',
-                'processing_at' => null,
-                'errors_json'   => array_merge($row->errors_json ?? [], ['Confirm failed: ' . $e->getMessage()]),
-            ]);
+            $this->markRowError($row, $e);
         }
+    }
+
+    /**
+     * Normalise a P24 province name to the canonical CoreX value (the form
+     * stores "KwaZulu-Natal" with the hyphen; p24_provinces holds the
+     * un-hyphenated "KwaZulu Natal").
+     */
+    private function canonicalProvince(string $p): string
+    {
+        $n = strtolower(str_replace(['-', ' '], '', trim($p)));
+        return match ($n) {
+            'kwazulunatal', 'kzn' => 'KwaZulu-Natal',
+            'gauteng'             => 'Gauteng',
+            'westerncape'         => 'Western Cape',
+            'easterncape'         => 'Eastern Cape',
+            'northerncape'        => 'Northern Cape',
+            'freestate'           => 'Free State',
+            'mpumalanga'          => 'Mpumalanga',
+            'limpopo'             => 'Limpopo',
+            'northwest'           => 'North West',
+            default               => $p,
+        };
+    }
+
+    private function markRowError(P24ImportRow $row, \Throwable $e): void
+    {
+        $row->update([
+            'status'        => 'error',
+            'processing_at' => null,
+            'errors_json'   => array_merge($row->errors_json ?? [], ['Confirm failed: ' . $e->getMessage()]),
+        ]);
     }
 }
