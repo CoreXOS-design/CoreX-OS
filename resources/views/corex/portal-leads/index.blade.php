@@ -123,7 +123,18 @@
                             @endif
                         </td>
                         <td class="px-3 py-2 text-xs" style="color: var(--text-secondary);">{{ $lead->lead_type }}{{ $lead->is_whatsapp ? ' / WhatsApp' : '' }}</td>
-                        <td class="px-3 py-2 font-medium">{{ $lead->name }}</td>
+                        <td class="px-3 py-2 font-medium">
+                            @if($lead->contact)
+                                <a href="{{ route('corex.contacts.show', $lead->contact_id) }}"
+                                   class="transition-all duration-300 hover:underline"
+                                   style="color: var(--brand-icon, #0ea5e9);"
+                                   title="View contact">
+                                    {{ $lead->name }}
+                                </a>
+                            @else
+                                {{ $lead->name }}
+                            @endif
+                        </td>
                         <td class="px-3 py-2 text-xs">
                             @if($lead->email)
                                 <div style="color: var(--text-primary);">{{ $lead->email }}</div>
