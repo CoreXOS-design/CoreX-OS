@@ -105,6 +105,15 @@ Schedule::job(new \App\Jobs\ProcessPrivatePropertyEventFeed())
     ->withoutOverlapping()
     ->name('pp-event-feed');
 
+// Queue worker healthcheck — runs every 5 minutes on the scheduler (independent
+// of the worker), so a STOPPED/wedged worker is caught in minutes instead of the
+// ~1.5h silent stall on 2026-06-25. Logs Log::critical when the queue isn't drained.
+Schedule::command('corex:queue-healthcheck')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('queue-healthcheck');
+
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
 
