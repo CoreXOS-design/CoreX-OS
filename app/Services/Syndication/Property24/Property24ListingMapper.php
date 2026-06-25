@@ -51,7 +51,8 @@ class Property24ListingMapper
             $listing['tags'] = $tags;
         }
 
-        if ($property->latitude && $property->longitude) {
+        // GPS pin is part of the address — omit it too when hiding the address.
+        if ($property->latitude && $property->longitude && !$property->p24_hide_address) {
             $listing['propertyInfo']['geographicLocation'] = [
                 'latitude'  => (float) $property->latitude,
                 'longitude' => (float) $property->longitude,
@@ -66,8 +67,9 @@ class Property24ListingMapper
             }
         }
 
-        // Complex info
-        if ($property->complex_name || $property->unit_number) {
+        // Complex info — omitted when the address is hidden on P24 (the complex
+        // name + unit number are address-identifying).
+        if (!$property->p24_hide_address && ($property->complex_name || $property->unit_number)) {
             $listing['complexInfo'] = [
                 'complexName' => $property->complex_name ?? null,
                 'unitNumber'  => $property->unit_number ?? null,
@@ -115,22 +117,25 @@ class Property24ListingMapper
 
     private function buildPropertyInfo(Property $property, ?int $suburbId, ?int $propertyTypeId): array
     {
+        // P24 "hide address" — when set, the street number/name, stand number,
+        // complex/unit and GPS are OMITTED from the payload entirely (not merely
+        // showLocation=false), so the address can never render on P24 regardless
+        // of how P24 interprets showLocation. Only the suburb (suburbId) is sent
+        // — area-level, which P24 requires. Independent of the PP pp_hide_* flags.
+        // Reversible: the stored columns are untouched, so clearing the flag and
+        // re-syncing restores the full address.
+        $hideAddress = (bool) $property->p24_hide_address;
+
         $info = [
             'suburbId'        => $suburbId,
             'propertyTypeId'  => $propertyTypeId,
-            'streetNumber'    => $property->street_number ?? '',
-            'streetName'      => $property->street_name ?? $this->parseStreetName($property->address),
+            'streetNumber'    => $hideAddress ? '' : ($property->street_number ?? ''),
+            'streetName'      => $hideAddress ? '' : ($property->street_name ?? $this->parseStreetName($property->address)),
             'sourceReference' => 'CoreX-' . $property->id,
-            // P24 address-display control. When p24_hide_address is set, tell P24
-            // not to display the location (showLocation=false) regardless of
-            // coords — this is the P24 "hide address" mechanism. Independent of
-            // the PP pp_hide_* flags. Otherwise keep the coords-driven default.
-            'showLocation'    => $property->p24_hide_address
-                ? false
-                : (bool) ($property->latitude && $property->longitude),
+            'showLocation'    => $hideAddress ? false : (bool) ($property->latitude && $property->longitude),
         ];
 
-        if ($property->stand_number) $info['standNumber'] = $property->stand_number;
+        if (!$hideAddress && $property->stand_number) $info['standNumber'] = $property->stand_number;
         if ($property->erf_size_m2) $info['erf'] = ['areaUnit' => 'SquareMetres', 'size' => (float) $property->erf_size_m2];
         if ($property->size_m2) $info['floorArea'] = ['areaUnit' => 'SquareMetres', 'size' => (float) $property->size_m2];
         if ($property->floor_number) $info['floorNumber'] = (int) $property->floor_number;
