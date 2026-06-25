@@ -623,7 +623,7 @@
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $statusPillStyle }}">{{ $statusLabel }}</span>
                     @if($property->mandate_type)
-                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }} Mandate</span>
+                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
                     @endif
                 </div>
 
@@ -705,17 +705,12 @@
                         <div class="flex items-center gap-1.5 min-w-0">
                             <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">{{ strtoupper(substr($property->agent?->name ?? '?', 0, 1)) }}</span>
                             <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->agent?->name }}">{{ $property->agent?->name ?? '—' }}</span>
-                            @if($property->secondAgent)
-                            <span class="text-[8px] font-semibold uppercase tracking-wide flex-shrink-0" style="color:var(--text-muted);opacity:.7;">Primary</span>
-                            @endif
                         </div>
                         {{-- Secondary (co-listing) agent — shown underneath the primary --}}
                         @if($property->secondAgent)
                         <div class="flex items-center gap-1.5 min-w-0" title="Secondary (co-listing) agent">
-                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-icon,#0ea5e9);color:#fff;">{{ strtoupper(substr($property->secondAgent->name ?? '?', 0, 1)) }}</span>
+                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">{{ strtoupper(substr($property->secondAgent->name ?? '?', 0, 1)) }}</span>
                             <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->secondAgent->name }}">{{ $property->secondAgent->name }}</span>
-                            <span class="text-[8px] font-bold uppercase px-1 py-0.5 rounded flex-shrink-0"
-                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);">{{ !empty($property->viewer_is_secondary) ? '2nd · You' : '2nd' }}</span>
                         </div>
                         @endif
                     </div>
@@ -818,11 +813,7 @@
                     <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">
                         <div>{{ $property->agent?->name ?? '—' }}</div>
                         @if($property->secondAgent)
-                        <div class="mt-0.5 flex items-center gap-1" title="Secondary (co-listing) agent">
-                            <span style="color:var(--brand-icon,#0ea5e9);">{{ $property->secondAgent->name }}</span>
-                            <span class="text-[8px] font-bold uppercase px-1 py-0.5 rounded whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);">{{ !empty($property->viewer_is_secondary) ? '2nd · You' : '2nd' }}</span>
-                        </div>
+                        <div class="mt-0.5" title="Secondary (co-listing) agent">{{ $property->secondAgent->name }}</div>
                         @endif
                     </td>
                     <td class="px-4 py-2.5 text-center hidden md:table-cell">

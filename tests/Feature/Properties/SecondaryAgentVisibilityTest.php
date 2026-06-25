@@ -35,14 +35,16 @@ final class SecondaryAgentVisibilityTest extends TestCase
         $unrelated = $this->property($agency, $primary, 'ZZZ-Unrelated-House');
 
         // Secondary agent's own listings: sees the co-listing + their own,
-        // not the unrelated primary-only listing.
+        // not the unrelated primary-only listing. The co-listing card shows
+        // BOTH agents' names — primary on top, secondary underneath.
         $this->actingAs($secondary)
             ->get(route('corex.properties.index'))
             ->assertOk()
             ->assertSee('ZZZ-CoListed-House')
             ->assertSee('ZZZ-SecondaryOwn-House')
             ->assertDontSee('ZZZ-Unrelated-House')
-            ->assertSee('Secondary'); // the co-listing badge
+            ->assertSee($primary->name)     // primary agent shown on the co-listing
+            ->assertSee($secondary->name);  // secondary agent shown underneath
     }
 
     public function test_admin_agent_filter_matches_primary_or_secondary(): void

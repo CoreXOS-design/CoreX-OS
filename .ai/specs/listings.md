@@ -38,9 +38,8 @@ A property may carry a **secondary (co-listing) agent** alongside the primary.
 - The secondary agent sees the co-listed property in their **own "My Listings"**
   — the index scope matches `agent_id = me OR pp_second_agent_id = me`.
 - **Both agents are shown on the property card** (and the table's agent column):
-  the primary agent on top, the secondary agent **underneath**, tagged "2nd".
-  When the viewer is the secondary the tag reads "2nd · You". The "Primary" label
-  appears only when a secondary exists (to disambiguate the two rows).
+  the primary agent on top, the secondary agent **underneath** — just the name and
+  the dark-blue avatar, no "Primary"/"2nd" labels.
 - **Counts once:** a co-listed property is a single `properties` row, so it
   counts **once** in the Total / On Market KPIs even when both agents are in the
   selected filter set — verified by `test_co_listed_property_counts_once_in_the_kpi_totals`.
