@@ -47,17 +47,18 @@
                 background: var(--surface, #fff);
                 color: var(--text-primary, #111827);
                 border: 1px solid var(--border, rgba(0,0,0,0.08));
-                border-radius: 10px;
+                border-radius: 12px;
                 box-shadow: 0 18px 50px rgba(0,0,0,0.35);
-                min-width: 300px;
-                max-width: 360px;
+                min-width: 380px;
+                max-width: 440px;
+                padding: 18px 20px;
             }
             .driver-popover.corex-tour .driver-popover-title {
-                font-size: 0.95rem; font-weight: 700;
+                font-size: 1rem; font-weight: 700;
                 color: var(--text-primary, #111827);
             }
             .driver-popover.corex-tour .driver-popover-description {
-                font-size: 0.8125rem; line-height: 1.5;
+                font-size: 0.85rem; line-height: 1.5;
                 color: var(--text-secondary, #4b5563);
             }
             /* ── Two-row footer ─────────────────────────────────────────────
@@ -73,9 +74,9 @@
                 display: grid;
                 grid-template-columns: 1fr auto;
                 align-items: center;
-                gap: 10px 8px;
-                margin-top: 14px;
-                padding-top: 12px;
+                gap: 12px 12px;
+                margin-top: 16px;
+                padding-top: 14px;
                 border-top: 1px solid var(--border, rgba(0,0,0,0.08));
             }
             .driver-popover.corex-tour .corex-tour-dsa            { grid-column: 1; grid-row: 1; }
@@ -113,16 +114,20 @@
                 cursor: pointer; user-select: none;
             }
             .driver-popover.corex-tour .corex-tour-dsa input { accent-color: var(--brand-button, #0ea5e9); }
-            /* AT-41: explicit "Close tour" control (overlay/X/ESC close disabled). */
-            .driver-popover.corex-tour .corex-tour-close {
-                background: transparent;
-                color: var(--text-muted, #9ca3af);
-                border: 1px solid var(--border, rgba(0,0,0,0.12));
-            }
+            /* AT-41: explicit "Close tour" control (overlay/X/ESC close disabled).
+               Styled identical to the Back button (surface-2 chip); resets
+               driver.js's default text-shadow:1px 1px 0 #fff, which otherwise
+               paints a white halo on the text in dark mode. Height/padding/radius/
+               font come from the shared button rule above. */
+            .driver-popover.corex-tour .corex-tour-close,
             .driver-popover.corex-tour .corex-tour-close:hover {
+                background: var(--surface-2, #f1f5f9);
                 color: var(--text-secondary, #475569);
-                border-color: var(--text-muted, #9ca3af);
+                border: 0;
+                text-shadow: none;
+                text-decoration: none;
             }
+
             /* ── Header launcher button ─────────────────────────────────────
                The "?" lives ONLY in a page header's action group, dropped into
                #tour-launcher-slot by the engine. It never floats: it stays
@@ -216,6 +221,15 @@
                 }
             },
 
+            // Theme-aware spotlight overlay: a dark veil reads well over the light
+            // UI, but over the dark theme it hides the highlighted boxes — so in
+            // dark mode flip to a grey overlay (the highlighted element becomes a
+            // dark island on a lighter field).
+            _overlayColor() {
+                const dark = document.documentElement.classList.contains('dark');
+                return dark ? 'rgba(149,151,153,0.96)' : 'rgba(3,6,12,0.93)';
+            },
+
             _runSetup() {
                 (this.tour.setup || []).forEach((s) => {
                     try {
@@ -274,7 +288,7 @@
                     // (injected below) or completing the last step.
                     allowClose: false,
                     animate: true,
-                    overlayColor: 'rgba(11,42,74,0.65)',
+                    overlayColor: this._overlayColor(),
                     stagePadding: 6,
                     stageRadius: 8,
                     popoverClass: 'corex-tour',

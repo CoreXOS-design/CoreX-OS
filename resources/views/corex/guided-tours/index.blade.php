@@ -11,17 +11,46 @@
         transform: translateY(-2px);
     }
 </style>
-<div class="w-full space-y-5">
+@php
+    // Searchable text per group, in the same order the directory renders, so the
+    // client-side filter can hide whole sections (and surface "no results")
+    // without a round-trip. Title + description, lower-cased.
+    $tourSearchIndex = $groups->map(fn ($tours, $name) => [
+        'name'  => $name,
+        'texts' => $tours->map(fn ($t) => mb_strtolower(trim(($t['title'] ?? '').' '.($t['description'] ?? ''))))->values(),
+    ])->values();
+@endphp
+<div class="w-full space-y-5"
+     x-data="{
+        q: '',
+        groups: {{ \Illuminate\Support\Js::from($tourSearchIndex) }},
+        norm(s) { return (s || '').toLowerCase().trim(); },
+        cardVisible(text) { const k = this.norm(this.q); return k === '' || this.norm(text).includes(k); },
+        groupVisible(texts) { const k = this.norm(this.q); return k === '' || texts.some(t => t.includes(k)); },
+        get anyVisible() { const k = this.norm(this.q); return k === '' || this.groups.some(g => g.texts.some(t => t.includes(k))); }
+     }">
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Guided Tours</h1>
                 <p class="text-sm text-white/60">
                     Short, interactive walkthroughs of CoreX — click one and it takes you to the screen and
                     walks you through it, step by step. Your own training, any time you need a refresher.
                 </p>
+            </div>
+
+            {{-- Search: filters cards and sections live as you type. --}}
+            <div class="relative w-full md:w-72 flex-shrink-0">
+                <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/50" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                <input type="search" x-model="q"
+                       placeholder="Search tours…"
+                       aria-label="Search tours"
+                       class="w-full rounded-md border-0 pl-9 pr-3 py-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2"
+                       style="background: rgba(255,255,255,0.12); --tw-ring-color: var(--brand-button, #0ea5e9);">
             </div>
         </div>
     </div>
@@ -33,13 +62,15 @@
         </div>
     @else
         @foreach($groups as $groupName => $tours)
-        <section class="space-y-3">
+        <section class="space-y-3"
+                 x-show="groupVisible({{ \Illuminate\Support\Js::from($tours->map(fn ($t) => mb_strtolower(trim(($t['title'] ?? '').' '.($t['description'] ?? ''))))->values()) }})">
             <h2 class="text-xs font-bold uppercase tracking-widest pt-1" style="color: var(--text-muted);">
                 {{ $groupName }} <span style="opacity:0.6;">· {{ $tours->count() }}</span>
             </h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
             @foreach($tours as $tour)
                 <div class="corex-tour-card rounded-md p-5 flex flex-col h-full transition-all duration-300"
+                     x-show="cardVisible({{ \Illuminate\Support\Js::from(trim(($tour['title'] ?? '').' '.($tour['description'] ?? ''))) }})"
                      style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-start gap-3">
                         <span class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0"
@@ -85,6 +116,15 @@
             </div>
         </section>
         @endforeach
+
+        {{-- Shown only when a search term matches no tours. --}}
+        <div x-show="!anyVisible" x-cloak class="rounded-md p-8 text-center"
+             style="background: var(--surface); border: 1px solid var(--border);">
+            <p class="text-base font-semibold" style="color: var(--text-primary);">No tours match your search</p>
+            <p class="mt-1 text-sm" style="color: var(--text-secondary);">
+                Try a different keyword, or <button type="button" @click="q = ''" class="underline" style="color: var(--brand-button, #0ea5e9);">clear the search</button>.
+            </p>
+        </div>
     @endif
 
 </div>

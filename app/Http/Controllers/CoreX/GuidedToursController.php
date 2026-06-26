@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Support\Tours\TourRegistry;
 use Illuminate\Support\Facades\Route as RouteFacade;
+use Illuminate\Support\Str;
 
 /**
  * Guided Tours directory (AT-41) — the agent's self-serve training index.
@@ -25,7 +26,24 @@ class GuidedToursController extends Controller
         $user = auth()->user();
 
         $tours = collect(TourRegistry::all())
-            ->filter(fn ($tour) => TourRegistry::visibleTo($tour, $user))
+            ->filter(function ($tour) use ($user) {
+                // First honour any explicit `permission` the tour declares.
+                if (! TourRegistry::visibleTo($tour, $user)) {
+                    return false;
+                }
+
+                // System Owners see every tour (mirrors TourRegistry::visibleTo).
+                if (method_exists($user, 'isOwnerRole') && $user->isOwnerRole()) {
+                    return true;
+                }
+
+                // Then enforce the tour route's OWN access gate. The directory
+                // is the one place a tour is listed without first passing
+                // through its route's middleware, so a tour whose screen the
+                // user can't open (e.g. the Deal Register for an agent without
+                // deals_v2.view) must not appear here either.
+                return $this->userCanAccessRoute($tour['route'] ?? null, $user);
+            })
             ->map(function ($tour) {
                 // Resolve the launch URL safely. Routes that need parameters
                 // (e.g. the contact-scoped outreach composer) can't be linked
@@ -60,6 +78,46 @@ class GuidedToursController extends Controller
                 : array_search($group, static::GROUP_ORDER, true));
 
         return view('corex.guided-tours.index', ['groups' => $tours]);
+    }
+
+    /**
+     * Does this user satisfy every `permission:<key>` middleware on the tour's
+     * route? That middleware (App\Http\Middleware\CheckPermission) is CoreX's
+     * standard route gate — it aborts 403 unless $user->hasPermission($key).
+     * We replay the same check so the directory never lists a tour for a screen
+     * the user would be bounced out of. A tour with no resolvable route, or a
+     * route carrying no permission middleware, is treated as accessible (the
+     * route is its own gate, and there is none to fail).
+     */
+    private function userCanAccessRoute(?string $routeName, $user): bool
+    {
+        if (! $routeName || ! RouteFacade::has($routeName)) {
+            // No (or unresolvable) route — nothing to gate on. Visibility is
+            // then governed solely by the tour's explicit `permission` key,
+            // already checked above.
+            return true;
+        }
+
+        $route = RouteFacade::getRoutes()->getByName($routeName);
+        if (! $route) {
+            return true;
+        }
+
+        foreach ($route->gatherMiddleware() as $middleware) {
+            if (! is_string($middleware) || ! Str::startsWith($middleware, 'permission:')) {
+                continue;
+            }
+
+            // 'permission:deals_v2.view' → 'deals_v2.view' (CheckPermission
+            // takes a single key; ignore any trailing args defensively).
+            $key = Str::before(Str::after($middleware, 'permission:'), ',');
+
+            if (! (method_exists($user, 'hasPermission') && $user->hasPermission($key) === true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** Display order of the directory's category sections. */

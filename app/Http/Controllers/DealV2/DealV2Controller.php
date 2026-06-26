@@ -20,7 +20,12 @@ class DealV2Controller extends Controller
 
     public function index(Request $request)
     {
-        abort_unless(auth()->user()?->hasPermission('deals_v2.view'), 403);
+        // Gate on the umbrella access permission (same key the sidebar "Deal
+        // Register" link uses), NOT deals_v2.view. deals_v2.view is a scoped
+        // action permission that governs WHICH deals are visible; on its own it
+        // must not grant entry to the register when access_deal_register_v2 has
+        // been revoked for the role.
+        abort_unless(auth()->user()?->hasPermission('access_deal_register_v2'), 403);
 
         $query = DealV2::with(['property', 'listingAgent', 'branch'])
             ->visibleTo(auth()->user());
@@ -179,7 +184,9 @@ class DealV2Controller extends Controller
 
     public function show(DealV2 $deal)
     {
-        abort_unless(auth()->user()?->hasPermission('deals_v2.view'), 403);
+        // Same umbrella gate as index() — viewing a single deal is part of the
+        // register browsing surface, so it requires access_deal_register_v2.
+        abort_unless(auth()->user()?->hasPermission('access_deal_register_v2'), 403);
 
         $deal->load([
             'property',
