@@ -46,10 +46,14 @@ class Agency extends Model
     /**
      * Property24 syndication defaults (AT-101). The single source of truth for
      * the "current behaviour" fallback used everywhere the per-agency setting is
-     * unset: photo cap = 30, HTTP read timeout = 120s (job timeout derives as
+     * unset: photo cap = 150, HTTP read timeout = 120s (job timeout derives as
      * read + 60 = 180s). Migration column defaults are kept in lockstep.
+     *
+     * Photo default raised 30 → 150 after the AT-101 probe proved 150 photos
+     * round-trip in 21.7s on base64 — 5.5× under the 120s read timeout. See
+     * .ai/audits/2026-06-26-at101-photo-cap-probe.md.
      */
-    public const P24_DEFAULT_MAX_PHOTOS = 30;
+    public const P24_DEFAULT_MAX_PHOTOS = 150;
     public const P24_DEFAULT_HTTP_READ_TIMEOUT = 120;
 
     /** Configured P24 photo cap for this agency, falling back to the default. */
