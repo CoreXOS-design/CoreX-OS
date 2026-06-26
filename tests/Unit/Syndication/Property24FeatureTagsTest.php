@@ -215,4 +215,23 @@ class Property24FeatureTagsTest extends TestCase
         $this->assertContains('TiledFloors', $this->buildTags(['Tiled Floors']));
         $this->assertContains('Shower', $this->buildTags(['Shower']));
     }
+
+    /**
+     * AT-103 follow-up — "Air Conditioned" (the real CoreX feature label per
+     * config/property-spaces.php) now maps to the verbatim Tag enum member
+     * AirConditioningUnit. The Irrigation/Sprinkler pairings are deliberately
+     * HELD: the requested "Irrigation System"/"Sprinkler System" strings do not
+     * exist in the CoreX vocabulary (real strings are "Irrigation"/"Sprinklers"),
+     * so nothing is mapped for them until Johan confirms the CoreX side.
+     */
+    public function test_air_conditioned_maps_held_irrigation_sprinkler_do_not(): void
+    {
+        $this->assertContains('AirConditioningUnit', $this->buildTags(['Air Conditioned']));
+
+        // Held — not mapped (neither the requested nor the real CoreX strings).
+        $this->assertNotContains('Irrigationsystem', $this->buildTags(['Irrigation System']));
+        $this->assertNotContains('Irrigationsystem', $this->buildTags(['Irrigation']));
+        $this->assertNotContains('SprinklerSystem', $this->buildTags(['Sprinkler System']));
+        $this->assertNotContains('SprinklerSystem', $this->buildTags(['Sprinklers']));
+    }
 }

@@ -346,8 +346,16 @@ class Property24ListingMapper
         // bathroom / pool / floor / outdoor features. Excludes any feature already carried
         // by a dedicated propertyFeatures field (Carport/Secure/Underground/Visitors
         // Parking → parking{}, Landscaped/Garden Services → garden) per the rule above.
-        // Ambiguous pairings (Fibre, ADSL, Cable TV, Wi-Fi, Air Conditioned, Armed
-        // Response, Solar Panel, Inverter, …) are held for Johan — not guessed here.
+        // Ambiguous pairings (Fibre, ADSL, Cable TV, Wi-Fi, Armed Response, Solar
+        // Panel, Inverter, …) are held for Johan — not guessed here.
+        //
+        // AT-103 follow-up — P24 Tag member verified verbatim in Tag.enum AND the
+        // CoreX feature string confirmed in config/property-spaces.php: "Air
+        // Conditioned" is the real label (General + theProperty groups).
+        // NOTE: Irrigation/Sprinkler were also requested, but the real CoreX feature
+        // strings are "Irrigation" / "Sprinklers" (Garden group) — NOT "Irrigation
+        // System" / "Sprinkler System" — so they are HELD for Johan, not guessed.
+        'Air Conditioned' => 'AirConditioningUnit',
         'Auto Cleaning Equipment' => 'AutoCleaningEquipment',
         'Basin' => 'Basin',
         'Bath' => 'Bath',
