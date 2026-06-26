@@ -260,12 +260,16 @@ class Property24ListingMapper
             ];
         }
 
-        // Kitchens
+        // Kitchens — emit when there's a counted Kitchen space OR a global kitchen
+        // amenity that has a KitchensInfo field (so Coffee Machine / Sink /
+        // Dishwasher route to PropertyFeatures, not loose tags).
         $kitchens = $countSpaces('Kitchen');
-        if ($kitchens > 0) {
+        if ($kitchens > 0 || $hasFeature('Dishwasher', 'Coffee Machine', 'Sink')) {
             $features['kitchens'] = [
-                'kitchens'   => (int) $kitchens,
-                'dishwasher' => $hasFeature('Dishwasher'),
+                'kitchens'      => $kitchens > 0 ? (int) $kitchens : null,
+                'dishwasher'    => $hasFeature('Dishwasher'),
+                'coffeeMachine' => $hasFeature('Coffee Machine'),
+                'sink'          => $hasFeature('Sink'),
             ];
         }
 
@@ -414,32 +418,35 @@ class Property24ListingMapper
         'Wooden Floors' => 'WoodenFloors',
         'Zen Garden' => 'ZenGarden',
         'Zinc' => 'Zinc',
+        'Air Conditioned' => 'AirConditioningUnit',
     ];
 
     /**
-     * P24 Tag enum members that are "Shown when associated with a feature
-     * description: no" (per storage/p24_swagger.json components.schemas.Tag —
-     * Types: building options / property descriptive / lifestyle). These render
-     * ONLY as listing-level tags, so a GLOBAL feature mapping to one of these
-     * MUST be sent in the top-level `tags[]` array — it cannot live inside a
-     * featureTags[] feature description.
+     * CoreX GLOBAL feature labels that have a dedicated PropertyFeatures field
+     * (see buildPropertyFeatures()). Per the P24 contract
+     * (.ai/specs/p24-featuretags-contract.md), these populate the structured
+     * External Features / Building / Other Features sections via PropertyFeatures
+     * — so they MUST NOT also be emitted as a loose top-level tag[]. The
+     * top-level tags[] array carries ONLY mapped global features that have NO
+     * PropertyFeatures home (security/connectivity amenities, descriptive tags).
      *
-     * Every OTHER mapped tag ("Type: listing feature", feature-description=yes)
-     * is sent as a featureTags[] entry with featureType "Other" so P24 files it
-     * under "Other Features" instead of mis-bucketing it under "Rooms" (the
-     * bug: a loose listing-feature tag in tags[] surfaces under Rooms). This is
-     * the class-level rule — TVPort is not special-cased.
+     * Lower-cased. Keep in sync with the hasFeature() routes in
+     * buildPropertyFeatures(). This is the class-level routing boundary — no
+     * per-feature special-casing in buildTags().
      */
-    private const LISTING_ONLY_TAGS = [
-        'Sea',
-        'Zinc',
-        'GroundFloor',
-        'SingleStorey',
-        'Secondfloorandabove',
-        'TopFloor',
-        'GatedCommunity',
-        'SecurityComplex',
-        'SecurityEstate',
+    private const PROPERTY_FEATURE_LABELS = [
+        'adsl', 'backup battery', 'backup water', 'balcony', 'borehole',
+        'carport', 'coffee machine', 'communal pool', 'courtyard', 'dishwasher',
+        'double parking', 'fibre', 'flatlet', 'furnished', 'garden',
+        'garden services', 'gas geyser', 'generator', 'indoor pool', 'inverter',
+        'landscaped', 'near bus service', 'near train service', 'pet friendly',
+        'pets allowed', 'pets not allowed', 'pool', 'satellite dish',
+        'satellite internet', 'secure parking', 'shade net covered parking',
+        'single parking', 'single storey', 'sink', 'solar geyser',
+        'solar heating', 'solar panel', 'splash pool', 'standalone',
+        'street parking', 'tandem parking', 'triple parking',
+        'underground parking', 'unfurnished', 'visitors parking', 'water tank',
+        'wheelchair friendly',
     ];
 
     /**
@@ -471,37 +478,15 @@ class Property24ListingMapper
     ];
 
     /**
-     * Build the P24 `tags` array from the property's selected feature labels.
-     * Case-insensitive match against FEATURE_TAG_MAP; deduped; values are valid
-     * P24 Tag enum members only.
-     */
-    /**
-     * Top-level P24 `tags[]` = GLOBAL features that can ONLY render as listing
-     * tags (LISTING_ONLY_TAGS — building options / property descriptive /
-     * lifestyle, e.g. Sea View, Ground Floor). Global features that CAN be a
-     * feature description ("listing feature" type) are NOT returned here — they
-     * go to a featureTags[] "Other" entry via buildFeatureTags(), so P24 files
-     * them under "Other Features" rather than mis-rendering them under "Rooms".
+     * Top-level P24 `tags[]` per the contract (.ai/specs/p24-featuretags-contract.md):
+     * GLOBAL features that map to a P24 Tag enum member AND have NO
+     * PropertyFeatures field. Amenities WITH a PropertyFeatures field are routed
+     * there by buildPropertyFeatures() (External/Building/Other Features) and are
+     * excluded here so they never appear as a loose tag. Per-room features are NOT
+     * here either — they ride their room's featureTags[] entry. Case-insensitive
+     * match against FEATURE_TAG_MAP; deduped; valid Tag enum members only.
      */
     private function buildTags(Property $property): array
-    {
-        $listingOnly = array_flip(self::LISTING_ONLY_TAGS);
-        return array_values(array_filter(
-            $this->globalMappedTags($property),
-            fn ($tag) => isset($listingOnly[$tag])
-        ));
-    }
-
-    /**
-     * All GLOBAL (property-level) features resolved to their P24 Tag enum
-     * members, deduped. Sourcing from globalFeatures() keeps per-room-only
-     * features out (they belong to their named room). A feature set BOTH
-     * globally and on a room stays here AND on the room (decision A — no
-     * dedupe across buckets).
-     *
-     * @return string[]
-     */
-    private function globalMappedTags(Property $property): array
     {
         $feats = $this->globalFeatures($property);
         if (empty($feats)) {
@@ -513,10 +498,15 @@ class Property24ListingMapper
         foreach (self::FEATURE_TAG_MAP as $label => $tag) {
             $lookup[strtolower($label)] = $tag;
         }
+        $propertyFeatureLabels = array_flip(self::PROPERTY_FEATURE_LABELS);
 
         $tags = [];
         foreach ($feats as $feat) {
             $key = strtolower(trim((string) $feat));
+            // Amenities with a PropertyFeatures field are routed there, not here.
+            if (isset($propertyFeatureLabels[$key])) {
+                continue;
+            }
             if (isset($lookup[$key])) {
                 $tags[] = $lookup[$key];
             }
@@ -638,27 +628,29 @@ class Property24ListingMapper
                 // One named room per individual unit, with its own features.
                 foreach ($units as $u) {
                     $tags = $mapRoomFeatures($u['features'] ?? []);
-                    // BUG 1 — a room with no mapped features is pure noise on P24
+                    // A room with no mapped features is pure noise on P24
                     // ("Bedroom 1 → Bedroom 1"). Emit an entry ONLY when the room
                     // actually carries >=1 feature. The room count itself is already
                     // conveyed via propertyInfo (bedrooms/bathrooms/etc.).
                     if (empty($tags)) {
                         continue;
                     }
-                    $entry = ['featureType' => $featureType, 'tags' => $tags];
-                    $label = trim((string) ($u['label'] ?? ''));
-                    if ($label !== '') {
-                        $entry['description'] = $label;
-                    }
-                    $featureTags[] = $entry;
+                    // P24 labels the row from featureType ("Bedroom"). The unit
+                    // label ("Bedroom 1") is the ROOM NAME — putting it in
+                    // description duplicates the row label. Per the contract
+                    // description is feature-prose only, and units carry no prose
+                    // field, so description is omitted here.
+                    $featureTags[] = ['featureType' => $featureType, 'tags' => $tags];
                 }
             } else {
                 // Named room without per-unit detail (e.g. Lounge, Dining Room).
                 $tags = $mapRoomFeatures($sp['featuresAll'] ?? []);
                 if (empty($tags)) {
-                    continue; // BUG 1 — no features = no row
+                    continue; // no features = no row
                 }
                 $entry = ['featureType' => $featureType, 'tags' => $tags];
+                // description = genuine free-text/condition prose ONLY (never the
+                // room name). descriptionAll is the space-level prose field.
                 $desc = trim((string) ($sp['descriptionAll'] ?? ''));
                 if ($desc !== '') {
                     $entry['description'] = $desc;
@@ -667,21 +659,10 @@ class Property24ListingMapper
             }
         }
 
-        // BUG 2 — GLOBAL features that can render as a feature description
-        // ("listing feature" type) are emitted as a single featureTags[] entry
-        // with featureType "Other" so P24 files them under "Other Features",
-        // instead of a loose listing-feature tag in tags[] surfacing under
-        // "Rooms". Global tags that can ONLY be listing tags (LISTING_ONLY_TAGS)
-        // stay in top-level tags[] via buildTags(). Class-level — no TVPort
-        // special-casing.
-        $listingOnly = array_flip(self::LISTING_ONLY_TAGS);
-        $otherTags = array_values(array_filter(
-            $this->globalMappedTags($property),
-            fn ($tag) => !isset($listingOnly[$tag])
-        ));
-        if (!empty($otherTags)) {
-            $featureTags[] = ['featureType' => 'Other', 'tags' => $otherTags];
-        }
+        // NOTE: global amenities are NOT emitted as featureTags here. Those with a
+        // PropertyFeatures field go to buildPropertyFeatures() (External/Building/
+        // Other Features); those without go to top-level tags[] via buildTags().
+        // featureType "Other" is never sent — P24 renders it as a junk room row.
 
         if (!empty($skippedTags) || !empty($skippedSpaceTypes)) {
             // Logging is best-effort — it must never break the mapping (and the logger

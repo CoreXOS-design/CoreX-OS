@@ -36,17 +36,10 @@ class Property24FeatureTagsTest extends TestCase
         return $method->invoke(new Property24ListingMapper(), $property);
     }
 
-    /**
-     * The tags of the featureTags[] "Other" entry — where GLOBAL
-     * "listing feature" amenities now go so P24 files them under "Other
-     * Features" (not top-level tags[], which P24 mis-renders under "Rooms").
-     */
-    private function otherTags(array $features): array
+    /** The full PropertyFeatures payload for a flat global feature set. */
+    private function propertyFeatures(array $features): array
     {
-        $p = new Property();
-        $p->features_json = $features;
-        $other = collect($this->invoke('buildFeatureTags', $p))->firstWhere('featureType', 'Other');
-        return $other['tags'] ?? [];
+        return $this->buildPropertyFeatures($features);
     }
 
     public function test_fast_internet_does_not_imply_fibre_on_p24(): void
@@ -95,37 +88,32 @@ class Property24FeatureTagsTest extends TestCase
 
     public function test_sea_view_and_communal_braai_area_map_to_p24_tags(): void
     {
-        // Sea = "building options" (feature-description=no) → top-level tags[].
-        // Communal Braai Area = "listing feature" → featureTags[] "Other".
-        $this->assertContains('Sea', $this->buildTags(['Sea View', 'Communal Braai Area']));
-        $this->assertContains('Communalbraaiarea', $this->otherTags(['Sea View', 'Communal Braai Area']));
+        // Neither has a PropertyFeatures field → both land in top-level tags[].
+        $tags = $this->buildTags(['Sea View', 'Communal Braai Area']);
+        $this->assertContains('Sea', $tags);
+        $this->assertContains('Communalbraaiarea', $tags);
     }
 
     public function test_match_is_case_insensitive(): void
     {
-        $this->assertContains('Sea', $this->buildTags(['sea view', 'COMMUNAL BRAAI AREA']));
-        $this->assertContains('Communalbraaiarea', $this->otherTags(['sea view', 'COMMUNAL BRAAI AREA']));
+        $tags = $this->buildTags(['sea view', 'COMMUNAL BRAAI AREA']);
+        $this->assertContains('Sea', $tags);
+        $this->assertContains('Communalbraaiarea', $tags);
     }
 
     public function test_unknown_features_are_dropped_not_passed_through(): void
     {
-        // Sea is the only listing-only tag here; the unknown feature is dropped.
         $this->assertSame(['Sea'], $this->buildTags(['Sea View', 'Some Feature P24 Does Not Know']));
-        $this->assertSame([], $this->otherTags(['Sea View', 'Some Feature P24 Does Not Know']));
     }
 
     public function test_security_and_connectivity_features_map(): void
     {
-        // All three are "listing feature" type → featureTags[] "Other", NOT tags[].
-        $other = $this->otherTags(['Alarm System', 'CCTV', 'Fibre Port Typo', 'TV Port']);
+        // Security/connectivity amenities have NO PropertyFeatures field → top-level tags[].
+        $tags = $this->buildTags(['Alarm System', 'CCTV', 'Fibre Port Typo', 'TV Port']);
 
-        $this->assertContains('AlarmSystem', $other);
-        $this->assertContains('ClosedCircuitTV', $other);
-        $this->assertContains('TVPort', $other);
-        // …and none of them leak into the top-level tags[] (the "Rooms" bug).
-        $tags = $this->buildTags(['Alarm System', 'CCTV', 'TV Port']);
-        $this->assertNotContains('TVPort', $tags);
-        $this->assertNotContains('AlarmSystem', $tags);
+        $this->assertContains('AlarmSystem', $tags);
+        $this->assertContains('ClosedCircuitTV', $tags);
+        $this->assertContains('TVPort', $tags);
     }
 
     public function test_empty_or_missing_features_returns_empty_array(): void
@@ -154,8 +142,8 @@ class Property24FeatureTagsTest extends TestCase
         return $m->invoke($this->mapper(), $p);
     }
 
-    /** A feature ONLY on a room must not appear in tags[] NOR the global "Other" bucket. */
-    public function test_room_only_mapped_feature_is_excluded_from_global_buckets(): void
+    /** A room-only feature attaches to its room; global amenities (no PF field) go to tags[]. */
+    public function test_room_only_feature_attaches_to_room_global_goes_to_tags(): void
     {
         $p = new Property();
         $p->spaces_json = [
@@ -167,41 +155,71 @@ class Property24FeatureTagsTest extends TestCase
         $p->features_json = ['Alarm System', 'Shower', 'Toilet'];
 
         $featureTags = $this->invoke('buildFeatureTags', $p);
-        $tags  = $this->invoke('buildTags', $p);
-        $other = collect($featureTags)->firstWhere('featureType', 'Other')['tags'] ?? [];
-        $bath1 = collect($featureTags)->firstWhere('description', 'Bathroom 1')['tags'] ?? [];
+        $tags = $this->invoke('buildTags', $p);
+        $bath = collect($featureTags)->firstWhere('featureType', 'Bathroom')['tags'] ?? [];
 
-        $this->assertContains('AlarmSystem', $other);     // global listing-feature → Other
-        $this->assertNotContains('AlarmSystem', $tags);   // not loose in tags[]
-        $this->assertNotContains('Shower', $other);       // room-only never global
-        $this->assertNotContains('Toilet', $other);
-        $this->assertContains('Shower', $bath1);          // attaches to its room
-        $this->assertContains('Toilet', $bath1);
+        $this->assertContains('AlarmSystem', $tags);   // global, no PF field → top-level tags[]
+        $this->assertContains('Shower', $bath);        // room-only → its room
+        $this->assertContains('Toilet', $bath);
+        $this->assertNotContains('Shower', $tags);     // room-only never in tags[]
+        $this->assertNotContains('Toilet', $tags);
     }
 
-    /** Decision A: a feature set BOTH globally and on a room appears under Other AND its room. */
-    public function test_both_global_and_room_feature_appears_in_both_buckets(): void
+    /** No featureType:"Other" entry is ever emitted (it renders as a junk room on P24). */
+    public function test_no_other_featuretype_is_ever_emitted(): void
     {
         $p = new Property();
         $p->spaces_json = [
-            'features' => ['connectivity' => ['TV Port']], // global
+            'features' => ['connectivity' => ['TV Port'], 'security' => ['Alarm System']],
             'spaces'   => [['type' => 'Bedroom', 'count' => 1, 'units' => [
-                ['label' => 'Bedroom 1', 'features' => ['TV Port']], // also per-room
+                ['label' => 'Bedroom 1', 'features' => ['TV Port', 'Tiled Floors']],
             ]]],
         ];
-        $p->features_json = ['TV Port'];
+        $p->features_json = ['TV Port', 'Alarm System'];
 
+        $types = collect($this->invoke('buildFeatureTags', $p))->pluck('featureType')->all();
+        $this->assertNotContains('Other', $types);
+
+        // The global amenities land in top-level tags[] instead.
         $tags = $this->invoke('buildTags', $p);
-        $featureTags = $this->invoke('buildFeatureTags', $p);
-        $other = collect($featureTags)->firstWhere('featureType', 'Other')['tags'] ?? [];
-        $bed1  = collect($featureTags)->firstWhere('description', 'Bedroom 1')['tags'] ?? [];
-
-        $this->assertNotContains('TVPort', $tags);  // NOT loose in tags[] (would show under Rooms)
-        $this->assertContains('TVPort', $other);    // global → Other Features
-        $this->assertContains('TVPort', $bed1);     // and attaches to the room
+        $this->assertContains('TVPort', $tags);
+        $this->assertContains('AlarmSystem', $tags);
+        // And the per-room TV Port still attaches to its room.
+        $bed = collect($this->invoke('buildFeatureTags', $p))->firstWhere('featureType', 'Bedroom')['tags'] ?? [];
+        $this->assertContains('TVPort', $bed);
     }
 
-    /** BUG 1 — a room with NO mapped features is suppressed (no "Bedroom 1 = Bedroom 1" noise). */
+    /** The room NAME must never be sent in featureTags description (P24 labels from featureType). */
+    public function test_room_name_is_not_sent_as_description(): void
+    {
+        $p = new Property();
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Bedroom', 'count' => 1, 'units' => [
+                ['label' => 'Bedroom 1', 'features' => ['Tiled Floors']],
+            ]],
+        ]];
+        $p->features_json = [];
+
+        $entry = collect($this->invoke('buildFeatureTags', $p))->firstWhere('featureType', 'Bedroom');
+        // Per-unit rooms carry no prose field → description omitted entirely.
+        $this->assertArrayNotHasKey('description', $entry);
+        $this->assertSame(['TiledFloors'], $entry['tags']);
+    }
+
+    /** Space-level prose (descriptionAll) IS kept as description (it is genuine prose, not a name). */
+    public function test_space_level_prose_is_kept_as_description(): void
+    {
+        $p = new Property();
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Lounge', 'count' => 1, 'featuresAll' => ['Tiled Floors'], 'descriptionAll' => 'Open-plan, north facing'],
+        ]];
+        $p->features_json = [];
+
+        $entry = collect($this->invoke('buildFeatureTags', $p))->firstWhere('featureType', 'Lounge');
+        $this->assertSame('Open-plan, north facing', $entry['description']);
+    }
+
+    /** A room with NO mapped features is suppressed (no "Bedroom 1 = Bedroom 1" noise). */
     public function test_empty_rooms_are_not_emitted(): void
     {
         $p = new Property();
@@ -215,11 +233,9 @@ class Property24FeatureTagsTest extends TestCase
         $p->features_json = [];
 
         $featureTags = $this->invoke('buildFeatureTags', $p);
-        $descriptions = collect($featureTags)->pluck('description')->filter()->all();
 
-        $this->assertContains('Bedroom 1', $descriptions);       // kept (has a feature)
-        $this->assertNotContains('Bedroom 2', $descriptions);    // suppressed (empty)
-        // Every emitted entry carries at least one tag.
+        // Exactly one entry (Bedroom 1); every entry carries >=1 tag.
+        $this->assertCount(1, $featureTags);
         foreach ($featureTags as $entry) {
             $this->assertNotEmpty($entry['tags'] ?? [], 'featureTags entry must have >=1 tag');
         }
@@ -243,26 +259,41 @@ class Property24FeatureTagsTest extends TestCase
         $this->assertNotContains('Patio', $types); // unmapped space type skipped
     }
 
-    /** Legacy properties (no spaces_json): listing-only tags → tags[], the rest → Other. */
-    public function test_legacy_without_spaces_json_splits_global_features(): void
+    /** Legacy properties (no spaces_json): global mapped features with no PF field → tags[]. */
+    public function test_legacy_without_spaces_json_routes_to_tags(): void
     {
         $p = new Property();
-        $p->features_json = ['Sea View', 'Electric Gate']; // no spaces_json
+        $p->features_json = ['Sea View', 'Electric Gate']; // no spaces_json, no PF field
 
-        $tags  = $this->invoke('buildTags', $p);
-        $other = collect($this->invoke('buildFeatureTags', $p))->firstWhere('featureType', 'Other')['tags'] ?? [];
+        $tags = $this->invoke('buildTags', $p);
 
-        $this->assertContains('Sea', $tags);            // building options → tags[]
-        $this->assertNotContains('ElectricGate', $tags);
-        $this->assertContains('ElectricGate', $other);  // listing feature → Other
+        $this->assertContains('Sea', $tags);
+        $this->assertContains('ElectricGate', $tags);
     }
 
-    /** Coverage audit — a previously-unmapped CoreX feature now syndicates (under Other). */
+    /** Coverage audit — a previously-unmapped CoreX feature now syndicates (top-level tags[]). */
     public function test_newly_mapped_feature_now_syndicates(): void
     {
-        $this->assertContains('GraniteTops', $this->otherTags(['Granite Tops']));
-        $this->assertContains('TiledFloors', $this->otherTags(['Tiled Floors']));
-        $this->assertContains('Shower', $this->otherTags(['Shower']));
+        $this->assertContains('GraniteTops', $this->buildTags(['Granite Tops']));
+        $this->assertContains('TiledFloors', $this->buildTags(['Tiled Floors']));
+        $this->assertContains('Shower', $this->buildTags(['Shower']));
+        $this->assertContains('AirConditioningUnit', $this->buildTags(['Air Conditioned']));
+    }
+
+    /** Amenities WITH a PropertyFeatures field route there, NOT to loose tags[]. */
+    public function test_amenities_with_propertyfeatures_field_are_excluded_from_tags(): void
+    {
+        // Coffee Machine → kitchens.coffeeMachine; Backup Water → hasBackupWater;
+        // Generator → hasGenerator; Wheelchair Friendly → isWheelchairAccessible.
+        $pf = $this->propertyFeatures(['Coffee Machine', 'Backup Water', 'Generator', 'Wheelchair Friendly']);
+        $this->assertTrue($pf['kitchens']['coffeeMachine']);
+        $this->assertTrue($pf['hasBackupWater']);
+        $this->assertTrue($pf['hasGenerator']);
+        $this->assertTrue($pf['isWheelchairAccessible']);
+
+        // None of them leak into top-level tags[].
+        $tags = $this->buildTags(['Coffee Machine', 'Backup Water', 'Generator', 'Wheelchair Friendly']);
+        $this->assertSame([], $tags);
     }
 
     /** BUG 3 — syndication photos = the gallery the agent sees (gallery_images_json), not the merged set. */
