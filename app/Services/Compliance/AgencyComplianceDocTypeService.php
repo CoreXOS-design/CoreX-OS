@@ -66,6 +66,130 @@ class AgencyComplianceDocTypeService
         );
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // AT-105 — per-agency "Save To" destination config for the PDF Splitter.
+    // Property + Contact are two INDEPENDENT flags (tick either, both, or
+    // neither). Stored on the same per-agency pivot. NULL on either column
+    // means "use the grouping-derived default" so existing rows need no
+    // backfill and a new type just inherits a sensible destination.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Default destination for a document type, derived from its catalogue
+     * `grouping`. Contact-grouped types (fica, ids, por) default to the
+     * contact; everything else defaults to the property — which preserves the
+     * splitter's historical behaviour of filing every output to the property.
+     *
+     * @return array{property: bool, contact: bool}
+     */
+    public function defaultDestinationForGrouping(?string $grouping): array
+    {
+        if ($grouping === 'contact') {
+            return ['property' => false, 'contact' => true];
+        }
+
+        // property | shared | null | anything-unknown → property only.
+        return ['property' => true, 'contact' => false];
+    }
+
+    /**
+     * Resolve a stored row (nullable flags) over the grouping default.
+     *
+     * @return array{property: bool, contact: bool}
+     */
+    private function resolveDestination(?int $storedProperty, ?int $storedContact, ?string $grouping): array
+    {
+        $default = $this->defaultDestinationForGrouping($grouping);
+
+        return [
+            'property' => $storedProperty === null ? $default['property'] : (bool) $storedProperty,
+            'contact'  => $storedContact  === null ? $default['contact']  : (bool) $storedContact,
+        ];
+    }
+
+    /**
+     * Effective destination map for the Settings screen, keyed by
+     * document_type_id. Covers every ACTIVE catalogue type, merging this
+     * agency's stored choice over the grouping default.
+     *
+     * @return array<int, array{property: bool, contact: bool}>
+     */
+    public function destinationMapFor(int $agencyId): array
+    {
+        $stored = DB::table('agency_document_type_compliance')
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->get(['document_type_id', 'save_to_property', 'save_to_contact'])
+            ->keyBy('document_type_id');
+
+        $types = DB::table('document_types')
+            ->whereNull('deleted_at')
+            ->where('is_active', true)
+            ->get(['id', 'grouping']);
+
+        $map = [];
+        foreach ($types as $type) {
+            $row = $stored->get($type->id);
+            $map[$type->id] = $this->resolveDestination(
+                $row->save_to_property ?? null,
+                $row->save_to_contact ?? null,
+                $type->grouping,
+            );
+        }
+
+        return $map;
+    }
+
+    /**
+     * Effective destination for one document type, keyed by its slug. Used by
+     * the splitter, which knows each output's slug from the filename. Unknown
+     * slugs fall back to the property (no-orphan default).
+     *
+     * @return array{property: bool, contact: bool}
+     */
+    public function destinationForSlug(int $agencyId, string $slug): array
+    {
+        $type = DB::table('document_types')
+            ->where('slug', $slug)
+            ->whereNull('deleted_at')
+            ->first(['id', 'grouping']);
+
+        if (! $type) {
+            return ['property' => true, 'contact' => false];
+        }
+
+        $row = DB::table('agency_document_type_compliance')
+            ->where('agency_id', $agencyId)
+            ->where('document_type_id', $type->id)
+            ->whereNull('deleted_at')
+            ->first(['save_to_property', 'save_to_contact']);
+
+        return $this->resolveDestination(
+            $row->save_to_property ?? null,
+            $row->save_to_contact ?? null,
+            $type->grouping,
+        );
+    }
+
+    /**
+     * Persist this agency's explicit "Save To" choice for one type. Stored
+     * alongside the compliance flag on the same pivot row; updateOrInsert
+     * restores a soft-deleted row and never re-seeds over a deliberate choice.
+     */
+    public function setDestination(int $agencyId, int $documentTypeId, bool $property, bool $contact): void
+    {
+        DB::table('agency_document_type_compliance')->updateOrInsert(
+            ['agency_id' => $agencyId, 'document_type_id' => $documentTypeId],
+            [
+                'save_to_property' => $property,
+                'save_to_contact'  => $contact,
+                'deleted_at'       => null,
+                'updated_at'       => now(),
+                'created_at'       => DB::raw('COALESCE(created_at, NOW())'),
+            ],
+        );
+    }
+
     /**
      * Seed default required types for an agency that has NEVER been
      * initialised (no rows at all, including soft-deleted). Idempotent and

@@ -172,6 +172,8 @@ CREATE TABLE `agencies` (
   `p24_password` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `p24_user_group_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `p24_max_photos` smallint unsigned DEFAULT '30',
+  `p24_http_read_timeout` smallint unsigned DEFAULT '120',
   `p24_locations_synced_at` timestamp NULL DEFAULT NULL,
   `p24_last_sync_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `pp_enabled` tinyint(1) NOT NULL DEFAULT '0',
@@ -509,6 +511,8 @@ CREATE TABLE `agency_document_type_compliance` (
   `agency_id` bigint unsigned NOT NULL,
   `document_type_id` bigint unsigned NOT NULL,
   `is_compliance_required` tinyint(1) NOT NULL DEFAULT '0',
+  `save_to_property` tinyint(1) DEFAULT NULL,
+  `save_to_contact` tinyint(1) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -6580,6 +6584,7 @@ CREATE TABLE `p24_syndication_logs` (
   `request_payload` json DEFAULT NULL,
   `response_payload` json DEFAULT NULL,
   `status_code` smallint DEFAULT NULL,
+  `round_trip_ms` int unsigned DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `p24_logs_property_created_idx` (`property_id`,`created_at`),
@@ -12182,3 +12187,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (877,'2026_07_05_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (878,'2026_07_05_000003_add_portal_lead_auto_seed_to_agency_contact_settings',171);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (879,'2026_07_06_000001_create_agency_map_settings_table',172);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (880,'2026_07_06_000002_add_centroid_to_p24_suburbs_table',173);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (881,'2026_06_26_160000_add_p24_photo_cap_and_timeout_settings',174);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (882,'2026_06_26_160000_add_destination_flags_to_agency_document_type_compliance',175);

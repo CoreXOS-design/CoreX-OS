@@ -141,6 +141,22 @@
             </div>
         @endif
 
+        {{-- AT-105 — FICA verification kicked off from the split pack --}}
+        @if(session('splitter_fica_url'))
+            <div class="alert-success" style="border-left: 3px solid #8b5cf6;">
+                Wet-ink FICA verification started for
+                <strong>{{ session('splitter_fica_contact') ?: 'the seller/owner' }}</strong>
+                with the FICA documents from this pack.
+                <a href="{{ session('splitter_fica_url') }}" style="text-decoration: underline; font-weight: 600;">
+                    Open the FICA verification to finish &rarr;
+                </a>
+            </div>
+        @elseif(session('splitter_fica_note'))
+            <div class="alert-error">
+                {{ session('splitter_fica_note') }}
+            </div>
+        @endif
+
         {{-- Validation errors --}}
         @if($errors->any())
             <div class="alert-error">

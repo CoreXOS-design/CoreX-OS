@@ -127,6 +127,9 @@
                                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Label</th>
                                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Slug</th>
                                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Listing Type</th>
+                                        <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-40" style="color: var(--text-muted);">
+                                            <span class="cursor-help" title="When the PDF Splitter files a document of this type, save it to the property record, the linked seller/owner contact, or both. Tick either or both. Applies to this agency only.">Save To &#9432;</span>
+                                        </th>
                                         <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-24" style="color: var(--text-muted);">Active</th>
                                         <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-32" style="color: var(--text-muted);">
                                             <span class="cursor-help" title="When ticked, a property cannot be marketed until at least one document of this type is on its Drive. Applies to this agency only. Photos and listing details are always required.">Compliance required &#9432;</span>
@@ -189,6 +192,25 @@
                                                         <span>For Rent</span>
                                                     </label>
                                                 </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            @php $dest = $destinationMap[$t->id] ?? ['property' => true, 'contact' => false]; @endphp
+                                            <div class="flex items-center justify-center gap-3">
+                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-secondary);"
+                                                       title="Save a {{ $t->label }} to the property's Drive.">
+                                                    <input type="checkbox" name="types[{{ $i }}][save_to_property]" value="1"
+                                                           {{ $dest['property'] ? 'checked' : '' }}
+                                                           class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--brand-icon);">
+                                                    Property
+                                                </label>
+                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-secondary);"
+                                                       title="Save a {{ $t->label }} to the linked seller/owner contact.">
+                                                    <input type="checkbox" name="types[{{ $i }}][save_to_contact]" value="1"
+                                                           {{ $dest['contact'] ? 'checked' : '' }}
+                                                           class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--ds-green);">
+                                                    Contact
+                                                </label>
                                             </div>
                                         </td>
                                         <td class="px-4 py-3 text-center">

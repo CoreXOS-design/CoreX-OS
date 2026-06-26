@@ -400,6 +400,39 @@ class Property extends Model
                     ->withTimestamps();
     }
 
+    /**
+     * AT-105 — the seller/owner-side contact for this property, used when the
+     * PDF Splitter files contact-destined documents (FICA, ID, Proof of
+     * Residence) and when pre-populating a wet-ink FICA verification.
+     *
+     * Priority: a contact whose pivot role is on the seller side
+     * (seller/owner/landlord/lessor — canon from BackfillContactPropertyRoles).
+     * Falls back to the sole linked contact when there is exactly one, so a
+     * property whose single contact has a NULL/odd role still resolves. Returns
+     * null when ambiguous (multiple contacts, none seller-side) — the caller
+     * then files to the property only (no orphan, no wrong guess).
+     */
+    public function sellerOwnerContact(): ?Contact
+    {
+        $contacts = $this->contacts()->get();
+
+        if ($contacts->isEmpty()) {
+            return null;
+        }
+
+        $sellerSide = ['seller', 'owner', 'landlord', 'lessor'];
+        $match = $contacts->first(function ($c) use ($sellerSide) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $sellerSide, true);
+        });
+
+        if ($match) {
+            return $match;
+        }
+
+        return $contacts->count() === 1 ? $contacts->first() : null;
+    }
+
     // ── Presentations V2 ──
 
     public function presentations(): HasMany

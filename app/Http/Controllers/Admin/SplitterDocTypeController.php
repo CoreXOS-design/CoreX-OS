@@ -30,7 +30,11 @@ class SplitterDocTypeController extends Controller
         }
         $complianceMap = $agencyId ? $this->compliance->complianceMapFor($agencyId) : [];
 
-        return view('admin.splitter.doc-types', compact('types', 'context', 'complianceMap'));
+        // AT-105 — effective per-agency "Save To" destinations, keyed by
+        // document_type_id (stored choice merged over the grouping default).
+        $destinationMap = $agencyId ? $this->compliance->destinationMapFor($agencyId) : [];
+
+        return view('admin.splitter.doc-types', compact('types', 'context', 'complianceMap', 'destinationMap'));
     }
 
     public function store(Request $request)
@@ -93,6 +97,8 @@ class SplitterDocTypeController extends Controller
             'types.*.listing_types'       => 'nullable|array',
             'types.*.listing_types.*'     => 'in:sale,rental',
             'types.*.compliance_required' => 'nullable',
+            'types.*.save_to_property'    => 'nullable',
+            'types.*.save_to_contact'     => 'nullable',
         ]);
 
         // Per-agency compliance flag target. An unchecked checkbox is simply
@@ -115,6 +121,13 @@ class SplitterDocTypeController extends Controller
             if ($agencyId) {
                 $required = filter_var($data['compliance_required'] ?? false, FILTER_VALIDATE_BOOLEAN);
                 $this->compliance->setRequired($agencyId, (int) $data['id'], $required);
+
+                // AT-105 — persist the per-agency "Save To" destination. An
+                // unchecked box is absent from the payload, so each flag is set
+                // explicitly true/false.
+                $saveToProperty = filter_var($data['save_to_property'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $saveToContact  = filter_var($data['save_to_contact'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $this->compliance->setDestination($agencyId, (int) $data['id'], $saveToProperty, $saveToContact);
             }
         }
 
