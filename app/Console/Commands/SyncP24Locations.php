@@ -11,6 +11,7 @@ use App\Services\Syndication\Property24\Property24ApiClient;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class SyncP24Locations extends Command
 {
@@ -24,15 +25,26 @@ class SyncP24Locations extends Command
 
     protected $signature = 'p24:sync-locations
                             {--agency= : Sync using a specific agency\'s P24 credentials (id)}
-                            {--country=South+Africa : Restrict sync to this country name}';
+                            {--country=South+Africa : Restrict sync to this country name}
+                            {--no-prune : Refresh/stamp only; do not soft-delete locations P24 no longer returns}';
 
-    protected $description = 'Pulls the P24 location tree (countries → provinces → cities → suburbs) into local cache tables.';
+    protected $description = 'Pulls the P24 location tree (countries → provinces → cities → suburbs) into local cache tables, stamping p24_verified_at and sweeping rows P24 no longer returns.';
 
     /** @var array<string,mixed> */
     private array $progress = [];
 
+    /**
+     * Captured BEFORE any stamping. Every row P24 returns this run is stamped
+     * `p24_verified_at = now()` (> this instant); the post-sync sweep prunes any
+     * row whose stamp is older (P24 stopped returning it). Strict "<" so rows
+     * touched during the run always survive.
+     */
+    private \Illuminate\Support\Carbon $runStart;
+
     public function handle(): int
     {
+        $this->runStart = now();
+
         $this->progress = [
             'status'           => 'running',
             'provinces_total'  => 0,
@@ -83,6 +95,13 @@ class SyncP24Locations extends Command
             return self::FAILURE;
         }
 
+        // Stamp-and-sweep: the full P24 walk above succeeded, so anything whose
+        // p24_verified_at is older than this run is a location P24 stopped
+        // returning — soft-delete it (guarded by a sanity floor below).
+        if (!$this->option('no-prune')) {
+            $this->pruneStale();
+        }
+
         if ($agency) {
             $agency->forceFill([
                 'p24_locations_synced_at' => now(),
@@ -102,6 +121,99 @@ class SyncP24Locations extends Command
     private function writeProgress(): void
     {
         Cache::put(self::PROGRESS_KEY, $this->progress, self::PROGRESS_TTL);
+    }
+
+    /**
+     * Soft-delete provinces/cities/suburbs P24 did not return in this run
+     * (p24_verified_at older than runStart), and remediate any property pinned
+     * to a pruned location. Suburbs first (the routing-critical tier), then
+     * cities, then provinces.
+     *
+     * Safety floor: skip the sweep entirely if this run re-stamped fewer than
+     * half the rows that currently exist in a tier — that signals a partial /
+     * shrunken P24 response, and we will not let an API blip wipe the tree. The
+     * next healthy run prunes normally.
+     */
+    /**
+     * Absolute minimum rows P24 must have returned this run before we trust the
+     * response enough to sweep. These guard a truncated / empty / auth-broken
+     * P24 reply (the danger case) — NOT a ratio against the current table, which
+     * is deliberately bloated with stale rows the first sweep is meant to clear
+     * (a ratio floor would refuse that legitimate cleanup forever). The full
+     * walk also aborts on ANY fetch error before reaching here, so a partial
+     * tree only slips through if P24 returns success with a short list — which
+     * these floors catch. Healthy SA tree: ~9 provinces, hundreds of cities,
+     * tens of thousands of suburbs.
+     */
+    private const SWEEP_MIN_PROVINCES = 5;
+    private const SWEEP_MIN_CITIES    = 50;
+    private const SWEEP_MIN_SUBURBS   = 3000;
+
+    private function pruneStale(): void
+    {
+        $provDone = (int) ($this->progress['provinces_done'] ?? 0);
+        $cityDone = (int) ($this->progress['cities_done'] ?? 0);
+        $subDone  = (int) ($this->progress['suburbs_done'] ?? 0);
+
+        if ($provDone < self::SWEEP_MIN_PROVINCES
+            || $cityDone < self::SWEEP_MIN_CITIES
+            || $subDone < self::SWEEP_MIN_SUBURBS) {
+            $this->progress['prune_skipped'] = true;
+            $this->writeProgress();
+            $this->warn(sprintf(
+                'Sweep skipped (sanity floor): P24 returned only P/C/S = %d/%d/%d (need ≥ %d/%d/%d). Tree left intact.',
+                $provDone, $cityDone, $subDone,
+                self::SWEEP_MIN_PROVINCES, self::SWEEP_MIN_CITIES, self::SWEEP_MIN_SUBURBS
+            ));
+            return;
+        }
+
+        // --- Suburbs: remediate dependent properties, then soft-delete. ---
+        $staleSuburbIds = P24Suburb::query()
+            ->where(fn ($q) => $q->where('p24_verified_at', '<', $this->runStart)->orWhereNull('p24_verified_at'))
+            ->pluck('id');
+
+        $propsRemediated = 0;
+        if ($staleSuburbIds->isNotEmpty()) {
+            $propUpdate = ['p24_suburb_id' => null, 'p24_city_id' => null, 'p24_province_id' => null];
+            if (Schema::hasColumn('properties', 'p24_suburb_mismatch')) {
+                $propUpdate['p24_suburb_mismatch'] = 1;
+            }
+            $propsRemediated = DB::table('properties')
+                ->whereIn('p24_suburb_id', $staleSuburbIds)
+                ->update($propUpdate);
+
+            P24Suburb::whereIn('id', $staleSuburbIds)->delete();
+        }
+
+        // --- Cities: null any property still pinned to a pruned city, then soft-delete. ---
+        $staleCityIds = P24City::query()
+            ->where(fn ($q) => $q->where('p24_verified_at', '<', $this->runStart)->orWhereNull('p24_verified_at'))
+            ->pluck('id');
+        if ($staleCityIds->isNotEmpty()) {
+            DB::table('properties')->whereIn('p24_city_id', $staleCityIds)->update(['p24_city_id' => null]);
+            P24City::whereIn('id', $staleCityIds)->delete();
+        }
+
+        // --- Provinces. ---
+        $staleProvinceIds = P24Province::query()
+            ->where(fn ($q) => $q->where('p24_verified_at', '<', $this->runStart)->orWhereNull('p24_verified_at'))
+            ->pluck('id');
+        if ($staleProvinceIds->isNotEmpty()) {
+            DB::table('properties')->whereIn('p24_province_id', $staleProvinceIds)->update(['p24_province_id' => null]);
+            P24Province::whereIn('id', $staleProvinceIds)->delete();
+        }
+
+        $this->progress['pruned_suburbs']   = $staleSuburbIds->count();
+        $this->progress['pruned_cities']    = $staleCityIds->count();
+        $this->progress['pruned_provinces'] = $staleProvinceIds->count();
+        $this->progress['props_remediated'] = $propsRemediated;
+        $this->writeProgress();
+
+        $this->info(sprintf(
+            'Swept stale P24 locations — provinces:%d cities:%d suburbs:%d (properties remediated:%d).',
+            $staleProvinceIds->count(), $staleCityIds->count(), $staleSuburbIds->count(), $propsRemediated
+        ));
     }
 
     private function syncTree(?Agency $agency): void
@@ -146,9 +258,14 @@ class SyncP24Locations extends Command
                 $ppid  = $p['Id'] ?? $p['id'] ?? null;
                 if (!$pname || !$ppid) continue;
 
-                $province = P24Province::updateOrCreate(
+                $province = P24Province::withTrashed()->updateOrCreate(
                     ['p24_id' => $ppid],
-                    ['name' => $pname, 'p24_country_id' => $country->id]
+                    [
+                        'name'            => $pname,
+                        'p24_country_id'  => $country->id,
+                        'p24_verified_at' => now(),
+                        'deleted_at'      => null,
+                    ]
                 );
 
                 $this->progress['current'] = $province->name;
@@ -174,9 +291,14 @@ class SyncP24Locations extends Command
             $pid  = $c['Id'] ?? $c['id'] ?? null;
             if (!$name || !$pid) continue;
 
-            $city = P24City::updateOrCreate(
+            $city = P24City::withTrashed()->updateOrCreate(
                 ['p24_id' => $pid],
-                ['name' => $name, 'p24_province_id' => $province->id]
+                [
+                    'name'            => $name,
+                    'p24_province_id' => $province->id,
+                    'p24_verified_at' => now(),
+                    'deleted_at'      => null,
+                ]
             );
 
             $this->progress['cities_done'] = ($this->progress['cities_done'] ?? 0) + 1;

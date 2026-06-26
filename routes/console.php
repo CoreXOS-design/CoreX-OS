@@ -32,6 +32,13 @@ Artisan::command('rentals:test-inclusion {branchId} {periodStart} {periodEnd}', 
 // P24 alert email import — runs hourly
 Schedule::command('p24:import')->hourly();
 
+// P24 location tree (provinces → cities → suburbs) — daily full refresh +
+// stamp-and-sweep at 11:00. Keeps p24_verified_at current on everything P24
+// returns and soft-deletes anything it no longer returns, so the location tree
+// can never drift stale (AT-105/AT-106). withoutOverlapping guards the ~minutes
+// -long walk against a slow run still in progress.
+Schedule::command('p24:sync-locations')->dailyAt('11:00')->withoutOverlapping();
+
 // Article pool scraper — runs daily
 Schedule::command('articles:scrape')->daily();
 
@@ -177,8 +184,9 @@ Schedule::command('matches:recompute')->dailyAt('04:30')->onOneServer()->without
 Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
 
-// P24 location tree sync — monthly on the 1st at 02:00
-Schedule::command('p24:sync-locations')->monthlyOn(1, '02:00')->withoutOverlapping();
+// (P24 location tree now refreshes DAILY at 11:00 with stamp-and-sweep — see
+// the schedule near the top of this file. The old monthly entry was removed as
+// the daily run supersedes it.)
 
 // P24 agent-list cache warm — nightly at 22:00 SAST. P24's GET /agencies/{id}/agents
 // takes ~90s; warming it off-hours keeps manual Refresh / agent sync fast (~7s) all

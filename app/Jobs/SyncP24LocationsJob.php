@@ -40,7 +40,11 @@ class SyncP24LocationsJob implements ShouldQueue
     {
         $args = [];
         if ($this->agencyId) {
-            $args['--agency'] = $this->agencyId;
+            // Agency-scoped run: refresh/stamp only. Pruning the GLOBAL location
+            // tree on one agency's P24 view is left to the authoritative daily
+            // run (routes/console.php). The command's sanity floor backstops this.
+            $args['--agency']   = $this->agencyId;
+            $args['--no-prune'] = true;
         }
         Artisan::call('p24:sync-locations', $args);
     }
