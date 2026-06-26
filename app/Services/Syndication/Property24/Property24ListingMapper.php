@@ -4,11 +4,12 @@ namespace App\Services\Syndication\Property24;
 
 use App\Exceptions\Property24ConfigurationException;
 use App\Models\Agency;
+use App\Models\P24City;
+use App\Models\P24Province;
 use App\Models\P24Suburb;
 use App\Models\Property;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
 class Property24ListingMapper
 {
@@ -681,7 +682,7 @@ class Property24ListingMapper
         $errors = [];
         if (empty($payload['agencyId'])) $errors[] = 'No Property24 agency ID resolved — set it on the agency or branch.';
         if (empty($payload['description'])) $errors[] = 'Description is required';
-        if (empty($payload['propertyInfo']['suburbId'])) $errors[] = 'Suburb ID is required — map the suburb in P24 Suburb Settings';
+        if (empty($payload['propertyInfo']['suburbId'])) $errors[] = 'Suburb unmapped — manual P24 suburb mapping required. Pick a Property24-recognised suburb on the property (Province → City → Suburb), then re-syndicate.';
         if (empty($payload['propertyInfo']['propertyTypeId'])) $errors[] = 'Property type could not be mapped to a P24 type ID';
         return $errors;
     }
@@ -800,25 +801,154 @@ class Property24ListingMapper
         return null;
     }
 
+    /**
+     * Resolve the P24 numeric suburb ID (p24_suburbs.p24_id) to send in the
+     * payload. Order: trust the stored, chain-verified FK; then a name match
+     * that is DISAMBIGUATED BY CITY/PROVINCE and only ever accepted when it
+     * resolves to exactly ONE suburb. We never guess between same-named
+     * suburbs in different cities — returning null makes the caller skip
+     * syndication and flag the property for manual mapping (AT-104).
+     *
+     * Background (AT-104): "Glenmore" exists in P24 in both Durban (id 10787)
+     * and Port Edward / South Coast (id 10790). The previous resolver checked
+     * `pp_suburb_id` (a Private Property column that is NULL on every CoreX
+     * property, so the branch never fired) and then fell through to a bare
+     * `P24Suburb::lookup()->first()` with no city filter — sending the Durban
+     * Glenmore for every South Coast Glenmore. This rewrite kills that class
+     * of bug for all 30+ multi-city collision suburb names, not just Glenmore.
+     */
     private function resolveSuburbId(Property $property): ?int
     {
-        if ($property->pp_suburb_id) {
-            $suburb = P24Suburb::find($property->pp_suburb_id);
+        // TIER 1 — trust the stored, chain-verified P24 suburb FK. The property
+        // create/edit form and the wizard write `p24_suburb_id` only after
+        // AppliesP24Location has verified the suburb→city→province chain against
+        // P24's own hierarchy, so it is the authoritative mapping. NEVER fall
+        // through to name guessing when it is set — that is the bug we are fixing.
+        if ($property->p24_suburb_id) {
+            $suburb = P24Suburb::find($property->p24_suburb_id);
             if ($suburb && $suburb->p24_id) return (int) $suburb->p24_id;
         }
+
         if (!$property->suburb) return null;
 
-        // 1. Exact/slug match
-        $suburb = P24Suburb::lookup($property->suburb);
-        if ($suburb && $suburb->p24_id) return (int) $suburb->p24_id;
+        // TIER 2 — exact name match, disambiguated by city/province, unique-only.
+        $exact = $this->resolveUniqueLocalSuburb($property, false);
+        if ($exact && $exact->p24_id) return (int) $exact->p24_id;
 
-        // 2. Fuzzy match against existing p24_suburbs (handles trailing "Beach", punctuation,
-        //    extra whitespace, etc. — avoids a P24 roundtrip for suburbs we already have).
-        $fuzzy = $this->fuzzyLocalMatch((string) $property->suburb);
+        // TIER 3 — fuzzy name match (handles trailing "Beach", punctuation, extra
+        //          whitespace, …), same city/province constraint, same unique rule.
+        $fuzzy = $this->resolveUniqueLocalSuburb($property, true);
         if ($fuzzy && $fuzzy->p24_id) return (int) $fuzzy->p24_id;
 
-        // 3. Auto-resolve via P24 API — creates/updates a P24Suburb row on success.
-        return $this->autoResolveSuburbFromP24($property);
+        // TIER 4 — no unique, city-qualified match. Do NOT guess and do NOT fall
+        // back to a name-only API lookup (it would re-introduce the wrong-city
+        // bug). Return null so submitListing()'s validate() flags the property
+        // ("Suburb unmapped — manual P24 suburb mapping required") and skips it.
+        return null;
+    }
+
+    /**
+     * Resolve the property's suburb to exactly ONE P24Suburb row, disambiguated
+     * by city/province. Returns null when zero — or MORE THAN ONE — candidate
+     * survives, so we never guess between same-named suburbs in different
+     * cities. $fuzzy widens the name match from exact to LIKE.
+     */
+    private function resolveUniqueLocalSuburb(Property $property, bool $fuzzy): ?P24Suburb
+    {
+        $candidates = $this->suburbNameCandidates((string) $property->suburb, $fuzzy);
+        if ($candidates->isEmpty()) return null;
+        if ($candidates->count() === 1) return $candidates->first();
+
+        // Multiple same-named suburbs across cities — keep only those in a city
+        // this property could legitimately belong to.
+        $cityIds = $this->candidateCityIds($property);
+        if (empty($cityIds)) return null; // no city signal → cannot disambiguate
+
+        $filtered = $candidates->whereIn('p24_city_id', $cityIds)->values();
+        return $filtered->count() === 1 ? $filtered->first() : null;
+    }
+
+    /**
+     * Candidate P24Suburb rows whose name matches the given suburb name.
+     * Exact mode matches slug or case-insensitive name equality; fuzzy mode
+     * widens to a normalised LIKE both ways.
+     *
+     * @return \Illuminate\Support\Collection<int, P24Suburb>
+     */
+    private function suburbNameCandidates(string $suburbName, bool $fuzzy): \Illuminate\Support\Collection
+    {
+        $key = strtolower(trim($suburbName));
+        if ($key === '') return collect();
+
+        if (!$fuzzy) {
+            $slug = str_replace(' ', '-', $key);
+            return P24Suburb::where('slug', $slug)
+                ->orWhereRaw('LOWER(name) = ?', [$key])
+                ->get();
+        }
+
+        $normalised = strtolower(preg_replace('/[^a-z0-9 ]+/i', '', trim($suburbName)));
+        if ($normalised === '') return collect();
+
+        return P24Suburb::whereRaw('LOWER(name) LIKE ?', ['%' . $normalised . '%'])
+            ->orWhereRaw('? LIKE CONCAT(\'%\', LOWER(name), \'%\')', [$normalised])
+            ->get();
+    }
+
+    /**
+     * The set of P24 city IDs (p24_cities.id) this property could legitimately
+     * sit in, used to disambiguate collision suburb names. Trust order: the
+     * stored p24_city_id FK first, else the city/town text (province-constrained
+     * when the province is known). Empty array = no usable city signal.
+     *
+     * @return int[]
+     */
+    private function candidateCityIds(Property $property): array
+    {
+        if ($property->p24_city_id) {
+            return [(int) $property->p24_city_id];
+        }
+
+        $cityNames = array_values(array_unique(array_filter([
+            strtolower(trim((string) $property->city)),
+            strtolower(trim((string) $property->town)),
+        ], fn ($v) => $v !== '')));
+        if (empty($cityNames)) return [];
+
+        $query = P24City::query()->where(function ($q) use ($cityNames) {
+            foreach ($cityNames as $n) {
+                $q->orWhereRaw('LOWER(name) = ?', [$n]);
+            }
+        });
+
+        // Province narrows same-named cities to the right one when we know it.
+        $provinceId = $this->resolveProvinceId($property);
+        if ($provinceId) {
+            $query->where('p24_province_id', $provinceId);
+        }
+
+        return $query->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    /**
+     * Resolve the property's province to a p24_provinces.id. Trust the stored
+     * FK first; else match the province text after normalising both sides
+     * (P24 stores "KwaZulu Natal", CoreX often holds "KwaZulu-Natal"/"KZN").
+     */
+    private function resolveProvinceId(Property $property): ?int
+    {
+        if ($property->p24_province_id) return (int) $property->p24_province_id;
+
+        $name = $this->normaliseProvince($property->province);
+        if ($name === '') return null;
+
+        $key = preg_replace('/[^a-z0-9]+/i', '', strtolower($name));
+        foreach (P24Province::all() as $province) {
+            if (preg_replace('/[^a-z0-9]+/i', '', strtolower((string) $province->name)) === $key) {
+                return (int) $province->id;
+            }
+        }
+        return null;
     }
 
     private function normaliseProvince(?string $province): string
@@ -837,124 +967,6 @@ class Property24ListingMapper
             str_contains($p, 'free state')                => 'Free State',
             default                                        => ucwords($p),
         };
-    }
-
-    /**
-     * Loose match against p24_suburbs using LIKE on the normalised name.
-     * Returns the best single match or null.
-     */
-    private function fuzzyLocalMatch(string $suburbName): ?P24Suburb
-    {
-        $normalised = strtolower(preg_replace('/[^a-z0-9 ]+/i', '', trim($suburbName)));
-        if ($normalised === '') return null;
-
-        $candidates = P24Suburb::whereRaw('LOWER(name) LIKE ?', ['%' . $normalised . '%'])
-            ->orWhereRaw('? LIKE CONCAT(\'%\', LOWER(name), \'%\')', [$normalised])
-            ->limit(5)->get();
-
-        if ($candidates->isEmpty()) return null;
-
-        // Prefer the exact lowercase equality, else shortest name (most specific root token)
-        foreach ($candidates as $c) {
-            if (strtolower($c->name) === $normalised) return $c;
-        }
-        return $candidates->sortBy(fn ($c) => strlen($c->name))->first();
-    }
-
-    /**
-     * Look up the suburb on P24 (GET /suburbs/find) and cache the result in p24_suburbs.
-     * Falls back gracefully — returns null if P24 can't find it so the caller still
-     * surfaces the existing "Suburb not mapped" error.
-     */
-    private function autoResolveSuburbFromP24(Property $property): ?int
-    {
-        $suburbName = trim((string) $property->suburb);
-        if ($suburbName === '') return null;
-
-        $city     = trim((string) ($property->town ?? $property->city ?? ''));
-        $province = $this->normaliseProvince($property->province ?? '');
-
-        $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
-        $client = new Property24ApiClient($agency);
-
-        // Build province candidate list — if we know the province, try it first,
-        // then fall through ALL SA provinces so suburbs like Sandton (Gauteng)
-        // or Stellenbosch (Western Cape) resolve even when the property row
-        // doesn't have province set.
-        $allProvinces = [
-            'KwaZulu-Natal', 'Gauteng', 'Western Cape', 'Eastern Cape',
-            'Free State', 'Mpumalanga', 'Limpopo', 'North West', 'Northern Cape',
-        ];
-        $provinceCandidates = [];
-        if ($province !== '') $provinceCandidates[] = $province;
-        foreach ($allProvinces as $p) {
-            if (!in_array($p, $provinceCandidates, true)) $provinceCandidates[] = $p;
-        }
-
-        // Suburb-name variants
-        $nameVariants = [$suburbName];
-        $stripped = trim(preg_replace('/\b(beach|bay|park|heights|on sea)\b/i', '', $suburbName));
-        if ($stripped !== '' && strcasecmp($stripped, $suburbName) !== 0) {
-            $nameVariants[] = $stripped;
-        }
-
-        // Build attempt matrix: (name, city, province).
-        // Order: try city-qualified first for the known province, then
-        // drop city for all provinces to maximise chance of a hit.
-        $attempts = [];
-        if ($province !== '' && $city !== '') {
-            foreach ($nameVariants as $n) {
-                $attempts[] = ['name' => $n, 'city' => $city, 'province' => $province];
-            }
-        }
-        foreach ($provinceCandidates as $prov) {
-            foreach ($nameVariants as $n) {
-                // With suburb as its own cityName — common for small suburbs
-                $attempts[] = ['name' => $n, 'city' => $n, 'province' => $prov];
-                // And without city
-                $attempts[] = ['name' => $n, 'city' => '', 'province' => $prov];
-            }
-        }
-
-        $p24Id = null; $remote = null; $lastMsg = null;
-        foreach ($attempts as $a) {
-            try {
-                $result = $client->findSuburb($a['name'], $a['city'], $a['province']);
-            } catch (\Throwable $e) {
-                $lastMsg = $e->getMessage();
-                continue;
-            }
-            $lastMsg = $result['message'] ?? null;
-            if (!($result['success'] ?? false)) continue;
-
-            $data = $result['data'] ?? [];
-            $found = $data['found'] ?? ($data['Found'] ?? false);
-            $remote = $data['suburb'] ?? ($data['Suburb'] ?? null);
-            $id = $remote['id'] ?? ($remote['Id'] ?? null);
-            if ($found && $id) { $p24Id = (int) $id; break; }
-        }
-
-        if (!$p24Id) {
-            Log::channel('property24')->warning('auto suburb lookup exhausted', [
-                'suburb' => $suburbName, 'city' => $city, 'province' => $province, 'last' => $lastMsg,
-            ]);
-            return null;
-        }
-
-        $slug = Str::slug($suburbName);
-        P24Suburb::updateOrCreate(
-            ['slug' => $slug],
-            [
-                'name'      => $remote['name'] ?? $suburbName,
-                'p24_id'    => (int) $p24Id,
-                'region'    => $remote['cityName'] ?? $city ?: null,
-                'confirmed' => true,
-            ]
-        );
-
-        Log::channel('property24')->info('auto-resolved suburb from P24', ['suburb' => $suburbName, 'p24_id' => (int) $p24Id]);
-
-        return (int) $p24Id;
     }
 
     /**
