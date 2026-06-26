@@ -165,6 +165,12 @@ class ContactMatchController extends Controller
 
         $match = ContactMatch::create($data);
 
+        // Part 1.5 — manual capture rides the SAME cascade as a portal lead: creating
+        // the ContactMatch auto-lands the buyer (ContactMatchObserver) and feeds MIC;
+        // we only tag the source so MIC demand stays attributable (manual vs portal).
+        app(\App\Services\Buyers\BuyerLeadCascadeService::class)
+            ->tagBuyerSource($contact, \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_MANUAL);
+
         return redirect()->route('corex.contacts.matches.results', [$contact, $match]);
     }
 

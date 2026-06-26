@@ -47,6 +47,8 @@ class ContactGovernanceController extends Controller
             'address_match_mode' => 'required|in:off,standard,strict',
             // Part 3 — warn an agent when they capture an address HFC already holds.
             'warn_on_held_address_capture' => 'nullable|boolean',
+            // Buyer loop — auto-seed a criteria-bearing buyer from a portal/listing lead.
+            'portal_lead_auto_seed_buyer' => 'nullable|boolean',
             'buyer_warm_days' => 'required|integer|min:1|max:365',
             'buyer_cold_days' => 'required|integer|min:1|max:365',
             'buyer_lost_days' => 'required|integer|min:1|max:730',
@@ -74,8 +76,11 @@ class ContactGovernanceController extends Controller
                 'consent_retention_years',
                 'access_log_retention_years',
             ]),
-            // Checkbox — absent when unticked, so resolve explicitly.
-            ['warn_on_held_address_capture' => $request->boolean('warn_on_held_address_capture')],
+            // Checkboxes — absent when unticked, so resolve explicitly.
+            [
+                'warn_on_held_address_capture' => $request->boolean('warn_on_held_address_capture'),
+                'portal_lead_auto_seed_buyer'  => $request->boolean('portal_lead_auto_seed_buyer'),
+            ],
         ));
 
         return back()->with('success', 'Contact governance settings saved.');

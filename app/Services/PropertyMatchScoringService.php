@@ -485,6 +485,8 @@ class PropertyMatchScoringService
                 'agency_id'              => $listing->agency_id,
                 'score'                  => $best['score'],
                 'tier'                   => $best['tier'],
+                // Part 6 — demand source from the buyer's entry origin (kept separable).
+                'source'                 => optional($matches->first()->contact)->buyer_source,
                 'matched_features'       => json_encode($best['breakdown']),
                 'missing_features'       => json_encode($best['missing_features']),
                 'matched_at'             => $now,
@@ -504,7 +506,7 @@ class PropertyMatchScoringService
             'prospecting_buyer_matches',
             $rows,
             ['prospecting_listing_id', 'contact_id'],
-            ['agency_id', 'score', 'tier', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
+            ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
         );
 
         return count($rows);
@@ -553,6 +555,8 @@ class PropertyMatchScoringService
                 'agency_id'              => $contact->agency_id,
                 'score'                  => $best['score'],
                 'tier'                   => $best['tier'],
+                // Part 6 — demand source from the buyer's entry origin (kept separable).
+                'source'                 => $contact->buyer_source,
                 'matched_features'       => json_encode($best['breakdown']),
                 'missing_features'       => json_encode($best['missing_features']),
                 'matched_at'             => $now,
@@ -572,7 +576,7 @@ class PropertyMatchScoringService
             'prospecting_buyer_matches',
             $rows,
             ['prospecting_listing_id', 'contact_id'],
-            ['agency_id', 'score', 'tier', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
+            ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
         );
 
         return count($rows);

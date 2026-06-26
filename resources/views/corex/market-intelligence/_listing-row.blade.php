@@ -24,7 +24,7 @@
 
 @php
     $state = $state ?? [];
-    $tiers = array_merge(['strong'=>0,'mid'=>0,'weak'=>0,'total'=>0,'top_score'=>null], $tiers ?? []);
+    $tiers = array_merge(['strong'=>0,'mid'=>0,'weak'=>0,'total'=>0,'top_score'=>null,'sources'=>['portal_lead'=>0,'other'=>0]], $tiers ?? []);
     $pitch = $state['pitch'] ?? null;
     $claim = $state['claim'] ?? null;
     $prospected = $state['prospected'] ?? null;
@@ -233,6 +233,16 @@
                     @if($tiers['mid'] > 0)<span style="color: var(--ds-amber, #f59e0b); margin-left: 4px;">●</span> {{ $tiers['mid'] }}@endif
                     @if(($tiers['top_score'] ?? null) !== null)<span style="margin-left: 5px; font-weight: 700; color: var(--text-secondary, #6b7280);">{{ $tiers['top_score'] }}%</span>@endif
                 </button>
+                {{-- Part 6 — source-tagged demand split (portal-lead buyers vs other),
+                     kept SEPARATE from the blended strong/mid figure above so you can
+                     always see where the demand was generated from. --}}
+                @php $srcDemand = $tiers['sources'] ?? ['portal_lead'=>0,'other'=>0]; @endphp
+                @if(($srcDemand['portal_lead'] ?? 0) > 0)
+                    <span style="margin-left: 5px; font-size: 0.625rem; font-weight: 600; color: var(--brand-icon, #0ea5e9);"
+                          title="Of these buyers, {{ $srcDemand['portal_lead'] }} came via a portal-lead enquiry and {{ $srcDemand['other'] ?? 0 }} from other sources — counted separately, never blended into one figure.">
+                        {{ $srcDemand['portal_lead'] }} via portal lead
+                    </span>
+                @endif
                 <span x-show="tooltip || loading" x-cloak
                       style="position: absolute; top: 100%; left: 0; margin-top: 4px; z-index: 20;
                              width: 280px; padding: 8px 10px; font-size: 0.6875rem; line-height: 1.4;

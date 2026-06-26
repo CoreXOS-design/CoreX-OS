@@ -205,6 +205,10 @@ class MobileContactController extends Controller
 
         $match = ContactMatch::create($data);
 
+        // Part 1.5 — manual (mobile) capture rides the SAME observer cascade; tag source.
+        app(\App\Services\Buyers\BuyerLeadCascadeService::class)
+            ->tagBuyerSource($contact, \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_MANUAL);
+
         return response()->json(['match' => $match], 201);
     }
 

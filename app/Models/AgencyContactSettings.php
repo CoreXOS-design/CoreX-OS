@@ -20,6 +20,7 @@ class AgencyContactSettings extends Model
         'duplicate_match_fields',
         'address_match_mode', // AT-60 — address-duplicate-guard aggressiveness (off|standard|strict)
         'warn_on_held_address_capture', // Part 3 — warn on capturing an address HFC already holds (default ON)
+        'portal_lead_auto_seed_buyer', // Buyer loop — auto-seed criteria-bearing buyer from a portal/listing lead (default ON)
         'buyer_warm_days',
         'buyer_cold_days',
         'buyer_lost_days',
@@ -40,6 +41,7 @@ class AgencyContactSettings extends Model
     protected $casts = [
         'duplicate_match_fields' => 'array',
         'warn_on_held_address_capture' => 'boolean',
+        'portal_lead_auto_seed_buyer' => 'boolean',
         'buyer_warm_days' => 'integer',
         'buyer_cold_days' => 'integer',
         'buyer_lost_days' => 'integer',
@@ -86,6 +88,7 @@ class AgencyContactSettings extends Model
                 'duplicate_match_fields' => ['phone', 'email', 'id_number'],
                 'address_match_mode' => 'standard',
                 'warn_on_held_address_capture' => true,
+                'portal_lead_auto_seed_buyer' => true,
                 'buyer_warm_days' => 14,
                 'buyer_cold_days' => 30,
                 'buyer_lost_days' => 60,
@@ -153,6 +156,15 @@ class AgencyContactSettings extends Model
     public function warnsOnHeldAddressCapture(): bool
     {
         return (bool) ($this->warn_on_held_address_capture ?? true);
+    }
+
+    /**
+     * Buyer loop — does a portal/listing lead auto-seed a criteria-bearing buyer
+     * (derived wishlist → pipeline landing → MIC demand)? Null-safe; defaults ON.
+     */
+    public function portalLeadAutoSeedBuyer(): bool
+    {
+        return (bool) ($this->portal_lead_auto_seed_buyer ?? true);
     }
 
     /** Clear the per-request min-countable cache (used after a settings change / in tests). */

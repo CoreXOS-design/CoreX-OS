@@ -47,6 +47,13 @@
             <span style="font-size: 0.625rem; font-weight: 700; color: {{ $tierColor }}; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, {{ $tierColor }} 12%, transparent);">
                 {{ $score }}%
             </span>
+            {{-- Part 6 — demand source tag (portal-lead buyers stay visibly distinct). --}}
+            @if(!empty($b->source_label))
+            <span style="font-size: 0.5625rem; font-weight: 600; color: var(--brand-icon, #0ea5e9); padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); white-space: nowrap;"
+                  title="How this buyer's demand entered CoreX. Portal-lead demand is counted separately from other sources, never blended.">
+                {{ $b->source_label }}
+            </span>
+            @endif
         </div>
         @if(!empty($wishlistBits))
         <div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">

@@ -48,7 +48,7 @@ class Contact extends Model
         'opt_out_email', 'opt_out_sms', 'opt_out_whatsapp', 'opt_out_call',
         'last_consent_check_at',
         'is_buyer', 'buyer_state', 'last_activity_at',
-        'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
+        'buyer_pipeline_entered_at', 'buyer_pipeline_notes', 'buyer_source',
         'preapproval_amount', 'preapproval_expires_at', 'preapproval_institution',
         'messaging_opt_out_at', 'messaging_opt_out_reason', 'messaging_opt_out_recorded_by_user_id', 'messaging_opt_out_source',
         'messaging_opt_out_kind', // AT-81 — declined | no_response sub-state

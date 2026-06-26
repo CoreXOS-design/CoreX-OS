@@ -91,7 +91,10 @@ class PpWebhookController extends Controller
     {
         [$first, $last] = $this->splitName($payload['leadName'] ?? '');
 
-        $leadTypeId   = ContactType::where('name', 'Lead')->value('id');
+        // Part 2 — unify portal tagging: a PP enquirer is a Buyer, same as P24
+        // (was tagged "Lead"). Falls back to "Lead" only if the Buyer type is absent.
+        $leadTypeId   = ContactType::where('name', 'Buyer')->value('id')
+                     ?? ContactType::where('name', 'Lead')->value('id');
         $leadSourceId = ContactSource::where('name', 'Private Property')->value('id');
 
         $note = trim(
@@ -101,11 +104,28 @@ class PpWebhookController extends Controller
             . "\n\n" . ($payload['leadMessage'] ?? '(no message)')
         );
 
+        // Part 4 — normalised match-or-create (PP previously minted a contact on EVERY
+        // webhook). Reuse the canonical ContactDuplicateService so "+27 76…" vs "076…"
+        // and case-different emails resolve to ONE contact instead of a duplicate buyer.
+        $email = $payload['leadEmail'] ?? null;
+        $phone = $payload['leadPhoneNumber'] ?? null;
+        if ($email || $phone) {
+            $existing = app(\App\Services\ContactDuplicateService::class)
+                ->findDuplicates(['email' => $email, 'phone' => $phone], (int) $property->agency_id)
+                ->first();
+            if ($existing) {
+                // Append the enquiry note; keep the existing owner/type. No duplicate.
+                $existing->notes = trim(($existing->notes ? $existing->notes . "\n\n" : '') . $note);
+                $existing->saveQuietly();
+                return $existing;
+            }
+        }
+
         return Contact::create([
             'first_name'         => $first,
             'last_name'          => $last,
-            'phone'              => $payload['leadPhoneNumber'] ?? null,
-            'email'              => $payload['leadEmail'] ?? null,
+            'phone'              => $phone,
+            'email'              => $email,
             'notes'              => $note,
             'contact_type_id'    => $leadTypeId,
             'contact_source_id'  => $leadSourceId,

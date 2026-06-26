@@ -438,6 +438,7 @@ CREATE TABLE `agency_contact_settings` (
   `duplicate_match_fields` json DEFAULT NULL,
   `address_match_mode` enum('off','standard','strict') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'standard',
   `warn_on_held_address_capture` tinyint(1) NOT NULL DEFAULT '1',
+  `portal_lead_auto_seed_buyer` tinyint(1) NOT NULL DEFAULT '1',
   `buyer_warm_days` int unsigned NOT NULL DEFAULT '14',
   `buyer_cold_days` int unsigned NOT NULL DEFAULT '30',
   `buyer_lost_days` int unsigned NOT NULL DEFAULT '60',
@@ -3115,6 +3116,7 @@ CREATE TABLE `contacts` (
   `last_activity_at` timestamp NULL DEFAULT NULL,
   `buyer_pipeline_entered_at` timestamp NULL DEFAULT NULL,
   `buyer_pipeline_notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `buyer_source` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `agency_id` bigint unsigned DEFAULT NULL,
   `branch_id` bigint unsigned NOT NULL,
   `messaging_opt_out_at` timestamp NULL DEFAULT NULL,
@@ -3146,6 +3148,7 @@ CREATE TABLE `contacts` (
   KEY `contacts_p24_city_id_foreign` (`p24_city_id`),
   KEY `contacts_p24_province_id_foreign` (`p24_province_id`),
   KEY `contacts_agency_outreach_pending_idx` (`agency_id`,`outreach_permission_asked_at`),
+  KEY `contacts_buyer_source_idx` (`agency_id`,`buyer_source`),
   CONSTRAINT `contacts_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contacts_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `contacts_client_user_id_foreign` FOREIGN KEY (`client_user_id`) REFERENCES `client_users` (`id`) ON DELETE SET NULL,
@@ -8686,6 +8689,7 @@ CREATE TABLE `prospecting_buyer_matches` (
   `agency_id` bigint unsigned NOT NULL,
   `score` smallint unsigned NOT NULL DEFAULT '0' COMMENT 'Match score 0-100',
   `tier` enum('perfect','strong','approximate') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'approximate',
+  `source` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `matched_features` json DEFAULT NULL COMMENT 'What criteria matched',
   `missing_features` json DEFAULT NULL COMMENT 'What criteria are missing/gap',
   `matched_at` timestamp NOT NULL,
@@ -8703,6 +8707,7 @@ CREATE TABLE `prospecting_buyer_matches` (
   KEY `pbm_tier_date` (`tier`,`matched_at`),
   KEY `pbm_agency_contact_idx` (`agency_id`,`contact_id`),
   KEY `pbm_agency_listing_idx` (`agency_id`,`prospecting_listing_id`),
+  KEY `pbm_listing_source_score` (`prospecting_listing_id`,`source`,`score`),
   CONSTRAINT `prospecting_buyer_matches_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_buyer_matches_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_buyer_matches_dismissed_by_user_id_foreign` FOREIGN KEY (`dismissed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
@@ -12146,3 +12151,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (872,'2026_07_03_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (873,'2026_06_25_120000_add_properties_sort_settings_to_agency',169);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (874,'2026_07_04_000001_add_show_prospected_badge_to_agencies_table',169);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (875,'2026_07_04_000002_add_warn_on_held_address_capture_to_agency_contact_settings',170);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (876,'2026_07_05_000001_add_buyer_source_to_contacts_table',171);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (877,'2026_07_05_000002_add_source_to_prospecting_buyer_matches_table',171);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (878,'2026_07_05_000003_add_portal_lead_auto_seed_to_agency_contact_settings',171);

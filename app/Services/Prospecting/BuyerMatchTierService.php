@@ -41,6 +41,13 @@ final class BuyerMatchTierService
         $midMin    = (int) $tiers['mid_min_score'];
         $weakMin   = (int) $tiers['weak_min_score'];
 
+        // Part 6 — demand split by source. The displayed demand (strong+mid, i.e.
+        // score >= midMin) is broken into portal-lead buyers vs everything else and
+        // kept SEPARATE (never blended): portal_demand + other_demand == the displayed
+        // demand total, so the figure is always a visible sum of its source parts.
+        $portalSources = "'" . \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_PORTAL_P24
+            . "','" . \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_PORTAL_PP . "'";
+
         // Bindings used in CASE expressions so cutoff values cannot inject.
         $rows = DB::table('prospecting_buyer_matches')
             ->whereIn('prospecting_listing_id', $listingIds)
@@ -54,8 +61,10 @@ final class BuyerMatchTierService
                 DB::raw('SUM(CASE WHEN score >= ? AND score < ? THEN 1 ELSE 0 END) as weak_count'),
                 DB::raw('COUNT(*) as total_count'),
                 DB::raw('MAX(score) as top_score'),
+                DB::raw("SUM(CASE WHEN score >= ? AND source IN ($portalSources) THEN 1 ELSE 0 END) as portal_demand"),
+                DB::raw("SUM(CASE WHEN score >= ? AND (source NOT IN ($portalSources) OR source IS NULL) THEN 1 ELSE 0 END) as other_demand"),
             )
-            ->addBinding([$strongMin, $midMin, $strongMin, $weakMin, $midMin], 'select')
+            ->addBinding([$strongMin, $midMin, $strongMin, $weakMin, $midMin, $midMin, $midMin], 'select')
             ->groupBy('prospecting_listing_id')
             ->get();
 
@@ -67,6 +76,11 @@ final class BuyerMatchTierService
                 'weak'      => (int) $r->weak_count,
                 'total'     => (int) $r->total_count,
                 'top_score' => $r->top_score !== null ? (int) $r->top_score : null,
+                // Source-tagged demand (strong+mid), never merged into one figure.
+                'sources'   => [
+                    'portal_lead' => (int) $r->portal_demand,
+                    'other'       => (int) $r->other_demand,
+                ],
             ];
         }
         return $result;
@@ -96,6 +110,7 @@ final class BuyerMatchTierService
             ->select(
                 'pbm.id as match_id',
                 'pbm.score',
+                'pbm.source',
                 'pbm.matched_at',
                 'pbm.matched_features',
                 'pbm.missing_features',
@@ -122,6 +137,13 @@ final class BuyerMatchTierService
         return $rows->map(function ($row) use ($tiers) {
             $row->tier = $this->classifyInline((int) $row->score, $tiers);
             $row->display_name = trim(($row->first_name ?? '') . ' ' . ($row->last_name ?? ''));
+            // Part 6 — plain-English demand source for the drill-down (kept distinct).
+            $row->source_label = match ($row->source ?? null) {
+                \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_PORTAL_P24 => 'Portal lead (P24)',
+                \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_PORTAL_PP  => 'Portal lead (PP)',
+                \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_MANUAL     => 'Manual capture',
+                default => null,
+            };
             return $row;
         });
     }

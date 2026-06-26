@@ -105,6 +105,11 @@ class BuyerDetailController extends Controller
                 'status'             => ContactMatch::STATUS_ACTIVE,
                 'listing_type'       => $matchFields['listing_type'] ?? 'sale',
             ], $matchFields));
+
+            // Part 1.5 — manual buyer capture rides the SAME observer cascade (land +
+            // MIC demand); tag the source so MIC demand stays attributable.
+            app(\App\Services\Buyers\BuyerLeadCascadeService::class)
+                ->tagBuyerSource($contact, \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_MANUAL);
         });
 
         return redirect()

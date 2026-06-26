@@ -142,6 +142,11 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Leads\NewPortalLeadReceived::class,
             \App\Listeners\Leads\PushNewPortalLeadToMobile::class,
         );
+        // Part 3 — targeted in-app + email to the listing agent (not agency-wide).
+        Event::listen(
+            \App\Events\Leads\NewPortalLeadReceived::class,
+            \App\Listeners\Leads\EmailPortalLeadToAgent::class,
+        );
         \App\Models\ProspectingListing::observe(\App\Observers\ProspectingListingObserver::class);
         \App\Models\DealV2\DealV2::observe(\App\Observers\DealV2Observer::class);
         \App\Models\DealV2\DealStepInstance::observe(\App\Observers\DealStepInstanceObserver::class);

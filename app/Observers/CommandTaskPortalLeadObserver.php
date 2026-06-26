@@ -88,6 +88,24 @@ class CommandTaskPortalLeadObserver
             $lead->agency_id = $task->agency_id;
             $lead->save();
 
+            // Buyer-lifecycle loop — route the PP enquiry through the SAME shared cascade
+            // the P24 path and manual capture use: seed a wishlist derived from the
+            // enquired property → buyer auto-lands 'New' on the pipeline + feeds MIC
+            // demand. Owner = listing agent. (Inside this try/catch, so a seed failure
+            // never breaks PP ingest.)
+            if ($contact && $property) {
+                $owner = $property->agent_id ?? $contact->created_by_user_id ?? $existingAgentId;
+                if ($owner) {
+                    app(\App\Services\Buyers\BuyerLeadCascadeService::class)->seedFromListing(
+                        $contact,
+                        $property,
+                        (int) $owner,
+                        \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_PORTAL_PP,
+                        $task->description,
+                    );
+                }
+            }
+
             event(new NewPortalLeadReceived($lead));
         } catch (\Throwable $e) {
             // Never break PP ingest — log and swallow.

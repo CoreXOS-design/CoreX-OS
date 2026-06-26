@@ -187,9 +187,48 @@ class P24LeadService
         $lead->agency_id = $agencyId;
         $lead->save();
 
+        // Buyer-lifecycle loop — seed a criteria-bearing wishlist DERIVED from the
+        // enquired property so the enquirer becomes a real pipeline buyer (auto-lands
+        // 'New' via ContactMatchObserver) and feeds MIC demand. Pipeline owner = the
+        // listing agent (even for existing contacts). Wrapped so a seed failure never
+        // breaks lead ingestion.
+        if ($contact && $listingId) {
+            $this->seedBuyerFromLead($contact, (int) $listingId, $listingAgentId, $existingAgentId, $message);
+        }
+
         event(new NewPortalLeadReceived($lead));
 
         return $lead;
+    }
+
+    /**
+     * Route a P24 enquiry through the SHARED buyer cascade (same method the PP path and
+     * manual capture use). Owner = listing agent, falling back to the contact's owner.
+     */
+    private function seedBuyerFromLead(Contact $contact, int $listingId, ?int $listingAgentId, ?int $existingAgentId, ?string $message): void
+    {
+        try {
+            $property = Property::query()->withoutGlobalScopes()->find($listingId);
+            if (!$property) {
+                return;
+            }
+            $owner = $listingAgentId ?? $contact->created_by_user_id ?? $existingAgentId;
+            if (!$owner) {
+                return;
+            }
+            app(\App\Services\Buyers\BuyerLeadCascadeService::class)->seedFromListing(
+                $contact,
+                $property,
+                (int) $owner,
+                \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_PORTAL_P24,
+                $message,
+            );
+        } catch (\Throwable $e) {
+            Log::channel('property24')->warning('P24 buyer-seed failed: ' . $e->getMessage(), [
+                'contact' => $contact->id,
+                'listing' => $listingId,
+            ]);
+        }
     }
 
     private function isDuplicate(int $agencyId, ?string $listingRef, ?string $email, ?string $phone, Carbon $receivedAt): bool
@@ -260,15 +299,14 @@ class P24LeadService
      */
     private function resolveContact(int $agencyId, string $name, ?string $email, ?string $phone, ?int $listingAgentId, int $listingId): array
     {
+        // Part 4 — hardened dedupe: normalised email/phone match via the canonical
+        // ContactDuplicateService (SA phone → last 9 digits, email lower/trim) so
+        // "+27 76…" vs "076…" and case-different emails resolve to ONE contact instead
+        // of minting duplicate buyers. Single source of truth — no bespoke normaliser.
         $existing = null;
         if ($email || $phone) {
-            $existing = Contact::query()
-                ->withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->where(function ($q) use ($email, $phone) {
-                    if ($email) $q->orWhere('email', $email);
-                    if ($phone) $q->orWhere('phone', $phone);
-                })
+            $existing = app(\App\Services\ContactDuplicateService::class)
+                ->findDuplicates(['email' => $email, 'phone' => $phone], $agencyId)
                 ->first();
         }
 

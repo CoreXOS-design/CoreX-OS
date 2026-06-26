@@ -190,6 +190,21 @@
                             (Honours the duplicate-guard mode above — "Off" disables this too.)
                         </span>
                     </label>
+
+                    {{-- Buyer loop — auto-seed a criteria-bearing buyer from a portal/listing lead. --}}
+                    <label class="flex items-start gap-2 mt-4 cursor-pointer">
+                        <input type="hidden" name="portal_lead_auto_seed_buyer" value="0">
+                        <input type="checkbox" name="portal_lead_auto_seed_buyer" value="1" class="mt-0.5"
+                               {{ ($settings->portal_lead_auto_seed_buyer ?? true) ? 'checked' : '' }}>
+                        <span class="text-xs" style="color:var(--text-secondary);">
+                            <span class="font-medium" style="color:var(--text-primary);">Auto-build a buyer from a portal enquiry</span><br>
+                            When a P24/PP lead (or a manual capture tied to a listing) arrives, seed a buyer
+                            wishlist derived from the enquired property (area, price ± the configured band,
+                            beds, type) so the enquirer lands on the buyer pipeline as a real, criteria-bearing
+                            buyer and their demand feeds Market Intelligence. <strong>Recommended on.</strong>
+                            When off, leads still appear in the inbox exactly as before.
+                        </span>
+                    </label>
                 </div>
             </div>
         </div>

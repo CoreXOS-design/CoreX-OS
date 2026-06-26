@@ -26,6 +26,7 @@ class ProspectingBuyerMatch extends Model
         'agency_id',
         'score',
         'tier',
+        'source',
         'matched_features',
         'missing_features',
         'matched_at',
