@@ -6223,11 +6223,14 @@ CREATE TABLE `p24_cities` (
   `p24_id` bigint unsigned NOT NULL,
   `p24_province_id` bigint unsigned NOT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `p24_verified_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `p24_cities_p24_id_unique` (`p24_id`),
   KEY `p24_cities_p24_province_id_name_index` (`p24_province_id`,`name`),
+  KEY `p24_cities_p24_verified_at_index` (`p24_verified_at`),
   CONSTRAINT `p24_cities_p24_province_id_foreign` FOREIGN KEY (`p24_province_id`) REFERENCES `p24_provinces` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -6443,11 +6446,14 @@ CREATE TABLE `p24_provinces` (
   `p24_id` bigint unsigned NOT NULL,
   `p24_country_id` bigint unsigned NOT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `p24_verified_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `p24_provinces_p24_id_unique` (`p24_id`),
   KEY `p24_provinces_p24_country_id_name_index` (`p24_country_id`,`name`),
+  KEY `p24_provinces_p24_verified_at_index` (`p24_verified_at`),
   CONSTRAINT `p24_provinces_p24_country_id_foreign` FOREIGN KEY (`p24_country_id`) REFERENCES `p24_countries` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -12057,3 +12063,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (859,'2026_07_03_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (860,'2026_06_26_160000_add_p24_photo_cap_and_timeout_settings',156);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (861,'2026_06_26_120000_add_p24_verified_at_to_p24_suburbs',157);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (862,'2026_06_26_120001_purge_phantom_addington_suburb',157);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (863,'2026_06_26_140000_add_verified_at_softdeletes_to_p24_provinces_cities',158);
