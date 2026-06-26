@@ -171,6 +171,8 @@ CREATE TABLE `agencies` (
   `p24_password` text COLLATE utf8mb4_unicode_ci,
   `p24_user_group_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `p24_max_photos` smallint unsigned DEFAULT '150',
+  `p24_http_read_timeout` smallint unsigned DEFAULT '120',
   `p24_locations_synced_at` timestamp NULL DEFAULT NULL,
   `p24_last_sync_error` text COLLATE utf8mb4_unicode_ci,
   `pp_enabled` tinyint(1) NOT NULL DEFAULT '0',
@@ -347,7 +349,7 @@ CREATE TABLE `agency_access_requests` (
   `denial_reason` text COLLATE utf8mb4_unicode_ci,
   `authorized_by_user_id` bigint unsigned DEFAULT NULL,
   `authorized_at` timestamp NULL DEFAULT NULL,
-  `expires_at` timestamp NOT NULL,
+  `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `granted_session_expires_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -1860,7 +1862,7 @@ CREATE TABLE `client_otps` (
   `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `purpose` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'activation',
   `code_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `expires_at` timestamp NOT NULL,
+  `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `used_at` timestamp NULL DEFAULT NULL,
   `attempts` tinyint unsigned NOT NULL DEFAULT '0',
   `ip` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -4268,7 +4270,7 @@ CREATE TABLE `docuperfect_named_fields` (
   `field_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'text',
   `default_options` json DEFAULT NULL,
   `sort_order` int NOT NULL DEFAULT '0',
-  `source_type` enum('property','contact','agent','deal','static','computed','manual') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `source_type` enum('property','contact','agent','deal','static','computed','manual') COLLATE utf8mb4_unicode_ci DEFAULT 'manual',
   `source_column` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source_contact_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -4418,7 +4420,7 @@ CREATE TABLE `docuperfect_template_signature_zones` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `dtsz_template_page_idx` (`template_id`,`page_index`),
+  KEY `dtsz_template_page_index` (`template_id`,`page_index`),
   CONSTRAINT `docuperfect_template_signature_zones_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `docuperfect_templates` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -4887,9 +4889,9 @@ CREATE TABLE `fica_submissions` (
   KEY `fica_submissions_contact_id_index` (`contact_id`),
   KEY `fica_submissions_agent_verified_by_foreign` (`agent_verified_by`),
   KEY `fica_submissions_co_verified_by_foreign` (`co_verified_by`),
+  KEY `fica_submissions_wet_ink_confirmed_by_foreign` (`wet_ink_confirmed_by`),
   KEY `fica_submissions_branch_id_foreign` (`branch_id`),
   KEY `fica_submissions_agency_branch_idx` (`agency_id`,`branch_id`),
-  KEY `fica_submissions_wet_ink_confirmed_by_foreign` (`wet_ink_confirmed_by`),
   KEY `fica_submissions_fica_expires_at_index` (`fica_expires_at`),
   CONSTRAINT `fica_submissions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fica_submissions_agent_verified_by_foreign` FOREIGN KEY (`agent_verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
@@ -6461,12 +6463,14 @@ CREATE TABLE `p24_suburbs` (
   `region` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'kzn-south-coast',
   `surrounding_ids` json DEFAULT NULL,
   `confirmed` tinyint(1) NOT NULL DEFAULT '0',
+  `p24_verified_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `p24_suburbs_p24_city_id_foreign` (`p24_city_id`),
   KEY `p24_suburbs_slug_index` (`slug`),
+  KEY `p24_suburbs_p24_verified_at_index` (`p24_verified_at`),
   CONSTRAINT `p24_suburbs_p24_city_id_foreign` FOREIGN KEY (`p24_city_id`) REFERENCES `p24_cities` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -6480,6 +6484,7 @@ CREATE TABLE `p24_syndication_logs` (
   `request_payload` json DEFAULT NULL,
   `response_payload` json DEFAULT NULL,
   `status_code` smallint DEFAULT NULL,
+  `round_trip_ms` int unsigned DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `p24_logs_property_created_idx` (`property_id`,`created_at`),
@@ -8735,7 +8740,7 @@ CREATE TABLE `prospecting_pitch_locks` (
   `tracked_property_id` bigint unsigned DEFAULT NULL,
   `user_id` bigint unsigned NOT NULL,
   `locked_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `expires_at` timestamp NOT NULL,
+  `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `released_at` timestamp NULL DEFAULT NULL,
   `release_reason` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -9417,9 +9422,7 @@ CREATE TABLE `sales_document_recipients` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `sales_document_recipients_token_unique` (`token`),
-  KEY `sdr_send_id_signing_order_idx` (`sales_document_send_id`,`signing_order`),
-  KEY `sales_document_recipients_status_index` (`status`),
+  KEY `sdr_send_id_order_index` (`sales_document_send_id`,`signing_order`),
   CONSTRAINT `sales_document_recipients_sales_document_send_id_foreign` FOREIGN KEY (`sales_document_send_id`) REFERENCES `sales_document_sends` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -9510,7 +9513,7 @@ CREATE TABLE `seller_info_share_links` (
   `sent_by_user_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned NOT NULL,
   `token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `expires_at` timestamp NOT NULL,
+  `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `accessed_count` int unsigned NOT NULL DEFAULT '0',
   `last_accessed_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -9718,12 +9721,29 @@ CREATE TABLE `sg_search_cache` (
   KEY `sg_search_cache_expires_at_index` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `shared_drive_access`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `shared_drive_access` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `drive_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `shared_drive_access_drive_id_user_id_unique` (`drive_id`,`user_id`),
+  KEY `shared_drive_access_user_id_index` (`user_id`),
+  CONSTRAINT `shared_drive_access_drive_id_foreign` FOREIGN KEY (`drive_id`) REFERENCES `shared_drives` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `shared_drive_access_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `shared_drive_files`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `shared_drive_files` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned DEFAULT NULL,
+  `drive_id` bigint unsigned DEFAULT NULL,
   `folder_id` bigint unsigned DEFAULT NULL,
   `original_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `stored_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -9739,6 +9759,9 @@ CREATE TABLE `shared_drive_files` (
   KEY `shared_drive_files_uploaded_by_user_id_foreign` (`uploaded_by_user_id`),
   KEY `shared_drive_files_agency_id_folder_id_index` (`agency_id`,`folder_id`),
   KEY `shared_drive_files_agency_id_deleted_at_index` (`agency_id`,`deleted_at`),
+  KEY `shared_drive_files_drive_id_foreign` (`drive_id`),
+  KEY `shared_drive_files_agency_id_drive_id_index` (`agency_id`,`drive_id`),
+  CONSTRAINT `shared_drive_files_drive_id_foreign` FOREIGN KEY (`drive_id`) REFERENCES `shared_drives` (`id`) ON DELETE SET NULL,
   CONSTRAINT `shared_drive_files_folder_id_foreign` FOREIGN KEY (`folder_id`) REFERENCES `shared_drive_folders` (`id`) ON DELETE SET NULL,
   CONSTRAINT `shared_drive_files_uploaded_by_user_id_foreign` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -9749,6 +9772,7 @@ DROP TABLE IF EXISTS `shared_drive_folders`;
 CREATE TABLE `shared_drive_folders` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned DEFAULT NULL,
+  `drive_id` bigint unsigned DEFAULT NULL,
   `parent_id` bigint unsigned DEFAULT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_by_user_id` bigint unsigned NOT NULL,
@@ -9760,8 +9784,31 @@ CREATE TABLE `shared_drive_folders` (
   KEY `shared_drive_folders_created_by_user_id_foreign` (`created_by_user_id`),
   KEY `shared_drive_folders_agency_id_parent_id_index` (`agency_id`,`parent_id`),
   KEY `shared_drive_folders_agency_id_deleted_at_index` (`agency_id`,`deleted_at`),
+  KEY `shared_drive_folders_drive_id_foreign` (`drive_id`),
+  KEY `shared_drive_folders_agency_id_drive_id_index` (`agency_id`,`drive_id`),
   CONSTRAINT `shared_drive_folders_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `shared_drive_folders_drive_id_foreign` FOREIGN KEY (`drive_id`) REFERENCES `shared_drives` (`id`) ON DELETE SET NULL,
   CONSTRAINT `shared_drive_folders_parent_id_foreign` FOREIGN KEY (`parent_id`) REFERENCES `shared_drive_folders` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `shared_drives`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `shared_drives` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_restricted` tinyint(1) NOT NULL DEFAULT '0',
+  `is_default` tinyint(1) NOT NULL DEFAULT '0',
+  `created_by_user_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `shared_drives_created_by_user_id_foreign` (`created_by_user_id`),
+  KEY `shared_drives_agency_id_deleted_at_index` (`agency_id`,`deleted_at`),
+  KEY `shared_drives_agency_id_is_default_index` (`agency_id`,`is_default`),
+  CONSTRAINT `shared_drives_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `signature_audit_log`;
@@ -11301,704 +11348,712 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (150,'2026_02_25_60
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (151,'2026_02_25_700000_add_guidance_answers_to_crops_and_livestock',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (152,'2026_02_25_800000_make_tv_access_codes_branch_id_nullable',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (153,'2026_02_26_100000_add_extended_fields_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (154,'2026_02_26_600001_create_signature_templates_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (155,'2026_02_26_600002_create_signature_markers_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (156,'2026_02_26_600003_create_signature_requests_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (157,'2026_02_26_600004_create_signatures_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (158,'2026_02_26_600005_create_signature_audit_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (159,'2026_02_26_600006_add_pending_agent_approval_status_to_signature_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (160,'2026_02_26_600006_create_wet_ink_inspections_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (161,'2026_02_26_600007_create_lease_records_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (162,'2026_02_26_600008_add_team_alerted_at_to_signature_requests',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (163,'2026_02_26_600009_add_signed_pdf_path_to_signature_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (164,'2026_02_26_700001_create_sales_document_sends_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (165,'2026_02_26_700002_create_sales_document_recipients_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (166,'2026_02_26_800001_create_docuperfect_template_signature_zones_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (167,'2026_02_26_800002_add_from_template_zone_id_to_signature_markers',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (168,'2026_02_26_900001_add_signed_pdf_client_path_to_signature_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (169,'2026_02_26_900002_add_flattened_pages_json_to_signature_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (170,'2026_02_26_950001_create_rental_properties_and_document_types_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (171,'2026_02_27_000001_add_lease_expiry_to_docuperfect_documents',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (172,'2026_02_27_100001_create_rental_reminder_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (173,'2026_02_27_121337_add_commission_percent_admin_and_locked_to_worksheets_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (174,'2026_02_27_200001_add_wet_ink_upload_method_to_signature_requests',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (175,'2026_02_27_300001_add_cosign_mode_to_signature_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (176,'2026_02_27_400001_add_supersede_columns_to_signature_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (177,'2026_02_28_100001_add_text_value_to_signatures_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (178,'2026_02_28_163349_make_template_id_nullable_on_docuperfect_documents',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (179,'2026_02_28_200001_add_id_number_to_sales_document_recipients',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (180,'2026_03_01_000001_create_property_ad_templates_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (181,'2026_03_02_000001_add_embedding_to_knowledge_chunks_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (182,'2026_03_03_000001_create_document_types_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (183,'2026_03_03_000002_create_splitter_doc_types_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (184,'2026_03_03_000003_add_seller_live_capture_json_to_presentations',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (185,'2026_03_03_000004_add_agent_uploads_to_users',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (186,'2026_03_04_000001_add_primary_image_url_to_portal_listings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (187,'2026_03_05_000001_create_contact_types_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (188,'2026_03_05_000002_add_contact_details_notes_documents',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (189,'2026_03_05_100001_add_extra_fields_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (190,'2026_03_05_100002_create_property_setting_items_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (191,'2026_03_05_100003_create_property_notes_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (192,'2026_03_05_100004_create_property_files_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (193,'2026_03_05_110912_add_type_and_module_to_nexus_permissions',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (194,'2026_03_05_115116_add_scope_to_role_permissions',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (195,'2026_03_05_200001_create_contact_property_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (196,'2026_03_05_300001_add_spaces_json_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (197,'2026_03_05_300002_add_defaults_to_property_setting_items',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (198,'2026_03_05_300003_seed_default_setting_items',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (199,'2026_03_06_000001_add_contact_fields_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (200,'2026_03_06_000001_create_roles_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (201,'2026_03_06_000002_seed_existing_roles',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (202,'2026_03_06_100001_add_soft_deletes_tier1',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (203,'2026_03_06_100001_create_agent_social_accounts_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (204,'2026_03_06_100002_add_soft_deletes_tier2_docuperfect',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (205,'2026_03_06_100002_create_property_marketing_posts_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (206,'2026_03_06_100003_add_soft_deletes_tier3',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (207,'2026_03_06_100004_add_soft_deletes_tool_history_entries',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (208,'2026_03_06_200001_seed_office_admin_permissions_from_admin',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (209,'2026_03_07_100001_create_contact_matches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (210,'2026_03_07_100001_create_flows_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (211,'2026_03_07_100002_add_share_token_to_contact_matches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (212,'2026_03_07_100002_add_wizard_config_to_docuperfect_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (213,'2026_03_07_100003_add_hidden_property_ids_to_contact_matches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (214,'2026_03_07_100004_add_property_view_counts_to_contact_matches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (215,'2026_03_07_200001_add_rental_lease_fields_to_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (216,'2026_03_07_200002_seed_contact_types_seller_buyer_witness',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (217,'2026_03_07_200003_add_bank_details_to_contacts',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (218,'2026_03_07_200004_add_source_mapping_to_named_fields',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (219,'2026_03_09_111608_add_company_details_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (220,'2026_03_09_133314_add_contact_details_to_branches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (221,'2026_03_09_141826_add_phone_secondary_to_agencies_and_branches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (222,'2026_03_09_145301_add_phone_labels_to_agencies_and_branches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (223,'2026_03_09_183429_rename_agency_brand_colours_to_semantic_roles',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (224,'2026_03_10_051542_add_render_type_to_docuperfect_templates_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (225,'2026_03_10_120000_add_web_template_data_to_docuperfect_documents',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (226,'2026_03_10_132257_create_web_packs_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (227,'2026_03_10_132258_create_web_pack_items_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (228,'2026_03_10_140528_create_document_custom_fields_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (229,'2026_03_10_232742_add_theme_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (230,'2026_03_11_000001_add_is_esign_to_docuperfect_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (231,'2026_03_11_100000_create_docuperfect_field_corrections_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (232,'2026_03_11_100001_add_soft_deletes_to_all_remaining_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (233,'2026_03_11_100002_add_soft_deletes_to_docuperfect_and_rental_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (234,'2026_03_11_120000_add_correction_reason_to_field_corrections',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (235,'2026_03_11_140000_create_docuperfect_import_drafts_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (236,'2026_03_11_141359_add_signing_parties_to_docuperfect_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (237,'2026_03_12_175407_create_personal_access_tokens_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (238,'2026_03_13_100836_add_soft_deletes_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (239,'2026_03_13_101641_add_soft_deletes_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (240,'2026_03_13_120000_create_docuperfect_field_groups_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (241,'2026_03_13_130000_add_is_global_to_field_groups',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (242,'2026_03_16_100000_create_agency_signing_parties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (243,'2026_03_16_110000_add_editor_state_to_docuperfect_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (244,'2026_03_17_085414_add_deleted_at_to_contact_matches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (245,'2026_03_17_100001_add_deal_to_named_fields_source_type',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (246,'2026_03_17_120000_add_header_display_to_docuperfect_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (247,'2026_03_18_100000_add_email_disclaimer_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (248,'2026_03_18_100000_create_prospecting_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (249,'2026_03_18_120000_add_cross_portal_matching_to_prospecting_listings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (250,'2026_03_18_140000_create_prospecting_claims_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (251,'2026_03_18_140001_add_first_seen_email_date_to_prospecting_listings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (252,'2026_03_19_000001_add_party_mode_to_docuperfect_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (253,'2026_03_19_000002_create_esign_signing_parties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (254,'2026_03_19_000003_create_esign_consent_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (255,'2026_03_19_100000_create_contact_sources_tags_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (256,'2026_03_19_100001_add_cds_columns_to_docuperfect_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (257,'2026_03_19_120000_add_date_fields_to_contacts_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (258,'2026_03_19_140000_add_contact_counters',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (259,'2026_03_19_160000_seed_prospecting_evaluation_permissions',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (260,'2026_03_20_100001_create_cds_drafts_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (261,'2026_03_20_120000_add_slot_columns_to_web_pack_items',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (262,'2026_03_22_184212_add_supervised_by_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (263,'2026_03_22_200000_add_columns_to_esign_consent_log',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (264,'2026_03_22_210000_create_signature_zones_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (265,'2026_03_22_220000_add_sections_to_docuperfect_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (266,'2026_03_22_220001_create_section_acceptances_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (267,'2026_03_22_220002_add_deferred_partial_status_support',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (268,'2026_03_22_220003_seed_template_111_sections',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (269,'2026_03_22_230000_add_other_conditions_zone_type',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (270,'2026_03_22_230001_create_document_amendments_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (271,'2026_03_22_230002_create_amendment_acceptances_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (272,'2026_03_22_230003_add_pack_chaining_to_flows',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (273,'2026_03_22_240000_create_signed_document_versions_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (274,'2026_03_22_240001_create_document_contact_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (275,'2026_03_23_074727_expand_status_enums_for_esign_v2',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (276,'2026_03_23_100001_add_pp_syndication_columns_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (277,'2026_03_23_100002_add_pp_suburb_id_and_coordinates_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (278,'2026_03_23_140000_add_pp_visibility_and_rental_columns_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (279,'2026_03_23_150000_add_pp_second_agent_id_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (280,'2026_03_23_160000_add_address_detail_columns_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (281,'2026_03_23_170000_create_property_showdays_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (282,'2026_03_23_181733_add_cancellation_fields_to_signature_templates_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (283,'2026_03_23_182523_add_cancelled_to_signature_status_enums',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (284,'2026_03_23_200000_add_authorised_columns_to_signature_requests',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (285,'2026_03_24_093448_add_listing_type_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (286,'2026_03_24_094815_add_pricing_details_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (287,'2026_03_24_100001_rename_splitter_doc_types_to_document_types',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (288,'2026_03_24_100002_add_columns_to_contact_documents_and_property_files',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (289,'2026_03_24_100003_repoint_docuperfect_templates_to_document_types',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (290,'2026_03_24_200001_create_unified_documents_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (291,'2026_03_24_200002_migrate_data_to_unified_documents',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (292,'2026_03_24_300001_add_category_to_docuperfect_templates',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (293,'2026_03_25_100209_create_notifications_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (294,'2026_03_26_100000_add_assigned_parties_and_soft_deletes_to_signature_zones',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (295,'2026_03_26_100000_create_fica_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (296,'2026_03_26_100001_add_p24_syndication_columns_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (297,'2026_03_26_200000_create_fica_compliance_workflow',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (298,'2026_03_26_300000_add_fica_gate_to_signature_requests',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (299,'2026_03_27_100000_add_esign_role_to_contact_types',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (300,'2026_03_27_200000_create_fault_reports_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (301,'2026_03_27_300000_create_commission_engine_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (302,'2026_03_27_300001_add_commission_columns_to_users',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (303,'2026_03_27_400000_create_onboarding_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (304,'2026_03_27_500000_create_training_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (305,'2026_03_30_100000_create_deposit_trust_interest_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (306,'2026_03_30_100001_rename_property_status_items',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (307,'2026_03_30_100002_add_gallery_categories_to_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (308,'2026_03_30_200000_create_deposit_interest_calculations_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (309,'2026_03_30_300001_create_deal_pipeline_templates_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (310,'2026_03_30_300002_create_deal_pipeline_steps_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (311,'2026_03_30_300003_create_deals_v2_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (312,'2026_03_30_300004_create_deal_v2_contacts_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (313,'2026_03_30_300005_create_deal_v2_agents_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (314,'2026_03_30_300006_create_deal_step_instances_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (315,'2026_03_30_300007_create_deal_step_documents_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (316,'2026_03_30_300008_create_deal_activity_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (317,'2026_03_30_400000_add_status_triggers_to_pipeline_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (318,'2026_03_30_500001_add_commission_columns_to_deals_v2',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (319,'2026_03_30_500002_rebuild_deal_v2_agents_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (320,'2026_03_30_500003_create_deal_v2_settlements_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (321,'2026_03_31_100000_backfill_null_contact_property_roles',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (322,'2026_03_31_200000_make_property_optional_columns_nullable',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (323,'2026_03_31_300001_create_calendar_events_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (324,'2026_03_31_300002_create_calendar_reminders_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (325,'2026_03_31_300003_create_calendar_user_preferences_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (326,'2026_03_31_300004_create_command_tasks_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (327,'2026_03_31_300005_create_automation_rules_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (328,'2026_03_31_300006_create_automation_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (329,'2026_03_31_300007_create_property_health_scores_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (330,'2026_03_31_300008_create_agent_scorecards_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (331,'2026_03_31_300009_create_command_document_expectations_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (332,'2026_03_31_300010_create_command_reminder_defaults_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (333,'2026_03_31_300011_add_last_activity_at_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (334,'2026_03_31_400001_create_user_dashboard_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (335,'2026_03_31_400002_add_event_reminder_hours_to_dashboard_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (336,'2026_03_31_400003_add_resolution_to_tasks_and_events',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (337,'2026_03_31_400004_add_send_reminder_to_tasks_and_events',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (338,'2026_04_01_100001_add_listing_types_to_document_types',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (339,'2026_04_08_100000_add_pp_agent_image_columns_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (340,'2026_04_09_100000_add_pp_unique_agent_id_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (341,'2026_04_09_100001_add_video_fields_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (342,'2026_04_10_100000_add_property_created_index_to_p24_syndication_logs',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (343,'2026_04_14_000001_create_p24_import_runs_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (344,'2026_04_14_000002_create_p24_import_rows_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (345,'2026_04_14_000003_add_p24_ids_to_users_and_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (346,'2026_04_14_100000_add_agency_id_to_tenant_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (347,'2026_04_14_110000_detach_system_owners_from_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (348,'2026_04_14_120000_backfill_orphan_agency_ids',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (349,'2026_04_15_000001_create_p24_onboarding_portals_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (350,'2026_04_15_000002_add_portal_audit_to_p24_import_rows',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (351,'2026_04_15_000003_create_p24_portal_events_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (352,'2026_04_18_000001_add_slug_to_p24_onboarding_portals',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (353,'2026_04_18_000002_add_pet_friendly_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (354,'2026_04_18_100001_add_auto_archive_done_to_dashboard_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (355,'2026_04_18_120000_add_p24_agency_id_to_agencies_and_branches',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (356,'2026_04_21_000001_add_compliance_fields_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (357,'2026_04_21_000002_create_user_documents_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (358,'2026_04_21_000003_backfill_user_documents',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (359,'2026_04_21_100001_create_rmcp_versions_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (360,'2026_04_21_100002_create_rmcp_sections_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (361,'2026_04_21_100003_create_rmcp_variables_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (362,'2026_04_21_100004_create_rmcp_compliance_officers_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (363,'2026_04_21_110001_create_fica_officer_appointments_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (364,'2026_04_21_110002_migrate_fica_officers_to_appointments',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (365,'2026_04_21_120001_create_rmcp_acknowledgements_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (366,'2026_04_21_120002_create_rmcp_section_acknowledgements_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (367,'2026_04_21_121927_seed_fica_document_types_to_document_types_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (368,'2026_04_21_130001_create_employee_screenings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (369,'2026_04_21_130002_create_employee_screening_checks_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (370,'2026_04_21_130003_add_screening_fields_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (371,'2026_04_21_130004_add_screening_document_types',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (372,'2026_04_21_140001_fix_rmcp_section_26_wording',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (373,'2026_04_21_140002_retire_placeholder_training_courses',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (374,'2026_04_21_150001_create_agency_compliance_provisions_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (375,'2026_04_21_150002_add_admin_upload_fields_to_user_documents',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (376,'2026_04_21_150003_create_user_compliance_overrides_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (377,'2026_04_21_184755_add_soft_deletes_to_branches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (378,'2026_04_21_184800_add_split_branches_enabled_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (379,'2026_04_21_184900_add_branch_id_to_pillar_and_compliance_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (380,'2026_04_21_185000_create_deal_branches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (381,'2026_04_21_185100_add_per_branch_syndication_columns_to_branches',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (382,'2026_04_22_080001_create_impersonation_logs_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (383,'2026_04_22_090000_add_ppra_last_verified_at_to_users',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (384,'2026_04_22_090001_backfill_user_photos_to_user_documents',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (385,'2026_04_22_100000_fix_user_documents_agency_id',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (386,'2026_04_22_110000_add_wet_ink_fields_to_fica_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (387,'2026_04_22_110001_make_fica_submission_token_nullable',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (388,'2026_04_22_110002_add_cancelled_fica_status_and_resend_logs',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (389,'2026_04_22_131821_create_agency_document_type_configs_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (390,'2026_04_22_133650_add_document_type_config_to_agency_compliance_provisions',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (391,'2026_04_22_135334_add_branch_id_to_agency_compliance_provisions',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (392,'2026_04_22_135335_drop_allows_branch_override_from_agency_document_type_configs',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (393,'2026_04_23_100001_add_payroll_fields_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (394,'2026_04_23_100002_create_user_banking_details_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (395,'2026_04_23_100003_add_payroll_fields_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (396,'2026_04_23_100004_create_payroll_tax_tables_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (397,'2026_04_23_100005_create_payroll_tax_rebates_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (398,'2026_04_23_100006_create_payroll_earning_types_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (399,'2026_04_23_100007_create_payroll_deduction_types_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (400,'2026_04_23_100008_create_payroll_employees_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (401,'2026_04_23_100009_create_payroll_employee_earnings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (402,'2026_04_23_100010_create_payroll_employee_deductions_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (403,'2026_04_23_100011_create_payroll_runs_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (404,'2026_04_23_100012_create_payroll_payslips_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (405,'2026_04_23_100013_create_payroll_payslip_lines_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (406,'2026_04_23_100014_add_payslip_to_user_documents_enum',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (407,'2026_04_27_000001_add_oversight_scope_to_roles_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (408,'2026_04_27_000002_create_user_oversight_preferences_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (409,'2026_04_27_000003_create_oversight_nudges_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (410,'2026_04_27_100001_create_notification_event_types_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (411,'2026_04_27_100002_create_user_notification_preferences_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (412,'2026_04_27_100003_create_notification_dispatch_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (413,'2026_04_27_100004_create_device_tokens_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (414,'2026_04_28_100000_create_pp_event_feed_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (415,'2026_04_28_100001_extend_contact_matches',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (416,'2026_04_28_100002_create_contact_match_feedback_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (417,'2026_04_28_100003_create_contact_match_notifications_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (418,'2026_04_28_120000_add_share_slug_to_contact_matches',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (419,'2026_04_28_120000_add_virtual_tour_url_to_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (420,'2026_04_28_130000_add_gallery_custom_tags_to_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (421,'2026_04_29_000001_create_leave_types_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (422,'2026_04_29_000002_create_leave_entitlements_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (423,'2026_04_29_000003_create_leave_applications_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (424,'2026_04_29_000004_create_leave_application_documents_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (425,'2026_04_29_000005_create_leave_transactions_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (426,'2026_04_29_000006_create_public_holidays_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (427,'2026_04_29_000007_create_staff_take_on_records_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (428,'2026_04_29_000008_add_leave_columns_to_payroll_employees_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (429,'2026_04_29_000009_add_leave_columns_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (430,'2026_04_29_120000_add_pp_external_ref_to_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (431,'2026_04_29_123451_rebuild_template_116_marketing_permission_v11',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (432,'2026_04_30_140425_add_fica_expires_at_to_fica_submissions_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (433,'2026_04_30_142935_drop_command_reminder_defaults_and_create_calendar_event_class_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (434,'2026_05_02_104539_make_calendar_events_user_id_nullable',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (435,'2026_05_04_100000_sync_notification_event_types_catalog',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (436,'2026_05_04_193122_create_command_task_notes_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (437,'2026_05_05_000001_create_calendar_event_links_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (438,'2026_05_05_000002_backfill_demo_calendar_event_links',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (439,'2026_05_05_000004_create_agency_feedback_options_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (440,'2026_05_05_000005_create_calendar_event_feedback_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (441,'2026_05_05_000006_create_calendar_event_audit_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (442,'2026_05_05_000007_backfill_demo_feedback',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (443,'2026_05_05_000008_backfill_manual_event_links',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (444,'2026_05_05_000009_rename_valuation_to_property_evaluation',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (445,'2026_05_05_000010_add_event_nature_to_calendar_event_class_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (446,'2026_05_05_000011_create_agency_contact_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (447,'2026_05_05_000012_create_agency_leave_visibility_matrix_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (448,'2026_05_05_000013_backfill_branch_id_on_contacts_and_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (449,'2026_05_05_000014_add_default_branch_id_to_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (450,'2026_05_05_000015_make_branch_id_not_null_on_contacts_and_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (451,'2026_05_05_000016_expand_duplicate_mode_and_create_duplicate_log',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (452,'2026_05_05_000017_create_contact_access_log_and_consent_records',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (453,'2026_05_05_000018_add_channel_opt_out_columns_to_contacts',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (454,'2026_05_05_000019_multi_property_events_support',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (455,'2026_05_05_000020_buyer_crm_foundation',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (456,'2026_05_05_000021_add_buyer_facing_to_calendar_event_class_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (457,'2026_05_06_000001_add_actor_role_and_completion_to_class_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (458,'2026_05_06_000002_create_property_recommendations_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (459,'2026_05_06_000003_create_property_presentation_snapshots_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (460,'2026_05_06_000004_add_seller_visible_to_property_recommendations',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (461,'2026_05_06_000005_create_buyer_preferences_and_risk_scores',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (462,'2026_05_06_000006_add_retention_action_to_buyer_activity_log',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (463,'2026_05_06_000007_create_seller_live_link_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (464,'2026_05_06_000008_create_buyer_matching_engine_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (465,'2026_05_06_000009_drop_old_feedback_unique_index',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (466,'2026_05_06_000010_create_lost_deal_module_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (467,'2026_05_06_000011_add_recovered_columns_to_buyer_lost_records',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (468,'2026_05_06_000012_create_property_sold_records_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (469,'2026_05_06_000013_create_calendar_event_invitations_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (470,'2026_05_06_000014_create_feedback_reports_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (471,'2026_05_06_000015_add_feedback_recipients_to_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (472,'2026_05_06_000016_add_buyer_pipeline_scope_and_deprecate_sharing_mode',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (473,'2026_05_06_000017_create_prospecting_buyer_matches_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (474,'2026_05_07_172111_add_is_demo_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (475,'2026_05_07_174002_add_require_external_access_authorization_to_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (476,'2026_05_07_174003_create_agency_access_requests_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (477,'2026_05_09_120001_create_client_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (478,'2026_05_09_120002_add_client_user_id_to_contacts',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (479,'2026_05_09_120003_create_client_otps_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (480,'2026_05_09_120004_create_client_access_logs_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (481,'2026_05_09_120005_create_client_signin_attempts_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (482,'2026_05_11_081126_add_acknowledged_at_to_calendar_event_invitations',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (483,'2026_05_11_094044_add_feedback_mode_and_visibility_columns',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (484,'2026_05_11_105415_add_compliance_columns_to_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (485,'2026_05_11_105419_create_marketing_share_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (486,'2026_05_11_132238_create_property_audit_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (487,'2026_05_11_135612_create_whistleblow_complaints_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (488,'2026_05_11_135613_create_whistleblow_complaint_evidence_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (489,'2026_05_11_135614_create_whistleblow_audit_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (490,'2026_05_11_135615_add_whistleblow_columns_to_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (491,'2026_05_11_135616_add_compliance_evidence_flags_to_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (492,'2026_05_12_083334_create_whistleblow_complaint_subjects_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (493,'2026_05_12_083335_backfill_whistleblow_subjects_from_complaints',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (494,'2026_05_12_083336_drop_subject_columns_from_whistleblow_complaints',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (495,'2026_05_12_090643_replace_ppra_recipient_with_tier_recipients_on_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (496,'2026_05_12_090644_create_whistleblow_email_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (497,'2026_05_12_091937_create_seller_info_share_links_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (498,'2026_05_12_091938_make_complaint_id_nullable_on_whistleblow_email_log',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (499,'2026_05_12_105607_add_matched_property_id_to_prospecting_listings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (500,'2026_05_12_111831_add_indexes_to_docuperfect_documents',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (501,'2026_05_12_160000_create_training_help_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (502,'2026_05_12_170000_add_created_by_agency_id_to_client_users',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (503,'2026_05_12_180000_add_qr_code_slug_to_users',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (504,'2026_05_13_100001_add_preapproval_to_contacts_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (505,'2026_05_13_100002_extend_contact_matches_for_unification',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (506,'2026_05_13_100003_add_agency_id_to_prospecting_buyer_matches',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (507,'2026_05_13_100004_add_agency_id_to_property_buyer_matches',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (508,'2026_05_13_120001_create_wishlist_migration_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (509,'2026_05_13_140001_create_domain_event_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (510,'2026_05_13_150001_add_p24_credentials_to_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (511,'2026_05_13_150001_create_towns_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (512,'2026_05_13_150002_create_p24_location_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (513,'2026_05_13_150002_create_town_suburbs_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (514,'2026_05_13_150003_add_p24_location_refs_to_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (515,'2026_05_13_150003_create_property_type_options_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (516,'2026_05_13_150004_create_bedroom_segments_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (517,'2026_05_13_150004_drop_unique_slug_on_p24_suburbs',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (518,'2026_05_13_150005_create_price_bands_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (519,'2026_05_13_150005_flag_p24_suburb_mismatches',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (520,'2026_05_14_080001_create_seller_outreach_templates_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (521,'2026_05_14_080002_create_seller_outreach_sends_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (522,'2026_05_14_080003_create_seller_outreach_clicks_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (523,'2026_05_14_080004_add_messaging_opt_out_to_contacts_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (524,'2026_05_14_090001_create_contact_outreach_log_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (525,'2026_05_14_100001_create_seller_outreach_callbacks_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (526,'2026_05_14_120001_add_whatsapp_launch_mode_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (527,'2026_05_14_130001_normalize_property_types',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (528,'2026_05_14_131648_create_suggested_action_thresholds_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (529,'2026_05_14_140000_add_market_intelligence_columns_to_properties',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (530,'2026_05_14_140001_create_dev_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (531,'2026_05_14_150000_create_buyer_match_tiers_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (532,'2026_05_14_160000_add_prospecting_pitch_lock_to_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (533,'2026_05_14_160001_create_prospecting_pitch_locks_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (534,'2026_05_14_170000_create_tracked_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (535,'2026_05_14_170001_create_tracked_property_external_refs_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (536,'2026_05_14_180000_add_tracked_property_id_to_listings_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (537,'2026_05_17_120000_add_qr_reroute_user_id_to_users',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (538,'2026_05_20_000001_create_portal_leads_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (539,'2026_05_20_000002_grant_portal_leads_access_to_all_roles',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (540,'2026_05_20_100001_add_p24_suburb_ids_to_contact_matches',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (541,'2026_05_21_220001_create_legal_block_audit_log_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (542,'2026_05_21_220002_classify_otp_templates',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (543,'2026_05_22_100000_add_hidden_property_reasons_to_contact_matches_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (544,'2026_05_23_000001_wave3b_backfill_orphan_agency_ids',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (545,'2026_05_23_010100_add_agency_id_to_deal_logs_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (546,'2026_05_23_010200_add_agency_id_to_deal_money_lines_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (547,'2026_05_23_010300_add_agency_id_to_deal_settlements_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (548,'2026_05_23_010400_add_agency_id_to_deals_v2_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (549,'2026_05_23_010500_add_agency_id_to_deal_activity_log_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (550,'2026_05_23_010600_add_agency_id_to_deal_pipeline_templates_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (551,'2026_05_23_010700_add_agency_id_to_deal_pipeline_steps_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (552,'2026_05_23_010800_add_agency_id_to_deal_step_instances_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (553,'2026_05_23_010900_add_agency_id_to_deal_step_documents_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (554,'2026_05_23_011000_add_agency_id_to_deal_v2_settlements_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (555,'2026_05_23_020100_add_agency_id_to_property_files_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (556,'2026_05_23_020200_add_agency_id_to_property_notes_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (557,'2026_05_23_020300_add_agency_id_to_property_showdays_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (558,'2026_05_23_020400_add_agency_id_to_property_marketing_activities_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (559,'2026_05_23_020500_add_agency_id_to_property_marketing_posts_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (560,'2026_05_23_020600_add_agency_id_to_property_presentation_snapshots_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (561,'2026_05_23_020700_add_agency_id_to_property_seller_links_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (562,'2026_05_23_020800_add_agency_id_to_property_seller_link_accesses_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (563,'2026_05_23_020900_add_agency_id_to_property_ad_templates_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (564,'2026_05_23_021000_add_agency_id_to_property_health_scores_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (565,'2026_05_23_030100_add_agency_id_to_contact_notes_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (566,'2026_05_23_030200_add_agency_id_to_contact_documents_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (567,'2026_05_23_030300_add_agency_id_to_contact_match_feedback_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (568,'2026_05_23_030400_add_agency_id_to_contact_match_notifications_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (569,'2026_05_23_030500_add_agency_id_to_buyer_property_views_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (570,'2026_05_23_030600_add_agency_id_to_buyer_property_responses_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (571,'2026_05_23_030700_add_agency_id_to_buyer_preferences_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (572,'2026_05_23_030800_add_agency_id_to_buyer_state_transitions_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (573,'2026_05_23_030900_add_agency_id_to_buyer_lost_risk_scores_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (574,'2026_05_23_031000_add_agency_id_to_buyer_portal_links_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (575,'2026_05_23_040100_add_agency_id_to_presentation_active_listings_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (576,'2026_05_23_040200_add_agency_id_to_presentation_articles_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (577,'2026_05_23_040300_add_agency_id_to_presentation_document_library_items_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (578,'2026_05_23_040400_add_agency_id_to_presentation_fields_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (579,'2026_05_23_040500_add_agency_id_to_presentation_links_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (580,'2026_05_23_040600_add_agency_id_to_presentation_listing_price_history_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (581,'2026_05_23_040700_add_agency_id_to_presentation_sections_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (582,'2026_05_23_040800_add_agency_id_to_presentation_snapshots_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (583,'2026_05_23_040900_add_agency_id_to_presentation_sold_comps_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (584,'2026_05_23_041000_add_agency_id_to_presentation_uploads_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (585,'2026_05_23_050100_add_agency_id_to_presentation_url_snapshots_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (586,'2026_05_23_050200_add_agency_id_to_presentation_versions_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (587,'2026_05_23_050300_add_agency_id_to_worksheets_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (588,'2026_05_23_050400_add_agency_id_to_targets_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (589,'2026_05_23_050500_add_agency_id_to_monthly_target_goals_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (590,'2026_05_23_050600_add_agency_id_to_listing_targets_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (591,'2026_05_23_050700_add_agency_id_to_tool_history_entries_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (592,'2026_05_23_050800_add_agency_id_to_daily_activities_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (593,'2026_05_23_050900_add_agency_id_to_daily_activity_entries_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (594,'2026_05_23_051000_add_agency_id_to_agent_scorecards_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (595,'2026_05_23_060100_add_agency_id_to_listing_stocks_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (596,'2026_05_23_060200_add_agency_id_to_listing_import_runs_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (597,'2026_05_23_060300_add_agency_id_to_listing_import_rows_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (598,'2026_05_23_060400_add_agency_id_to_listing_snapshots_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (599,'2026_05_23_060500_add_agency_id_to_market_analytics_runs_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (600,'2026_05_23_060600_add_agency_id_to_sale_probability_runs_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (601,'2026_05_23_060700_add_agency_id_to_revenue_share_ledger_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (602,'2026_05_23_060800_add_agency_id_to_agent_mentors_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (603,'2026_05_23_060900_add_agency_id_to_agent_sponsorships_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (604,'2026_05_23_061000_add_agency_id_to_agent_social_accounts_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (605,'2026_05_23_070100_add_agency_id_to_commercial_evaluations_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (606,'2026_05_23_070200_add_agency_id_to_commercial_evaluation_assets_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (607,'2026_05_23_070300_add_agency_id_to_commercial_evaluation_comparables_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (608,'2026_05_23_070400_add_agency_id_to_commercial_evaluation_crops_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (609,'2026_05_23_070500_add_agency_id_to_commercial_evaluation_financials_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (610,'2026_05_23_070600_add_agency_id_to_commercial_evaluation_livestock_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (611,'2026_05_23_070700_add_agency_id_to_commercial_evaluation_units_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (612,'2026_05_23_070800_add_agency_id_to_finance_audit_runs_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (613,'2026_05_23_070900_add_agency_id_to_finance_audit_items_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (614,'2026_05_23_071000_add_agency_id_to_finance_computed_values_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (615,'2026_05_23_080100_add_agency_id_to_calendar_event_audit_log_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (616,'2026_05_23_080200_add_agency_id_to_calendar_event_invitations_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (617,'2026_05_23_080300_add_agency_id_to_calendar_event_links_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (618,'2026_05_23_080400_add_agency_id_to_calendar_reminders_log_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (619,'2026_05_23_080500_add_agency_id_to_branch_settings_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (620,'2026_05_23_080600_add_agency_id_to_branch_activity_columns_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (621,'2026_05_23_080700_add_agency_id_to_fault_reports_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (622,'2026_05_23_080800_add_agency_id_to_contact_sources_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (623,'2026_05_23_080900_add_agency_id_to_contact_tags_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (624,'2026_05_23_081000_add_agency_id_to_property_setting_items_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (625,'2026_05_23_090100_add_agency_id_to_document_filing_register_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (626,'2026_05_23_090200_add_agency_id_to_document_library_items_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (627,'2026_05_23_090300_add_agency_id_to_fica_documents_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (628,'2026_05_23_090400_add_agency_id_to_fica_resend_logs_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (629,'2026_05_23_090500_add_agency_id_to_rmcp_sections_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (630,'2026_05_23_090600_add_agency_id_to_rmcp_section_acknowledgements_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (631,'2026_05_23_090700_add_agency_id_to_employee_screening_checks_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (632,'2026_05_23_090800_add_agency_id_to_whistleblow_email_log_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (633,'2026_05_23_090900_add_agency_id_to_p24_listings_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (634,'2026_05_23_091000_add_agency_id_to_p24_import_log_table',2);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (635,'2026_05_25_120000_add_portal_visibility_prefs_to_users_table',3);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (636,'2026_05_28_100001_create_pp_locations_tables',4);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (637,'2026_05_28_100002_add_pp_locations_sync_to_agencies',4);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (638,'2026_05_28_120000_add_pp_syndication_columns_to_agencies',4);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (639,'2026_05_28_140000_add_mark_compliant_on_confirm_to_p24_import_runs',4);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (640,'2026_05_28_180001_add_ai_attribution_to_calendar_events',4);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (641,'2026_05_28_180002_add_features_json_meta_to_properties',4);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (642,'2026_05_28_180003_create_property_image_analyses_table',4);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (643,'2026_05_28_180004_add_ai_feature_flags_to_agencies',5);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (644,'2026_05_19_120000_seed_esign_deal_named_fields',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (645,'2026_05_19_140000_add_signed_paginated_html_to_docuperfect_documents',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (646,'2026_05_20_000001_add_feedback_captured_to_buyer_activity_log_enum',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (647,'2026_05_21_120001_create_tracked_property_addresses_table',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (648,'2026_05_21_120002_create_market_report_types_table',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (649,'2026_05_21_120003_create_market_reports_table',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (650,'2026_05_21_120004_create_market_data_points_table',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (651,'2026_05_21_120005_create_market_data_discrepancies_table',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (652,'2026_05_21_120006_create_ai_narrative_cache_table',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (653,'2026_05_21_120007_create_agent_activity_events_table',6);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (654,'2026_05_21_120008_add_agency_id_to_p24_listings_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (655,'2026_05_21_120009_backfill_agency_id_on_p24_listings',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (656,'2026_05_21_120010_make_p24_listings_agency_id_not_null',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (657,'2026_05_21_120011_add_agency_id_to_presentations_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (658,'2026_05_21_120012_backfill_agency_id_on_presentations',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (659,'2026_05_21_120013_make_presentations_agency_id_not_null',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (660,'2026_05_21_120014_add_identifier_columns_to_properties_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (661,'2026_05_21_120015_backfill_property_identifiers_from_tracked_properties',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (662,'2026_05_21_120016_fix_prospecting_listings_null_addresses',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (663,'2026_05_21_120017_spatial_index_on_tracked_properties_geo',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (664,'2026_05_21_130001_seed_mic_permissions',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (665,'2026_05_21_140001_relax_agent_activity_events_user_id_nullable',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (666,'2026_05_21_150001_relax_agent_activity_events_agency_id_nullable',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (667,'2026_05_21_160001_add_ai_budget_to_agencies',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (668,'2026_05_21_160002_add_soft_deletes_to_ai_narrative_cache',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (669,'2026_05_21_170001_backfill_tracked_property_addresses',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (670,'2026_05_22_010001_create_document_conditions_tables',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (671,'2026_05_22_010002_amended_by_request_nullable_on_document_amendments',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (672,'2026_05_22_010003_add_amendment_initialing_to_signature_template_status',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (673,'2026_05_22_020001_extend_amendments_for_flags',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (674,'2026_05_22_120001_backfill_legacy_other_conditions',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (675,'2026_05_22_140001_add_relates_to_clause_ref_to_conditions',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (676,'2026_05_23_080001_add_pillar_fks_to_presentations',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (677,'2026_05_23_100001_add_presentation_settings_to_agency',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (678,'2026_05_23_100001_create_flag_removal_requests_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (679,'2026_05_23_120001_add_subject_geo_to_market_reports',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (680,'2026_05_23_120002_create_market_report_comp_rows_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (681,'2026_05_23_120003_create_scheme_owners_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (682,'2026_05_23_140001_add_comp_scope_to_agencies',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (683,'2026_05_23_140002_add_comp_scope_to_presentations',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (684,'2026_05_23_160001_add_hydration_summary_to_presentation_versions',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (685,'2026_05_23_180001_add_holding_cost_defaults_to_agencies',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (686,'2026_05_24_080001_create_geocoding_cache_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (687,'2026_05_24_080002_create_geocoding_runs_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (688,'2026_05_24_080003_add_geo_source_to_properties_and_tracked',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (689,'2026_05_25_080001_add_geo_index_to_properties',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (690,'2026_05_26_080001_add_is_demo_to_spatial_tables',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (691,'2026_05_27_080001_create_presentation_snapshot_links_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (692,'2026_05_27_080002_create_presentation_snapshot_views_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (693,'2026_05_27_080003_add_snapshot_link_settings_to_agencies',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (694,'2026_05_28_080001_create_presentation_teaser_leads_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (695,'2026_05_28_080002_add_teaser_lead_id_to_presentation_snapshot_views',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (696,'2026_05_28_080003_add_teaser_section_toggles_to_agencies',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (697,'2026_05_29_080001_create_presentation_deliveries_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (698,'2026_05_29_080002_add_presentation_send_defaults_to_users',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (699,'2026_05_29_080003_add_delivery_templates_to_agencies',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (700,'2026_05_29_100000_add_open_hours_and_push_master_to_dashboard_settings',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (701,'2026_05_30_080001_create_presentation_ai_variants_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (702,'2026_05_30_080002_add_ai_summary_to_presentation_versions',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (703,'2026_05_30_080003_create_presentation_ai_summary_history_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (704,'2026_05_31_080001_extend_snapshot_links_for_refresh_phase7',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (705,'2026_05_31_080002_add_staleness_days_to_agencies',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (706,'2026_05_31_080003_create_presentation_refresh_requests_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (707,'2026_06_01_080001_create_presentation_outcomes_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (708,'2026_06_01_080002_create_presentation_outcome_prompts_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (709,'2026_06_02_080001_add_property_link_and_sale_columns_to_deals',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (710,'2026_06_02_080002_create_deal_link_review_queue_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (711,'2026_06_03_080001_add_sg_columns_to_properties',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (712,'2026_06_03_080002_create_property_sg_documents_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (713,'2026_06_03_080003_create_sg_search_cache_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (714,'2026_06_04_080001_phase9a_harden_outcome_fk_and_delivery_index',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (715,'2026_06_05_080001_create_rcr_questionnaires_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (716,'2026_06_05_080002_create_rcr_questionnaire_sections_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (717,'2026_06_05_080003_create_rcr_questions_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (718,'2026_06_05_080004_create_rcr_submissions_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (719,'2026_06_05_080005_create_rcr_answers_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (720,'2026_06_05_080006_create_rcr_answer_evidence_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (721,'2026_06_05_080007_create_rcr_submission_snapshots_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (722,'2026_06_06_080001_add_period_and_clipboard_tracking_to_rcr_tables',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (723,'2026_06_07_080001_extend_geocoding_cache_phase11a',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (724,'2026_06_10_120000_add_id_number_audit_to_contacts',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (725,'2026_06_15_120000_create_map_saved_searches_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (726,'2026_06_16_120000_add_ppra_number_to_agencies_and_branches',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (727,'2026_06_16_120100_create_information_officer_appointments_table',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (728,'2026_06_16_120300_add_module_6_activity_points_columns',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (729,'2026_06_16_120400_create_activity_definition_calendar_classes',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (730,'2026_06_16_120500_rollback_phase_9c3_company_documents',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (731,'2026_06_16_120600_add_privacy_policy_fields_to_agencies_and_branches',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (732,'2026_06_16_120700_add_role_index_to_signature_requests',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (733,'2026_06_16_121000_add_tp_outreach_columns',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (734,'2026_06_16_122000_fix_market_report_cascade_to_preserve_audit',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (735,'2026_06_16_122100_seed_mic_restore_reports_permission',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (736,'2026_06_16_122200_seed_cma_info_vicinity_sale_type',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (737,'2026_06_16_122300_make_market_reports_report_type_id_nullable',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (738,'2026_06_16_122400_add_normalised_address_columns_to_properties',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (739,'2026_06_16_122500_add_mic_comp_row_id_fk_to_presentation_tables',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (740,'2026_06_17_100000_add_title_type_to_property_setting_items',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (741,'2026_06_17_110000_add_review_flow_to_presentations',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (742,'2026_06_17_120000_add_condition_levels_to_presentations',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (743,'2026_06_17_130000_add_section_toggles_to_presentations',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (744,'2026_06_17_140000_add_snapshot_payload_to_presentations',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (745,'2026_06_17_150000_add_title_type_to_properties',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (746,'2026_06_17_160000_add_cma_compute_settings_to_agencies',7);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (747,'2026_06_01_201014_add_competitor_stock_min_same_type_to_agencies',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (748,'2026_06_01_204407_add_competitor_stock_default_display_count_to_agencies',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (749,'2026_06_01_211936_add_geo_columns_to_prospecting_listings_and_map_provider_to_agencies',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (750,'2026_06_02_100001_create_agency_api_keys_table',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (751,'2026_06_02_100002_create_agency_webhook_deliveries_table',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (752,'2026_06_02_100003_create_property_website_syndication_table',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (753,'2026_06_02_100004_add_website_fields_to_agencies_table',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (754,'2026_06_02_100005_add_show_on_website_to_users_table',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (755,'2026_06_19_120000_add_competitor_stock_settings_to_agencies',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (756,'2026_06_19_120100_add_included_competitor_ids_to_presentation_versions',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (757,'2026_06_19_140000_create_holding_cost_data_points_table',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (758,'2026_06_19_140100_add_freehold_holding_defaults_to_agencies',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (759,'2026_06_19_140200_add_freehold_monthly_to_presentations',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (760,'2026_06_20_120000_seed_hfc_activity_calendar_mappings',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (761,'2026_06_20_140000_relax_daily_activity_unique_for_calendar_events',8);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (762,'2026_06_02_101001_add_website_agent_order_to_agencies_table',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (763,'2026_06_02_101002_add_website_order_to_users_table',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (764,'2026_06_06_100001_create_contact_testimonials_table',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (765,'2026_06_06_100002_add_agent_id_to_contact_testimonials_table',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (766,'2026_06_06_100003_add_agent_public_profile_and_articles',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (767,'2026_06_06_100004_add_media_to_agent_articles',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (768,'2026_06_06_120000_add_website_address_and_open_hours_to_agencies',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (769,'2026_06_09_000000_add_reviewed_at_to_property_image_analyses',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (770,'2026_06_09_120001_add_website_branch_order_to_agencies_table',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (771,'2026_06_09_120002_add_website_order_to_branches_table',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (772,'2026_06_10_120000_add_new_listing_lookback_days_to_suggested_action_thresholds',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (773,'2026_06_11_180000_add_comp_selection_settings_to_agencies',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (774,'2026_06_11_180500_add_thumbnail_source_url_to_prospecting_listings',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (775,'2026_06_11_190000_add_comp_curation_override_types',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (776,'2026_06_12_090000_add_thumbnail_blocked_reason_to_prospecting_listings',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (777,'2026_06_14_120000_add_day_windows_to_dashboard_settings',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (778,'2026_06_20_160000_extend_activity_actions_for_instant',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (779,'2026_06_20_160100_make_event_class_nullable_for_instant_rows',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (780,'2026_06_21_000000_create_soft_delete_restorations_table',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (781,'2026_06_22_120000_add_website_show_branches_to_agencies',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (782,'2026_06_22_130000_add_birthday_reminder_to_contacts',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (783,'2026_06_23_000000_create_ai_usage_events_table',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (784,'2026_06_23_120000_normalize_user_phone_numbers',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (785,'2026_06_24_000000_add_in_analysis_to_presentation_versions_review_status',9);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (786,'2026_06_15_140000_add_communication_ingest_filter_to_agencies',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (787,'2026_06_25_000001_create_agency_policies_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (788,'2026_06_25_000002_create_policy_versions_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (789,'2026_06_25_000003_create_policy_sections_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_25_000004_create_policy_acknowledgements_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_25_000005_create_policy_section_acknowledgements_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_26_000001_create_communications_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (793,'2026_06_26_000002_create_communication_attachments_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (794,'2026_06_26_000003_create_communication_links_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (795,'2026_06_26_000004_create_communication_mailboxes_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (796,'2026_06_26_000005_create_communication_wa_devices_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (797,'2026_06_26_000006_create_communication_pending_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (798,'2026_06_27_000001_create_communication_flags_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (799,'2026_06_27_000002_create_communication_flag_alerts_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (800,'2026_06_27_000003_add_classification_to_communication_pending_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (801,'2026_06_28_000001_add_user_fields_to_communication_mailboxes_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (802,'2026_06_28_000002_create_mailbox_credential_reveals_table',10);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (803,'2026_06_16_140000_add_cma_band_pct_to_agencies',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (804,'2026_06_16_160000_set_cma_band_pct_asymmetric_default',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (805,'2026_06_16_180000_add_messaging_opt_in_to_contacts_table',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (806,'2026_06_16_181000_add_include_tracking_link_to_seller_outreach_templates',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (807,'2026_06_16_182000_add_public_contact_to_agencies',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (808,'2026_06_16_190000_add_opt_out_token_to_seller_outreach_sends',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (809,'2026_06_16_190001_add_messaging_opt_out_source_to_contacts',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (810,'2026_06_16_190002_create_marketing_suppressions_table',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (811,'2026_06_16_190003_add_marketing_unsubscribe_footer_to_agencies',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (812,'2026_06_16_220000_add_outreach_live_deal_statuses_to_agencies',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (813,'2026_06_17_090000_add_messaging_all_blocked_to_contacts',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (814,'2026_06_17_120000_add_agent_assignment_to_contacts_table',11);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (815,'2026_06_18_120000_add_decision_and_source_to_contact_consent_records',12);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (816,'2026_06_17_000001_change_oversight_nudges_subject_id_to_string',13);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (817,'2026_06_17_160000_add_ss_show_complex_section_to_agencies',13);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (818,'2026_06_29_000003_add_half_baths_to_properties_table',14);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (819,'2026_06_19_090000_add_address_only_to_seller_outreach_sends',15);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (820,'2026_06_19_090100_wrap_matching_claim_in_outreach_templates',15);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (821,'2026_06_19_120000_add_structured_address_to_contacts_table',15);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (822,'2026_06_19_120100_add_address_match_mode_to_agency_contact_settings',15);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (823,'2026_06_29_000001_add_provisional_to_communications_table',15);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (824,'2026_06_29_000002_add_comms_reconcile_settings_to_agencies',15);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (825,'2026_06_30_000001_remove_contact_fica_missing_notifications',15);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_19_000001_create_shared_drive_folders_table',16);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (827,'2026_06_19_000002_create_shared_drive_files_table',16);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (828,'2026_06_21_041100_add_autoland_reasons_to_buyer_state_transitions',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (829,'2026_06_21_062000_add_mic_match_settings_to_agency_contact_settings',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (830,'2026_06_21_072800_add_competitor_stock_weights_to_agencies',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (831,'2026_06_21_180000_add_display_email_to_users',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (832,'2026_06_22_090000_add_cma_hide_display_outliers_to_agencies',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (833,'2026_06_30_000002_register_property_feedback_captured_notification_type',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (834,'2026_07_01_000001_add_min_countable_criteria_to_agency_contact_settings',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (835,'2026_07_02_000001_add_contact_type_id_to_contact_tags',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (836,'2026_07_02_000002_create_contact_contact_type_table',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (837,'2026_07_02_000003_seed_canonical_contact_parents_and_backfill_pivot',17);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (838,'2026_07_03_000001_create_user_managed_branches_table',18);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (839,'2026_07_03_000002_add_managed_by_user_id_to_deals_table',18);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (840,'2026_07_03_000001_add_outreach_consent_substate_to_contacts',19);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (841,'2026_07_03_000001_seed_owner_other_contact_parents',19);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (842,'2026_07_03_000002_add_outreach_no_response_days_to_agency_contact_settings',19);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (843,'2026_06_23_120000_default_command_center_visibility_scope',20);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (844,'2026_06_23_130000_make_roles_unique_per_agency',20);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (845,'2026_06_23_130001_add_agency_id_to_role_permissions',20);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (846,'2026_06_23_130002_backfill_agency_scoped_roles_and_permissions',20);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (847,'2026_06_15_000100_create_user_tour_progress_table',21);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (848,'2026_06_24_120000_add_rental_images_json_to_properties',21);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (849,'2026_07_03_100000_add_maintenance_mode_to_agencies_table',21);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (850,'2026_06_24_120000_create_agency_document_type_compliance_table',22);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (851,'2026_06_25_000001_add_exclude_from_p24_to_users_table',22);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (852,'2026_06_25_120000_add_properties_sort_settings_to_agency',22);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (853,'2026_06_25_140000_add_status_label_to_properties',22);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (854,'2026_07_03_120000_add_p24_hide_address_to_properties_table',22);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (154,'2026_02_26_600001_create_signature_templates_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (155,'2026_02_26_600002_create_signature_markers_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (156,'2026_02_26_600003_create_signature_requests_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (157,'2026_02_26_600004_create_signatures_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (158,'2026_02_26_600005_create_signature_audit_log_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (159,'2026_02_26_600006_create_wet_ink_inspections_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (160,'2026_02_26_600007_create_lease_records_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (161,'2026_02_26_600008_add_team_alerted_at_to_signature_requests',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (162,'2026_02_26_600009_add_signed_pdf_path_to_signature_templates',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (163,'2026_02_26_700001_add_pending_agent_approval_status_to_signature_templates',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (164,'2026_02_26_700001_create_sales_document_sends_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (165,'2026_02_26_700002_create_sales_document_recipients_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (166,'2026_02_26_800001_create_docuperfect_template_signature_zones_table',3);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (167,'2026_02_26_800002_add_from_template_zone_id_to_signature_markers',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (168,'2026_02_26_900001_add_signed_pdf_client_path_to_signature_templates',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (169,'2026_02_26_900002_add_flattened_pages_json_to_signature_templates',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (170,'2026_02_26_950001_create_rental_properties_and_document_types_tables',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (171,'2026_02_27_000001_add_lease_expiry_to_docuperfect_documents',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (172,'2026_02_27_100001_create_rental_reminder_settings_table',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (173,'2026_02_27_121337_add_commission_percent_admin_and_locked_to_worksheets_table',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (174,'2026_02_27_200001_add_wet_ink_upload_method_to_signature_requests',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (175,'2026_02_27_300001_add_cosign_mode_to_signature_templates',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (176,'2026_02_27_400001_add_supersede_columns_to_signature_templates',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (177,'2026_02_28_100001_add_text_value_to_signatures_table',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (178,'2026_02_28_163349_make_template_id_nullable_on_docuperfect_documents',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (179,'2026_02_28_200001_add_id_number_to_sales_document_recipients',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (180,'2026_03_01_000001_create_property_ad_templates_table',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (181,'2026_03_02_000001_add_embedding_to_knowledge_chunks_table',5);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (182,'2026_02_26_151853_add_pending_agent_approval_status_to_signature_templates',6);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (183,'2026_03_03_000001_create_document_types_table',7);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (184,'2026_03_03_000002_create_splitter_doc_types_table',8);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (185,'2026_03_03_000003_add_seller_live_capture_json_to_presentations',9);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (186,'2026_03_03_000004_add_agent_uploads_to_users',10);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (187,'2026_03_04_000001_add_primary_image_url_to_portal_listings',11);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (188,'2026_03_05_110912_add_type_and_module_to_nexus_permissions',12);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (189,'2026_03_05_115116_add_scope_to_role_permissions',12);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (190,'2026_03_06_000001_create_roles_table',12);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (191,'2026_03_06_000002_seed_existing_roles',12);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (192,'2026_03_06_100001_add_soft_deletes_tier1',12);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (193,'2026_03_06_100002_add_soft_deletes_tier2_docuperfect',12);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (194,'2026_03_06_100003_add_soft_deletes_tier3',12);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (195,'2026_03_06_100004_add_soft_deletes_tool_history_entries',12);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (196,'2026_03_05_000001_create_contact_types_table',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (197,'2026_03_05_000002_add_contact_details_notes_documents',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (198,'2026_03_05_100001_add_extra_fields_to_properties_table',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (199,'2026_03_05_100002_create_property_setting_items_table',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (200,'2026_03_05_100003_create_property_notes_table',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (201,'2026_03_05_100004_create_property_files_table',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (202,'2026_03_05_200001_create_contact_property_table',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (203,'2026_03_05_300001_add_spaces_json_to_properties_table',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (204,'2026_03_05_300002_add_defaults_to_property_setting_items',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (205,'2026_03_05_300003_seed_default_setting_items',13);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (206,'2026_03_06_000001_add_contact_fields_to_users_table',14);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (207,'2026_03_06_100001_create_agent_social_accounts_table',15);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (208,'2026_03_06_100002_create_property_marketing_posts_table',15);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (209,'2026_03_06_200001_seed_office_admin_permissions_from_admin',15);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (210,'2026_03_07_100001_create_contact_matches_table',16);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (211,'2026_03_07_100001_create_flows_table',16);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (212,'2026_03_07_100002_add_share_token_to_contact_matches_table',99);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (213,'2026_03_07_100002_add_wizard_config_to_docuperfect_templates',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (214,'2026_03_07_100003_add_hidden_property_ids_to_contact_matches_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (215,'2026_03_07_100004_add_property_view_counts_to_contact_matches_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (216,'2026_03_07_200001_add_rental_lease_fields_to_properties',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (217,'2026_03_07_200002_seed_contact_types_seller_buyer_witness',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (218,'2026_03_07_200003_add_bank_details_to_contacts',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (219,'2026_03_07_200004_add_source_mapping_to_named_fields',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (220,'2026_03_09_111608_add_company_details_to_agencies_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (221,'2026_03_09_133314_add_contact_details_to_branches_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (222,'2026_03_09_141826_add_phone_secondary_to_agencies_and_branches_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (223,'2026_03_09_145301_add_phone_labels_to_agencies_and_branches_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (224,'2026_03_09_183429_rename_agency_brand_colours_to_semantic_roles',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (225,'2026_03_10_051542_add_render_type_to_docuperfect_templates_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (226,'2026_03_10_120000_add_web_template_data_to_docuperfect_documents',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (227,'2026_03_10_132257_create_web_packs_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (228,'2026_03_10_132258_create_web_pack_items_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (229,'2026_03_10_140528_create_document_custom_fields_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (230,'2026_03_10_232742_add_theme_to_users_table',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (231,'2026_03_11_100001_add_soft_deletes_to_all_remaining_tables',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (232,'2026_03_11_100002_add_soft_deletes_to_docuperfect_and_rental_tables',100);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (233,'2026_03_11_000001_add_is_esign_to_docuperfect_templates',101);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (234,'2026_03_11_100000_create_docuperfect_field_corrections_table',101);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (235,'2026_03_11_120000_add_correction_reason_to_field_corrections',101);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (236,'2026_03_11_140000_create_docuperfect_import_drafts_table',101);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (237,'2026_03_11_141359_add_signing_parties_to_docuperfect_templates',101);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (238,'2026_03_13_100836_add_soft_deletes_to_users_table',101);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (239,'2026_03_13_101641_add_soft_deletes_to_users_table',101);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (240,'2026_03_13_120000_create_docuperfect_field_groups_table',101);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (241,'2026_03_13_130000_add_is_global_to_field_groups',101);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (242,'2026_03_16_100000_create_agency_signing_parties_table',102);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (243,'2026_03_16_110000_add_editor_state_to_docuperfect_templates',102);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (244,'2026_03_17_085414_add_deleted_at_to_contact_matches_table',103);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (245,'2026_03_17_100001_add_deal_to_named_fields_source_type',104);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (246,'2026_03_17_120000_add_header_display_to_docuperfect_templates',105);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (247,'2026_03_18_100000_add_email_disclaimer_to_agencies_table',106);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (248,'2026_03_12_175407_create_personal_access_tokens_table',107);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (249,'2026_03_18_100000_create_prospecting_tables',108);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (250,'2026_03_18_120000_add_cross_portal_matching_to_prospecting_listings',108);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (251,'2026_03_18_140000_create_prospecting_claims_table',108);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (252,'2026_03_18_140001_add_first_seen_email_date_to_prospecting_listings',108);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (253,'2026_02_26_600006_add_pending_agent_approval_status_to_signature_templates',109);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (254,'2026_03_19_100000_create_contact_sources_tags_tables',110);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (255,'2026_03_19_120000_add_date_fields_to_contacts_table',110);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (256,'2026_03_19_140000_add_contact_counters',110);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (257,'2026_03_19_160000_seed_prospecting_evaluation_permissions',111);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (258,'2026_03_19_000001_add_party_mode_to_docuperfect_templates',112);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (259,'2026_03_19_000002_create_esign_signing_parties_table',112);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (260,'2026_03_19_000003_create_esign_consent_log_table',112);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (261,'2026_03_19_100001_add_cds_columns_to_docuperfect_templates',112);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (262,'2026_03_20_100001_create_cds_drafts_table',112);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (263,'2026_03_20_120000_add_slot_columns_to_web_pack_items',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (264,'2026_03_22_184212_add_supervised_by_to_users_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (265,'2026_03_22_200000_add_columns_to_esign_consent_log',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (266,'2026_03_22_210000_create_signature_zones_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (267,'2026_03_22_220000_add_sections_to_docuperfect_templates',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (268,'2026_03_22_220001_create_section_acceptances_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (269,'2026_03_22_220002_add_deferred_partial_status_support',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (270,'2026_03_22_220003_seed_template_111_sections',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (271,'2026_03_22_230000_add_other_conditions_zone_type',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (272,'2026_03_22_230001_create_document_amendments_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (273,'2026_03_22_230002_create_amendment_acceptances_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (274,'2026_03_22_230003_add_pack_chaining_to_flows',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (275,'2026_03_22_240000_create_signed_document_versions_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (276,'2026_03_22_240001_create_document_contact_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (277,'2026_03_23_074727_expand_status_enums_for_esign_v2',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (278,'2026_03_23_181733_add_cancellation_fields_to_signature_templates_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (279,'2026_03_23_182523_add_cancelled_to_signature_status_enums',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (280,'2026_03_23_200000_add_authorised_columns_to_signature_requests',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (281,'2026_03_24_100001_rename_splitter_doc_types_to_document_types',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (282,'2026_03_24_100002_add_columns_to_contact_documents_and_property_files',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (283,'2026_03_24_100003_repoint_docuperfect_templates_to_document_types',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (284,'2026_03_24_200001_create_unified_documents_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (285,'2026_03_24_200002_migrate_data_to_unified_documents',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (286,'2026_03_24_300001_add_category_to_docuperfect_templates',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (287,'2026_03_25_100209_create_notifications_table',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (288,'2026_03_26_100000_add_assigned_parties_and_soft_deletes_to_signature_zones',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (289,'2026_03_26_100000_create_fica_tables',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (290,'2026_03_26_200000_create_fica_compliance_workflow',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (291,'2026_03_26_300000_add_fica_gate_to_signature_requests',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (292,'2026_03_27_100000_add_esign_role_to_contact_types',113);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (293,'2026_03_23_100001_add_pp_syndication_columns_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (294,'2026_03_23_100002_add_pp_suburb_id_and_coordinates_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (295,'2026_03_23_140000_add_pp_visibility_and_rental_columns_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (296,'2026_03_23_150000_add_pp_second_agent_id_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (297,'2026_03_23_160000_add_address_detail_columns_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (298,'2026_03_23_170000_create_property_showdays_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (299,'2026_03_24_093448_add_listing_type_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (300,'2026_03_24_094815_add_pricing_details_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (301,'2026_03_26_100001_add_p24_syndication_columns_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (302,'2026_03_27_200000_create_fault_reports_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (303,'2026_03_27_300000_create_commission_engine_tables',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (304,'2026_03_27_300001_add_commission_columns_to_users',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (305,'2026_03_27_400000_create_onboarding_tables',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (306,'2026_03_27_500000_create_training_tables',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (307,'2026_03_30_100000_create_deposit_trust_interest_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (308,'2026_03_30_100001_rename_property_status_items',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (309,'2026_03_30_100002_add_gallery_categories_to_properties',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (310,'2026_03_30_200000_create_deposit_interest_calculations_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (311,'2026_03_30_300001_create_deal_pipeline_templates_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (312,'2026_03_30_300002_create_deal_pipeline_steps_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (313,'2026_03_30_300003_create_deals_v2_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (314,'2026_03_30_300004_create_deal_v2_contacts_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (315,'2026_03_30_300005_create_deal_v2_agents_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (316,'2026_03_30_300006_create_deal_step_instances_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (317,'2026_03_30_300007_create_deal_step_documents_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (318,'2026_03_30_300008_create_deal_activity_log_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (319,'2026_03_30_400000_add_status_triggers_to_pipeline_tables',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (320,'2026_03_30_500001_add_commission_columns_to_deals_v2',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (321,'2026_03_30_500002_rebuild_deal_v2_agents_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (322,'2026_03_30_500003_create_deal_v2_settlements_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (323,'2026_03_31_100000_backfill_null_contact_property_roles',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (324,'2026_03_31_200000_make_property_optional_columns_nullable',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (325,'2026_03_31_300001_create_calendar_events_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (326,'2026_03_31_300002_create_calendar_reminders_log_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (327,'2026_03_31_300003_create_calendar_user_preferences_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (328,'2026_03_31_300004_create_command_tasks_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (329,'2026_03_31_300005_create_automation_rules_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (330,'2026_03_31_300006_create_automation_log_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (331,'2026_03_31_300007_create_property_health_scores_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (332,'2026_03_31_300008_create_agent_scorecards_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (333,'2026_03_31_300009_create_command_document_expectations_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (334,'2026_03_31_300010_create_command_reminder_defaults_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (335,'2026_03_31_300011_add_last_activity_at_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (336,'2026_03_31_400001_create_user_dashboard_settings_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (337,'2026_03_31_400002_add_event_reminder_hours_to_dashboard_settings',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (338,'2026_03_31_400003_add_resolution_to_tasks_and_events',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (339,'2026_03_31_400004_add_send_reminder_to_tasks_and_events',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (340,'2026_04_01_100001_add_listing_types_to_document_types',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (341,'2026_04_08_100000_add_pp_agent_image_columns_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (342,'2026_04_09_100000_add_pp_unique_agent_id_to_users_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (343,'2026_04_09_100001_add_video_fields_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (344,'2026_04_10_100000_add_property_created_index_to_p24_syndication_logs',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (345,'2026_04_14_000001_create_p24_import_runs_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (346,'2026_04_14_000002_create_p24_import_rows_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (347,'2026_04_14_000003_add_p24_ids_to_users_and_properties',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (348,'2026_04_14_100000_add_agency_id_to_tenant_tables',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (349,'2026_04_14_110000_detach_system_owners_from_agencies',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (350,'2026_04_14_120000_backfill_orphan_agency_ids',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (351,'2026_04_15_000001_create_p24_onboarding_portals_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (352,'2026_04_15_000002_add_portal_audit_to_p24_import_rows',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (353,'2026_04_15_000003_create_p24_portal_events_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (354,'2026_04_18_000001_add_slug_to_p24_onboarding_portals',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (355,'2026_04_18_000002_add_pet_friendly_to_properties_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (356,'2026_04_18_100001_add_auto_archive_done_to_dashboard_settings',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (357,'2026_04_18_120000_add_p24_agency_id_to_agencies_and_branches',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (358,'2026_04_21_000001_add_compliance_fields_to_users_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (359,'2026_04_21_000002_create_user_documents_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (360,'2026_04_21_000003_backfill_user_documents',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (361,'2026_04_21_100001_create_rmcp_versions_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (362,'2026_04_21_100002_create_rmcp_sections_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (363,'2026_04_21_100003_create_rmcp_variables_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (364,'2026_04_21_100004_create_rmcp_compliance_officers_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (365,'2026_04_21_110001_create_fica_officer_appointments_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (366,'2026_04_21_110002_migrate_fica_officers_to_appointments',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (367,'2026_04_21_120001_create_rmcp_acknowledgements_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (368,'2026_04_21_120002_create_rmcp_section_acknowledgements_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (369,'2026_04_21_121927_seed_fica_document_types_to_document_types_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (370,'2026_04_21_130001_create_employee_screenings_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (371,'2026_04_21_130002_create_employee_screening_checks_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (372,'2026_04_21_130003_add_screening_fields_to_users_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (373,'2026_04_21_130004_add_screening_document_types',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (374,'2026_04_21_140001_fix_rmcp_section_26_wording',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (375,'2026_04_21_140002_retire_placeholder_training_courses',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (376,'2026_04_21_150001_create_agency_compliance_provisions_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (377,'2026_04_21_150002_add_admin_upload_fields_to_user_documents',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (378,'2026_04_21_150003_create_user_compliance_overrides_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (379,'2026_04_22_080001_create_impersonation_logs_table',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (380,'2026_04_22_090000_add_ppra_last_verified_at_to_users',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (381,'2026_04_22_090001_backfill_user_photos_to_user_documents',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (382,'2026_04_22_100000_fix_user_documents_agency_id',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (383,'2026_04_22_110000_add_wet_ink_fields_to_fica_tables',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (384,'2026_04_22_110001_make_fica_submission_token_nullable',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (385,'2026_04_22_110002_add_cancelled_fica_status_and_resend_logs',114);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (386,'2026_04_21_184755_add_soft_deletes_to_branches_table',115);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (387,'2026_04_21_184800_add_split_branches_enabled_to_agencies_table',115);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (388,'2026_04_21_184900_add_branch_id_to_pillar_and_compliance_tables',115);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (389,'2026_04_21_185000_create_deal_branches_table',115);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (390,'2026_04_21_185100_add_per_branch_syndication_columns_to_branches',115);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (391,'2026_04_22_131821_create_agency_document_type_configs_table',115);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (392,'2026_04_22_133650_add_document_type_config_to_agency_compliance_provisions',115);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (393,'2026_04_22_135334_add_branch_id_to_agency_compliance_provisions',115);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (394,'2026_04_22_135335_drop_allows_branch_override_from_agency_document_type_configs',115);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (395,'2026_04_27_000001_add_oversight_scope_to_roles_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (396,'2026_04_27_000002_create_user_oversight_preferences_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (397,'2026_04_27_000003_create_oversight_nudges_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (398,'2026_04_27_100001_create_notification_event_types_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (399,'2026_04_27_100002_create_user_notification_preferences_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (400,'2026_04_27_100003_create_notification_dispatch_log_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (401,'2026_04_27_100004_create_device_tokens_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (402,'2026_04_28_100000_create_pp_event_feed_settings_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (403,'2026_04_28_100001_extend_contact_matches',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (404,'2026_04_28_100002_create_contact_match_feedback_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (405,'2026_04_28_100003_create_contact_match_notifications_table',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (406,'2026_04_28_120000_add_share_slug_to_contact_matches',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (407,'2026_04_28_120000_add_virtual_tour_url_to_properties',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (408,'2026_04_28_130000_add_gallery_custom_tags_to_properties',116);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (409,'2026_04_29_120000_add_pp_external_ref_to_users_table',117);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (410,'2026_04_23_100001_add_payroll_fields_to_users_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (411,'2026_04_23_100002_create_user_banking_details_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (412,'2026_04_23_100003_add_payroll_fields_to_agencies_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (413,'2026_04_23_100004_create_payroll_tax_tables_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (414,'2026_04_23_100005_create_payroll_tax_rebates_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (415,'2026_04_23_100006_create_payroll_earning_types_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (416,'2026_04_23_100007_create_payroll_deduction_types_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (417,'2026_04_23_100008_create_payroll_employees_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (418,'2026_04_23_100009_create_payroll_employee_earnings_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (419,'2026_04_23_100010_create_payroll_employee_deductions_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (420,'2026_04_23_100011_create_payroll_runs_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (421,'2026_04_23_100012_create_payroll_payslips_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (422,'2026_04_23_100013_create_payroll_payslip_lines_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (423,'2026_04_23_100014_add_payslip_to_user_documents_enum',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (424,'2026_04_29_000001_create_leave_types_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (425,'2026_04_29_000002_create_leave_entitlements_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (426,'2026_04_29_000003_create_leave_applications_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (427,'2026_04_29_000004_create_leave_application_documents_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (428,'2026_04_29_000005_create_leave_transactions_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (429,'2026_04_29_000006_create_public_holidays_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (430,'2026_04_29_000007_create_staff_take_on_records_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (431,'2026_04_29_000008_add_leave_columns_to_payroll_employees_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (432,'2026_04_29_000009_add_leave_columns_to_users_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (433,'2026_04_29_123451_rebuild_template_116_marketing_permission_v11',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (434,'2026_04_30_140425_add_fica_expires_at_to_fica_submissions_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (435,'2026_04_30_142935_drop_command_reminder_defaults_and_create_calendar_event_class_settings_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (436,'2026_05_02_104539_make_calendar_events_user_id_nullable',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (437,'2026_05_04_100000_sync_notification_event_types_catalog',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (438,'2026_05_04_193122_create_command_task_notes_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (439,'2026_05_05_000001_create_calendar_event_links_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (440,'2026_05_05_000002_backfill_demo_calendar_event_links',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (441,'2026_05_05_000004_create_agency_feedback_options_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (442,'2026_05_05_000005_create_calendar_event_feedback_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (443,'2026_05_05_000006_create_calendar_event_audit_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (444,'2026_05_05_000007_backfill_demo_feedback',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (445,'2026_05_05_000008_backfill_manual_event_links',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (446,'2026_05_05_000009_rename_valuation_to_property_evaluation',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (447,'2026_05_05_000010_add_event_nature_to_calendar_event_class_settings',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (448,'2026_05_05_000011_create_agency_contact_settings_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (449,'2026_05_05_000012_create_agency_leave_visibility_matrix_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (450,'2026_05_05_000013_backfill_branch_id_on_contacts_and_properties',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (451,'2026_05_05_000014_add_default_branch_id_to_agencies',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (452,'2026_05_05_000015_make_branch_id_not_null_on_contacts_and_properties',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (453,'2026_05_05_000016_expand_duplicate_mode_and_create_duplicate_log',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (454,'2026_05_05_000017_create_contact_access_log_and_consent_records',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (455,'2026_05_05_000018_add_channel_opt_out_columns_to_contacts',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (456,'2026_05_05_000019_multi_property_events_support',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (457,'2026_05_05_000020_buyer_crm_foundation',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (458,'2026_05_05_000021_add_buyer_facing_to_calendar_event_class_settings',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (459,'2026_05_06_000001_add_actor_role_and_completion_to_class_settings',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (460,'2026_05_06_000002_create_property_recommendations_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (461,'2026_05_06_000003_create_property_presentation_snapshots_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (462,'2026_05_06_000004_add_seller_visible_to_property_recommendations',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (463,'2026_05_06_000005_create_buyer_preferences_and_risk_scores',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (464,'2026_05_06_000006_add_retention_action_to_buyer_activity_log',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (465,'2026_05_06_000007_create_seller_live_link_tables',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (466,'2026_05_06_000008_create_buyer_matching_engine_tables',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (467,'2026_05_06_000009_drop_old_feedback_unique_index',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (468,'2026_05_06_000010_create_lost_deal_module_tables',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (469,'2026_05_06_000011_add_recovered_columns_to_buyer_lost_records',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (470,'2026_05_06_000012_create_property_sold_records_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (471,'2026_05_06_000013_create_calendar_event_invitations_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (472,'2026_05_06_000014_create_feedback_reports_tables',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (473,'2026_05_06_000015_add_feedback_recipients_to_agencies',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (474,'2026_05_06_000016_add_buyer_pipeline_scope_and_deprecate_sharing_mode',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (475,'2026_05_06_000017_create_prospecting_buyer_matches_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (476,'2026_05_07_172111_add_is_demo_to_agencies_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (477,'2026_05_07_174002_add_require_external_access_authorization_to_agencies',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (478,'2026_05_07_174003_create_agency_access_requests_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (479,'2026_05_09_120001_create_client_users_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (480,'2026_05_09_120002_add_client_user_id_to_contacts',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (481,'2026_05_09_120003_create_client_otps_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (482,'2026_05_09_120004_create_client_access_logs_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (483,'2026_05_09_120005_create_client_signin_attempts_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (484,'2026_05_11_081126_add_acknowledged_at_to_calendar_event_invitations',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (485,'2026_05_11_094044_add_feedback_mode_and_visibility_columns',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (486,'2026_05_11_105415_add_compliance_columns_to_properties',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (487,'2026_05_11_105419_create_marketing_share_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (488,'2026_05_11_132238_create_property_audit_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (489,'2026_05_11_135612_create_whistleblow_complaints_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (490,'2026_05_11_135613_create_whistleblow_complaint_evidence_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (491,'2026_05_11_135614_create_whistleblow_audit_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (492,'2026_05_11_135615_add_whistleblow_columns_to_agencies',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (493,'2026_05_11_135616_add_compliance_evidence_flags_to_properties',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (494,'2026_05_12_083334_create_whistleblow_complaint_subjects_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (495,'2026_05_12_083335_backfill_whistleblow_subjects_from_complaints',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (496,'2026_05_12_083336_drop_subject_columns_from_whistleblow_complaints',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (497,'2026_05_12_090643_replace_ppra_recipient_with_tier_recipients_on_agencies',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (498,'2026_05_12_090644_create_whistleblow_email_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (499,'2026_05_12_091937_create_seller_info_share_links_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (500,'2026_05_12_091938_make_complaint_id_nullable_on_whistleblow_email_log',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (501,'2026_05_12_105607_add_matched_property_id_to_prospecting_listings',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (502,'2026_05_12_111831_add_indexes_to_docuperfect_documents',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (503,'2026_05_12_160000_create_training_help_tables',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (504,'2026_05_12_170000_add_created_by_agency_id_to_client_users',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (505,'2026_05_12_180000_add_qr_code_slug_to_users',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (506,'2026_05_13_100001_add_preapproval_to_contacts_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (507,'2026_05_13_100002_extend_contact_matches_for_unification',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (508,'2026_05_13_100003_add_agency_id_to_prospecting_buyer_matches',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (509,'2026_05_13_100004_add_agency_id_to_property_buyer_matches',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (510,'2026_05_13_120001_create_wishlist_migration_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (511,'2026_05_13_140001_create_domain_event_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (512,'2026_05_13_150001_add_p24_credentials_to_agencies',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (513,'2026_05_13_150001_create_towns_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (514,'2026_05_13_150002_create_p24_location_tables',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (515,'2026_05_13_150002_create_town_suburbs_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (516,'2026_05_13_150003_add_p24_location_refs_to_properties',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (517,'2026_05_13_150003_create_property_type_options_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (518,'2026_05_13_150004_create_bedroom_segments_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (519,'2026_05_13_150004_drop_unique_slug_on_p24_suburbs',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (520,'2026_05_13_150005_create_price_bands_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (521,'2026_05_13_150005_flag_p24_suburb_mismatches',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (522,'2026_05_14_080001_create_seller_outreach_templates_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (523,'2026_05_14_080002_create_seller_outreach_sends_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (524,'2026_05_14_080003_create_seller_outreach_clicks_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (525,'2026_05_14_080004_add_messaging_opt_out_to_contacts_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (526,'2026_05_14_090001_create_contact_outreach_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (527,'2026_05_14_100001_create_seller_outreach_callbacks_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (528,'2026_05_14_120001_add_whatsapp_launch_mode_to_agencies_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (529,'2026_05_14_130001_normalize_property_types',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (530,'2026_05_14_131648_create_suggested_action_thresholds_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (531,'2026_05_14_140000_add_market_intelligence_columns_to_properties',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (532,'2026_05_14_140001_create_dev_settings_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (533,'2026_05_14_150000_create_buyer_match_tiers_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (534,'2026_05_14_160000_add_prospecting_pitch_lock_to_agencies',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (535,'2026_05_14_160001_create_prospecting_pitch_locks_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (536,'2026_05_14_170000_create_tracked_properties_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (537,'2026_05_14_170001_create_tracked_property_external_refs_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (538,'2026_05_14_180000_add_tracked_property_id_to_listings_tables',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (539,'2026_05_17_120000_add_qr_reroute_user_id_to_users',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (540,'2026_05_20_000001_create_portal_leads_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (541,'2026_05_20_000002_grant_portal_leads_access_to_all_roles',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (542,'2026_05_20_100001_add_p24_suburb_ids_to_contact_matches',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (543,'2026_05_21_220001_create_legal_block_audit_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (544,'2026_05_21_220002_classify_otp_templates',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (545,'2026_05_22_100000_add_hidden_property_reasons_to_contact_matches_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (546,'2026_05_23_000001_wave3b_backfill_orphan_agency_ids',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (547,'2026_05_23_010100_add_agency_id_to_deal_logs_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (548,'2026_05_23_010200_add_agency_id_to_deal_money_lines_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (549,'2026_05_23_010300_add_agency_id_to_deal_settlements_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (550,'2026_05_23_010400_add_agency_id_to_deals_v2_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (551,'2026_05_23_010500_add_agency_id_to_deal_activity_log_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (552,'2026_05_23_010600_add_agency_id_to_deal_pipeline_templates_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (553,'2026_05_23_010700_add_agency_id_to_deal_pipeline_steps_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (554,'2026_05_23_010800_add_agency_id_to_deal_step_instances_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (555,'2026_05_23_010900_add_agency_id_to_deal_step_documents_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (556,'2026_05_23_011000_add_agency_id_to_deal_v2_settlements_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (557,'2026_05_23_020100_add_agency_id_to_property_files_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (558,'2026_05_23_020200_add_agency_id_to_property_notes_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (559,'2026_05_23_020300_add_agency_id_to_property_showdays_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (560,'2026_05_23_020400_add_agency_id_to_property_marketing_activities_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (561,'2026_05_23_020500_add_agency_id_to_property_marketing_posts_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (562,'2026_05_23_020600_add_agency_id_to_property_presentation_snapshots_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (563,'2026_05_23_020700_add_agency_id_to_property_seller_links_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (564,'2026_05_23_020800_add_agency_id_to_property_seller_link_accesses_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (565,'2026_05_23_020900_add_agency_id_to_property_ad_templates_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (566,'2026_05_23_021000_add_agency_id_to_property_health_scores_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (567,'2026_05_23_030100_add_agency_id_to_contact_notes_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (568,'2026_05_23_030200_add_agency_id_to_contact_documents_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (569,'2026_05_23_030300_add_agency_id_to_contact_match_feedback_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (570,'2026_05_23_030400_add_agency_id_to_contact_match_notifications_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (571,'2026_05_23_030500_add_agency_id_to_buyer_property_views_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (572,'2026_05_23_030600_add_agency_id_to_buyer_property_responses_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (573,'2026_05_23_030700_add_agency_id_to_buyer_preferences_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (574,'2026_05_23_030800_add_agency_id_to_buyer_state_transitions_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (575,'2026_05_23_030900_add_agency_id_to_buyer_lost_risk_scores_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (576,'2026_05_23_031000_add_agency_id_to_buyer_portal_links_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (577,'2026_05_23_040100_add_agency_id_to_presentation_active_listings_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (578,'2026_05_23_040200_add_agency_id_to_presentation_articles_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (579,'2026_05_23_040300_add_agency_id_to_presentation_document_library_items_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (580,'2026_05_23_040400_add_agency_id_to_presentation_fields_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (581,'2026_05_23_040500_add_agency_id_to_presentation_links_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (582,'2026_05_23_040600_add_agency_id_to_presentation_listing_price_history_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (583,'2026_05_23_040700_add_agency_id_to_presentation_sections_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (584,'2026_05_23_040800_add_agency_id_to_presentation_snapshots_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (585,'2026_05_23_040900_add_agency_id_to_presentation_sold_comps_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (586,'2026_05_23_041000_add_agency_id_to_presentation_uploads_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (587,'2026_05_23_050100_add_agency_id_to_presentation_url_snapshots_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (588,'2026_05_23_050200_add_agency_id_to_presentation_versions_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (589,'2026_05_23_050300_add_agency_id_to_worksheets_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (590,'2026_05_23_050400_add_agency_id_to_targets_table',118);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (591,'2026_05_23_050500_add_agency_id_to_monthly_target_goals_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (592,'2026_05_23_050600_add_agency_id_to_listing_targets_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (593,'2026_05_23_050700_add_agency_id_to_tool_history_entries_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (594,'2026_05_23_050800_add_agency_id_to_daily_activities_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (595,'2026_05_23_050900_add_agency_id_to_daily_activity_entries_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (596,'2026_05_23_051000_add_agency_id_to_agent_scorecards_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (597,'2026_05_23_060100_add_agency_id_to_listing_stocks_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (598,'2026_05_23_060200_add_agency_id_to_listing_import_runs_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (599,'2026_05_23_060300_add_agency_id_to_listing_import_rows_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (600,'2026_05_23_060400_add_agency_id_to_listing_snapshots_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (601,'2026_05_23_060500_add_agency_id_to_market_analytics_runs_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (602,'2026_05_23_060600_add_agency_id_to_sale_probability_runs_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (603,'2026_05_23_060700_add_agency_id_to_revenue_share_ledger_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (604,'2026_05_23_060800_add_agency_id_to_agent_mentors_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (605,'2026_05_23_060900_add_agency_id_to_agent_sponsorships_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (606,'2026_05_23_061000_add_agency_id_to_agent_social_accounts_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (607,'2026_05_23_070100_add_agency_id_to_commercial_evaluations_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (608,'2026_05_23_070200_add_agency_id_to_commercial_evaluation_assets_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (609,'2026_05_23_070300_add_agency_id_to_commercial_evaluation_comparables_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (610,'2026_05_23_070400_add_agency_id_to_commercial_evaluation_crops_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (611,'2026_05_23_070500_add_agency_id_to_commercial_evaluation_financials_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (612,'2026_05_23_070600_add_agency_id_to_commercial_evaluation_livestock_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (613,'2026_05_23_070700_add_agency_id_to_commercial_evaluation_units_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (614,'2026_05_23_070800_add_agency_id_to_finance_audit_runs_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (615,'2026_05_23_070900_add_agency_id_to_finance_audit_items_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (616,'2026_05_23_071000_add_agency_id_to_finance_computed_values_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (617,'2026_05_23_080100_add_agency_id_to_calendar_event_audit_log_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (618,'2026_05_23_080200_add_agency_id_to_calendar_event_invitations_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (619,'2026_05_23_080300_add_agency_id_to_calendar_event_links_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (620,'2026_05_23_080400_add_agency_id_to_calendar_reminders_log_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (621,'2026_05_23_080500_add_agency_id_to_branch_settings_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (622,'2026_05_23_080600_add_agency_id_to_branch_activity_columns_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (623,'2026_05_23_080700_add_agency_id_to_fault_reports_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (624,'2026_05_23_080800_add_agency_id_to_contact_sources_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (625,'2026_05_23_080900_add_agency_id_to_contact_tags_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (626,'2026_05_23_081000_add_agency_id_to_property_setting_items_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (627,'2026_05_23_090100_add_agency_id_to_document_filing_register_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (628,'2026_05_23_090200_add_agency_id_to_document_library_items_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (629,'2026_05_23_090300_add_agency_id_to_fica_documents_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (630,'2026_05_23_090400_add_agency_id_to_fica_resend_logs_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (631,'2026_05_23_090500_add_agency_id_to_rmcp_sections_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (632,'2026_05_23_090600_add_agency_id_to_rmcp_section_acknowledgements_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (633,'2026_05_23_090700_add_agency_id_to_employee_screening_checks_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (634,'2026_05_23_090800_add_agency_id_to_whistleblow_email_log_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (635,'2026_05_23_090900_add_agency_id_to_p24_listings_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (636,'2026_05_23_091000_add_agency_id_to_p24_import_log_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (637,'2026_05_25_120000_add_portal_visibility_prefs_to_users_table',119);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (638,'2026_05_28_120000_add_pp_syndication_columns_to_agencies',120);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (639,'2026_05_28_100001_create_pp_locations_tables',121);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (640,'2026_05_28_100002_add_pp_locations_sync_to_agencies',121);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (641,'2026_05_28_140000_add_mark_compliant_on_confirm_to_p24_import_runs',122);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (642,'2026_05_28_180001_add_ai_attribution_to_calendar_events',122);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (643,'2026_05_28_180002_add_features_json_meta_to_properties',122);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (644,'2026_05_28_180003_create_property_image_analyses_table',122);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (645,'2026_05_28_180004_add_ai_feature_flags_to_agencies',122);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (646,'2026_05_29_100000_add_open_hours_and_push_master_to_dashboard_settings',123);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (647,'2026_05_19_120000_seed_esign_deal_named_fields',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (648,'2026_05_19_140000_add_signed_paginated_html_to_docuperfect_documents',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (649,'2026_05_20_000001_add_feedback_captured_to_buyer_activity_log_enum',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (650,'2026_05_21_120001_create_tracked_property_addresses_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (651,'2026_05_21_120002_create_market_report_types_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (652,'2026_05_21_120003_create_market_reports_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (653,'2026_05_21_120004_create_market_data_points_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (654,'2026_05_21_120005_create_market_data_discrepancies_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (655,'2026_05_21_120006_create_ai_narrative_cache_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (656,'2026_05_21_120007_create_agent_activity_events_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (657,'2026_05_21_120008_add_agency_id_to_p24_listings_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (658,'2026_05_21_120009_backfill_agency_id_on_p24_listings',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (659,'2026_05_21_120010_make_p24_listings_agency_id_not_null',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (660,'2026_05_21_120011_add_agency_id_to_presentations_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (661,'2026_05_21_120012_backfill_agency_id_on_presentations',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (662,'2026_05_21_120013_make_presentations_agency_id_not_null',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (663,'2026_05_21_120014_add_identifier_columns_to_properties_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (664,'2026_05_21_120015_backfill_property_identifiers_from_tracked_properties',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (665,'2026_05_21_120016_fix_prospecting_listings_null_addresses',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (666,'2026_05_21_120017_spatial_index_on_tracked_properties_geo',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (667,'2026_05_21_130001_seed_mic_permissions',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (668,'2026_05_21_140001_relax_agent_activity_events_user_id_nullable',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (669,'2026_05_21_150001_relax_agent_activity_events_agency_id_nullable',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (670,'2026_05_21_160001_add_ai_budget_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (671,'2026_05_21_160002_add_soft_deletes_to_ai_narrative_cache',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (672,'2026_05_21_170001_backfill_tracked_property_addresses',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (673,'2026_05_22_010001_create_document_conditions_tables',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (674,'2026_05_22_010002_amended_by_request_nullable_on_document_amendments',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (675,'2026_05_22_010003_add_amendment_initialing_to_signature_template_status',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (676,'2026_05_22_020001_extend_amendments_for_flags',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (677,'2026_05_22_120001_backfill_legacy_other_conditions',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (678,'2026_05_22_140001_add_relates_to_clause_ref_to_conditions',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (679,'2026_05_23_080001_add_pillar_fks_to_presentations',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (680,'2026_05_23_100001_add_presentation_settings_to_agency',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (681,'2026_05_23_100001_create_flag_removal_requests_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (682,'2026_05_23_120001_add_subject_geo_to_market_reports',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (683,'2026_05_23_120002_create_market_report_comp_rows_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (684,'2026_05_23_120003_create_scheme_owners_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (685,'2026_05_23_140001_add_comp_scope_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (686,'2026_05_23_140002_add_comp_scope_to_presentations',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (687,'2026_05_23_160001_add_hydration_summary_to_presentation_versions',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (688,'2026_05_23_180001_add_holding_cost_defaults_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (689,'2026_05_24_080001_create_geocoding_cache_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (690,'2026_05_24_080002_create_geocoding_runs_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (691,'2026_05_24_080003_add_geo_source_to_properties_and_tracked',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (692,'2026_05_25_080001_add_geo_index_to_properties',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (693,'2026_05_26_080001_add_is_demo_to_spatial_tables',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (694,'2026_05_27_080001_create_presentation_snapshot_links_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (695,'2026_05_27_080002_create_presentation_snapshot_views_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (696,'2026_05_27_080003_add_snapshot_link_settings_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (697,'2026_05_28_080001_create_presentation_teaser_leads_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (698,'2026_05_28_080002_add_teaser_lead_id_to_presentation_snapshot_views',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (699,'2026_05_28_080003_add_teaser_section_toggles_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (700,'2026_05_29_080001_create_presentation_deliveries_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (701,'2026_05_29_080002_add_presentation_send_defaults_to_users',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (702,'2026_05_29_080003_add_delivery_templates_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (703,'2026_05_30_080001_create_presentation_ai_variants_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (704,'2026_05_30_080002_add_ai_summary_to_presentation_versions',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (705,'2026_05_30_080003_create_presentation_ai_summary_history_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (706,'2026_05_31_080001_extend_snapshot_links_for_refresh_phase7',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (707,'2026_05_31_080002_add_staleness_days_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (708,'2026_05_31_080003_create_presentation_refresh_requests_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (709,'2026_06_01_080001_create_presentation_outcomes_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (710,'2026_06_01_080002_create_presentation_outcome_prompts_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (711,'2026_06_01_201014_add_competitor_stock_min_same_type_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (712,'2026_06_01_204407_add_competitor_stock_default_display_count_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (713,'2026_06_01_211936_add_geo_columns_to_prospecting_listings_and_map_provider_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (714,'2026_06_02_080001_add_property_link_and_sale_columns_to_deals',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (715,'2026_06_02_080002_create_deal_link_review_queue_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (716,'2026_06_02_100001_create_agency_api_keys_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (717,'2026_06_02_100002_create_agency_webhook_deliveries_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (718,'2026_06_02_100003_create_property_website_syndication_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (719,'2026_06_02_100004_add_website_fields_to_agencies_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (720,'2026_06_02_100005_add_show_on_website_to_users_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (721,'2026_06_03_080001_add_sg_columns_to_properties',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (722,'2026_06_03_080002_create_property_sg_documents_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (723,'2026_06_03_080003_create_sg_search_cache_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (724,'2026_06_04_080001_phase9a_harden_outcome_fk_and_delivery_index',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (725,'2026_06_05_080001_create_rcr_questionnaires_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (726,'2026_06_05_080002_create_rcr_questionnaire_sections_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (727,'2026_06_05_080003_create_rcr_questions_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (728,'2026_06_05_080004_create_rcr_submissions_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (729,'2026_06_05_080005_create_rcr_answers_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (730,'2026_06_05_080006_create_rcr_answer_evidence_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (731,'2026_06_05_080007_create_rcr_submission_snapshots_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (732,'2026_06_06_080001_add_period_and_clipboard_tracking_to_rcr_tables',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (733,'2026_06_07_080001_extend_geocoding_cache_phase11a',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (734,'2026_06_10_120000_add_id_number_audit_to_contacts',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (735,'2026_06_15_120000_create_map_saved_searches_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (736,'2026_06_16_120000_add_ppra_number_to_agencies_and_branches',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (737,'2026_06_16_120100_create_information_officer_appointments_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (738,'2026_06_16_120300_add_module_6_activity_points_columns',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (739,'2026_06_16_120400_create_activity_definition_calendar_classes',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (740,'2026_06_16_120500_rollback_phase_9c3_company_documents',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (741,'2026_06_16_120600_add_privacy_policy_fields_to_agencies_and_branches',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (742,'2026_06_16_120700_add_role_index_to_signature_requests',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (743,'2026_06_16_121000_add_tp_outreach_columns',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (744,'2026_06_16_122000_fix_market_report_cascade_to_preserve_audit',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (745,'2026_06_16_122100_seed_mic_restore_reports_permission',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (746,'2026_06_16_122200_seed_cma_info_vicinity_sale_type',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (747,'2026_06_16_122300_make_market_reports_report_type_id_nullable',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (748,'2026_06_16_122400_add_normalised_address_columns_to_properties',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (749,'2026_06_16_122500_add_mic_comp_row_id_fk_to_presentation_tables',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (750,'2026_06_17_100000_add_title_type_to_property_setting_items',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (751,'2026_06_17_110000_add_review_flow_to_presentations',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (752,'2026_06_17_120000_add_condition_levels_to_presentations',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (753,'2026_06_17_130000_add_section_toggles_to_presentations',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (754,'2026_06_17_140000_add_snapshot_payload_to_presentations',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (755,'2026_06_17_150000_add_title_type_to_properties',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (756,'2026_06_17_160000_add_cma_compute_settings_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (757,'2026_06_19_120000_add_competitor_stock_settings_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (758,'2026_06_19_120100_add_included_competitor_ids_to_presentation_versions',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (759,'2026_06_19_140000_create_holding_cost_data_points_table',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (760,'2026_06_19_140100_add_freehold_holding_defaults_to_agencies',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (761,'2026_06_19_140200_add_freehold_monthly_to_presentations',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (762,'2026_06_20_120000_seed_hfc_activity_calendar_mappings',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (763,'2026_06_20_140000_relax_daily_activity_unique_for_calendar_events',124);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (764,'2026_06_20_160000_extend_activity_actions_for_instant',125);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (765,'2026_06_20_160100_make_event_class_nullable_for_instant_rows',125);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (766,'2026_06_02_101001_add_website_agent_order_to_agencies_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (767,'2026_06_02_101002_add_website_order_to_users_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (768,'2026_06_06_100001_create_contact_testimonials_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (769,'2026_06_06_100002_add_agent_id_to_contact_testimonials_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (770,'2026_06_06_100003_add_agent_public_profile_and_articles',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (771,'2026_06_06_100004_add_media_to_agent_articles',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (772,'2026_06_06_120000_add_website_address_and_open_hours_to_agencies',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (773,'2026_06_21_000000_create_soft_delete_restorations_table',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (774,'2026_06_22_120000_add_website_show_branches_to_agencies',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (775,'2026_06_22_130000_add_birthday_reminder_to_contacts',126);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (776,'2026_06_23_000000_create_ai_usage_events_table',127);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (777,'2026_06_09_000000_add_reviewed_at_to_property_image_analyses',128);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (778,'2026_06_09_120001_add_website_branch_order_to_agencies_table',128);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (779,'2026_06_09_120002_add_website_order_to_branches_table',128);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (780,'2026_06_10_120000_add_new_listing_lookback_days_to_suggested_action_thresholds',129);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (781,'2026_06_23_120000_normalize_user_phone_numbers',130);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (782,'2026_06_11_180000_add_comp_selection_settings_to_agencies',131);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (783,'2026_06_11_180500_add_thumbnail_source_url_to_prospecting_listings',131);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (784,'2026_06_11_190000_add_comp_curation_override_types',131);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (785,'2026_06_12_090000_add_thumbnail_blocked_reason_to_prospecting_listings',132);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (786,'2026_06_24_000000_add_in_analysis_to_presentation_versions_review_status',132);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (787,'2026_06_14_120000_add_day_windows_to_dashboard_settings',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (788,'2026_06_15_140000_add_communication_ingest_filter_to_agencies',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (789,'2026_06_25_000001_create_agency_policies_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_25_000002_create_policy_versions_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_25_000003_create_policy_sections_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_25_000004_create_policy_acknowledgements_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (793,'2026_06_25_000005_create_policy_section_acknowledgements_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (794,'2026_06_26_000001_create_communications_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (795,'2026_06_26_000002_create_communication_attachments_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (796,'2026_06_26_000003_create_communication_links_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (797,'2026_06_26_000004_create_communication_mailboxes_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (798,'2026_06_26_000005_create_communication_wa_devices_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (799,'2026_06_26_000006_create_communication_pending_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (800,'2026_06_27_000001_create_communication_flags_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (801,'2026_06_27_000002_create_communication_flag_alerts_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (802,'2026_06_27_000003_add_classification_to_communication_pending_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (803,'2026_06_28_000001_add_user_fields_to_communication_mailboxes_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (804,'2026_06_28_000002_create_mailbox_credential_reveals_table',133);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (805,'2026_06_16_140000_add_cma_band_pct_to_agencies',134);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (806,'2026_06_16_160000_set_cma_band_pct_asymmetric_default',134);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (807,'2026_06_16_180000_add_messaging_opt_in_to_contacts_table',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (808,'2026_06_16_181000_add_include_tracking_link_to_seller_outreach_templates',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (809,'2026_06_16_182000_add_public_contact_to_agencies',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (810,'2026_06_16_190000_add_opt_out_token_to_seller_outreach_sends',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (811,'2026_06_16_190001_add_messaging_opt_out_source_to_contacts',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (812,'2026_06_16_190002_create_marketing_suppressions_table',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (813,'2026_06_16_190003_add_marketing_unsubscribe_footer_to_agencies',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (814,'2026_06_16_220000_add_outreach_live_deal_statuses_to_agencies',135);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (815,'2026_06_17_090000_add_messaging_all_blocked_to_contacts',136);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (816,'2026_06_17_120000_add_agent_assignment_to_contacts_table',137);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (817,'2026_06_17_000001_change_oversight_nudges_subject_id_to_string',138);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (818,'2026_06_17_160000_add_ss_show_complex_section_to_agencies',139);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (819,'2026_06_18_120000_add_decision_and_source_to_contact_consent_records',140);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (820,'2026_06_19_090000_add_address_only_to_seller_outreach_sends',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (821,'2026_06_19_090100_wrap_matching_claim_in_outreach_templates',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (822,'2026_06_19_120000_add_structured_address_to_contacts_table',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (823,'2026_06_19_120100_add_address_match_mode_to_agency_contact_settings',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (824,'2026_06_29_000001_add_provisional_to_communications_table',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (825,'2026_06_29_000002_add_comms_reconcile_settings_to_agencies',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (826,'2026_06_29_000003_add_half_baths_to_properties_table',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (827,'2026_06_30_000001_remove_contact_fica_missing_notifications',141);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (828,'2026_06_19_000001_create_shared_drive_folders_table',142);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (829,'2026_06_19_000002_create_shared_drive_files_table',142);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (830,'2026_06_30_000002_register_property_feedback_captured_notification_type',142);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (831,'2026_06_21_041100_add_autoland_reasons_to_buyer_state_transitions',143);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (832,'2026_06_21_062000_add_mic_match_settings_to_agency_contact_settings',143);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (833,'2026_07_01_000001_add_min_countable_criteria_to_agency_contact_settings',143);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (834,'2026_06_21_072800_add_competitor_stock_weights_to_agencies',144);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (835,'2026_06_22_090000_add_cma_hide_display_outliers_to_agencies',145);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (836,'2026_06_21_180000_add_display_email_to_users',146);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (837,'2026_07_02_000001_add_contact_type_id_to_contact_tags',147);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (838,'2026_07_02_000002_create_contact_contact_type_table',147);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (839,'2026_07_02_000003_seed_canonical_contact_parents_and_backfill_pivot',147);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (840,'2026_07_03_000001_add_outreach_consent_substate_to_contacts',147);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (841,'2026_07_03_000002_add_outreach_no_response_days_to_agency_contact_settings',147);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (842,'2026_07_03_100000_add_maintenance_mode_to_agencies_table',148);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (843,'2026_06_15_000100_create_user_tour_progress_table',149);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (844,'2026_06_24_120000_create_agency_document_type_compliance_table',150);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (845,'2026_06_25_140000_add_status_label_to_properties',151);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (846,'2026_06_25_000001_add_exclude_from_p24_to_users_table',152);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (847,'2026_07_03_120000_add_p24_hide_address_to_properties_table',153);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (848,'2026_06_25_120000_add_properties_sort_settings_to_agency',154);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (849,'2026_06_23_120000_default_command_center_visibility_scope',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (850,'2026_06_23_130000_make_roles_unique_per_agency',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (851,'2026_06_23_130001_add_agency_id_to_role_permissions',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (852,'2026_06_23_130002_backfill_agency_scoped_roles_and_permissions',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (853,'2026_06_24_000001_create_shared_drives_table',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (854,'2026_06_24_000002_create_shared_drive_access_table',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (855,'2026_06_24_000003_add_drive_id_to_shared_drive_tables',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (856,'2026_06_24_120000_add_rental_images_json_to_properties',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (857,'2026_07_03_000001_create_user_managed_branches_table',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (858,'2026_07_03_000001_seed_owner_other_contact_parents',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (859,'2026_07_03_000002_add_managed_by_user_id_to_deals_table',155);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (860,'2026_06_26_160000_add_p24_photo_cap_and_timeout_settings',156);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (861,'2026_06_26_120000_add_p24_verified_at_to_p24_suburbs',157);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (862,'2026_06_26_120001_purge_phantom_addington_suburb',157);
