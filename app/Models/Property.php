@@ -934,6 +934,30 @@ class Property extends Model
     }
 
     /**
+     * The exact image set the agent sees in the property gallery UI
+     * (`gallery_images_json` — the tag-based gallery on the property page).
+     * This is the single source of truth for outbound syndication photos:
+     * what we send to a portal must equal what the user curated and sees.
+     *
+     * allImages() is deliberately NOT used here — it also merges images_json
+     * (a divergent public/website mirror) and the dawn/noon/dusk variant sets,
+     * which over-counts photos the gallery never showed (e.g. property #1322:
+     * gallery 45 vs allImages 68). Falls back to allImages() ONLY when the
+     * gallery is empty, so a property whose photos live solely in a legacy
+     * column never silently syndicates zero images.
+     *
+     * @return string[]
+     */
+    public function syndicationImages(): array
+    {
+        $gallery = array_values(array_unique(array_filter(
+            (array) ($this->gallery_images_json ?? [])
+        )));
+
+        return !empty($gallery) ? $gallery : $this->allImages();
+    }
+
+    /**
      * The variable set the `_ad-templates` Blade partial expects, derived from
      * adData(). Lets any caller (the single-property ad page AND the bulk Ad
      * Manager) server-render a pre-built template for this property from one
