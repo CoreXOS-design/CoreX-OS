@@ -367,7 +367,11 @@ class PropertyObserver
         // Queued (not inline): the matcher scans every prospect with regex and
         // is too slow to run synchronously, especially during bulk creation
         // (sold properties import). Dispatched to `default` like MatchPropertyJob.
-        $stockMatchFields = ['address', 'suburb', 'street_name', 'street_number'];
+        // 'status' is included so an on→off-market transition (sold/withdrawn/
+        // expired/…) re-runs the matcher, which then CLEARS the stale IN STOCK
+        // badges and returns those listings to the prospectable pool. Address
+        // fields drive the forward match as before.
+        $stockMatchFields = ['address', 'suburb', 'street_name', 'street_number', 'status'];
         if ($property->wasRecentlyCreated || array_intersect(array_keys($property->getChanges()), $stockMatchFields)) {
             try {
                 \App\Jobs\Prospecting\MatchPropertyProspectingJob::dispatch($property->id);

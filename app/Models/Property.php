@@ -44,6 +44,18 @@ class Property extends Model
     }
 
     /**
+     * Instance mirror of scopeOnMarket() — true when this property is live on
+     * the market. Same single source of truth (OFF_MARKET_STATUSES) so the
+     * row-level check can never drift from the query scope. Used by the MIC
+     * stock matcher: only on-market stock may carry an "IN STOCK" badge / be
+     * suppressed from the prospectable pool (BUILD_STANDARD §6 — fix the class).
+     */
+    public function isOnMarket(): bool
+    {
+        return ! in_array((string) $this->status, self::OFF_MARKET_STATUSES, true);
+    }
+
+    /**
      * Derived public-website fields surfaced on every serialisation so the
      * listing's cosmetic slug and canonical public URL are available
      * everywhere CoreX shows the property. Both are computed (never stored),
