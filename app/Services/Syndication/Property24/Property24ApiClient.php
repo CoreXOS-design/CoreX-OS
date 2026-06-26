@@ -30,6 +30,8 @@ class Property24ApiClient
     private string $apiVersion;
     private bool $sandbox;
     private ?string $userGroupId;
+    /** Per-agency HTTP read timeout (seconds); AT-101. */
+    private int $readTimeout;
 
     /**
      * In-process memo of the P24 agent list per agency id, SHARED across client
@@ -65,6 +67,10 @@ class Property24ApiClient
             $this->agencyId   = $config['agency_id'] ?? '';
             $this->userGroupId = $config['user_group_id'] ?? null;
         }
+
+        // AT-101: per-agency HTTP read timeout; falls back to the canonical
+        // default (120s) when the agency has no override / no agency is bound.
+        $this->readTimeout = $agency?->p24HttpReadTimeout() ?? Agency::P24_DEFAULT_HTTP_READ_TIMEOUT;
     }
 
     /** Fetch supported countries. */
@@ -359,18 +365,18 @@ class Property24ApiClient
             }
 
             // P24's saveListing legitimately takes 1-2 minutes to ingest a
-            // photo-heavy listing (up to 30 base64 images) — observed 200s in
-            // p24_syndication_logs reach ~120s. So the read timeout stays
-            // generous (120s); connectTimeout(15) still fast-fails a dead host.
-            // The fix for the old 2-minute SIGKILL is to keep this BELOW the
-            // job timeout (SubmitListingToProperty24::$timeout = 180), so the
-            // HTTP layer times out first and the catch below marks the property
-            // 'error' gracefully instead of Laravel hard-killing the worker.
+            // photo-heavy listing — observed ~120s in p24_syndication_logs. The
+            // read timeout is per-agency (AT-101, default 120s); connectTimeout(15)
+            // still fast-fails a dead host. SubmitListingToProperty24 derives its
+            // job timeout as read + 60 so the HTTP layer always times out FIRST and
+            // the catch below marks the property 'error' gracefully, instead of
+            // Laravel hard-killing the worker mid-request.
             $http = Http::withBasicAuth($this->username, $this->password)
                 ->withHeaders($headers)
-                ->timeout(120)
+                ->timeout($this->readTimeout)
                 ->connectTimeout(15);
 
+            $startedAt = microtime(true);
             $response = match (strtoupper($method)) {
                 'GET'    => $http->get($url),
                 'POST'   => $http->post($url, $payload),
@@ -378,6 +384,7 @@ class Property24ApiClient
                 'DELETE' => $http->delete($url),
                 default  => throw new \InvalidArgumentException("Unsupported HTTP method: {$method}"),
             };
+            $roundTripMs = (int) round((microtime(true) - $startedAt) * 1000);
 
             $statusCode = $response->status();
 
@@ -388,7 +395,7 @@ class Property24ApiClient
                 $responseData = ['raw' => $response->body()];
             }
 
-            $this->logToDb($propertyId, $action, $payload ?: null, $responseData, $statusCode);
+            $this->logToDb($propertyId, $action, $payload ?: null, $responseData, $statusCode, $roundTripMs);
 
             if ($response->successful()) {
                 $this->log('info', "P24 {$action} succeeded", [
@@ -420,13 +427,15 @@ class Property24ApiClient
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
             $error = 'Connection failed: ' . $e->getMessage();
             $this->log('error', "P24 {$action} connection error", ['property_id' => $propertyId, 'error' => $error]);
-            $this->logToDb($propertyId, $action, $payload ?: null, ['error' => $error], null);
+            $roundTripMs = isset($startedAt) ? (int) round((microtime(true) - $startedAt) * 1000) : null;
+            $this->logToDb($propertyId, $action, $payload ?: null, ['error' => $error], null, $roundTripMs);
 
             return ['success' => false, 'message' => $error, 'data' => []];
         } catch (\Exception $e) {
             $error = $e->getMessage();
             $this->log('error', "P24 {$action} error: {$error}", ['property_id' => $propertyId]);
-            $this->logToDb($propertyId, $action, $payload ?: null, ['error' => $error], null);
+            $roundTripMs = isset($startedAt) ? (int) round((microtime(true) - $startedAt) * 1000) : null;
+            $this->logToDb($propertyId, $action, $payload ?: null, ['error' => $error], null, $roundTripMs);
 
             return ['success' => false, 'message' => $error, 'data' => []];
         }
@@ -464,7 +473,7 @@ class Property24ApiClient
         return "HTTP {$statusCode} — check P24 syndication log for full response";
     }
 
-    private function logToDb(?int $propertyId, string $action, ?array $request, mixed $response, ?int $statusCode): void
+    private function logToDb(?int $propertyId, string $action, ?array $request, mixed $response, ?int $statusCode, ?int $roundTripMs = null): void
     {
         if ($propertyId === null) return;
 
@@ -476,10 +485,46 @@ class Property24ApiClient
         P24SyndicationLog::create([
             'property_id'      => $propertyId,
             'action'           => $action,
-            'request_payload'  => $request,
+            'request_payload'  => $this->stripPhotoBytes($request),
             'response_payload' => $response,
             'status_code'      => $statusCode,
+            'round_trip_ms'    => $roundTripMs,
         ]);
+    }
+
+    /**
+     * AT-101 — never persist the heavy photos[].bytes base64 to the log. Replace
+     * the photos array with a compact summary (count, approx total bytes, a short
+     * fingerprint of the set) and leave every other payload field intact. This
+     * keeps p24_syndication_logs rows small regardless of the photo cap and fixes
+     * the `SELECT *` sort-buffer OOM. Nothing reads the stored bytes (the log is
+     * only written here and surfaced as error text / metadata).
+     */
+    private function stripPhotoBytes(?array $request): ?array
+    {
+        if (!is_array($request) || empty($request['photos']) || !is_array($request['photos'])) {
+            return $request;
+        }
+
+        $count = 0;
+        $totalBytes = 0;
+        $hashes = [];
+        foreach ($request['photos'] as $photo) {
+            $b64 = is_array($photo) ? (string) ($photo['bytes'] ?? '') : '';
+            $count++;
+            // Approx raw byte size from base64 length — avoids decoding every image.
+            $totalBytes += (int) (strlen($b64) * 3 / 4);
+            $hashes[] = md5($b64);
+        }
+
+        $request['photos'] = [
+            '_summary'          => true,
+            'photo_count'       => $count,
+            'total_photo_bytes' => $totalBytes,
+            'fingerprint'       => substr(md5(implode('|', $hashes)), 0, 16),
+        ];
+
+        return $request;
     }
 
     private function log(string $level, string $message, array $context = []): void

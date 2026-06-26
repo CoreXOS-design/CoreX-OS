@@ -44,6 +44,27 @@ class Agency extends Model
     ];
 
     /**
+     * Property24 syndication defaults (AT-101). The single source of truth for
+     * the "current behaviour" fallback used everywhere the per-agency setting is
+     * unset: photo cap = 30, HTTP read timeout = 120s (job timeout derives as
+     * read + 60 = 180s). Migration column defaults are kept in lockstep.
+     */
+    public const P24_DEFAULT_MAX_PHOTOS = 30;
+    public const P24_DEFAULT_HTTP_READ_TIMEOUT = 120;
+
+    /** Configured P24 photo cap for this agency, falling back to the default. */
+    public function p24MaxPhotos(): int
+    {
+        return (int) ($this->p24_max_photos ?? self::P24_DEFAULT_MAX_PHOTOS);
+    }
+
+    /** Configured P24 HTTP read timeout (seconds), falling back to the default. */
+    public function p24HttpReadTimeout(): int
+    {
+        return (int) ($this->p24_http_read_timeout ?? self::P24_DEFAULT_HTTP_READ_TIMEOUT);
+    }
+
+    /**
      * AI monthly budget status constants. Returned by aiBudgetStatus().
      * Drives the per-agency AI budget UI banner and the AnthropicGateway
      * pre-call gate (capped = no further calls).
@@ -104,6 +125,8 @@ class Agency extends Model
         'p24_enabled',
         'p24_locations_synced_at',
         'p24_last_sync_error',
+        'p24_max_photos',
+        'p24_http_read_timeout',
         'pp_enabled',
         'pp_username',
         'pp_password',
@@ -247,6 +270,8 @@ class Agency extends Model
         'default_branch_id' => 'integer',
         'p24_password' => 'encrypted',
         'p24_enabled' => 'boolean',
+        'p24_max_photos' => 'integer',
+        'p24_http_read_timeout' => 'integer',
         'p24_locations_synced_at' => 'datetime',
         'pp_enabled' => 'boolean',
         'pp_sandbox' => 'boolean',

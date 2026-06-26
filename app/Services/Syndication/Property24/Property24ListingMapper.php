@@ -3,6 +3,7 @@
 namespace App\Services\Syndication\Property24;
 
 use App\Exceptions\Property24ConfigurationException;
+use App\Models\Agency;
 use App\Models\P24Suburb;
 use App\Models\Property;
 use Illuminate\Support\Facades\Log;
@@ -425,7 +426,9 @@ class Property24ListingMapper
             }
         }
 
-        $images = array_slice($property->allImages(), 0, 30);
+        // AT-101: per-agency photo cap (default 30 reproduces prior behaviour).
+        $maxPhotos = $property->agency?->p24MaxPhotos() ?? Agency::P24_DEFAULT_MAX_PHOTOS;
+        $images = array_slice($property->allImages(), 0, $maxPhotos);
 
         foreach ($images as $imagePath) {
             if (empty($imagePath)) continue;
