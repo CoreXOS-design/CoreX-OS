@@ -99,6 +99,8 @@ class AgencyController extends Controller
             'fic_no'           => 'nullable|string|max:255',
             'p24_agency_id'    => 'nullable|string|max:32',
             'p24_agency_label' => 'nullable|string|max:100',
+            'p24_max_photos'        => 'nullable|integer|min:1|max:200',
+            'p24_http_read_timeout' => 'nullable|integer|min:30|max:600',
             'logo'             => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
 
             // First Admin — required for live agencies, skipped for demo agencies.
@@ -215,6 +217,8 @@ class AgencyController extends Controller
             'p24_password'    => 'nullable|string|max:191',
             'p24_user_group_id' => 'nullable|string|max:64',
             'p24_enabled'     => 'nullable|boolean',
+            'p24_max_photos'        => 'nullable|integer|min:1|max:200',
+            'p24_http_read_timeout' => 'nullable|integer|min:30|max:600',
             'pp_enabled'       => 'nullable|boolean',
             'pp_username'      => 'nullable|string|max:191',
             'pp_password'      => 'nullable|string|max:191',

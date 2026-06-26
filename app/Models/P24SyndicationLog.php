@@ -17,12 +17,15 @@ class P24SyndicationLog extends Model
         'request_payload',
         'response_payload',
         'status_code',
+        'round_trip_ms',
         'created_at',
     ];
 
     protected $casts = [
         'request_payload'  => 'array',
         'response_payload' => 'array',
+        'status_code'      => 'integer',
+        'round_trip_ms'    => 'integer',
         'created_at'       => 'datetime',
     ];
 

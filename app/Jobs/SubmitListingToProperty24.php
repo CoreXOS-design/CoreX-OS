@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\Agency;
 use App\Models\Property;
 use App\Services\Syndication\Property24\Property24SyndicationService;
 use Illuminate\Bus\Queueable;
@@ -16,13 +17,19 @@ class SubmitListingToProperty24 implements ShouldQueue
 
     public int $tries = 3;
     public int $backoff = 60;
-    // Must exceed Property24ApiClient's HTTP read timeout (120s) so the HTTP
-    // layer times out first and the ConnectionException is caught/handled —
-    // rather than Laravel SIGKILL-ing the job mid-request when the two are
-    // equal (the old 2-minute hard-kill + retry storm).
+    // Must exceed Property24ApiClient's HTTP read timeout so the HTTP layer
+    // times out first and the ConnectionException is caught/handled — rather
+    // than Laravel SIGKILL-ing the job mid-request when the two are equal (the
+    // old 2-minute hard-kill + retry storm). AT-101: the read timeout is now
+    // per-agency configurable, so the job timeout is derived as read + 60 in
+    // the constructor (default read 120 → 180, the prior hardcoded value).
     public int $timeout = 180;
 
-    public function __construct(public Property $property) {}
+    public function __construct(public Property $property)
+    {
+        $readTimeout = $property->agency?->p24HttpReadTimeout() ?? Agency::P24_DEFAULT_HTTP_READ_TIMEOUT;
+        $this->timeout = $readTimeout + 60;
+    }
 
     public function handle(Property24SyndicationService $service): void
     {
