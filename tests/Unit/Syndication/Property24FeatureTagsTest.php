@@ -123,4 +123,96 @@ class Property24FeatureTagsTest extends TestCase
 
         $this->assertSame(['Sea'], $tags);
     }
+
+    // ── AT-102/AT-103 — global-vs-per-room separation + featureTags ──────────
+
+    private function mapper(): Property24ListingMapper
+    {
+        return new Property24ListingMapper();
+    }
+
+    private function invoke(string $method, Property $p): mixed
+    {
+        $m = new ReflectionMethod(Property24ListingMapper::class, $method);
+        $m->setAccessible(true);
+        return $m->invoke($this->mapper(), $p);
+    }
+
+    /** A feature that exists ONLY on a room must not appear in the property tags[]. */
+    public function test_room_only_mapped_feature_is_excluded_from_tags(): void
+    {
+        $p = new Property();
+        $p->spaces_json = [
+            'features' => ['security' => ['Alarm System']], // global
+            'spaces'   => [['type' => 'Bathroom', 'count' => 1, 'units' => [
+                ['label' => 'Bathroom 1', 'features' => ['Shower', 'Toilet']], // room-only
+            ]]],
+        ];
+        $p->features_json = ['Alarm System', 'Shower', 'Toilet'];
+
+        $tags = $this->invoke('buildTags', $p);
+
+        $this->assertContains('AlarmSystem', $tags);          // global stays
+        $this->assertNotContains('Shower', $tags);            // room-only excluded
+        $this->assertNotContains('Toilet', $tags);
+    }
+
+    /** Decision A: a feature set BOTH globally and on a room appears in both buckets. */
+    public function test_both_global_and_room_feature_appears_in_both_buckets(): void
+    {
+        $p = new Property();
+        $p->spaces_json = [
+            'features' => ['connectivity' => ['TV Port']], // global
+            'spaces'   => [['type' => 'Bedroom', 'count' => 1, 'units' => [
+                ['label' => 'Bedroom 1', 'features' => ['TV Port']], // also per-room
+            ]]],
+        ];
+        $p->features_json = ['TV Port'];
+
+        $tags = $this->invoke('buildTags', $p);
+        $featureTags = $this->invoke('buildFeatureTags', $p);
+
+        $this->assertContains('TVPort', $tags); // stays in tags[] (global)
+        $bed1 = collect($featureTags)->firstWhere('description', 'Bedroom 1');
+        $this->assertContains('TVPort', $bed1['tags'] ?? []); // and attaches to the room
+    }
+
+    /** featureTags emits named rooms for room-type spaces (Lounge, Dining Room). */
+    public function test_named_rooms_emitted_as_feature_tags(): void
+    {
+        $p = new Property();
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Lounge', 'count' => 1],
+            ['type' => 'Dining Room', 'count' => 1],
+            ['type' => 'Patio', 'count' => 1], // no P24 FeatureType → skipped
+        ]];
+        $p->features_json = [];
+
+        $types = collect($this->invoke('buildFeatureTags', $p))->pluck('featureType')->all();
+
+        $this->assertContains('Lounge', $types);
+        $this->assertContains('DiningRoom', $types);
+        $this->assertNotContains('Patio', $types); // unmapped space type skipped
+    }
+
+    /** Legacy properties with no structured spaces_json keep features_json as global. */
+    public function test_legacy_without_spaces_json_falls_back_to_features_json(): void
+    {
+        $p = new Property();
+        $p->features_json = ['Sea View', 'Electric Gate'];
+        // no spaces_json
+
+        $tags = $this->invoke('buildTags', $p);
+
+        $this->assertContains('Sea', $tags);
+        $this->assertContains('ElectricGate', $tags);
+    }
+
+    /** Coverage audit — a previously-unmapped CoreX feature now emits its P24 tag. */
+    public function test_newly_mapped_feature_now_syndicates(): void
+    {
+        $this->assertContains('GraniteTops', $this->buildTags(['Granite Tops']));
+        $this->assertContains('TiledFloors', $this->buildTags(['Tiled Floors']));
+        $this->assertContains('Shower', $this->buildTags(['Shower']));
+    }
 }
