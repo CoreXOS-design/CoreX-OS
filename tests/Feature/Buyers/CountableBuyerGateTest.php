@@ -305,7 +305,7 @@ final class CountableBuyerGateTest extends TestCase
         ]);
         $suburbId = (int) DB::table('p24_suburbs')->insertGetId([
             'p24_id' => 301, 'p24_city_id' => $cityId, 'name' => 'Uvongo', 'slug' => 'uvongo-' . Str::random(5),
-            'created_at' => now(), 'updated_at' => now(),
+            'p24_verified_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
         return [$suburbId];
     }

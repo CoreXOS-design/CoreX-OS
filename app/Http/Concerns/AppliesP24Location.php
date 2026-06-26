@@ -47,6 +47,18 @@ trait AppliesP24Location
             ]);
         }
 
+        // Existence guard: the suburb→city→province chain being internally
+        // consistent is NOT enough — the suburb's p24_id must actually be one
+        // P24 returns in its live list, or P24 rejects the listing ("SuburbId is
+        // invalid"). A row is only verified by the location sync / reconcile,
+        // which stamps `p24_verified_at`. Phantom rows (never returned by P24)
+        // stay NULL and are blocked here. See AT-104 audit.
+        if (!$suburb->p24_verified_at) {
+            throw ValidationException::withMessages([
+                'p24_suburb_id' => 'Selected suburb is not confirmed on Property24. Pick a Property24-recognised suburb.',
+            ]);
+        }
+
         $city = P24City::find($suburb->p24_city_id);
         if (!$city) {
             throw ValidationException::withMessages([

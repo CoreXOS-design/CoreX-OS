@@ -145,7 +145,7 @@ final class PropertyUploadContactTest extends TestCase
         $suburbId = (int) DB::table('p24_suburbs')->insertGetId([
             'name' => 'Uvongo', 'slug' => 'uvongo-' . Str::random(4),
             'p24_id' => 90003, 'p24_city_id' => $cityId, 'confirmed' => 1,
-            'created_at' => now(), 'updated_at' => now(),
+            'p24_verified_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
 
         return [$agencyId, $agent, $suburbId];

@@ -20,6 +20,7 @@ class P24Suburb extends Model
         'region',
         'surrounding_ids',
         'confirmed',
+        'p24_verified_at',
     ];
 
     protected $casts = [
@@ -27,6 +28,7 @@ class P24Suburb extends Model
         'p24_city_id'     => 'integer',
         'surrounding_ids' => 'array',
         'confirmed'       => 'boolean',
+        'p24_verified_at' => 'datetime',
     ];
 
     public function city(): \Illuminate\Database\Eloquent\Relations\BelongsTo

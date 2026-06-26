@@ -202,10 +202,13 @@ class SyncP24Locations extends Command
             P24Suburb::withTrashed()->updateOrCreate(
                 ['p24_id' => $pid],
                 [
-                    'name'        => $name,
-                    'p24_city_id' => $city->id,
-                    'slug'        => \Illuminate\Support\Str::slug($name),
-                    'deleted_at'  => null,
+                    'name'            => $name,
+                    'p24_city_id'     => $city->id,
+                    'slug'            => \Illuminate\Support\Str::slug($name),
+                    'deleted_at'      => null,
+                    // Authoritative stamp: P24 returned this p24_id under this
+                    // city in this sync. Drives AppliesP24Location + the cascade.
+                    'p24_verified_at' => now(),
                 ]
             );
             $this->progress['suburbs_done'] = ($this->progress['suburbs_done'] ?? 0) + 1;

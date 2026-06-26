@@ -258,7 +258,7 @@ final class CanonicalEngineSurfacesTest extends TestCase
         ]);
         return (int) DB::table('p24_suburbs')->insertGetId([
             'p24_id' => random_int(1, 999999), 'p24_city_id' => $cityId, 'name' => 'Uvongo',
-            'slug' => 'uvongo-' . Str::random(5), 'created_at' => now(), 'updated_at' => now(),
+            'slug' => 'uvongo-' . Str::random(5), 'p24_verified_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 }
