@@ -139,9 +139,24 @@ class Property24ListingMapper
         }
 
         if ($includePhotos) {
-            $photos = $this->buildPhotos($property);
-            if (!empty($photos)) {
-                $listing['photos'] = $photos;
+            // AT-P24: only (re)upload photos when the gallery actually changed
+            // since the last successful sync. P24 keeps the existing photos when
+            // `photos` is null (swagger: "set photos to null" when unchanged),
+            // so a routine refresh skips the heavy base64 upload. A NEW listing
+            // (no p24_ref) or one with no recorded signature always sends its
+            // photos.
+            $imagesChanged = empty($property->p24_ref)
+                || $property->p24_image_signature === null
+                || $property->p24_image_signature !== $property->p24ImageSignature();
+
+            if ($imagesChanged) {
+                $photos = $this->buildPhotos($property);
+                if (!empty($photos)) {
+                    $listing['photos'] = $photos;
+                }
+            } else {
+                // Unchanged → tell P24 explicitly to keep the existing photos.
+                $listing['photos'] = null;
             }
         }
 
