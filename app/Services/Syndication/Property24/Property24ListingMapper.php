@@ -64,7 +64,11 @@ class Property24ListingMapper
             $listing['featureTags'] = $featureTags;
         }
 
-        if ($property->latitude && $property->longitude) {
+        // AT-P24 remediation (#6): a coordinate stored as the string
+        // "0.00000000" is truthy in PHP, so the old `$lat && $lng` guard let 0,0
+        // through and P24 rejected it ("Latitude and Longitude can not both be
+        // 0."). Compare numerically so any zero/blank coordinate is skipped.
+        if ((float) $property->latitude != 0.0 && (float) $property->longitude != 0.0) {
             $listing['propertyInfo']['geographicLocation'] = [
                 'latitude'  => (float) $property->latitude,
                 'longitude' => (float) $property->longitude,
@@ -97,12 +101,29 @@ class Property24ListingMapper
             $listing['rentalInfo'] = $rentalInfo;
         }
 
-        // Commercial info
-        if (in_array(strtolower($property->property_type ?? ''), ['commercial', 'industrial', 'office', 'retail'])) {
+        // Commercial info — match on substring so the canonical CoreX labels
+        // ("Commercial Property", "Industrial Property") fire, not just the bare
+        // words. The old exact in_array() gate missed every live commercial
+        // listing (all typed "Commercial Property"/"Industrial Property"), so
+        // commercialInfo never emitted. Aligned with resolvePropertyTypeId().
+        $ptLower = strtolower($property->property_type ?? '');
+        if (str_contains($ptLower, 'commercial') || str_contains($ptLower, 'industrial')
+            || str_contains($ptLower, 'office') || str_contains($ptLower, 'retail')) {
             $commercial = [];
             if ($property->gross_price) $commercial['grossPrice'] = (float) $property->gross_price;
             if ($property->net_price) $commercial['netPrice'] = (float) $property->net_price;
             if ($property->lease_start_date) $commercial['availabilityDate'] = $property->lease_start_date->format('Y-m-d');
+
+            // AT-P24 remediation (#9) — previously-UNROUTED commercial amenities
+            // with a VERBATIM PropertyFeatures/CommercialInfo home in the v53
+            // schema (CommercialInfo.greenBuilding / multiTenanted /
+            // hasNaturalLight). Sourced from the property-screen global features.
+            $gf  = array_map('strtolower', $this->globalFeatures($property));
+            $has = fn (string $n) => in_array(strtolower($n), $gf, true);
+            if ($has('Green Building')) $commercial['greenBuilding'] = true;
+            if ($has('Multi Tenanted')) $commercial['multiTenanted'] = true;
+            if ($has('Natural Light')) $commercial['hasNaturalLight'] = true;
+
             if (!empty($commercial)) $listing['commercialInfo'] = $commercial;
         }
 
@@ -347,6 +368,13 @@ class Property24ListingMapper
         // Sustainability
         'Solar Heating'          => 'SolarHeating',
         'Septic Tank'            => 'SepticTank',
+
+        // AT-P24 remediation (#9) — previously-UNROUTED features that have a
+        // VERBATIM P24 Tag enum member (storage/p24_swagger.json Tag.enum).
+        // Confirmed exact spelling before wiring; no semantic guesses.
+        'Armed Response'         => 'TwentyFourHourResponse', // global security amenity
+        'Irrigation'             => 'Irrigationsystem',       // Garden room feature
+        'Sprinklers'             => 'SprinklerSystem',        // Garden room feature
 
         // AT-102/AT-103 coverage audit — clean 1:1 CoreX feature ↔ P24 Tag enum pairings
         // that previously never syndicated (verified exact members of
@@ -681,6 +709,15 @@ class Property24ListingMapper
     {
         $errors = [];
         if (empty($payload['agencyId'])) $errors[] = 'No Property24 agency ID resolved — set it on the agency or branch.';
+        // AT-P24 remediation (#3): P24 rejects a listing with no agents
+        // ("A listing must have one or more agents"). Fail locally with an
+        // actionable reason instead of letting the empty array reach P24. An
+        // empty contactAgentIds means the listing agent has no P24 profile under
+        // this agency yet (or the /agents lookup timed out) — register/sync the
+        // agent to P24, then re-syndicate.
+        if (empty($payload['contactAgentIds'])) {
+            $errors[] = 'No Property24 agent linked — the listing agent is not registered on Property24 under this agency (or the agent lookup failed). Sync the agent to P24, then re-syndicate.';
+        }
         if (empty($payload['description'])) $errors[] = 'Description is required';
         if (empty($payload['propertyInfo']['suburbId'])) $errors[] = 'Suburb unmapped — manual P24 suburb mapping required. Pick a Property24-recognised suburb on the property (Province → City → Suburb), then re-syndicate.';
         if (empty($payload['propertyInfo']['propertyTypeId'])) $errors[] = 'Property type could not be mapped to a P24 type ID';
@@ -752,7 +789,29 @@ class Property24ListingMapper
         // the gallery (e.g. property #1322: gallery 45 vs allImages 68). What goes
         // to P24 must equal the CoreX gallery.
         $maxPhotos = $property->agency?->p24MaxPhotos() ?? Agency::P24_DEFAULT_MAX_PHOTOS;
-        $images = array_slice($property->syndicationImages(), 0, $maxPhotos);
+        $allImages = $property->syndicationImages();
+
+        // AT-P24 remediation (#7): never silently truncate. If the curated
+        // gallery exceeds the agency photo cap, log a warning naming the
+        // dropped count so an over-cap listing is visible (e.g. property 3361:
+        // 160 → 150, 10 dropped) rather than quietly losing photos.
+        if (count($allImages) > $maxPhotos) {
+            try {
+                Log::channel('property24')->warning(
+                    'P24 photo cap exceeded — photos dropped from submission',
+                    [
+                        'property_id' => $property->id,
+                        'gallery'     => count($allImages),
+                        'cap'         => $maxPhotos,
+                        'dropped'     => count($allImages) - $maxPhotos,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                // never block syndication on a log write
+            }
+        }
+
+        $images = array_slice($allImages, 0, $maxPhotos);
 
         foreach ($images as $imagePath) {
             if (empty($imagePath)) continue;
@@ -824,9 +883,18 @@ class Property24ListingMapper
         // AppliesP24Location has verified the suburb→city→province chain against
         // P24's own hierarchy, so it is the authoritative mapping. NEVER fall
         // through to name guessing when it is set — that is the bug we are fixing.
+        //
+        // AT-P24 remediation (#2): the p24_id is only returned when its
+        // p24_suburbs row is P24-VERIFIED (p24_verified_at set by the daily
+        // p24:sync-locations stamp-and-sweep). An unverified row carries a
+        // p24_id that P24's listing API may reject ("Value [N] for property
+        // listing.SuburbId is invalid" — e.g. Addington 5997), so we never send
+        // it. Soft-deleted rows are already excluded by the SoftDeletes scope.
         if ($property->p24_suburb_id) {
             $suburb = P24Suburb::find($property->p24_suburb_id);
-            if ($suburb && $suburb->p24_id) return (int) $suburb->p24_id;
+            if ($suburb && $suburb->p24_id && $suburb->p24_verified_at !== null) {
+                return (int) $suburb->p24_id;
+            }
         }
 
         if (!$property->suburb) return null;
@@ -880,18 +948,26 @@ class Property24ListingMapper
         $key = strtolower(trim($suburbName));
         if ($key === '') return collect();
 
+        // AT-P24 remediation (#2): only P24-VERIFIED rows are eligible candidates.
+        // An unverified row must never be returned (its p24_id may be rejected by
+        // P24) nor count toward the uniqueness test that disambiguates collisions.
         if (!$fuzzy) {
             $slug = str_replace(' ', '-', $key);
-            return P24Suburb::where('slug', $slug)
-                ->orWhereRaw('LOWER(name) = ?', [$key])
+            return P24Suburb::whereNotNull('p24_verified_at')
+                ->where(function ($q) use ($slug, $key) {
+                    $q->where('slug', $slug)->orWhereRaw('LOWER(name) = ?', [$key]);
+                })
                 ->get();
         }
 
         $normalised = strtolower(preg_replace('/[^a-z0-9 ]+/i', '', trim($suburbName)));
         if ($normalised === '') return collect();
 
-        return P24Suburb::whereRaw('LOWER(name) LIKE ?', ['%' . $normalised . '%'])
-            ->orWhereRaw('? LIKE CONCAT(\'%\', LOWER(name), \'%\')', [$normalised])
+        return P24Suburb::whereNotNull('p24_verified_at')
+            ->where(function ($q) use ($normalised) {
+                $q->whereRaw('LOWER(name) LIKE ?', ['%' . $normalised . '%'])
+                  ->orWhereRaw('? LIKE CONCAT(\'%\', LOWER(name), \'%\')', [$normalised]);
+            })
             ->get();
     }
 

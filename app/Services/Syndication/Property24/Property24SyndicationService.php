@@ -6,6 +6,7 @@ use App\Exceptions\Property24ConfigurationException;
 use App\Models\Agency;
 use App\Models\Property;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -80,9 +81,31 @@ class Property24SyndicationService
 
     public function submitListing(Property $property): array
     {
-        // Photo payload (up to 30 base64-encoded images) plus Guzzle's JSON
-        // encode buffer can exceed the default 256MB limit. Bump for this
-        // request only — restored automatically at request end.
+        // AT-P24 remediation (#4): serialise submits per property so the same
+        // listing is never saved to P24 twice concurrently — P24 rejects that
+        // with "Cannot call the method simultaneously". The queued job is also
+        // ShouldBeUnique (dispatch-level dedupe); this lock additionally covers
+        // job retries and any non-queued caller. Lock TTL (240s) exceeds the
+        // max job runtime so a crashed job self-releases.
+        $lock = Cache::lock("p24:submit:{$property->id}", 240);
+        if (! $lock->get()) {
+            $this->log('warning', "submitListing skipped for property #{$property->id} — another submission is already in progress");
+            return ['success' => false, 'message' => 'A Property24 submission for this property is already in progress — please wait for it to finish.'];
+        }
+
+        try {
+            return $this->performSubmit($property);
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    private function performSubmit(Property $property): array
+    {
+        // Photo payload (up to the per-agency cap, default 150 base64-encoded
+        // images — Agency::P24_DEFAULT_MAX_PHOTOS) plus Guzzle's JSON encode
+        // buffer can exceed the default 256MB limit. Bump for this request only
+        // — restored automatically at request end.
         @ini_set('memory_limit', '512M');
 
         $this->bindClientForProperty($property);
@@ -192,6 +215,20 @@ class Property24SyndicationService
         $result = $this->client->setListingStatus($property->id, (int) $property->p24_ref, 'Withdrawn');
 
         if (!$result['success']) {
+            // AT-P24 remediation (#5): a transient P24 outage (HTTP 5xx /
+            // timeout / connection failure) must NOT be written as a permanent
+            // 'error'. The listing is still live on the portal; clobbering the
+            // status to 'error' stranded ~148 listings that were never actually
+            // withdrawn. Leave the prior status intact and record a retryable
+            // note so the next deactivation attempt (caller / cron) re-tries.
+            if ($this->isTransientFailure($result)) {
+                $property->update([
+                    'p24_last_error' => 'Deactivation deferred — Property24 temporarily unavailable (HTTP ' . ($result['status_code'] ?? 'timeout') . '). Listing is still live; will retry.',
+                ]);
+                $this->log('warning', "Deactivation transient-failed for property #{$property->id} — left live, marked retryable", ['status_code' => $result['status_code'] ?? null]);
+                return ['success' => false, 'transient' => true, 'message' => 'Property24 temporarily unavailable — deactivation will be retried.'];
+            }
+
             $property->update(['p24_syndication_status' => 'error', 'p24_last_error' => 'Deactivation failed: ' . ($result['message'] ?? 'Unknown error')]);
             return ['success' => false, 'message' => $result['message'] ?? 'Deactivation failed'];
         }
@@ -211,6 +248,16 @@ class Property24SyndicationService
         $result = $this->client->setListingStatus($property->id, (int) $property->p24_ref, 'BackOnMarket');
 
         if (!$result['success']) {
+            // AT-P24 remediation (#5): same transient/permanent split as
+            // deactivateListing — a P24 outage must not be recorded as a
+            // permanent error.
+            if ($this->isTransientFailure($result)) {
+                $property->update([
+                    'p24_last_error' => 'Reactivation deferred — Property24 temporarily unavailable (HTTP ' . ($result['status_code'] ?? 'timeout') . '). Will retry.',
+                ]);
+                $this->log('warning', "Reactivation transient-failed for property #{$property->id} — marked retryable", ['status_code' => $result['status_code'] ?? null]);
+                return ['success' => false, 'transient' => true, 'message' => 'Property24 temporarily unavailable — reactivation will be retried.'];
+            }
             $property->update(['p24_syndication_status' => 'error', 'p24_last_error' => 'Reactivation failed: ' . ($result['message'] ?? 'Unknown error')]);
             return ['success' => false, 'message' => $result['message'] ?? 'Reactivation failed'];
         }
@@ -681,6 +728,22 @@ class Property24SyndicationService
         } else {
             $this->log('warning', "Agent photo upload failed for #{$user->id}: " . ($result['message'] ?? 'Unknown'));
         }
+    }
+
+    /**
+     * AT-P24 remediation (#5): classify a failed API result as transient
+     * (Property24-side outage — retry later, keep current state) vs permanent
+     * (our payload is wrong — surface a hard error). Transient = no HTTP status
+     * (connection failure / timeout), a 5xx server error, or 429 rate-limit.
+     * Everything else (4xx validation) is permanent.
+     */
+    private function isTransientFailure(array $result): bool
+    {
+        $code = $result['status_code'] ?? null;
+        if ($code === null) {
+            return true; // connection failure / timeout — no response received
+        }
+        return $code >= 500 || $code === 429;
     }
 
     private function log(string $level, string $message, array $context = []): void

@@ -6,17 +6,30 @@ use App\Models\Agency;
 use App\Models\Property;
 use App\Services\Syndication\Property24\Property24SyndicationService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
-class SubmitListingToProperty24 implements ShouldQueue
+class SubmitListingToProperty24 implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
     public int $backoff = 60;
+
+    // AT-P24 remediation (#4): dispatch-level dedupe — only one submit job per
+    // property may be queued/in-flight at a time. Prevents the observer
+    // re-submit racing a manual submit (P24 "Cannot call the method
+    // simultaneously"). The lock is released when the job finishes; uniqueFor
+    // caps it so a lost job can't block the property forever.
+    public int $uniqueFor = 600;
+
+    public function uniqueId(): string
+    {
+        return (string) $this->property->id;
+    }
     // Must exceed Property24ApiClient's HTTP read timeout so the HTTP layer
     // times out first and the ConnectionException is caught/handled — rather
     // than Laravel SIGKILL-ing the job mid-request when the two are equal (the

@@ -263,3 +263,42 @@ End-to-end test once Phase 2 is built:
   agency B's). Manual deactivate + re-submit is acceptable for now.
 - P24 profile auto-provisioning. P24 creates profiles manually on request;
   no API for this exists.
+
+---
+
+# Operations — Worker & Deploy Discipline (AT-P24 remediation, 2026-06-26)
+
+## Queue worker model (the stale-worker hazard)
+P24 submits run on the queue (`SubmitListingToProperty24`). CoreX uses
+`QUEUE_CONNECTION=database` on the **`nexus_os`** DB, so the **only** worker that
+can process P24 jobs is one launched as **`/corex/artisan queue:work`**. The
+authoritative worker is the supervised program **`corex-worker-live`**
+(`/etc/supervisor/conf.d/corex-worker.conf`), which runs
+`php /corex/artisan queue:work --queue=default,matching --sleep=3 --tries=3 --max-time=3600`
+(`--max-time=3600` self-restarts hourly so it picks up new code).
+
+A long-lived `queue:work` holds all PHP classes in memory for its whole life
+(CLI opcache is off, but that only helps *fresh* invocations, not a persistent
+worker). **Therefore every deploy that changes P24 code MUST restart the
+worker** or queued jobs run stale code:
+
+```
+git pull …
+php artisan config:clear && php artisan view:clear
+php artisan queue:restart
+supervisorctl restart corex-worker-live:*
+# verify the new worker booted AFTER the deploy:
+for p in $(pgrep -f "queue:work"); do echo "$(stat -c %y /proc/$p|cut -d. -f1) $(readlink /proc/$p/cwd) $(tr '\0' ' ' </proc/$p/cmdline)"; done
+```
+Exactly **one** `/corex/...queue:work` process should be running, supervised,
+booted after the deploy. No second/un-supervised CoreX worker may run.
+
+## Correction to the 2026-06-26 audit (HIGH #1 was a misattribution)
+The audit flagged PM2 process **`heartwood-queue` (PID 1584906)** as a rogue
+CoreX worker "racing the default queue." On inspection its **`cwd=/heartwood`**
+and it loads **`/heartwood/artisan`** against the **`heartwood`** database
+(also `QUEUE_CONNECTION=database`). Because the database queue driver only reads
+the `jobs` table in the worker's *own* DB, **it cannot pull CoreX (`nexus_os`)
+jobs** — the two never share a queue. It is a legitimate worker for a separate
+application and **was NOT killed**. CoreX already runs exactly one supervised
+worker on its own queue; the genuine discipline is the deploy-restart rule above.
