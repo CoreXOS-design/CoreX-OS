@@ -188,6 +188,7 @@ class Property extends Model
         'cma_gps_lng',
         'last_cma_at',
         'last_cma_presentation_id',
+        'rental_images_json',
     ];
 
     protected $casts = [
@@ -198,6 +199,7 @@ class Property extends Model
         'gallery_images_json' => 'array',
         'gallery_categories_json' => 'array',
         'gallery_custom_tags'     => 'array',
+        'rental_images_json'      => 'array',
         'features_json'       => 'array',
         'features_json_meta'  => 'array',
         'pet_friendly'        => 'boolean',
@@ -617,6 +619,55 @@ class Property extends Model
     public function formattedPrice(): string
     {
         return 'R ' . number_format((int) $this->effectivePrice(), 0, '.', ' ');
+    }
+
+    /**
+     * Normalised rental inspection galleries. The `rental_images_json` column is
+     * null until the first save, so this returns the canonical default shape
+     * (empty in/out/custom) and back-fills any missing keys/sub-keys on partial
+     * data. The controller and the property show view both read through this so
+     * they never have to defend against missing keys.
+     * Spec: .ai/specs/rental-images.md
+     */
+    public function rentalImagesStructure(): array
+    {
+        $raw = $this->rental_images_json;
+
+        if (is_string($raw)) {
+            $raw = json_decode($raw, true);
+        }
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        $section = function ($value): array {
+            $value = is_array($value) ? $value : [];
+
+            return [
+                'date'   => $value['date'] ?? null,
+                'images' => array_values(array_filter(
+                    is_array($value['images'] ?? null) ? $value['images'] : [],
+                    'is_string'
+                )),
+            ];
+        };
+
+        $custom = [];
+        foreach (is_array($raw['custom'] ?? null) ? $raw['custom'] : [] as $sec) {
+            if (!is_array($sec) || !isset($sec['id'])) {
+                continue;
+            }
+            $custom[] = array_merge(
+                $section($sec),
+                ['id' => (string) $sec['id'], 'name' => (string) ($sec['name'] ?? '')]
+            );
+        }
+
+        return [
+            'in_inspection'  => $section($raw['in_inspection'] ?? null),
+            'out_inspection' => $section($raw['out_inspection'] ?? null),
+            'custom'         => $custom,
+        ];
     }
 
     /**
