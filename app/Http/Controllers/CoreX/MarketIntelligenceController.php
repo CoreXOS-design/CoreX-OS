@@ -2271,7 +2271,7 @@ class MarketIntelligenceController extends Controller
             'agency_id'              => $agencyId,
             'prospecting_listing_id' => $listing->id,
             'user_id'                => $user->id,
-            'status'                 => 'claimed',
+            'status'                 => ProspectingClaim::STATUS_CLAIMED,
             'claimed_at'             => now(),
             'last_updated_at'        => now(),
         ]);
@@ -2288,7 +2288,7 @@ class MarketIntelligenceController extends Controller
             ->active()->firstOrFail();
 
         $request->validate([
-            'status' => 'required|in:contacted,meeting_set,listing,not_interested,lost',
+            'status' => 'required|in:' . implode(',', ProspectingClaim::FEEDBACK_STATUSES),
             'notes'  => 'nullable|string|max:1000',
         ]);
 
@@ -2301,7 +2301,7 @@ class MarketIntelligenceController extends Controller
             'last_updated_at' => now(),
         ]);
 
-        if (in_array($newStatus, ['not_interested', 'lost'])) {
+        if (in_array($newStatus, ProspectingClaim::CLOSING_STATUSES, true)) {
             $claim->update([
                 'is_active'   => false,
                 'released_at' => now(),

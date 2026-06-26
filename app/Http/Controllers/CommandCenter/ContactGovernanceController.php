@@ -45,6 +45,8 @@ class ContactGovernanceController extends Controller
             // AT-60 — address-duplicate-guard aggressiveness for the
             // "Use for property" transfer.
             'address_match_mode' => 'required|in:off,standard,strict',
+            // Part 3 — warn an agent when they capture an address HFC already holds.
+            'warn_on_held_address_capture' => 'nullable|boolean',
             'buyer_warm_days' => 'required|integer|min:1|max:365',
             'buyer_cold_days' => 'required|integer|min:1|max:365',
             'buyer_lost_days' => 'required|integer|min:1|max:730',
@@ -58,19 +60,23 @@ class ContactGovernanceController extends Controller
         $agencyId = $this->resolveAgencyId();
         $settings = AgencyContactSettings::forAgency($agencyId);
 
-        $settings->update($request->only([
-            'buyer_pipeline_default_scope',
-            'duplicate_mode',
-            'duplicate_match_fields',
-            'address_match_mode',
-            'buyer_warm_days',
-            'buyer_cold_days',
-            'buyer_lost_days',
-            'outreach_no_response_days',
-            'contact_retention_years',
-            'consent_retention_years',
-            'access_log_retention_years',
-        ]));
+        $settings->update(array_merge(
+            $request->only([
+                'buyer_pipeline_default_scope',
+                'duplicate_mode',
+                'duplicate_match_fields',
+                'address_match_mode',
+                'buyer_warm_days',
+                'buyer_cold_days',
+                'buyer_lost_days',
+                'outreach_no_response_days',
+                'contact_retention_years',
+                'consent_retention_years',
+                'access_log_retention_years',
+            ]),
+            // Checkbox — absent when unticked, so resolve explicitly.
+            ['warn_on_held_address_capture' => $request->boolean('warn_on_held_address_capture')],
+        ));
 
         return back()->with('success', 'Contact governance settings saved.');
     }

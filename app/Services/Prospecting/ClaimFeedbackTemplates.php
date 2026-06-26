@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Prospecting;
 
+use App\Models\ProspectingClaim;
+
 /**
  * MIC Phase G3 — quick-pick feedback templates for the claim feedback UI.
  *
@@ -12,12 +14,15 @@ namespace App\Services\Prospecting;
  *   - emoji           visual marker on the button
  *   - label           short button text
  *   - note            timestamped line prepended to claim.notes when picked
- *   - status          status to set on the claim (one of the
- *                     ProspectingClaim status values: pitched | scheduled |
- *                     interested | not_interested | listing | lost)
- *   - requires_input  optional flag — UI shows an extra input (e.g. "agency
- *                     name" for the already-listed template, "date" for the
- *                     follow-up template)
+ *   - status          status to set on the claim — ALWAYS one of the canonical
+ *                     ProspectingClaim::FEEDBACK_STATUSES (contacted | meeting_set |
+ *                     listing | not_interested | lost). These map 1:1 to the
+ *                     feedback() validator. (Reconciled 2026-06-26 — the previous
+ *                     interested / pitched / scheduled values were not in the
+ *                     canonical set and would 422 against the validator.)
+ *   - requires_input  optional flag — UI shows an extra input (e.g. "competitor
+ *                     name" for the already-listed template, a date for the
+ *                     follow-up / meeting templates)
  *
  * The submit handler is the existing POST /corex/market-intelligence/
  * {listing}/feedback endpoint; the controller layer that consumes this
@@ -39,36 +44,44 @@ final class ClaimFeedbackTemplates
                 'emoji'  => '📞',
                 'label'  => 'Spoke — interested',
                 'note'   => 'Spoke to owner. Interested in our mandate proposal.',
-                'status' => 'interested',
+                'status' => ProspectingClaim::STATUS_CONTACTED,
                 'requires_input' => 'follow_up_date',
+            ],
+            [
+                'key'    => 'meeting_set',
+                'emoji'  => '📅',
+                'label'  => 'Meeting set',
+                'note'   => 'Booked a meeting with the owner.',
+                'status' => ProspectingClaim::STATUS_MEETING_SET,
+                'requires_input' => 'meeting_date',
             ],
             [
                 'key'    => 'spoke_not_interested',
                 'emoji'  => '📞',
                 'label'  => 'Spoke — not interested',
                 'note'   => 'Spoke to owner. Not interested in changing mandates.',
-                'status' => 'not_interested',
+                'status' => ProspectingClaim::STATUS_NOT_INTERESTED,
             ],
             [
                 'key'    => 'no_answer',
                 'emoji'  => '📵',
                 'label'  => 'Could not reach',
                 'note'   => 'Tried to reach owner. Left a message.',
-                'status' => 'pitched',
+                'status' => ProspectingClaim::STATUS_CONTACTED,
             ],
             [
                 'key'    => 'wrong_contact',
                 'emoji'  => '❌',
                 'label'  => 'Wrong number / address',
                 'note'   => 'Contact details on listing are wrong. Updated record where possible.',
-                'status' => 'lost',
+                'status' => ProspectingClaim::STATUS_LOST,
             ],
             [
                 'key'    => 'already_listed',
                 'emoji'  => '🏷️',
                 'label'  => 'Already with another agency',
                 'note'   => 'Owner already has the property listed with another agency.',
-                'status' => 'lost',
+                'status' => ProspectingClaim::STATUS_LOST,
                 'requires_input' => 'competitor_name',
             ],
             [
@@ -76,7 +89,7 @@ final class ClaimFeedbackTemplates
                 'emoji'  => '✏️',
                 'label'  => 'Custom note',
                 'note'   => '',
-                'status' => 'pitched',
+                'status' => ProspectingClaim::STATUS_CONTACTED,
                 'requires_input' => 'custom_note',
             ],
         ];
@@ -108,6 +121,7 @@ final class ClaimFeedbackTemplates
         if ($extra !== '') {
             $body = match ($tpl['requires_input'] ?? null) {
                 'follow_up_date'  => $body . ' Follow up on ' . $extra . '.',
+                'meeting_date'    => $body . ' Meeting on ' . $extra . '.',
                 'competitor_name' => $body . ' Mandate is with ' . $extra . '.',
                 'custom_note'     => $extra,
                 default           => $body . ' ' . $extra,

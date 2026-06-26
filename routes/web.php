@@ -2440,11 +2440,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\WhatsappOutreachSummaryController::class, 'index'])->name('index');
         });
 
+    // Part 4 — unified Outreach & Canvassing board (Activity Feed + AT-91 consent
+    // funnel). Reuses the AT-91 permission (same audience; embeds the AT-91 board).
+    Route::prefix('real-estate/outreach-canvassing')
+        ->middleware(['permission:outreach.summary.view', 'agency.required'])
+        ->name('corex.outreach-canvassing.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\OutreachCanvassingController::class, 'index'])->name('index');
+        });
+
     // Contacts
     Route::prefix('contacts')->middleware(['permission:access_contacts', 'agency.required'])->name('corex.contacts.')->group(function () {
         Route::get('/',                   [\App\Http\Controllers\CoreX\ContactController::class, 'index'])->name('index');
         Route::post('/',                  [\App\Http\Controllers\CoreX\ContactController::class, 'store'])->name('store');
         Route::post('/check-duplicate',   [\App\Http\Controllers\CoreX\ContactController::class, 'checkDuplicate'])->name('check-duplicate');
+        // Part 3 — live "already on our books" address check for the capture modal.
+        Route::post('/check-held-address', [\App\Http\Controllers\CoreX\ContactController::class, 'checkHeldAddress'])->name('check-held-address');
         Route::post('/import',            [\App\Http\Controllers\CoreX\ContactImportController::class, 'import'])->name('import');
         Route::get('/export',             [\App\Http\Controllers\CoreX\ContactExportController::class, 'export'])->middleware('permission:contacts.export')->name('export');
         Route::delete('/destroy-all',     [\App\Http\Controllers\CoreX\ContactController::class, 'destroyAll'])->middleware('permission:contacts.delete')->name('destroy-all');

@@ -351,6 +351,23 @@
                     </p>
                 </div>
 
+                {{-- Part 2 — MIC "Prospected" badge toggle. Hidden 0 + checkbox 1 so the
+                     field is always present on THIS form (the controller guards on
+                     $request->has() so sibling forms can't flip it). --}}
+                <div>
+                    <label class="flex items-start gap-2 cursor-pointer">
+                        <input type="hidden" name="show_prospected_badge" value="0">
+                        <input type="checkbox" name="show_prospected_badge" value="1" class="mt-0.5 rounded"
+                               {{ old('show_prospected_badge', $agency->show_prospected_badge ?? true) ? 'checked' : '' }}>
+                        <span class="text-xs" style="color:var(--text-secondary);">
+                            <span class="font-medium" style="color:var(--text-primary);">Show the "Prospected" badge in Market Intelligence</span><br>
+                            When a colleague has already worked a listing and logged an outcome, show a
+                            "Prospected · agent · outcome · date" badge on the MIC row — even after the claim
+                            closes — so nobody re-canvasses an owner we already approached. <strong>Recommended on.</strong>
+                        </span>
+                    </label>
+                </div>
+
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Company Logo</div>
                 <div>
                     @if($agency->logo_path)

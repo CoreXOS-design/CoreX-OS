@@ -175,6 +175,21 @@
                         <option value="standard" {{ ($settings->address_match_mode ?? 'standard') === 'standard' ? 'selected' : '' }}>Standard — warn on any address match (recommended)</option>
                         <option value="strict"   {{ ($settings->address_match_mode ?? 'standard') === 'strict' ? 'selected' : '' }}>Strict — warn only on an exact street match</option>
                     </select>
+
+                    {{-- Part 3 — capture-time "already on our books" warning toggle. --}}
+                    <label class="flex items-start gap-2 mt-4 cursor-pointer">
+                        <input type="hidden" name="warn_on_held_address_capture" value="0">
+                        <input type="checkbox" name="warn_on_held_address_capture" value="1" class="mt-0.5"
+                               {{ ($settings->warn_on_held_address_capture ?? true) ? 'checked' : '' }}>
+                        <span class="text-xs" style="color:var(--text-secondary);">
+                            <span class="font-medium" style="color:var(--text-primary);">Warn when capturing an address we already hold</span><br>
+                            When an agent captures a property address for a prospect, warn them if HFC already
+                            holds that property — in agency stock (we have a mandate) or as captured property
+                            intelligence — so they don't canvass an owner we already represent. Catches the
+                            hidden-address cases the automatic stock badge can't. <strong>Recommended on.</strong>
+                            (Honours the duplicate-guard mode above — "Off" disables this too.)
+                        </span>
+                    </label>
                 </div>
             </div>
         </div>

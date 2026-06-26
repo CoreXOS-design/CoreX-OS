@@ -519,6 +519,7 @@ class PropertyController extends Controller
         // Pre-fill from contact if creating from a contact page (AT-60).
         $preLinkedContact = null;
         $existingPropertyMatch = null;
+        $heldCapturedMatch = null;
         if ($contactId = request('contact_id')) {
             $contact = \App\Models\Contact::find($contactId);
             if ($contact) {
@@ -546,6 +547,18 @@ class PropertyController extends Controller
                 // agency-configurable (address_match_mode).
                 $existingPropertyMatch = app(\App\Services\Contact\ContactAddressPropertyGuard::class)
                     ->findLinkableProperty($contact);
+
+                // Part 3 — if there's no linkable STOCK property but we DO already hold
+                // captured intelligence on this address (a tracked property not yet
+                // promoted to stock), warn here too so the agent knows CoreX already
+                // knows this property before they create a duplicate / canvass.
+                if (! $existingPropertyMatch) {
+                    $held = app(\App\Services\Contact\ContactAddressPropertyGuard::class)
+                        ->findHeldForContact($contact);
+                    if ($held && $held['kind'] === 'captured') {
+                        $heldCapturedMatch = $held;
+                    }
+                }
             }
         }
 
@@ -561,7 +574,7 @@ class PropertyController extends Controller
         $agents    = $this->agentList($property);
         $activeTab = 'info';
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch'));
     }
 
     public function store(Request $request)

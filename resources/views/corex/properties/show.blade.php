@@ -1776,6 +1776,30 @@
             </div>
             @endif
 
+            {{-- Part 3 — captured-intel warning. No stock match, but CoreX already holds
+                 captured property intelligence at this address (a tracked property not
+                 yet promoted to stock). Surface it so the agent knows we already track
+                 this property before creating it / canvassing the owner. --}}
+            @if($isNew && isset($heldCapturedMatch) && $heldCapturedMatch)
+            <div class="rounded-md px-4 py-3 mb-4" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);">
+                <div class="flex items-start gap-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0 mt-0.5" style="color:var(--ds-amber, #f59e0b);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+                    <div class="flex-1">
+                        <p class="text-sm font-semibold" style="color:var(--text-primary);">We already have intelligence on this property</p>
+                        <p class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                            <strong>{{ $heldCapturedMatch['address'] }}</strong> is {{ $heldCapturedMatch['label'] }}.
+                            Check the existing record before canvassing the owner.
+                        </p>
+                        @if(!empty($heldCapturedMatch['tracked_id']))
+                        <div class="mt-2">
+                            <a href="{{ route('corex.tracked-properties.show', $heldCapturedMatch['tracked_id']) }}" class="text-xs font-semibold" style="color:var(--brand-icon, #2563eb);">Open property intel</a>
+                        </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+            @endif
+
             <form id="prop-update-form" method="POST" enctype="multipart/form-data"
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
                   class="space-y-0"

@@ -553,8 +553,12 @@
                 @endif
                 @endpermission
 
-                {{-- AT-91 — WhatsApp Outreach Summary board (agents × outreach states). --}}
+                {{-- Part 4 — unified Outreach & Canvassing board (Activity Feed + AT-91 funnel). --}}
                 @permission('outreach.summary.view')
+                @if(\Illuminate\Support\Facades\Route::has('corex.outreach-canvassing.index'))
+                <a href="{{ route('corex.outreach-canvassing.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-canvassing.*') ? 'active' : '' }}">Outreach &amp; Canvassing</a>
+                @endif
+                {{-- AT-91 — WhatsApp Outreach Summary board (agents × outreach states). --}}
                 @if(\Illuminate\Support\Facades\Route::has('corex.outreach-summary.index'))
                 <a href="{{ route('corex.outreach-summary.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-summary.*') ? 'active' : '' }}">WhatsApp Outreach</a>
                 @endif

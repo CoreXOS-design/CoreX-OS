@@ -204,6 +204,16 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Communication\EmailDraftOpened::class,
             \App\Events\Communication\EmailMessageSent::class,
             \App\Events\Communication\CallLogged::class,
+            // Part 4 — Outreach & Canvassing feed. Activate agent_activity_events
+            // for the seller-outreach send lifecycle + the comms-tile quick-send so
+            // every outreach/canvassing action lands in the ONE activity backbone.
+            // (LogAgentActivity is the single writer — extended here rather than
+            // adding a parallel listener, per single-source-of-truth.)
+            \App\Events\SellerOutreach\PitchSent::class,
+            \App\Events\SellerOutreach\PitchClicked::class,
+            \App\Events\SellerOutreach\OptOutRecorded::class,
+            \App\Events\SellerOutreach\OutreachOutcomeUpdated::class,
+            \App\Events\Contact\CommsTileMessageSent::class,
             // 14.4 Market Reports
             \App\Events\MarketReports\MarketReportUploaded::class,
             \App\Events\MarketReports\MarketReportParsed::class,

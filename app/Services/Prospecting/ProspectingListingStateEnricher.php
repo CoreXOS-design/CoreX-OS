@@ -46,7 +46,7 @@ final class ProspectingListingStateEnricher
 
         if (empty($listingIds)) {
             return [
-                'pitches' => [], 'claims' => [], 'presentations' => [],
+                'pitches' => [], 'claims' => [], 'prospected' => [], 'presentations' => [],
                 'contact_counts' => [], 'promotions' => [], 'temp_locks' => [],
             ];
         }
@@ -57,6 +57,10 @@ final class ProspectingListingStateEnricher
         return [
             'pitches' => $this->loadPitches($propertyIds, $agencyId, $listingByPropertyId),
             'claims' => $this->loadClaims($listingIds, $agencyId),
+            // Worked-and-closed claims (inactive + feedback recorded) — drives the
+            // durable "Prospected" badge so a killed listing never reverts to
+            // looking never-touched. Read regardless of is_active.
+            'prospected' => $this->loadProspected($listingIds, $agencyId),
             'presentations' => $this->loadPresentations($propertyIds, $agencyId, $listingByPropertyId),
             'contact_counts' => $this->loadContactCounts($propertyIds, $agencyId, $listingByPropertyId),
             'promotions' => $this->loadPromotions($propertyIds, $agencyId),
@@ -201,6 +205,64 @@ final class ProspectingListingStateEnricher
                 'is_expiring' => $hoursLeft !== null && $hoursLeft < 1,
                 'needs_reminder' => $needsReminder,
                 'needs_bm_flag' => $needsBmFlag,
+            ];
+        }
+        return $result;
+    }
+
+    /**
+     * Most-recent WORKED-AND-CLOSED claim per listing — the data behind the durable
+     * "Prospected" badge. A claim is surfaced here when it is inactive (someone has
+     * finished with it) AND it carries recorded feedback (feedback_at is set), i.e.
+     * an agent genuinely worked it and logged an outcome (typically not_interested /
+     * lost, which auto-release the claim; also covers a contacted/meeting_set claim
+     * that later lapsed). Read regardless of is_active — that is the whole point: the
+     * active-only loadClaims() query goes blank once feedback() deactivates the claim,
+     * which is how a worked listing used to revert to looking never-touched.
+     *
+     * Released-without-feedback claims (manager release / pure 48h expiry with no
+     * feedback) are intentionally EXCLUDED — those were deliberately returned to the
+     * pool and should look available again. The view only renders this when there is
+     * no active claim, so an active re-claim always takes visual precedence.
+     */
+    private function loadProspected(array $listingIds, int $agencyId): array
+    {
+        if (empty($listingIds)) return [];
+
+        $rows = DB::table('prospecting_claims as c')
+            ->leftJoin('users as u', 'u.id', '=', 'c.user_id')
+            ->whereIn('c.prospecting_listing_id', $listingIds)
+            ->where('c.agency_id', $agencyId)
+            ->where('c.is_active', false)
+            ->whereNotNull('c.feedback_at')
+            ->whereNull('c.deleted_at')
+            ->select(
+                'c.prospecting_listing_id',
+                'c.id as claim_id',
+                'c.user_id',
+                'c.status',
+                'c.feedback_at',
+                'c.last_updated_at',
+                'c.claimed_at',
+                'u.name as claimer_name'
+            )
+            // Most recent worked outcome wins (feedback time, then claim time).
+            ->orderByDesc('c.feedback_at')
+            ->orderByDesc('c.claimed_at')
+            ->get();
+
+        $result = [];
+        foreach ($rows as $r) {
+            $key = (int) $r->prospecting_listing_id;
+            if (isset($result[$key])) continue; // first (most recent) wins
+            $result[$key] = [
+                'claim_id'     => (int) $r->claim_id,
+                'user_id'      => (int) $r->user_id,
+                'claimer_name' => $r->claimer_name,
+                'status'       => $r->status,
+                'outcome'      => \App\Models\ProspectingClaim::humanStatus($r->status),
+                'feedback_at'  => $r->feedback_at,
+                'worked_at'    => $r->feedback_at ?? $r->last_updated_at ?? $r->claimed_at,
             ];
         }
         return $result;

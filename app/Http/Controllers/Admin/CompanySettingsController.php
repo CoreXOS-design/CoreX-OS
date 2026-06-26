@@ -100,6 +100,8 @@ class CompanySettingsController extends Controller
             'whatsapp_launch_mode_seller' => ['nullable', 'in:whatsapp_app,whatsapp_web'],
             // 2026-05-14 — pitch-claim integration: agency-tunable temp lock duration.
             'prospecting_pitch_temp_lock_minutes' => ['nullable', 'integer', 'min:5', 'max:240'],
+            // Part 2 — MIC "Prospected" badge agency toggle (default ON).
+            'show_prospected_badge' => ['nullable', 'boolean'],
             // AT-50 — which deals_v2 statuses count as a live transaction (lock transactional opt-out).
             'outreach_live_deal_statuses_present' => ['nullable', 'boolean'],
             'outreach_live_deal_statuses'         => ['nullable', 'array'],
@@ -117,6 +119,16 @@ class CompanySettingsController extends Controller
             $data['outreach_live_deal_statuses'] = $selected !== [] ? $selected : null;
         }
         unset($data['outreach_live_deal_statuses_present']);
+
+        // Part 2 — only touch the prospected-badge toggle when the company form
+        // actually rendered it (hidden 0 + checkbox 1 => always present on this form,
+        // absent on the website/branding forms that share update()). Guards against
+        // a sibling form silently flipping it off.
+        if ($request->has('show_prospected_badge')) {
+            $data['show_prospected_badge'] = $request->boolean('show_prospected_badge');
+        } else {
+            unset($data['show_prospected_badge']);
+        }
 
         // Privacy policy: content saves as draft; publish/unpublish are
         // explicit gestures. Token is generated lazily when first content

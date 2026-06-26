@@ -793,6 +793,24 @@
                  property-address columns and transfers onto a new Property via
                  "Use for property". It is INDEPENDENT of the contact's residential
                  address (the free-text field on the Info tab) and never writes to it. --}}
+            @if(session('held_address_warning'))
+                @php $heldWarn = session('held_address_warning'); @endphp
+                <div class="rounded-md p-4 mb-4" role="alert"
+                     style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, transparent);">
+                    <div class="flex items-start gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                        <div class="text-sm" style="color:var(--text-primary);">
+                            <strong>HFC already has this property on its books</strong> — {{ $heldWarn['label'] ?? '' }}.
+                            @if(!empty($heldWarn['address'])) <span style="color:var(--text-secondary);">({{ $heldWarn['address'] }})</span>@endif
+                            <div class="mt-1 text-xs" style="color:var(--text-secondary);">
+                                Check the existing record before canvassing the owner —
+                                @if(!empty($heldWarn['property_url']))<a href="{{ $heldWarn['property_url'] }}" target="_blank" rel="noopener" class="font-semibold" style="color:var(--brand-icon, #2563eb);">open the property record</a>@elseif(!empty($heldWarn['tracked_url']))<a href="{{ $heldWarn['tracked_url'] }}" target="_blank" rel="noopener" class="font-semibold" style="color:var(--brand-icon, #2563eb);">open property intel</a>@endif.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
             <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);"
                  x-data="contactAddress({{ Js::from([
                     'unitNumber'       => old('unit_number',        $contact->unit_number ?? ''),
@@ -822,6 +840,26 @@
                             <span x-text="hasAddress ? 'Edit' : 'Set'"></span>
                         </span>
                     </button>
+
+                    {{-- Part 3 — live "already on our books" warning. Fires as the agent
+                         types the street/suburb; warns BEFORE they save & prospect so they
+                         don't canvass an owner HFC already represents. Read-only check —
+                         never mints a property. Honours the agency warn toggle server-side. --}}
+                    <div x-show="held" x-cloak class="mt-3 rounded-md p-3"
+                         style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);">
+                        <div class="flex items-start gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                            <div class="text-xs leading-relaxed" style="color:var(--text-primary);">
+                                <strong>HFC already has this property on its books</strong> — <span x-text="held && held.label"></span>.
+                                <template x-if="held && held.address"><span> (<span x-text="held.address"></span>)</span></template>
+                                <div class="mt-1" style="color:var(--text-secondary);">
+                                    Check the existing record before canvassing the owner —
+                                    <template x-if="held && held.property_url"><a :href="held.property_url" target="_blank" rel="noopener" class="font-semibold" style="color:var(--brand-icon, #2563eb);">open the property record</a></template>
+                                    <template x-if="held && !held.property_url && held.tracked_url"><a :href="held.tracked_url" target="_blank" rel="noopener" class="font-semibold" style="color:var(--brand-icon, #2563eb);">open property intel</a></template>.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     {{-- Hidden inputs holding the parent-managed components so they submit even while the modal is closed. --}}
                     <input type="hidden" name="unit_number"        :value="unitNumber">
@@ -1874,13 +1912,58 @@ function contactAddress(config) {
         city:     config.city     || '',
         province: config.province || '',
 
+        // Part 3 — "already on our books" live check.
+        heldChecking: false,
+        held: null,
+
         init() {
             window.addEventListener('p24-location-changed:contact_addr', (e) => {
                 if (!e.detail) return;
                 this.suburb   = e.detail.suburbName   || '';
                 this.city     = e.detail.cityName     || '';
                 this.province = e.detail.provinceName || '';
+                this.queueHeldCheck();
             });
+
+            // Debounced held-address check as the agent types the street/suburb.
+            let t;
+            this._queueHeldCheck = () => { clearTimeout(t); t = setTimeout(() => this.checkHeld(), 450); };
+            this.$watch('streetName',  () => this.queueHeldCheck());
+            this.$watch('streetNumber', () => this.queueHeldCheck());
+            this.$watch('complexName', () => this.queueHeldCheck());
+            // Run once on open if an address is already present.
+            if (this.streetName || this.streetNumber) this.queueHeldCheck();
+        },
+
+        queueHeldCheck() { if (this._queueHeldCheck) this._queueHeldCheck(); },
+
+        async checkHeld() {
+            // Need at least a street name or number — a suburb alone is too broad.
+            if (!this.streetName && !this.streetNumber) { this.held = null; return; }
+            this.heldChecking = true;
+            try {
+                const res = await fetch('{{ route('corex.contacts.check-held-address') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        'Accept': 'application/json',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        street_number: this.streetNumber, street_name: this.streetName,
+                        unit_number: this.unitNumber, complex_name: this.complexName,
+                        suburb: this.suburb, city: this.city, province: this.province,
+                    }),
+                });
+                if (!res.ok) { this.held = null; return; }
+                const data = await res.json();
+                this.held = data.held ? data : null;
+            } catch (e) {
+                this.held = null;
+            } finally {
+                this.heldChecking = false;
+            }
         },
 
         get summary() {

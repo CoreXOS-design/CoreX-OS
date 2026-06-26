@@ -13,6 +13,12 @@
 @php
     $viewerId = auth()->id();
     $isManager = $isProspectingManager ?? false;
+    // Part 2 — "Prospected" badge agency toggle (default ON). Resolved once per
+    // render; mirrors the PermissionService Agency::value() read pattern.
+    $_micAgencyId = auth()->user()?->effectiveAgencyId() ?? auth()->user()?->agency_id;
+    $showProspectedBadge = $_micAgencyId
+        ? (bool) (\App\Models\Agency::where('id', $_micAgencyId)->value('show_prospected_badge') ?? true)
+        : true;
     $sortBy = request('sort', 'last_seen_at');
     $sortDir = request('dir', 'desc');
 
@@ -156,6 +162,7 @@
                     $_state = [
                         'pitch'          => $listingStates['pitches'][$_lid]        ?? null,
                         'claim'          => $listingStates['claims'][$_lid]         ?? null,
+                        'prospected'     => $listingStates['prospected'][$_lid]     ?? null,
                         'presentation'   => $listingStates['presentations'][$_lid]  ?? null,
                         'contacts'       => $listingStates['contact_counts'][$_lid] ?? 0,
                         'temp_lock'      => $listingStates['temp_locks'][$_lid]     ?? null,
@@ -172,6 +179,7 @@
                     'suggested' => $suggestedActions[$_lid] ?? null,
                     'isManager' => $isManager,
                     'viewerId'  => $viewerId,
+                    'showProspectedBadge' => $showProspectedBadge,
                 ])
             @endforeach
         </div>

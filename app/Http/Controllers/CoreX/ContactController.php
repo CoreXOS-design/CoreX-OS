@@ -713,9 +713,81 @@ class ContactController extends Controller
         // Save ONLY the structured property-address columns — never `address`.
         \DB::transaction(fn () => $contact->update($data));
 
-        return redirect()->route('corex.contacts.show', $contact)
+        $redirect = redirect()->route('corex.contacts.show', $contact)
             ->with('success', 'Property address saved.')
             ->with('tab', 'properties');
+
+        // Part 3 — "already on our books" safety net (belt-and-braces alongside the
+        // live blur check). If HFC already holds this property (stock or captured
+        // intel), surface a warning so the agent doesn't canvass an owner we already
+        // represent. Gated by the agency warn toggle inside the guard.
+        $held = app(\App\Services\Contact\ContactAddressPropertyGuard::class)
+            ->findHeldForContact($contact->fresh());
+        if ($held) {
+            $redirect->with('held_address_warning', [
+                'kind'         => $held['kind'],
+                'label'        => $held['label'],
+                'address'      => $held['address'],
+                'property_url' => $held['property_id']
+                    ? route('corex.properties.show', $held['property_id'])
+                    : null,
+                'tracked_url'  => $held['tracked_id']
+                    ? route('corex.tracked-properties.show', $held['tracked_id'])
+                    : null,
+            ]);
+        }
+
+        return $redirect;
+    }
+
+    /**
+     * Part 3 — live "already on our books" check fired from the address-capture
+     * modal (mirrors checkDuplicate). Given raw captured address components, returns
+     * whether HFC already holds the property (agency stock or captured intelligence)
+     * BEFORE the agent commits the capture and goes on to prospect. Read-only — never
+     * mints a tracked property (uses the matcher's findExistingMatch). Honours the
+     * agency warn toggle + address_match_mode (the guard returns null when off).
+     */
+    public function checkHeldAddress(Request $request)
+    {
+        $request->validate([
+            'street_number' => 'nullable|string|max:50',
+            'street_name'   => 'nullable|string|max:200',
+            'unit_number'   => 'nullable|string|max:50',
+            'complex_name'  => 'nullable|string|max:150',
+            'suburb'        => 'nullable|string|max:120',
+            'city'          => 'nullable|string|max:120',
+            'province'      => 'nullable|string|max:120',
+        ]);
+
+        $user = $request->user();
+        $agencyId = (int) ($user?->effectiveAgencyId() ?? $user?->agency_id ?? 0);
+        if ($agencyId <= 0) {
+            return response()->json(['held' => false]);
+        }
+
+        $held = app(\App\Services\Contact\ContactAddressPropertyGuard::class)
+            ->findHeldFromComponents($agencyId, $request->only([
+                'street_number', 'street_name', 'unit_number', 'complex_name',
+                'suburb', 'city', 'province',
+            ]));
+
+        if (! $held) {
+            return response()->json(['held' => false]);
+        }
+
+        return response()->json([
+            'held'         => true,
+            'kind'         => $held['kind'], // 'stock' | 'captured'
+            'label'        => $held['label'],
+            'address'      => $held['address'],
+            'property_url' => $held['property_id']
+                ? route('corex.properties.show', $held['property_id'])
+                : null,
+            'tracked_url'  => $held['tracked_id']
+                ? route('corex.tracked-properties.show', $held['tracked_id'])
+                : null,
+        ]);
     }
 
     /**
@@ -798,13 +870,27 @@ class ContactController extends Controller
             'body'    => 'nullable|string|max:20000',
         ]);
 
-        $logger->log(
+        $communication = $logger->log(
             $contact,
             $data['channel'],
             $data['subject'] ?? null,
             $data['body'] ?? null,
             auth()->id()
         );
+
+        // Part 4 — make the comms-tile quick-send visible on the Outreach &
+        // Canvassing board (it writes only a provisional `communications` row and
+        // previously fired no event). Source-tagged as `comms_tile` by the feed.
+        $agencyId = (int) ($contact->agency_id ?? auth()->user()?->effectiveAgencyId() ?? 0);
+        if ($agencyId > 0) {
+            event(new \App\Events\Contact\CommsTileMessageSent(
+                contact: $contact,
+                channel: $data['channel'],
+                actorUserId: auth()->id(),
+                agencyId: $agencyId,
+                communicationId: $communication->id ?? null,
+            ));
+        }
 
         // The logger advanced last_contacted_at on this same instance.
         $last = $contact->last_contacted_at ?? now();

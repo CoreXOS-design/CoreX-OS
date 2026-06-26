@@ -27,8 +27,10 @@
     $tiers = array_merge(['strong'=>0,'mid'=>0,'weak'=>0,'total'=>0,'top_score'=>null], $tiers ?? []);
     $pitch = $state['pitch'] ?? null;
     $claim = $state['claim'] ?? null;
+    $prospected = $state['prospected'] ?? null;
     $presentation = $state['presentation'] ?? null;
     $tempLock = $state['temp_lock'] ?? null;
+    $showProspectedBadge = $showProspectedBadge ?? true;
 
     $claimedByMe = $claim && $viewerId && (int)($claim['user_id'] ?? 0) === (int)$viewerId;
     $claimedByOther = $claim && !$claimedByMe;
@@ -172,6 +174,22 @@
                 <span style="{{ $tagAmber }}"
                       title="{{ $tempLock['user_name'] ?? 'Someone' }} is composing a pitch on this listing right now. Lock expires in {{ (int) ($tempLock['minutes_left'] ?? 0) }} minutes.">
                     pitching · {{ \Illuminate\Support\Str::limit($tempLock['user_name'] ?? '?', 10) }}
+                </span>
+            @elseif($prospected && $showProspectedBadge)
+                {{-- Part 2 — durable "Prospected" badge. A colleague already worked this
+                     listing and logged an outcome; the active-claim chip went blank when
+                     the claim closed. This keeps the worked history visible so nobody
+                     re-canvasses an owner we already approached. Data: most-recent
+                     inactive-with-feedback claim (ProspectingListingStateEnricher::loadProspected). --}}
+                @php
+                    $prospName = \Illuminate\Support\Str::limit($prospected['claimer_name'] ?? 'a colleague', 12);
+                    $prospOutcome = $prospected['outcome'] ?? 'Worked';
+                    $prospDate = $prospected['worked_at'] ? \Carbon\Carbon::parse($prospected['worked_at'])->format('j M') : '';
+                    $prospDateFull = $prospected['worked_at'] ? \Carbon\Carbon::parse($prospected['worked_at'])->format('j M Y') : '';
+                @endphp
+                <span style="{{ $tagOutline }}"
+                      title="Already prospected by {{ $prospected['claimer_name'] ?? 'a colleague' }} — outcome: {{ $prospOutcome }}{{ $prospDateFull ? ' on ' . $prospDateFull : '' }}. Worked and closed (back in the pool), but check the history before re-canvassing the owner.">
+                    Prospected · {{ $prospName }} · {{ $prospOutcome }}{{ $prospDate ? ' · ' . $prospDate : '' }}
                 </span>
             @else
                 <span style="{{ $tagNeutral }}"
