@@ -8196,6 +8196,7 @@ CREATE TABLE `properties` (
   `deleted_at` timestamp NULL DEFAULT NULL,
   `p24_listing_number` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_demo` tinyint(1) NOT NULL DEFAULT '0',
+  `p24_image_signature` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `properties_external_id_unique` (`external_id`),
   KEY `properties_agent_id_foreign` (`agent_id`),
@@ -12200,3 +12201,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (882,'2026_06_26_16
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (861,'2026_06_26_120000_add_p24_verified_at_to_p24_suburbs',157);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (862,'2026_06_26_120001_purge_phantom_addington_suburb',157);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (863,'2026_06_26_140000_add_verified_at_softdeletes_to_p24_provinces_cities',158);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (864,'2026_06_26_220000_add_p24_image_signature_to_properties',159);

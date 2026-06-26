@@ -188,6 +188,7 @@ class Property extends Model
         'p24_last_error',
         'p24_images_last_synced_at',
         'p24_listing_last_synced_at',
+        'p24_image_signature',
         'compliance_snapshot_at',
         'compliance_snapshot_data',
         'compliance_evidence_flags',
@@ -1000,6 +1001,23 @@ class Property extends Model
         )));
 
         return !empty($gallery) ? $gallery : $this->allImages();
+    }
+
+    /**
+     * Cheap fingerprint of the image set that goes to a portal (the ordered
+     * syndication gallery + its caption/category map). Path-list based — NO file
+     * reads — so it is safe to call on every submit. Changes when an image is
+     * added, deleted, reordered, or recaptioned. Compared against the stored
+     * `p24_image_signature` so a P24 re-submit only re-uploads photos when the
+     * gallery actually changed (otherwise it sends `photos: null` and P24 keeps
+     * the existing set — the swagger-recommended path). See AT-P24.
+     */
+    public function p24ImageSignature(): string
+    {
+        return md5(json_encode([
+            $this->syndicationImages(),
+            $this->gallery_categories_json,
+        ]));
     }
 
     /**

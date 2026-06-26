@@ -178,6 +178,16 @@ class Property24SyndicationService
             $updateData['p24_activated_at'] = now();
         }
 
+        // AT-P24: record the image signature P24 now holds so the next unchanged
+        // refresh can send `photos: null` and skip the upload. Store it whenever
+        // the payload carried a `photos` key — an array (photos sent → P24 set
+        // now matches current) OR explicit null (was already unchanged → still
+        // matches). If the key is absent (photos couldn't be built) we leave the
+        // signature stale so it retries the upload next time.
+        if (array_key_exists('photos', $payload)) {
+            $updateData['p24_image_signature'] = $property->p24ImageSignature();
+        }
+
         if (!empty($payload['photos'])) {
             $updateData['p24_images_last_synced_at'] = now();
         }
