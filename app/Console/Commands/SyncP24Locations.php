@@ -224,8 +224,7 @@ class SyncP24Locations extends Command
 
         // Countries
         $this->info('Fetching countries…');
-        $resp = $client->getCountries();
-        $this->guard($resp, 'countries');
+        $resp = $this->fetchRetry(fn () => $client->getCountries(), 'countries');
         $countries = $this->extractList($resp['data']);
 
         $countryCount = 0;
@@ -246,8 +245,7 @@ class SyncP24Locations extends Command
 
             $this->progress['current'] = "Fetching provinces for {$country->name}…";
             $this->writeProgress();
-            $provResp = $client->getProvinces($country->p24_id);
-            $this->guard($provResp, 'provinces');
+            $provResp = $this->fetchRetry(fn () => $client->getProvinces($country->p24_id), 'provinces');
             $provList = $this->extractList($provResp['data']);
 
             $this->progress['provinces_total'] = ($this->progress['provinces_total'] ?? 0) + count($provList);
@@ -282,8 +280,7 @@ class SyncP24Locations extends Command
 
     private function syncCities(Property24ApiClient $client, P24Province $province): void
     {
-        $resp = $client->getCities($province->p24_id);
-        $this->guard($resp, 'cities');
+        $resp = $this->fetchRetry(fn () => $client->getCities($province->p24_id), 'cities');
         $list = $this->extractList($resp['data']);
 
         foreach ($list as $c) {
@@ -311,8 +308,7 @@ class SyncP24Locations extends Command
 
     private function syncSuburbs(Property24ApiClient $client, P24City $city): void
     {
-        $resp = $client->getSuburbs($city->p24_id);
-        $this->guard($resp, 'suburbs');
+        $resp = $this->fetchRetry(fn () => $client->getSuburbs($city->p24_id), "suburbs (city {$city->name})");
         $list = $this->extractList($resp['data']);
 
         $countBefore = $this->progress['suburbs_done'] ?? 0;
@@ -339,10 +335,43 @@ class SyncP24Locations extends Command
         $this->writeProgress();
     }
 
-    private function guard(array $resp, string $what): void
+    /** Base seconds between fetch retries (exponential); overridable in tests. */
+    private int $retryBaseDelay = 2;
+
+    /**
+     * Run a P24 fetch with bounded retries so a single transient blip (cURL
+     * timeout, dropped connection, 5xx, 429) can't abort an 800-city walk and
+     * leave the daily sweep unable to ever complete. Definitive client errors
+     * (4xx other than 429 — e.g. "City does not exist") are NOT retried; they
+     * throw immediately. After the last attempt fails, throws (which aborts the
+     * walk BEFORE pruneStale — so a genuinely unreachable P24 never sweeps).
+     *
+     * @param callable():array $fn
+     */
+    private function fetchRetry(callable $fn, string $what, int $tries = 4): array
     {
-        if (empty($resp['success'])) {
-            throw new \RuntimeException("P24 fetch {$what} failed: " . ($resp['message'] ?? 'unknown error'));
+        $delay = $this->retryBaseDelay;
+        for ($attempt = 1; ; $attempt++) {
+            $resp = $fn();
+            if (!empty($resp['success'])) {
+                return $resp;
+            }
+
+            $status    = $resp['status_code'] ?? null;
+            $transient = $status === null || $status >= 500 || $status === 429;
+
+            if (!$transient || $attempt >= $tries) {
+                throw new \RuntimeException(
+                    "P24 fetch {$what} failed after {$attempt} attempt(s): " . ($resp['message'] ?? 'unknown error')
+                );
+            }
+
+            $this->progress['current'] = "Retry {$attempt}/{$tries} — {$what}…";
+            $this->writeProgress();
+            if ($delay > 0) {
+                sleep($delay);
+            }
+            $delay = min($delay * 2, 30);
         }
     }
 

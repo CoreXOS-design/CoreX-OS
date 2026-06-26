@@ -100,4 +100,56 @@ class P24LocationSweepTest extends TestCase
         $this->assertNotNull(P24Suburb::find($this->staleSuburb->id), 'partial run must NOT sweep');
         $this->assertNotNull(P24City::find($this->staleCity->id), 'partial run must NOT sweep');
     }
+
+    /** A transient blip (no status_code) is retried, not fatal. */
+    public function test_fetch_retry_recovers_from_a_transient_failure(): void
+    {
+        $calls = 0;
+        $fn = function () use (&$calls) {
+            $calls++;
+            return $calls < 3
+                ? ['success' => false, 'message' => 'Connection failed: cURL error 28']
+                : ['success' => true, 'data' => ['ok']];
+        };
+
+        $resp = $this->invokeFetchRetry($fn, 'suburbs');
+
+        $this->assertTrue($resp['success']);
+        $this->assertSame(3, $calls, 'should have retried twice then succeeded');
+    }
+
+    /** A definitive 4xx (e.g. "City does not exist") is NOT retried — fails fast. */
+    public function test_fetch_retry_does_not_retry_a_definitive_4xx(): void
+    {
+        $calls = 0;
+        $fn = function () use (&$calls) {
+            $calls++;
+            return ['success' => false, 'status_code' => 400, 'message' => "City with Id '785' does not exist"];
+        };
+
+        $this->expectException(\RuntimeException::class);
+        try {
+            $this->invokeFetchRetry($fn, 'suburbs');
+        } finally {
+            $this->assertSame(1, $calls, 'a 4xx must not be retried');
+        }
+    }
+
+    private function invokeFetchRetry(callable $fn, string $what)
+    {
+        $cmd = new SyncP24Locations();
+        $ref = new ReflectionClass($cmd);
+
+        $pg = $ref->getProperty('progress');
+        $pg->setAccessible(true);
+        $pg->setValue($cmd, []);
+
+        $delay = $ref->getProperty('retryBaseDelay');
+        $delay->setAccessible(true);
+        $delay->setValue($cmd, 0); // no real sleeps in the test
+
+        $m = $ref->getMethod('fetchRetry');
+        $m->setAccessible(true);
+        return $m->invoke($cmd, $fn, $what);
+    }
 }
