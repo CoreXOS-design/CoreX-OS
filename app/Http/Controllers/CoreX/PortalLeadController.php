@@ -15,7 +15,7 @@ class PortalLeadController extends Controller
     {
         $query = PortalLead::query()
             ->visibleTo($request->user())
-            ->with(['listing:id,title,agent_id', 'contact:id,first_name,last_name,email,phone,created_by_user_id', 'existingContactAgent:id,name'])
+            ->with(['listing:id,title,agent_id,unit_number,complex_name,street_number,street_name,address,suburb,city', 'contact:id,first_name,last_name,email,phone,created_by_user_id', 'existingContactAgent:id,name'])
             ->orderByDesc('received_at');
 
         if ($portal = $request->get('portal')) {

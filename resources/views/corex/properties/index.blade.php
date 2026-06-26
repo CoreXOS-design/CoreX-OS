@@ -644,37 +644,35 @@
             {{-- Content --}}
             <div class="px-3.5 py-3 flex flex-col flex-1">
 
-                {{-- Title --}}
+                @php
+                    $addrParts = [];
+                    if (!empty($property->unit_number)) $addrParts[] = 'Unit ' . $property->unit_number;
+                    if (!empty($property->complex_name)) $addrParts[] = $property->complex_name;
+                    if (!empty($property->street_number) && !empty($property->street_name)) {
+                        $addrParts[] = $property->street_number . ' ' . $property->street_name;
+                    } elseif (!empty($property->street_name)) {
+                        $addrParts[] = $property->street_name;
+                    } elseif (!empty($property->address)) {
+                        $addrParts[] = $property->address;
+                    }
+                    if (!empty($property->suburb)) $addrParts[] = $property->suburb;
+                    if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
+                        $addrParts[] = $property->city;
+                    }
+                    $addrLine = count($addrParts) ? implode(', ', $addrParts) : null;
+                @endphp
+
+                {{-- Address (primary — an agent recognises the address first) --}}
                 <a href="{{ route('corex.properties.show', $property) }}" class="text-sm font-semibold leading-snug line-clamp-1 transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
-                    {{ $property->title }}
+                    {{ $addrLine ?? ($property->title ?: '—') }}
                 </a>
 
-                {{-- Location --}}
-                <div class="flex items-center gap-1.5 mt-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
-                    </svg>
-                    <span class="text-xs truncate" style="color:var(--text-secondary);">
-                        @php
-                            $addrParts = [];
-                            if (!empty($property->unit_number)) $addrParts[] = 'Unit ' . $property->unit_number;
-                            if (!empty($property->complex_name)) $addrParts[] = $property->complex_name;
-                            if (!empty($property->street_number) && !empty($property->street_name)) {
-                                $addrParts[] = $property->street_number . ' ' . $property->street_name;
-                            } elseif (!empty($property->street_name)) {
-                                $addrParts[] = $property->street_name;
-                            } elseif (!empty($property->address)) {
-                                $addrParts[] = $property->address;
-                            }
-                            if (!empty($property->suburb)) $addrParts[] = $property->suburb;
-                            if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
-                                $addrParts[] = $property->city;
-                            }
-                        @endphp
-                        {{ count($addrParts) ? implode(', ', $addrParts) : '—' }}
-                    </span>
+                {{-- Heading (secondary, small) --}}
+                @if($property->title && $addrLine)
+                <div class="text-xs truncate mt-1" style="color:var(--text-muted);" title="{{ $property->title }}">
+                    {{ $property->title }}
                 </div>
+                @endif
 
                 {{-- Property type + features row --}}
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs" style="color:var(--text-secondary);">

@@ -114,7 +114,6 @@
                             <span class="ds-badge ds-badge-success">Published</span>
                         @endif
                     </div>
-                    <div class="text-sm font-bold mt-1 truncate" style="color:var(--text-primary);" title="{{ $property->title }}">{{ $property->title ?: 'New Property' }}</div>
                     @php
                         $sbAddrParts = [];
                         if (!empty($property->unit_number)) $sbAddrParts[] = 'Unit ' . $property->unit_number;
@@ -132,7 +131,13 @@
                         }
                     @endphp
                     @if(count($sbAddrParts))
-                    <div class="text-[11px] mt-0.5 leading-snug" style="color:var(--text-muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ implode(', ', $sbAddrParts) }}">{{ implode(', ', $sbAddrParts) }}</div>
+                        {{-- Address primary, heading small underneath --}}
+                        <div class="text-sm font-bold mt-1 leading-snug" style="color:var(--text-primary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ implode(', ', $sbAddrParts) }}">{{ implode(', ', $sbAddrParts) }}</div>
+                        @if($property->title)
+                        <div class="text-[11px] mt-0.5 truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</div>
+                        @endif
+                    @else
+                        <div class="text-sm font-bold mt-1 truncate" style="color:var(--text-primary);" title="{{ $property->title }}">{{ $property->title ?: 'New Property' }}</div>
                     @endif
                 </div>
             </div>
@@ -785,7 +790,15 @@
                 <img src="{{ $thumb }}" alt="" class="w-14 h-14 rounded-md object-cover flex-shrink-0">
                 @endif
                 <div class="flex-1 min-w-0">
-                    <h1 class="text-base font-extrabold leading-tight" style="color:var(--text-primary);">{{ $property->title ?: 'New Property' }}</h1>
+                    @php
+                        $hasAddressM = $property->unit_number || $property->complex_name
+                            || $property->street_number || $property->street_name
+                            || $property->address || $property->suburb || $property->city;
+                    @endphp
+                    <h1 class="text-base font-extrabold leading-tight" style="color:var(--text-primary);">{{ $hasAddressM ? $property->buildDisplayAddress() : ($property->title ?: 'New Property') }}</h1>
+                    @if($hasAddressM && $property->title)
+                    <div class="text-xs mt-0.5 truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</div>
+                    @endif
                     <div class="text-base font-bold mt-0.5" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</div>
                     <div class="flex items-center gap-2 mt-1 flex-wrap">
                         @php
@@ -1476,19 +1489,17 @@
                     <div class="md:col-span-3 p-5 flex flex-col gap-3">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                                <div class="text-lg font-bold leading-tight" style="color:var(--text-primary);">{{ $property->title ?: 'Untitled property' }}</div>
-                                <div class="text-sm mt-0.5" style="color:var(--text-secondary);">
-                                    @php
-                                        // Use the model's full address builder so the street number/name,
-                                        // unit and complex all show — not just suburb/city. buildDisplayAddress()
-                                        // falls back to the title when no address parts exist, so only call it
-                                        // when at least one address field is populated; otherwise show the empty state.
-                                        $hasAddress = $property->unit_number || $property->complex_name
-                                            || $property->street_number || $property->street_name
-                                            || $property->address || $property->suburb || $property->city;
-                                    @endphp
-                                    {{ $hasAddress ? $property->buildDisplayAddress() : 'No address yet' }}
-                                </div>
+                                @php
+                                    // Address is the primary line — an agent recognises the address before
+                                    // the marketing heading. buildDisplayAddress() falls back to the title
+                                    // when no address parts exist, so only call it when at least one address
+                                    // field is populated; otherwise show the empty state.
+                                    $hasAddress = $property->unit_number || $property->complex_name
+                                        || $property->street_number || $property->street_name
+                                        || $property->address || $property->suburb || $property->city;
+                                @endphp
+                                <div class="text-lg font-bold leading-tight" style="color:var(--text-primary);">{{ $hasAddress ? $property->buildDisplayAddress() : 'No address yet' }}</div>
+                                <div class="text-sm mt-0.5" style="color:var(--text-secondary);">{{ $property->title ?: 'Untitled property' }}</div>
                             </div>
                             <div class="text-right flex-shrink-0">
                                 <div class="text-2xl font-extrabold leading-none" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</div>

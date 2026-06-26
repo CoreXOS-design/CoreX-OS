@@ -148,7 +148,7 @@
                                 <a href="{{ route('corex.properties.show', $lead->listing_id) }}"
                                    class="font-medium transition-all duration-300"
                                    style="color: var(--brand-icon, #0ea5e9);">
-                                    {{ $lead->listing->title ?? ('#' . $lead->listing_id) }}
+                                    {{ $lead->listing->buildDisplayAddress() }}
                                 </a>
                             @elseif($lead->listing_portal_ref)
                                 <span style="color: var(--text-muted);">ref {{ $lead->listing_portal_ref }}</span>
