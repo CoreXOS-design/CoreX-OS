@@ -11,6 +11,7 @@
                 <p class="text-sm text-white/60">Documents you've created from templates.</p>
             </div>
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('docuperfect.create') }}" class="corex-btn-primary" data-tour="dp-dashboard-create">
                     + Create New Document
                 </a>

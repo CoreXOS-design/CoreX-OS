@@ -6,6 +6,8 @@
     {{-- TOP BAR --}}
     <div class="flex-shrink-0 flex items-center gap-2 px-3 py-2 eval-topbar">
 
+        @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+
         {{-- Mode toggle --}}
         <div class="eval-mode-toggle" data-tour="misc-evaluation-mode">
             <button @click="mode='search'" :class="mode==='search' ? 'is-active' : ''" class="eval-mode-btn">

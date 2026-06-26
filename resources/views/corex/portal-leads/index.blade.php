@@ -10,8 +10,11 @@
                 <h1 class="text-xl font-bold tracking-tight text-white leading-tight">Portal Leads</h1>
                 <p class="text-sm" style="color: rgba(255,255,255,0.6);">Buyer enquiries received from Property24 and Private Property.</p>
             </div>
-            <div class="text-xs" style="color: rgba(255,255,255,0.7);">
-                Total: <span class="font-semibold text-white">{{ $leads->total() }}</span>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+                <div class="text-xs" style="color: rgba(255,255,255,0.7);">
+                    Total: <span class="font-semibold text-white">{{ $leads->total() }}</span>
+                </div>
             </div>
         </div>
     </div>

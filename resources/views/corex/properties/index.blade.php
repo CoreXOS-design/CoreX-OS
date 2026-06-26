@@ -11,6 +11,7 @@
                 <p class="text-sm text-white/60">Manage listings and publish to website.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 @if(auth()->user() && auth()->user()->isOwnerRole())
                 <a href="{{ route('corex.properties.import-sold') }}"
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"

@@ -3,8 +3,15 @@
 @section('corex-content')
 <div class="space-y-6" x-data="triage()">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comms-triage-intro">
-        <h1 class="text-xl font-bold text-white leading-tight">Message Triage</h1>
-        <p class="text-sm text-white/60">Unknown-contact messages awaiting your decision. Add the contact to archive the conversation, or mark it not real-estate related to remove it from your list.</p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Message Triage</h1>
+                <p class="text-sm text-white/60">Unknown-contact messages awaiting your decision. Add the contact to archive the conversation, or mark it not real-estate related to remove it from your list.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
+        </div>
     </div>
 
     @if(session('success'))

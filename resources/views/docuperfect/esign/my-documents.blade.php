@@ -28,6 +28,7 @@
                 </p>
             </div>
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('docuperfect.esign.create') }}"
                    class="corex-btn-primary inline-flex items-center gap-2" data-tour="dp-esign-my-docs-new">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>

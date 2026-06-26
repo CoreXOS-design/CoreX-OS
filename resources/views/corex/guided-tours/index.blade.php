@@ -4,6 +4,13 @@
      DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md (var(--token,#fallback)). --}}
 
 @section('corex-content')
+<style>
+    .corex-tour-card:hover {
+        border-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 55%, var(--border)) !important;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.10);
+        transform: translateY(-2px);
+    }
+</style>
 <div class="w-full space-y-5">
 
     {{-- Page header --}}
@@ -30,9 +37,10 @@
             <h2 class="text-xs font-bold uppercase tracking-widest pt-1" style="color: var(--text-muted);">
                 {{ $groupName }} <span style="opacity:0.6;">· {{ $tours->count() }}</span>
             </h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
             @foreach($tours as $tour)
-                <div class="rounded-md p-5 flex flex-col" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="corex-tour-card rounded-md p-5 flex flex-col h-full transition-all duration-300"
+                     style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-start gap-3">
                         <span class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0"
                               style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 14%, transparent); color: var(--brand-button, #0ea5e9);">
@@ -46,20 +54,29 @@
                         </div>
                     </div>
 
-                    @if($tour['description'])
-                        <p class="text-xs mt-3 flex-1" style="color: var(--text-secondary);">{{ $tour['description'] }}</p>
-                    @endif
+                    <p class="text-xs mt-3" style="color: var(--text-secondary);">
+                        {{ $tour['description'] ?: 'A short, interactive walkthrough of this screen.' }}
+                    </p>
 
-                    <div class="mt-4">
+                    {{-- Action pinned to the bottom so every card is the same shape,
+                         with exactly one uniform full-width action per entry. --}}
+                    <div class="mt-auto pt-4">
                         @if($tour['url'])
-                            <a href="{{ $tour['url'] }}" class="corex-btn-primary text-sm inline-flex items-center gap-1.5">
+                            <a href="{{ $tour['url'] }}"
+                               class="inline-flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-md text-xs font-semibold no-underline transition-all duration-300"
+                               style="background: var(--brand-button, #0ea5e9); color:#fff;"
+                               onmouseover="this.style.filter='brightness(1.08)'" onmouseout="this.style.filter='none'">
                                 Start tour
                                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
                             </a>
                         @else
-                            {{-- Route needs a specific record (e.g. open a contact first). --}}
-                            <span class="text-xs" style="color: var(--text-muted);">
-                                Open the relevant record, then tap the “?” in its header to start this tour.
+                            {{-- Route needs a specific record (e.g. open a contact first),
+                                 so it can't be linked generically — same footprint, made clear. --}}
+                            <span class="inline-flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-md text-xs font-semibold cursor-default"
+                                  title="Open the relevant record, then tap the “?” in its header to start this tour."
+                                  style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
+                                Open record first
                             </span>
                         @endif
                     </div>

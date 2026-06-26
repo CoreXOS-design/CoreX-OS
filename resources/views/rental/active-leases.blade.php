@@ -22,6 +22,7 @@
                 </p>
             </div>
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('docuperfect.rental.uploadAndSend') }}" data-tour="rent-active-leases-upload" class="corex-btn-primary">Upload &amp; Send Lease</a>
                 @permission('access_settings')
                 <a href="{{ url('/corex/settings?s=feature-rentals') }}"

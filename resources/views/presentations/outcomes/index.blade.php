@@ -52,6 +52,7 @@
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-sm"
                    style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
                     Presentations

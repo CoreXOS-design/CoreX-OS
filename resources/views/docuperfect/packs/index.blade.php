@@ -11,11 +11,12 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Document Packs</h1>
                 <p class="text-sm text-white/60">Launch a pack to create all its documents at once.</p>
             </div>
-            @if($canManage)
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
+                @if($canManage)
                 <a href="{{ route('docuperfect.packs.create') }}" class="corex-btn-primary">New Pack</a>
+                @endif
             </div>
-            @endif
         </div>
     </div>
 

@@ -12,6 +12,9 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Rental Division</h1>
                 <p class="text-sm text-white/60">Overview of rental workflows, signatures, and lease management.</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 

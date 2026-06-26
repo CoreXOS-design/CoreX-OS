@@ -12,6 +12,9 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Revenue Share Calculator</h1>
                 <p class="text-sm text-white/60">See what your network could earn you. Adjust the sliders to explore different scenarios.</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 

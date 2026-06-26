@@ -116,6 +116,7 @@
             <p style="margin: 2px 0 0; font-size: 0.875rem; color: rgba(255,255,255,0.6); line-height: 1.2;">Spatial view of your stock, sold comps and prospecting candidates.</p>
         </div>
         <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+            @include('layouts.partials.tour-header-launcher')
             {{-- Base-layer toggle --}}
             <div id="base-layer-toggle" data-tour="re-map-baselayer" style="display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
                 <button data-base="streets" class="base-pill active" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: var(--brand-button); color: #fff; border: 0; border-radius: 4px; cursor: pointer;">Streets</button>

@@ -73,6 +73,9 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Send Seller Information Pack</h1>
                 <p class="text-sm text-white/60">Send a legally-researched information pack to a seller about why proper compliance paperwork matters.</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 

@@ -10,6 +10,9 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Calculators</h1>
                 <p class="text-sm text-white/60">Commission, bond repayments, transfer costs &amp; overpayment savings.</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 

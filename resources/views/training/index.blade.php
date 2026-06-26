@@ -11,6 +11,9 @@
                 <h1 class="text-xl font-bold text-white leading-tight">My Training</h1>
                 <p class="text-sm text-white/60">Complete your required courses to stay compliant.</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 

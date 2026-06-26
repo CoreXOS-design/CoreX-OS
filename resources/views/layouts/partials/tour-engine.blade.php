@@ -49,7 +49,8 @@
                 border: 1px solid var(--border, rgba(0,0,0,0.08));
                 border-radius: 10px;
                 box-shadow: 0 18px 50px rgba(0,0,0,0.35);
-                max-width: 340px;
+                min-width: 300px;
+                max-width: 360px;
             }
             .driver-popover.corex-tour .driver-popover-title {
                 font-size: 0.95rem; font-weight: 700;
@@ -59,105 +60,111 @@
                 font-size: 0.8125rem; line-height: 1.5;
                 color: var(--text-secondary, #4b5563);
             }
+            /* ── Two-row footer ─────────────────────────────────────────────
+               driver.js stuffs progress, prev/next AND our injected controls
+               ("Don't show again", "Close tour") into one flex row, which
+               overlaps at narrow widths. A 2-col / 2-row grid gives a clean,
+               deterministic layout that never overlaps:
+                 Row 1 (controls): [Don't show again]            [Close tour]
+                 Row 2 (nav):      [progress]               [← Back] [Next →]
+               "Don't show again" only exists on step 1; on later steps row 1
+               holds just the top-right Close tour, which is fine. */
+            .driver-popover.corex-tour .driver-popover-footer {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                align-items: center;
+                gap: 10px 8px;
+                margin-top: 14px;
+                padding-top: 12px;
+                border-top: 1px solid var(--border, rgba(0,0,0,0.08));
+            }
+            .driver-popover.corex-tour .corex-tour-dsa            { grid-column: 1; grid-row: 1; }
+            .driver-popover.corex-tour .corex-tour-close          { grid-column: 2; grid-row: 1; justify-self: end; }
+            .driver-popover.corex-tour .driver-popover-progress-text   { grid-column: 1; grid-row: 2; justify-self: start; }
+            .driver-popover.corex-tour .driver-popover-navigation-btns { grid-column: 2; grid-row: 2; justify-self: end; }
+
             .driver-popover.corex-tour .driver-popover-progress-text {
                 font-size: 0.7rem; color: var(--text-muted, #9ca3af);
             }
-            /* Footer is rebuilt by _decoratePopover() into two stacked rows so the
-               injected "Close tour" / "Don't show again" controls never collide
-               with the progress text or the Back/Next buttons (driver sets the
-               footer's inline display:flex per render — flex-direction:column here
-               keeps the two rows stacked). */
-            .driver-popover.corex-tour .driver-popover-footer {
-                margin-top: 16px;
-                display: flex;
-                flex-direction: column;
-                align-items: stretch;
-                gap: 0;
-            }
-            .driver-popover.corex-tour .corex-tour-row {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 8px;
-                width: 100%;
-            }
-            /* Controls row (Don't show again + Close tour) sits above the nav row,
-               separated by a hairline. */
-            .driver-popover.corex-tour .corex-tour-row-controls {
-                padding-bottom: 10px;
-                margin-bottom: 10px;
-                border-bottom: 1px solid var(--border, rgba(0,0,0,0.08));
-            }
-            .driver-popover.corex-tour .driver-popover-navigation-btns {
-                display: flex; gap: 8px; align-items: center;
-            }
-            /* Uniform buttons across Back / Next/Done / Close tour. driver toggles
-               next/prev display between block/none per step, so we use inline-block
-               + text-align (compatible with both) rather than flex centering. */
-            .driver-popover.corex-tour button.driver-popover-prev-btn,
-            .driver-popover.corex-tour button.driver-popover-next-btn,
+            /* Uniform footer buttons — same height/radius/font for nav + close. */
+            .driver-popover.corex-tour .driver-popover-navigation-btns button,
             .driver-popover.corex-tour .corex-tour-close {
-                all: unset;
                 box-sizing: border-box;
-                display: inline-block;
-                text-align: center;
-                padding: 7px 16px;
-                border-radius: 6px;
-                font-size: 0.75rem;
-                font-weight: 600;
-                line-height: 1.2;
-                cursor: pointer;
-                text-shadow: none;
-                transition: background-color .15s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+                height: 28px; padding: 0 12px;
+                display: inline-flex; align-items: center; justify-content: center;
+                font-size: 0.72rem; font-weight: 600; line-height: 1;
+                border-radius: 6px; cursor: pointer;
             }
-            /* Primary action — Next / Done. */
-            .driver-popover.corex-tour button.driver-popover-next-btn {
+            .driver-popover.corex-tour .driver-popover-navigation-btns button {
                 background: var(--brand-button, #0ea5e9);
-                color: #fff;
-                border: 1px solid var(--brand-button, #0ea5e9);
+                color: #fff; text-shadow: none; border: 0;
             }
-            .driver-popover.corex-tour button.driver-popover-next-btn:hover {
-                filter: brightness(1.06);
-            }
-            /* Secondary actions — Back / Close tour share one look. */
-            .driver-popover.corex-tour button.driver-popover-prev-btn,
-            .driver-popover.corex-tour .corex-tour-close {
+            .driver-popover.corex-tour .driver-popover-navigation-btns button.driver-popover-prev-btn {
                 background: var(--surface-2, #f1f5f9);
                 color: var(--text-secondary, #475569);
-                border: 1px solid var(--border, rgba(0,0,0,0.12));
             }
-            .driver-popover.corex-tour button.driver-popover-prev-btn:hover,
-            .driver-popover.corex-tour .corex-tour-close:hover {
-                color: var(--text-primary, #1e293b);
-                border-color: var(--text-muted, #94a3b8);
+            .driver-popover.corex-tour .driver-popover-navigation-btns button + button { margin-left: 6px; }
+            .driver-popover.corex-tour .driver-popover-close-btn {
+                color: var(--text-muted, #9ca3af);
             }
-            /* driver disables (not hides) Back on the first step — keep it muted. */
-            .driver-popover.corex-tour button.driver-popover-prev-btn.driver-popover-btn-disabled {
-                opacity: .45; cursor: default;
-            }
-            .driver-popover.corex-tour .driver-popover-close-btn { color: var(--text-muted, #9ca3af); }
             .driver-popover.corex-tour .corex-tour-dsa {
-                display: flex; align-items: center; gap: 6px;
-                font-size: 0.72rem; color: var(--text-muted, #9ca3af);
+                display: inline-flex; align-items: center; gap: 6px;
+                font-size: 0.7rem; color: var(--text-muted, #9ca3af);
                 cursor: pointer; user-select: none;
             }
             .driver-popover.corex-tour .corex-tour-dsa input { accent-color: var(--brand-button, #0ea5e9); }
-            /* Floating fallback launcher (used only when no sidebar slot exists). */
-            #corex-tour-launcher-floating {
-                position: fixed; right: 18px; bottom: 18px; z-index: 9990;
+            /* AT-41: explicit "Close tour" control (overlay/X/ESC close disabled). */
+            .driver-popover.corex-tour .corex-tour-close {
+                background: transparent;
+                color: var(--text-muted, #9ca3af);
+                border: 1px solid var(--border, rgba(0,0,0,0.12));
             }
+            .driver-popover.corex-tour .corex-tour-close:hover {
+                color: var(--text-secondary, #475569);
+                border-color: var(--text-muted, #9ca3af);
+            }
+            /* ── Header launcher button ─────────────────────────────────────
+               The "?" lives ONLY in a page header's action group, dropped into
+               #tour-launcher-slot by the engine. It never floats: it stays
+               hidden until it is relocated into a slot, and sizes to match the
+               other header icon/action buttons.
+
+               Two header backdrops exist, so the slot carries a variant class
+               and the button adapts:
+                 • navy banner  (background:var(--brand-default)) → white-on-navy,
+                   matching the translucent-white action buttons in those headers.
+                 • surface bar  (x-page-header / x-list-header, var(--surface)) →
+                   a muted outline icon button, matching the surface header chrome. */
             .corex-tour-launcher-btn {
-                display: inline-flex; align-items: center; gap: 6px;
-                background: var(--brand-button, #0ea5e9); color: #fff;
-                border: 0; border-radius: 999px; cursor: pointer;
-                padding: 8px 14px; font-size: 0.75rem; font-weight: 600;
-                box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+                display: inline-flex; align-items: center; justify-content: center;
+                width: 2rem; height: 2rem; padding: 0;
+                border-radius: 6px; cursor: pointer;
+                transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
             }
-            .corex-tour-launcher-btn.in-slot {
-                padding: 0; width: 2.25rem; height: 2.25rem;
-                justify-content: center; border-radius: 8px; box-shadow: none;
+            .corex-tour-launcher-btn svg { width: 1.1rem; height: 1.1rem; }
+
+            /* Navy banner (default) */
+            .corex-tour-launcher-btn,
+            .tour-slot-navy .corex-tour-launcher-btn {
+                background: rgba(255,255,255,0.08); color: #fff;
+                border: 1px solid rgba(255,255,255,0.18);
             }
-            .corex-tour-launcher-btn svg { width: 1rem; height: 1rem; }
+            .corex-tour-launcher-btn:hover,
+            .tour-slot-navy .corex-tour-launcher-btn:hover {
+                background: rgba(255,255,255,0.18);
+                border-color: rgba(255,255,255,0.30);
+            }
+            /* Surface bar */
+            .tour-slot-surface .corex-tour-launcher-btn {
+                background: transparent;
+                color: var(--text-muted, #6b7280);
+                border: 1px solid var(--border, #e5e7eb);
+            }
+            .tour-slot-surface .corex-tour-launcher-btn:hover {
+                color: var(--brand-button, #0ea5e9);
+                border-color: var(--brand-button, #0ea5e9);
+                background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent);
+            }
         </style>
         <script src="{{ asset('vendor/driverjs/driver.js.iife.js') }}"></script>
     @endonce
@@ -165,19 +172,18 @@
     <div id="corex-tour-root"
          x-data="coreXTour({ tour: {{ \Illuminate\Support\Js::from($__tour) }}, autoStart: {{ $__tourAutoStart ? 'true' : 'false' }}, csrf: '{{ csrf_token() }}' })"
          x-init="init()">
-        {{-- Launcher button. Lives in a floating wrapper by default; init() relocates
-             it into the sidebar slot (#tour-launcher-slot) when that slot is present,
-             so a lost/merged-away sidebar edit degrades gracefully to a floating button. --}}
-        <div id="corex-tour-launcher-floating">
-            <button type="button" class="corex-tour-launcher-btn" @click="start()"
-                    x-ref="launcher"
-                    :title="'Take a tour: ' + tour.title" aria-label="Take a tour of this page">
-                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
-                </svg>
-                <span x-show="!inSlot" x-cloak>Tour</span>
-            </button>
-        </div>
+        {{-- Launcher button. Rendered hidden here at body level; init() relocates
+             it into the page-header slot (#tour-launcher-slot) and reveals it.
+             It NEVER floats — if a tour-bearing page is missing the header slot
+             the button simply stays hidden (the tour still auto-starts and is
+             launchable from the Guided Tours directory). --}}
+        <button type="button" class="corex-tour-launcher-btn" @click="start()"
+                x-ref="launcher" style="display:none;"
+                :title="'Take a tour: ' + tour.title" aria-label="Take a tour of this page">
+            <svg fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+            </svg>
+        </button>
     </div>
 
     @once
@@ -187,22 +193,20 @@
             tour: cfg.tour,
             autoStart: cfg.autoStart,
             csrf: cfg.csrf,
-            inSlot: false,
             _driver: null,
             _finished: false,
             _suppressWritten: false,
 
             init() {
-                // Relocate the launcher into the sidebar slot if the host page provides one.
+                // Relocate the launcher into the page-header slot if the host page
+                // provides one, and reveal it there. With no slot the button stays
+                // hidden — it never floats.
                 this.$nextTick(() => {
                     const slot = document.getElementById('tour-launcher-slot');
                     const btn  = this.$refs.launcher;
                     if (slot && btn) {
-                        btn.classList.add('in-slot');
                         slot.appendChild(btn);
-                        const floatWrap = document.getElementById('corex-tour-launcher-floating');
-                        if (floatWrap) floatWrap.remove();
-                        this.inSlot = true;
+                        btn.style.display = '';
                     }
                 });
 
@@ -300,40 +304,15 @@
                 try {
                     if (!popover || !popover.footer) return;
                     const self = this;
-                    const footer = popover.footer;
                     const idx = (opts && opts.state && typeof opts.state.activeIndex === 'number')
                         ? opts.state.activeIndex : 0;
 
-                    // (1) Build the two-row scaffold once per popover element. driver
-                    //     reuses the same popover/footer DOM across steps (it only
-                    //     rewrites button text + toggles display), so moving its
-                    //     native progress text + nav buttons into a dedicated nav row
-                    //     is stable — they keep updating in place by reference.
-                    let rowControls = footer.querySelector('.corex-tour-row-controls');
-                    if (!rowControls) {
-                        rowControls = document.createElement('div');
-                        rowControls.className = 'corex-tour-row corex-tour-row-controls';
-                        const rowNav = document.createElement('div');
-                        rowNav.className = 'corex-tour-row corex-tour-row-nav';
-
-                        const progress = footer.querySelector('.driver-popover-progress-text');
-                        const navBtns  = footer.querySelector('.driver-popover-navigation-btns');
-                        // Spacer keeps the buttons right-aligned even if progress is
-                        // hidden for a given tour.
-                        rowNav.appendChild(progress || document.createElement('span'));
-                        if (navBtns) rowNav.appendChild(navBtns);
-
-                        footer.appendChild(rowControls);   // controls row on top
-                        footer.appendChild(rowNav);        // nav row below
-                    }
-
-                    // (2) Explicit "Close tour" button — on EVERY step. The only
+                    // (3) Explicit "Close tour" button — on EVERY step. The only
                     //     manual way to end the tour now that the overlay/X/ESC are
                     //     disabled. Ends the tour (→ onDestroyed marks it seen).
                     //     For READ-ONLY tours (e-sign) this does nothing beyond
                     //     ending the tour — it never touches the underlying page.
-                    //     Lives at the right of the controls row.
-                    if (!rowControls.querySelector('[data-tour-close]')) {
+                    if (!popover.footer.querySelector('[data-tour-close]')) {
                         const closeBtn = document.createElement('button');
                         closeBtn.type = 'button';
                         closeBtn.setAttribute('data-tour-close', '');
@@ -343,15 +322,15 @@
                             self._finished = true;       // close == seen (won't nag)
                             self._driver.destroy();
                         });
-                        rowControls.appendChild(closeBtn);
+                        // Sits at the start of the footer, left of Back/Next.
+                        popover.footer.insertBefore(closeBtn, popover.footer.firstChild);
                     }
 
-                    // (3) "Don't show again" — first step only. Ticking it records
+                    // (2) "Don't show again" — first step only. Ticking it records
                     //     the suppress preference (dismissed_at) so the tour won't
                     //     AUTO-launch next session — but it does NOT end the current
-                    //     tour. The agent keeps stepping through. Sits at the left of
-                    //     the controls row.
-                    if (idx === 0 && !rowControls.querySelector('[data-tour-dsa]')) {
+                    //     tour. The agent keeps stepping through.
+                    if (idx === 0 && !popover.footer.querySelector('[data-tour-dsa]')) {
                         const label = document.createElement('label');
                         label.setAttribute('data-tour-dsa', '');
                         label.className = 'corex-tour-dsa';
@@ -367,13 +346,8 @@
                                 txt.textContent = "Won't show again";
                             }
                         });
-                        rowControls.insertBefore(label, rowControls.firstChild);
+                        popover.footer.insertBefore(label, popover.footer.firstChild);
                     }
-
-                    // When only the Close button is present (steps after the first),
-                    // push it to the right; with the checkbox present, space them out.
-                    rowControls.style.justifyContent =
-                        rowControls.querySelector('[data-tour-dsa]') ? 'space-between' : 'flex-end';
                 } catch (e) { /* decoration is optional */ }
             },
 

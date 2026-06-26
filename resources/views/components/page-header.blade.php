@@ -46,11 +46,12 @@
             <h1 class="text-xl font-bold truncate" style="color:var(--text-primary);">{{ $title }}</h1>
         </div>
 
-        {{-- Right: action buttons --}}
-        @if(isset($actions))
+        {{-- Right: action buttons. Always rendered so the tour "?" launcher has a
+             header home on every page using this component; the launcher partial
+             self-gates (renders nothing on tour-less pages). --}}
         <div class="flex items-center gap-2 flex-shrink-0 ml-4">
-            {{ $actions }}
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            {{ $actions ?? '' }}
         </div>
-        @endif
     </div>
 </div>

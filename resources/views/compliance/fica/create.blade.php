@@ -3,10 +3,15 @@
 @section('corex-content')
 <div class="p-6 lg:p-8 max-w-2xl">
     {{-- Header --}}
-    <div class="mb-6" data-tour="comp-fica-create-intro">
-        <a href="{{ route('compliance.fica.index') }}" class="text-sm text-slate-500 hover:text-slate-700 mb-2 inline-block">&larr; Back to Compliance</a>
-        <h1 class="text-2xl font-bold text-slate-900">Send FICA Request</h1>
-        <p class="text-sm text-slate-500 mt-1">Select a contact to send a FICA verification form to</p>
+    <div class="mb-6 flex items-start justify-between gap-3" data-tour="comp-fica-create-intro">
+        <div>
+            <a href="{{ route('compliance.fica.index') }}" class="text-sm text-slate-500 hover:text-slate-700 mb-2 inline-block">&larr; Back to Compliance</a>
+            <h1 class="text-2xl font-bold text-slate-900">Send FICA Request</h1>
+            <p class="text-sm text-slate-500 mt-1">Select a contact to send a FICA verification form to</p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+        </div>
     </div>
 
     @if ($errors->any())

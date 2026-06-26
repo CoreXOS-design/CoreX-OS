@@ -13,6 +13,7 @@
                 <p class="text-sm text-white/60">Learn how to use CoreX — step-by-step guides for every role.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 {{-- Search trigger --}}
                 <button @click="searchOpen = true"
                         data-tour="train-help-search"

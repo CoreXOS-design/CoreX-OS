@@ -29,6 +29,7 @@
                     </h1>
                 </div>
                 <div data-tour="deals-detail-status" class="flex items-center gap-2 flex-shrink-0">
+                    @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                     <span class="px-2.5 py-1 rounded-full text-xs font-medium capitalize" style="{{ $statusStyle }}">{{ str_replace('_', ' ', $deal->status) }}</span>
                     <span class="w-3 h-3 rounded-full inline-block {{ $deal->overall_rag === 'overdue' ? 'animate-pulse' : '' }}" style="background: {{ $ragColor }};"></span>
                     @if($canEdit)

@@ -18,6 +18,7 @@
                 <p class="text-sm text-white/60">Capture the property, parties and commission, then generate the deal pipeline.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('deals-v2.index') }}"
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
                    style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);">

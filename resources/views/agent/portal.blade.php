@@ -23,6 +23,7 @@
                 <p class="text-sm text-white/60">Your profile, documents, compliance, training and earnings in one place.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5"
                       style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18);">
                     <span style="width:8px; height:8px; border-radius:50%; background:{{ $overallColor }}; display:inline-block;"></span>
