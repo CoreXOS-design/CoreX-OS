@@ -120,6 +120,20 @@
                   @endif
               </div>
 
+            @if($deal->exists)
+            {{-- Admin Multi-Branch Manager — the manager named on this deal.
+                 Captured at registration when an admin acts as the branch's
+                 manager; otherwise resolved from the branch_manager role. --}}
+            <div>
+                <label class="ds-label block mb-1">Branch Manager</label>
+                @php $dealBranchManager = $deal->branchManager(); @endphp
+                <input type="text" value="{{ $dealBranchManager?->name ?? '—' }}" disabled>
+                @if($deal->managed_by_user_id)
+                    <div class="ds-section-sub mt-1">Named at registration.</div>
+                @endif
+            </div>
+            @endif
+
             <div>
                 <label class="ds-label block mb-1">Period</label>
                 <input type="month" name="period" value="{{ old('period', $deal->period) }}" required>

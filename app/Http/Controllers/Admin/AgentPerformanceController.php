@@ -66,7 +66,8 @@ class AgentPerformanceController extends Controller
             ->leftJoin('deal_money_lines as dml', function ($join) {
                 $join->on('dml.deal_id', '=', 'deals.id')
                      ->on('dml.user_id', '=', 'deal_user.user_id')
-                     ->on('dml.side', '=', 'deal_user.side');
+                     ->on('dml.side', '=', 'deal_user.side')
+                     ->whereNull('dml.deleted_at'); // exclude rebuilt-over (trashed) projection rows
             })
             ->where('deal_user.user_id', $agent->id)
             ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])

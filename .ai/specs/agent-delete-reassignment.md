@@ -33,7 +33,20 @@ If the agent has zero attached records, the reassignment section is skipped but 
 | Agent | source agent + target agent (same `agency_id`, `is_active=true`) | source `users.deleted_at` (existing behaviour) |
 | Property | `properties` where `agent_id = source` or `pp_second_agent_id = source` | `agent_id` and/or `pp_second_agent_id` |
 | Contact | `contacts` where `created_by_user_id = source` | `created_by_user_id` |
-| Deal | none — deals keep the deleted agent on record (per business decision) | none |
+| Deal | deals (v1 register + v2 pipeline) where source is an agent / branch manager, plus commission & settlement allocations | `deal_user`, `deal_settlements`, `deal_money_lines`, `deals.managed_by_user_id`, `deals_v2.listing_agent_id`/`selling_agent_id`, `deal_v2_agents`, `deal_v2_settlements` — only when the admin chooses **move** |
+
+### Deals (added 2026-06-24)
+
+Deals are no longer forced to stay on the departing agent. The modal now shows a **Deals** section whenever the agent is on ≥1 deal (across either deal system), with two choices:
+
+- **Leave** (default) — deals stay under the departing agent's name (the historical behaviour).
+- **Move** — every deal-ownership and commission/settlement linkage moves to a chosen active agent in the same agency. Built for merging duplicate agent accounts (e.g. two accounts created for two branches before branches existed) into one, with no orphaned deals or money.
+
+**Moves (ownership + money):** `deal_user`, `deal_settlements`, `deal_money_lines`, `deals.managed_by_user_id`, `deals_v2.listing_agent_id`, `deals_v2.selling_agent_id`, `deal_v2_agents`, `deal_v2_settlements`.
+
+**Left untouched (audit / historical actor fields — rewriting them corrupts the audit trail; the soft-deleted user keeps the FK valid):** `deal_logs.actor_user_id`, `deals.link_reviewed_by_user_id`, `deal_link_review_queue.reviewed_by_user_id`, `deal_step_instances.completed_by_id`, `deal_step_documents.uploaded_by_id`, `deal_activity_log.user_id`, every `created_by_id`, and the lost-deal actor fields.
+
+**Dedup:** tables keyed by `unique(deal_id, user_id, side)` (`deal_user`, `deal_settlements`, `deal_v2_agents`, `deal_v2_settlements`) are deduplicated — if the target already holds the exact slot, the source's duplicate row is dropped (soft-deleted where supported, else hard-deleted) instead of moved, so the unique key never clashes and commission is never double-counted. The deal target is its own dropdown, defaulting to the properties/contacts reassignment target but independently changeable.
 
 ## Data model
 
@@ -100,7 +113,7 @@ Single activity-log entry per delete operation:
 3. After confirming, all properties + contacts are reassigned in a single DB transaction.
 4. Secondary-agent radio behaves per the table above.
 5. Calendar events and tasks owned by the deleted agent are soft-deleted.
-6. Deals are unchanged.
+6. Deals default to **leave** (unchanged on record). When the admin chooses **move**, every deal-ownership + commission/settlement linkage (v1 + v2) moves to the chosen agent in a single transaction, with unique-slot dedup; audit/actor fields are left untouched.
 7. Activity log entry is written.
 8. Existing P24 inactivation + soft-delete still happens after reassignment.
 9. Target dropdown only lists active users in the same agency, excluding the agent being deleted.
@@ -113,7 +126,9 @@ Single activity-log entry per delete operation:
 - **Modify:** [`app/Http/Controllers/Admin/UserManagementController.php`](../../app/Http/Controllers/Admin/UserManagementController.php) — split current `delete()` into:
   - `GET deletePreview(User)` → returns counts as JSON for the modal
   - `DELETE delete(User)` → accepts `target_user_id` + `secondary_handling`, runs the reassignment service, then existing flow
-- **Create:** `app/Services/Admin/AgentDeletionService.php` — the bulk reassignment + delete logic, transactional.
+- **Create:** `app/Services/Admin/AgentDeletionService.php` — the bulk reassignment + delete logic, transactional. Includes `reassignDeals()` (deal ownership + money move, dedup-safe across v1 + v2) and `preview()` returning `deals` / `has_deals`. `reassignDeals()` rebuilds `deal_money_lines` via `DealMoneyLineRebuilder` after the move (the observers that normally trigger this are bypassed by the raw writes).
+- **Modify:** `app/Services/DealMoneyLineRebuilder.php` — `rebuild()` now bypasses `DealBranchScope` (keeps `AgencyScope`) so a targeted recompute always finds its deal regardless of the caller's branch lens (required for cross-branch merges).
+- **Fix (pre-existing, surfaced here):** `deal_money_lines` is soft-deleted on every rebuild, so reads must exclude trashed rows or commission double-counts. Added `deleted_at IS NULL` filters to the raw readers: `WorksheetController` (stage + pipeline SUMs), `Admin\AgentPerformanceController`, `BM\AgentPerformanceController`, `EllieController`. Regression covered by `AgentDeleteDealReassignmentTest::test_rebuilt_deal_leaves_one_live_money_line_for_reporting`.
 - **Modify:** the user list/edit Blade view that holds the existing Delete button — wire it to fetch the preview and render the modal (Alpine.js).
 - **Modify:** `routes/web.php` — add `admin.users.delete-preview` route (under `/api/v1/admin/users/{user}/delete-preview` per non-negotiable #7, with `->name()` so it appears in `/admin/api`).
 - **No migration.**
@@ -122,5 +137,5 @@ Single activity-log entry per delete operation:
 
 - Adding a dedicated `agent_id` column to `contacts` (separate spec if desired).
 - Surfacing the agent on the Contact view UI (separate small task).
-- Reassigning deals.
 - Bulk-reassign-without-deleting (a future feature, not this one).
+- Merging/summing colliding settlement amounts: when both source and target already hold the same `(deal_id, side)` settlement slot, the source duplicate is dropped (not summed) to avoid double-counting; the target's existing allocation is kept as-is.

@@ -76,7 +76,11 @@ class DealMoneyLineRebuilder
 
     public static function rebuild(?string $period = null, ?int $dealId = null, bool $dryRun = false): int
     {
-        $q = Deal::query();
+        // Rebuilding a deal's derived money lines is a data-integrity operation:
+        // it must process the targeted deal(s) regardless of the calling user's
+        // branch visibility. AgencyScope still applies (tenant isolation), but
+        // the branch lens must not hide a deal we are explicitly recomputing.
+        $q = Deal::query()->withoutGlobalScope(\App\Models\Scopes\DealBranchScope::class);
 
         if ($dealId) {
             $q->where('id', (int)$dealId);

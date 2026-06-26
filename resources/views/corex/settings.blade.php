@@ -1749,7 +1749,11 @@
                                 <div class="flex items-center gap-3">
                                     <span class="w-3.5 h-3.5 rounded-full flex-shrink-0" style="background-color: {{ $parent->color }}"></span>
                                     <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $parent->name }}</span>
-                                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ ucfirst($parent->esign_role) }}</span>
+                                    @if($parent->esign_role)
+                                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ ucfirst($parent->esign_role) }} · e-sign</span>
+                                    @else
+                                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--text-muted) 14%, transparent); color: var(--text-muted);">No e-sign</span>
+                                    @endif
                                     <span class="text-xs" style="color:var(--text-muted);">{{ $parent->subTags->count() }} sub-tag{{ $parent->subTags->count() !== 1 ? 's' : '' }}</span>
                                 </div>
                                 <svg class="w-4 h-4 transition-transform" :class="openP ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1828,8 +1832,9 @@
                                         @csrf
                                         <input type="hidden" name="contact_type_id" value="{{ $parent->id }}">
                                         <div class="md:col-span-6">
-                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Sub-tag name</label>
+                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Sub-tag name(s)</label>
                                             <input name="name" required placeholder="e.g. Cash seller, First-time buyer" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <p class="text-[11px] mt-1" style="color:var(--text-muted);">Add several at once with commas — existing names (any casing) are skipped.</p>
                                         </div>
                                         <div class="md:col-span-2">
                                             <label class="block text-xs mb-1" style="color:var(--text-muted);">Color</label>

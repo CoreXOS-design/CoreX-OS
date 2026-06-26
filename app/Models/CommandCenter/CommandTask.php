@@ -81,6 +81,30 @@ class CommandTask extends Model
         return $query->where('assigned_to', $userId);
     }
 
+    /**
+     * Role-driven visibility scope for the Task board / Today page.
+     * Honours the per-role Data Scope set in Role Manager
+     * (command_center.tasks.view → own | branch | all | none).
+     * Agency isolation is already applied by BelongsToAgency, so this
+     * only narrows within the current agency.
+     *
+     *   own    → tasks assigned to this user
+     *   branch → tasks in the user's branch (falls back to own if no branch)
+     *   all    → no extra narrowing (whole agency)
+     *   none   → nothing (no access)
+     */
+    public function scopeVisibleTo($query, User $user, ?string $scope)
+    {
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->where('branch_id', $user->effectiveBranchId())
+                : $query->where('assigned_to', $user->id),
+            'none'   => $query->whereRaw('1 = 0'),
+            default  => $query->where('assigned_to', $user->id), // 'own' or null
+        };
+    }
+
     public function scopeOpen($query)
     {
         return $query->whereIn('status', [self::STATUS_TODO, self::STATUS_IN_PROGRESS, self::STATUS_AWAITING]);

@@ -118,60 +118,45 @@ class SyncPermissions extends Command
         $now  = now();
         $rows = [];
 
-        // Read roles from DB if available, fall back to defaults map keys
-        $roleNames = [];
+        // Roles are agency-scoped (.ai/specs/roles-permissions.md). Iterate the
+        // role ROWS — each carries its own agency_id (NULL = global template) —
+        // so we seed templates + every agency's role copies in one pass.
         try {
-            $roleNames = Role::pluck('name')->all();
+            $roles = Role::all(['name', 'is_owner', 'agency_id']);
         } catch (\Throwable $e) {
-            $roleNames = array_keys($roleDefaults);
+            $roles = collect(array_map(
+                fn ($n) => (object) ['name' => $n, 'is_owner' => ($n === 'super_admin'), 'agency_id' => null],
+                array_keys($roleDefaults)
+            ));
         }
 
-        foreach ($roleNames as $roleName) {
-            // Determine which keys this role gets
-            $ownerRole = null;
-            try {
-                $ownerRole = Role::where('name', $roleName)->where('is_owner', true)->first();
-            } catch (\Throwable $e) {
-                // roles table may not exist yet
-            }
+        foreach ($roles as $role) {
+            $roleName = $role->name;
 
-            if ($ownerRole) {
+            // Owner roles get everything (they bypass checks anyway).
+            if (!empty($role->is_owner)) {
                 $keys = $allKeys;
             } elseif (isset($roleDefaults[$roleName])) {
-                $def = $roleDefaults[$roleName];
-
-                if ($def === '*') {
-                    $keys = $allKeys;
-                } elseif (is_array($def) && isset($def['exclude'])) {
-                    $keys = array_values(array_filter($allKeys, fn ($k) => !in_array($k, $def['exclude'])));
-                } elseif (is_array($def) && isset($def['include'])) {
-                    $keys = $def['include'];
-                } else {
-                    $keys = [];
-                }
+                $keys = $this->keysForDef($roleDefaults[$roleName], $allKeys);
             } else {
+                // Custom agency role with no config defaults — fresh seed = none.
                 $keys = [];
             }
 
-            // Build scope map for this role
             $defaultScope = $scopeDefault[$roleName] ?? 'own';
-            $roleScopes   = [];
-
-            foreach ($viewKeys as $vk) {
-                // Check if module is shared
-                $module = explode('.', $vk)[0];
-                if (in_array($module, $sharedModules)) {
-                    $roleScopes[$vk] = 'all';
-                } else {
-                    $roleScopes[$vk] = $defaultScope;
-                }
-            }
 
             foreach ($keys as $key) {
+                $scope = null;
+                if (in_array($key, $viewKeys, true)) {
+                    $module = explode('.', $key)[0];
+                    $scope  = in_array($module, $sharedModules, true) ? 'all' : $defaultScope;
+                }
+
                 $rows[] = [
                     'role'           => $roleName,
                     'permission_key' => $key,
-                    'scope'          => $roleScopes[$key] ?? null,
+                    'scope'          => $scope,
+                    'agency_id'      => $role->agency_id,
                     'created_at'     => $now,
                     'updated_at'     => $now,
                 ];
@@ -188,7 +173,26 @@ class SyncPermissions extends Command
             }
         }
 
-        $this->info('Role defaults seeded for ' . count($roleNames) . ' role(s).');
+        $this->info('Role defaults seeded for ' . $roles->count() . ' role(s) across ' .
+            $roles->pluck('agency_id')->unique()->count() . ' agency context(s).');
+    }
+
+    /**
+     * Resolve the full default permission-key set for a role_defaults entry.
+     */
+    protected function keysForDef($def, array $allKeys): array
+    {
+        if ($def === '*') {
+            return $allKeys;
+        }
+        if (is_array($def) && isset($def['exclude'])) {
+            return array_values(array_filter($allKeys, fn ($k) => !in_array($k, $def['exclude'], true)));
+        }
+        if (is_array($def) && isset($def['include'])) {
+            return $def['include'];
+        }
+
+        return [];
     }
 
     /**
@@ -216,57 +220,52 @@ class SyncPermissions extends Command
         $totalInserted  = 0;
         $perRoleSummary = [];
 
-        // Use Role table when available, else fall back to defaults map keys
+        // Roles are agency-scoped — fan out across the template rows AND every
+        // agency's own role copies. Each role ROW carries its own agency_id, so
+        // missing keys are merged into the right (role, agency) grant set.
         try {
-            $roles = Role::all(['name', 'is_owner']);
+            $roles = Role::all(['name', 'is_owner', 'agency_id']);
         } catch (\Throwable $e) {
             $roles = collect(array_map(
-                fn ($n) => (object) ['name' => $n, 'is_owner' => false],
+                fn ($n) => (object) ['name' => $n, 'is_owner' => false, 'agency_id' => null],
                 array_keys($roleDefaults)
             ));
         }
 
         foreach ($roles as $role) {
             $roleName = $role->name;
+            $label    = $roleName . ($role->agency_id ? " [agency {$role->agency_id}]" : ' [template]');
 
             // Owner roles bypass permission checks — no point seeding them.
             if (!empty($role->is_owner)) {
-                $perRoleSummary[$roleName] = 'skipped (owner — bypasses checks)';
+                $perRoleSummary[$label] = 'skipped (owner — bypasses checks)';
                 continue;
             }
 
             // Determine the full default key set for this role per config
             if (isset($roleDefaults[$roleName])) {
-                $def = $roleDefaults[$roleName];
-
-                if ($def === '*') {
-                    $expectedKeys = $allKeys;
-                } elseif (is_array($def) && isset($def['exclude'])) {
-                    $expectedKeys = array_values(array_filter(
-                        $allKeys,
-                        fn ($k) => !in_array($k, $def['exclude'], true)
-                    ));
-                } elseif (is_array($def) && isset($def['include'])) {
-                    $expectedKeys = $def['include'];
-                } else {
-                    $expectedKeys = [];
-                }
+                $expectedKeys = $this->keysForDef($roleDefaults[$roleName], $allKeys);
             } else {
                 // Custom roles created via Role Manager have no config defaults.
                 // Don't second-guess them — leave entirely alone.
-                $perRoleSummary[$roleName] = 'skipped (no config defaults)';
+                $perRoleSummary[$label] = 'skipped (no config defaults)';
                 continue;
             }
 
-            // Diff: which expected keys does the role NOT yet have?
+            // Diff: which expected keys does this (role, agency) NOT yet have?
             $existingKeys = RolePermission::where('role', $roleName)
+                ->when(
+                    $role->agency_id,
+                    fn ($q) => $q->where('agency_id', $role->agency_id),
+                    fn ($q) => $q->whereNull('agency_id')
+                )
                 ->pluck('permission_key')
                 ->all();
 
             $missingKeys = array_diff($expectedKeys, $existingKeys);
 
             if (empty($missingKeys)) {
-                $perRoleSummary[$roleName] = 'up to date';
+                $perRoleSummary[$label] = 'up to date';
                 continue;
             }
 
@@ -284,6 +283,7 @@ class SyncPermissions extends Command
                     'role'           => $roleName,
                     'permission_key' => $key,
                     'scope'          => $scope,
+                    'agency_id'      => $role->agency_id,
                     'created_at'     => $now,
                     'updated_at'     => $now,
                 ];
@@ -294,12 +294,12 @@ class SyncPermissions extends Command
             }
 
             $totalInserted += count($rows);
-            $perRoleSummary[$roleName] = '+' . count($rows) . ' permission(s)';
+            $perRoleSummary[$label] = '+' . count($rows) . ' permission(s)';
         }
 
         $this->info("Merge complete — {$totalInserted} new row(s) inserted.");
-        foreach ($perRoleSummary as $roleName => $status) {
-            $this->line("  {$roleName}: {$status}");
+        foreach ($perRoleSummary as $label => $status) {
+            $this->line("  {$label}: {$status}");
         }
     }
 }

@@ -14,10 +14,16 @@ class SharedDriveFolder extends Model
 
     protected $fillable = [
         'agency_id',
+        'drive_id',
         'parent_id',
         'name',
         'created_by_user_id',
     ];
+
+    public function drive(): BelongsTo
+    {
+        return $this->belongsTo(SharedDrive::class, 'drive_id');
+    }
 
     public function parent(): BelongsTo
     {

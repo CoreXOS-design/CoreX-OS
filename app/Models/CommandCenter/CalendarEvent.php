@@ -171,6 +171,30 @@ class CalendarEvent extends Model
         return $query->where('user_id', $userId);
     }
 
+    /**
+     * Role-driven visibility scope for the Calendar / Today page.
+     * Honours the per-role Data Scope set in Role Manager
+     * (command_center.calendar.view → own | branch | all | none).
+     * Agency isolation is already applied by BelongsToAgency, so this
+     * only narrows within the current agency.
+     *
+     *   own    → events owned by this user
+     *   branch → events in the user's branch (falls back to own if no branch)
+     *   all    → no extra narrowing (whole agency)
+     *   none   → nothing (no access)
+     */
+    public function scopeVisibleTo($query, User $user, ?string $scope)
+    {
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->where('branch_id', $user->effectiveBranchId())
+                : $query->where('user_id', $user->id),
+            'none'   => $query->whereRaw('1 = 0'),
+            default  => $query->where('user_id', $user->id), // 'own' or null
+        };
+    }
+
     public function scopeUpcoming($query)
     {
         return $query->where('event_date', '>=', now())

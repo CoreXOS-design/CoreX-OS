@@ -109,7 +109,7 @@
                     </fieldset>
 
                     <p class="text-xs" style="color: var(--text-muted);">
-                        Deals stay on record under this agent. Calendar events and tasks will be soft-deleted.
+                        Calendar events and tasks will be soft-deleted.
                     </p>
                 </div>
             </template>
@@ -118,6 +118,44 @@
                 <p class="text-sm" style="color: var(--text-primary);">
                     This agent has no attached properties, contacts, events, or tasks.
                 </p>
+            </template>
+
+            {{-- Deals — leave under this agent (default) or move everything to another agent --}}
+            <template x-if="!loading && !error && counts && counts.deals > 0">
+                <fieldset class="rounded-md p-3" style="border: 1px solid var(--border);">
+                    <legend class="px-1 text-xs font-medium" style="color: var(--text-secondary);">Deals</legend>
+                    <p class="text-sm mb-2" style="color: var(--text-secondary);">
+                        This agent is on
+                        <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.deals"></span>
+                        deals, including any commission &amp; settlement allocations.
+                    </p>
+                    <label class="flex items-start gap-2 text-sm cursor-pointer py-1" style="color: var(--text-primary);">
+                        <input type="radio" value="leave" x-model="dealHandling" class="mt-1">
+                        <span>Leave the deals under <span x-text="userName"></span>'s name <span class="text-xs" style="color: var(--text-muted);">(default)</span></span>
+                    </label>
+                    <label class="flex items-start gap-2 text-sm cursor-pointer py-1" style="color: var(--text-primary);">
+                        <input type="radio" value="move" x-model="dealHandling" class="mt-1">
+                        <span>Move the deals (and their commission) to another agent</span>
+                    </label>
+
+                    <div x-show="dealHandling === 'move'" x-cloak class="mt-2">
+                        <label for="agent-delete-deal-target" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                            Move deals to <span class="text-red-500">*</span>
+                        </label>
+                        <select
+                            id="agent-delete-deal-target"
+                            x-model="dealTargetUserId"
+                            @change="dealTouched = true"
+                            class="w-full rounded-md px-3 py-2 text-sm"
+                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                        >
+                            <option value="">— choose an agent —</option>
+                            <template x-for="t in targets" :key="'deal-' + t.id">
+                                <option :value="t.id" x-text="t.label"></option>
+                            </template>
+                        </select>
+                    </div>
+                </fieldset>
             </template>
 
             {{-- QR rerouting — always required (every agent has a QR code) --}}
@@ -188,12 +226,17 @@ function agentDeleteModal() {
         secondaryHandling: 'promote',
         qrRerouteUserId: '',
         qrTouched: false,
+        dealHandling: 'leave',
+        dealTargetUserId: '',
+        dealTouched: false,
 
         init() {
-            // QR reroute defaults to the reassignment target until the admin
-            // explicitly picks a different agent for the QR.
+            // QR reroute and the deal-move target both default to the
+            // reassignment target until the admin explicitly picks a different
+            // agent for each.
             this.$watch('targetUserId', (val) => {
                 if (!this.qrTouched) this.qrRerouteUserId = val;
+                if (!this.dealTouched) this.dealTargetUserId = val;
             });
         },
 
@@ -209,6 +252,9 @@ function agentDeleteModal() {
             this.secondaryHandling = 'promote';
             this.qrRerouteUserId = '';
             this.qrTouched = false;
+            this.dealHandling = 'leave';
+            this.dealTargetUserId = '';
+            this.dealTouched = false;
 
             const url = '{{ url('/api/v1/admin/users') }}/' + userId + '/delete-preview';
             fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
@@ -230,8 +276,9 @@ function agentDeleteModal() {
         canSubmit() {
             if (!this.counts) return false;
             if (!this.qrRerouteUserId) return false; // QR reroute is mandatory
-            if (!this.counts.has_any) return true;
-            return !!this.targetUserId;
+            if (this.counts.has_any && !this.targetUserId) return false;
+            if (this.counts.deals > 0 && this.dealHandling === 'move' && !this.dealTargetUserId) return false;
+            return true;
         },
 
         submit() {
@@ -260,6 +307,18 @@ function agentDeleteModal() {
                 const s = document.createElement('input');
                 s.type = 'hidden'; s.name = 'secondary_handling'; s.value = this.secondaryHandling;
                 form.appendChild(s);
+            }
+
+            if (this.counts.deals > 0) {
+                const dh = document.createElement('input');
+                dh.type = 'hidden'; dh.name = 'deal_handling'; dh.value = this.dealHandling;
+                form.appendChild(dh);
+
+                if (this.dealHandling === 'move') {
+                    const dt = document.createElement('input');
+                    dt.type = 'hidden'; dt.name = 'deal_target_user_id'; dt.value = this.dealTargetUserId;
+                    form.appendChild(dt);
+                }
             }
 
             document.body.appendChild(form);

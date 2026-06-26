@@ -1396,6 +1396,7 @@
                 ['key'=>'overview',  'label'=>'Overview'],
                 ['key'=>'info',      'label'=>'Info'],
                 ['key'=>'gallery',   'label'=>'Gallery'],
+                ['key'=>'rental-images', 'label'=>'Rental Images'],
                 ['key'=>'contacts',  'label'=>'Contacts'],
                 ['key'=>'notes',     'label'=>'Notes'],
                 ['key'=>'history',   'label'=>'History'],
@@ -1404,6 +1405,9 @@
                 ['key'=>'core-matches', 'label'=>'Core Matches'],
             ] as $tab)
             @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
+                @continue
+            @endif
+            @if($tab['key'] === 'rental-images' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
                 @continue
             @endif
             <button type="button"
@@ -3989,6 +3993,366 @@
             {{-- Portal Agents section removed — agent info shown in live preview and sidebar --}}
 
         </div>
+
+        {{-- ── RENTAL IMAGES TAB ─────────────────────────────────────────────── --}}
+        @if(!$isNew && strtolower($property->listing_type ?? '') === 'rental')
+        <div x-show="activeTab === 'rental-images'" x-cloak class="p-6 space-y-4"
+             x-data="rentalImages({
+                csrf: '{{ csrf_token() }}',
+                urls: {
+                    upload: '{{ route('corex.properties.rental-images.upload', $property) }}',
+                    save:   '{{ route('corex.properties.rental-images.save', $property) }}',
+                    delete: '{{ route('corex.properties.rental-images.delete', $property) }}'
+                },
+                data: {{ Js::from($property->rentalImagesStructure()) }}
+             })">
+
+            <div class="flex items-start justify-between gap-4">
+                <p class="text-xs" style="color:var(--text-muted);max-width:42rem;">
+                    Inspection evidence for this rental. Each section is collapsed until you open it,
+                    carries its own date, and holds its own set of photos. Add as many extra sections
+                    as you need for handovers, snags or damage.
+                </p>
+                <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
+            </div>
+
+            {{-- In Inspection --}}
+                <div class="prop-section">
+                    <button type="button" class="prop-section-toggle" @click="toggle('in_inspection')">
+                        <h3 class="prop-section-heading">
+                            <span class="prop-section-heading-text">In Inspection</span>
+                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="'(' + data.in_inspection.images.length + ')'"></span>
+                        </h3>
+                        <svg class="prop-section-chevron" :class="open['in_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                    </button>
+                    <div x-show="open['in_inspection']" x-collapse class="prop-section-body space-y-4">
+                        @include('corex.properties.partials.rental-section-body', [
+                            'section' => "'in_inspection'", 'cid' => 'null', 'key' => "'in_inspection'",
+                            'images' => 'data.in_inspection.images', 'date' => 'data.in_inspection.date',
+                        ])
+                    </div>
+                </div>
+
+            {{-- Out Inspection --}}
+                <div class="prop-section">
+                    <button type="button" class="prop-section-toggle" @click="toggle('out_inspection')">
+                        <h3 class="prop-section-heading">
+                            <span class="prop-section-heading-text">Out Inspection</span>
+                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="'(' + data.out_inspection.images.length + ')'"></span>
+                        </h3>
+                        <svg class="prop-section-chevron" :class="open['out_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                    </button>
+                    <div x-show="open['out_inspection']" x-collapse class="prop-section-body space-y-4">
+                        @include('corex.properties.partials.rental-section-body', [
+                            'section' => "'out_inspection'", 'cid' => 'null', 'key' => "'out_inspection'",
+                            'images' => 'data.out_inspection.images', 'date' => 'data.out_inspection.date',
+                        ])
+                    </div>
+                </div>
+
+            {{-- Custom sections --}}
+            <template x-for="sec in data.custom" :key="sec.id">
+                <div class="prop-section">
+                    <button type="button" class="prop-section-toggle" @click="toggle(sec.id)">
+                        <h3 class="prop-section-heading">
+                            <span class="prop-section-heading-text" x-text="sec.name"></span>
+                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="'(' + sec.images.length + ')'"></span>
+                        </h3>
+                        <svg class="prop-section-chevron" :class="open[sec.id] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                    </button>
+                    <div x-show="open[sec.id]" x-collapse class="prop-section-body space-y-4">
+                        @include('corex.properties.partials.rental-section-body', [
+                            'section' => "'custom'", 'cid' => 'sec.id', 'key' => 'sec.id',
+                            'images' => 'sec.images', 'date' => 'sec.date', 'showRename' => true,
+                        ])
+                    </div>
+                </div>
+            </template>
+
+            {{-- Add section --}}
+            <button type="button" @click="openAdd()" :disabled="busy"
+                    class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white"
+                    style="background:var(--brand-button,#0ea5e9);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                Add section
+            </button>
+
+            {{-- Add / Rename section modal (CoreX-styled — replaces the native browser prompt) --}}
+            <div x-show="modal.open" x-cloak
+                 class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                 @keydown.escape.window="closeModal()">
+                <div class="absolute inset-0" style="background:rgba(0,0,0,0.6);" @click="closeModal()"></div>
+                <div class="relative w-full max-w-md rounded-lg shadow-xl overflow-hidden"
+                     style="background:var(--surface); border:1px solid var(--border);" @click.stop>
+                    <div class="px-5 py-3 flex items-center justify-between" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                        <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);"
+                            x-text="modal.mode === 'rename' ? 'Rename Section' : 'New Section'"></h3>
+                        <button type="button" @click="closeModal()" class="p-1 rounded-md hover:opacity-70" style="color:var(--text-muted);">
+                            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                    <form @submit.prevent="submitModal()">
+                        <div class="px-5 py-4 space-y-2">
+                            <label class="prop-label">Section name</label>
+                            <input type="text" x-model="modal.name" x-ref="modalInput" maxlength="120"
+                                   placeholder="e.g. Garden handover" class="prop-input w-full">
+                        </div>
+                        <div class="px-5 py-3 flex justify-end gap-2" style="background:var(--surface-2); border-top:1px solid var(--border);">
+                            <button type="button" @click="closeModal()"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold"
+                                    style="color:var(--text-secondary);background:var(--surface-3);">Cancel</button>
+                            <button type="submit" :disabled="busy || !modal.name.trim()"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold text-white"
+                                    style="background:var(--brand-button,#0ea5e9);"
+                                    x-text="modal.mode === 'rename' ? 'Rename' : 'Add section'"></button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            {{-- Full-image viewer (lightbox) --}}
+            <div x-show="viewer.open" x-cloak
+                 class="fixed inset-0 z-[9999] flex items-center justify-center"
+                 style="background:rgba(0,0,0,0.92);"
+                 @keydown.escape.window="viewer.open = false"
+                 @keydown.arrow-left.window="viewerPrev()"
+                 @keydown.arrow-right.window="viewerNext()">
+                <button type="button" @click="viewer.open = false"
+                        class="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center"
+                        style="background:rgba(255,255,255,0.12);color:#fff;">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                </button>
+                <button type="button" x-show="viewer.images.length > 1" @click.stop="viewerPrev()"
+                        class="absolute left-4 w-11 h-11 rounded-full flex items-center justify-center"
+                        style="background:rgba(255,255,255,0.12);color:#fff;">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+                </button>
+                <img :src="viewer.images[viewer.index]" @click.stop alt=""
+                     class="max-h-[90vh] max-w-[88vw] object-contain rounded">
+                <button type="button" x-show="viewer.images.length > 1" @click.stop="viewerNext()"
+                        class="absolute right-4 w-11 h-11 rounded-full flex items-center justify-center"
+                        style="background:rgba(255,255,255,0.12);color:#fff;">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                </button>
+                <div class="absolute bottom-5 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-xs font-semibold"
+                     style="background:rgba(0,0,0,0.5);color:#fff;"
+                     x-text="(viewer.index + 1) + ' / ' + viewer.images.length"></div>
+                <button type="button" @click.stop="downloadOne(viewer.images[viewer.index])"
+                        class="absolute bottom-4 right-4 inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold"
+                        style="background:rgba(255,255,255,0.12);color:#fff;">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                    Download
+                </button>
+            </div>
+        </div>
+
+        <script>
+        function rentalImages(config) {
+            return {
+                csrf: config.csrf,
+                urls: config.urls,
+                data: config.data,
+                open: {},
+                busy: false,
+                error: '',
+                percent: 0,
+                uploadingKey: null,
+                modal: { open: false, mode: 'add', name: '', customId: null },
+                viewer: { open: false, images: [], index: 0 },
+                selecting: {},
+                sel: {},
+
+                toggle(key) { this.open[key] = !this.open[key]; },
+
+                // Live image array for a section — drives the viewer + downloads.
+                _imagesFor(section, customId) {
+                    if (section === 'custom') {
+                        const s = this.data.custom.find(c => c.id === customId);
+                        return s ? s.images : [];
+                    }
+                    return this.data[section].images;
+                },
+
+                async _post(url, body, isForm) {
+                    this.error = '';
+                    const opts = {
+                        method: 'POST',
+                        headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                        body: isForm ? body : JSON.stringify(body),
+                    };
+                    if (!isForm) opts.headers['Content-Type'] = 'application/json';
+                    const res = await fetch(url, opts);
+                    if (!res.ok) {
+                        let msg = 'Request failed (HTTP ' + res.status + ').';
+                        try { const j = await res.json(); if (j && j.message) msg = j.message; } catch (_) {}
+                        throw new Error(msg);
+                    }
+                    return res.json();
+                },
+
+                async setDate(section, customId, ev) {
+                    try {
+                        const r = await this._post(this.urls.save, {
+                            action: 'set_date', section, custom_id: customId || '', date: ev.target.value || null,
+                        });
+                        this.data = r.rental_images;
+                    } catch (e) { this.error = e.message; }
+                },
+
+                // ── Full-image viewer ──────────────────────────────────────
+                openViewer(section, customId, index) {
+                    this.viewer = { open: true, images: this._imagesFor(section, customId), index };
+                },
+                viewerPrev() {
+                    const n = this.viewer.images.length;
+                    if (n) this.viewer.index = (this.viewer.index - 1 + n) % n;
+                },
+                viewerNext() {
+                    const n = this.viewer.images.length;
+                    if (n) this.viewer.index = (this.viewer.index + 1) % n;
+                },
+
+                // ── Multi-select + download ────────────────────────────────
+                toggleSelect(key) {
+                    this.selecting[key] = !this.selecting[key];
+                    this.sel[key] = [];
+                },
+                togglePick(key, i) {
+                    const arr = this.sel[key] || (this.sel[key] = []);
+                    const at = arr.indexOf(i);
+                    if (at >= 0) arr.splice(at, 1); else arr.push(i);
+                },
+                isPicked(key, i) { return (this.sel[key] || []).includes(i); },
+                async downloadOne(url) {
+                    try {
+                        const res = await fetch(url);
+                        const blob = await res.blob();
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = (url.split('/').pop() || 'image').split('?')[0];
+                        document.body.appendChild(a); a.click(); a.remove();
+                        URL.revokeObjectURL(a.href);
+                    } catch (e) { this.error = 'Download failed: ' + e.message; }
+                },
+                async downloadMany(urls) {
+                    for (const u of urls) { await this.downloadOne(u); await new Promise(r => setTimeout(r, 300)); }
+                },
+                downloadAll(section, customId) {
+                    this.downloadMany(this._imagesFor(section, customId));
+                },
+                downloadSelected(section, customId) {
+                    const key = customId || section;
+                    const imgs = this._imagesFor(section, customId);
+                    const picks = (this.sel[key] || []).map(i => imgs[i]).filter(Boolean);
+                    this.downloadMany(picks);
+                },
+
+                openAdd() {
+                    this.modal = { open: true, mode: 'add', name: '', customId: null };
+                    this.$nextTick(() => this.$refs.modalInput && this.$refs.modalInput.focus());
+                },
+
+                openRename(customId) {
+                    const sec = this.data.custom.find(c => c.id === customId);
+                    this.modal = { open: true, mode: 'rename', name: sec ? sec.name : '', customId };
+                    this.$nextTick(() => this.$refs.modalInput && this.$refs.modalInput.focus());
+                },
+
+                closeModal() { this.modal.open = false; },
+
+                async submitModal() {
+                    const name = this.modal.name.trim();
+                    if (!name) return;
+                    this.busy = true;
+                    try {
+                        if (this.modal.mode === 'rename') {
+                            const r = await this._post(this.urls.save, {
+                                action: 'rename_section', custom_id: this.modal.customId, name,
+                            });
+                            this.data = r.rental_images;
+                        } else {
+                            const r = await this._post(this.urls.save, { action: 'add_section', name });
+                            this.data = r.rental_images;
+                            const added = this.data.custom[this.data.custom.length - 1];
+                            if (added) this.open[added.id] = true;
+                        }
+                        this.closeModal();
+                    } catch (e) { this.error = e.message; }
+                    finally { this.busy = false; }
+                },
+
+                async uploadTo(section, customId, ev) {
+                    const files = Array.from(ev.target.files || []);
+                    if (!files.length) return;
+                    const key = customId || section;
+                    this.busy = true;
+                    this.uploadingKey = key;
+                    this.percent = 0;
+                    this.error = '';
+                    // Batch to stay under PHP max_file_uploads (default 20); the bar
+                    // climbs smoothly across all batches via `done`.
+                    const BATCH = 10;
+                    let done = 0, latest = null;
+                    try {
+                        for (let i = 0; i < files.length; i += BATCH) {
+                            const chunk = files.slice(i, i + BATCH);
+                            latest = await this._uploadChunk(section, customId, chunk, done, files.length);
+                            done += chunk.length;
+                            this.percent = Math.min(99, Math.round((done / files.length) * 100));
+                        }
+                        if (latest && latest.rental_images) this.data = latest.rental_images;
+                        this.percent = 100;
+                    } catch (e) { this.error = e.message; }
+                    finally { this.busy = false; this.uploadingKey = null; ev.target.value = ''; }
+                },
+
+                // One batch via XHR so we get real upload progress events.
+                _uploadChunk(section, customId, chunk, done, total) {
+                    return new Promise((resolve, reject) => {
+                        const fd = new FormData();
+                        fd.append('section', section);
+                        if (customId) fd.append('custom_id', customId);
+                        chunk.forEach(f => fd.append('images[]', f));
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', this.urls.upload);
+                        xhr.setRequestHeader('X-CSRF-TOKEN', this.csrf);
+                        xhr.setRequestHeader('Accept', 'application/json');
+                        xhr.upload.onprogress = (e) => {
+                            if (!e.lengthComputable) return;
+                            const frac = (done + (e.loaded / e.total) * chunk.length) / total;
+                            this.percent = Math.min(99, Math.round(frac * 100));
+                        };
+                        xhr.onload = () => {
+                            if (xhr.status >= 200 && xhr.status < 400) {
+                                try { resolve(JSON.parse(xhr.responseText || '{}')); }
+                                catch (_) { resolve({}); }
+                            } else {
+                                let msg = 'Upload failed (HTTP ' + xhr.status + ').';
+                                try { const j = JSON.parse(xhr.responseText); if (j && j.message) msg = j.message; } catch (_) {}
+                                reject(new Error(msg));
+                            }
+                        };
+                        xhr.onerror = () => reject(new Error('Network error during upload.'));
+                        xhr.send(fd);
+                    });
+                },
+
+                async deleteImage(section, customId, index) {
+                    if (!window.confirm('Delete this image?')) return;
+                    try {
+                        const r = await this._post(this.urls.delete, {
+                            section, custom_id: customId || '', index,
+                        });
+                        this.data = r.rental_images;
+                    } catch (e) { this.error = e.message; }
+                },
+            };
+        }
+        </script>
+        @endif
 
         {{-- ── CONTACTS TAB ─────────────────────────────────────────────────── --}}
         @php

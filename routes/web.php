@@ -260,15 +260,18 @@ Route::middleware('auth')->group(function () {
 
     // ── Admin: Soft Deletes Register (restore archived records) ──
     // Spec: .ai/specs/soft-deletes-admin.md
+    // Soft Deletes register is agency-scoped — an owner with no active agency
+    // context is redirected to the agency picker (agency.required) so they see
+    // a specific agency's archived records, not a cross-agency mix.
     Route::get('/admin/soft-deletes', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'index'])
-        ->middleware('permission:access_soft_deletes')
+        ->middleware(['permission:access_soft_deletes', 'agency.required'])
         ->name('admin.soft-deletes.index');
     Route::get('/admin/soft-deletes/{key}', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'show'])
-        ->middleware('permission:access_soft_deletes')
+        ->middleware(['permission:access_soft_deletes', 'agency.required'])
         ->where('key', '[A-Za-z0-9.]+')
         ->name('admin.soft-deletes.show');
     Route::post('/admin/soft-deletes/{key}/{id}/restore', [\App\Http\Controllers\Admin\SoftDeleteController::class, 'restore'])
-        ->middleware('permission:access_soft_deletes')
+        ->middleware(['permission:access_soft_deletes', 'agency.required'])
         ->where('key', '[A-Za-z0-9.]+')
         ->where('id', '[0-9]+')
         ->name('admin.soft-deletes.restore');
@@ -736,13 +739,9 @@ use App\Http\Controllers\ToolsController;
 use App\Http\Controllers\Tools\PdfSplitterController;
 use App\Http\Controllers\Tools\PdfSuiteController;
 use App\Http\Controllers\Tools\ImageConverterController;
-use App\Http\Controllers\Tools\FlowMapController;
 
 Route::middleware(['auth'])->group(function () {
 
-
-    // Flow Map — read-only guide to how CoreX interconnects (spec: .ai/specs/flows-map.md)
-    Route::get('/tools/flow-map', [FlowMapController::class, 'index'])->middleware('permission:access_flow_map')->name('tools.flow-map');
 
     // Tools
     Route::get('/tools/commission', [ToolsController::class, 'commission'])->middleware('permission:access_calculators')->name('tools.commission');
@@ -878,6 +877,12 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         // Branch switcher (Split Branches Phase 2) — gated by branches.switch permission
         Route::post('/branch/switch/clear', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'clear'])->name('branch.switch.clear');
         Route::post('/branch/switch/{branch}', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'switch'])->name('branch.switch');
+
+        // Acting-as branch manager (Admin Multi-Branch Manager — identity only,
+        // does NOT change data scope). Gated by branches.self_assign_managed +
+        // the controller's isManagerOfBranch() check.
+        Route::post('/branch/acting/clear', [\App\Http\Controllers\Admin\ActingBranchManagerController::class, 'clear'])->name('branch.acting.clear');
+        Route::post('/branch/acting/{branch}', [\App\Http\Controllers\Admin\ActingBranchManagerController::class, 'actAs'])->name('branch.acting');
 
         // Cross-branch deal attach/detach (Split Branches Phase 2 — spec §11)
         Route::post('/admin/deals/{deal}/branches/attach', [\App\Http\Controllers\Admin\DealBranchController::class, 'attach'])->name('admin.deals.branches.attach');
@@ -1161,8 +1166,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     })->name('corex.api.contact-lookup');
 
     Route::prefix('command-center')->group(function () {
-        Route::get('/calendar', [CommandCenterCalendarController::class, 'index'])->name('command-center.calendar');
-        Route::get('/calendar/events', [CommandCenterCalendarController::class, 'events'])->name('command-center.calendar.events');
+        Route::get('/calendar', [CommandCenterCalendarController::class, 'index'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar');
+        Route::get('/calendar/events', [CommandCenterCalendarController::class, 'events'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.events');
 
         // Calendar Invitations — MUST be before /calendar/{calendarEvent} wildcard
         Route::get('/calendar/invitations', function () {
@@ -1241,8 +1246,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         Route::get('/performance', [CommandCenterDashboardController::class, 'performance'])->middleware('permission:view_dashboard')->name('command-center.performance');
 
-        Route::get('/tasks', [CommandCenterTaskController::class, 'index'])->name('command-center.tasks');
-        Route::get('/tasks/archived', [CommandCenterTaskController::class, 'archived'])->name('command-center.tasks.archived');
+        Route::get('/tasks', [CommandCenterTaskController::class, 'index'])->middleware('permission:command_center.tasks.view')->name('command-center.tasks');
+        Route::get('/tasks/archived', [CommandCenterTaskController::class, 'archived'])->middleware('permission:command_center.tasks.view')->name('command-center.tasks.archived');
         Route::post('/tasks/archive-done', [CommandCenterTaskController::class, 'archiveDone'])->name('command-center.tasks.archive-done');
         Route::post('/tasks/{taskId}/restore', [CommandCenterTaskController::class, 'restore'])->name('command-center.tasks.restore');
         Route::post('/tasks', [CommandCenterTaskController::class, 'store'])->name('command-center.tasks.store');
@@ -1342,6 +1347,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:upload_own_documents')->name('agent.portal.upload');
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
+
+    // Admin Multi-Branch Manager — admin self-assigns which branches they
+    // manage (+ a default) from their own profile. Gated by the dedicated
+    // permission (admins/owners only; branch managers already have one branch).
+    Route::patch('/my-portal/managed-branches', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateManagedBranches'])
+        ->middleware('permission:branches.self_assign_managed')->name('agent.portal.managed-branches.update');
 
     // Live preview of an agent's public website page (self, or any agent in the
     // agency for managers/owner). Authorization handled in the controller.
@@ -2055,21 +2066,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/commission', [\App\Http\Controllers\Commission\CommissionSettingsController::class, 'update'])
         ->middleware('permission:access_settings')->name('corex.settings.commission.update');
 
-    // Role Manager
-    Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->middleware('permission:access_role_manager')->name('corex.role-manager');
+    // Role Manager — roles & permissions are agency-scoped, so an owner with
+    // no active agency context is redirected to the agency picker
+    // (agency.required). Non-owner admins always have a context → pass through.
+    Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->middleware(['permission:access_role_manager', 'agency.required'])->name('corex.role-manager');
     Route::post('/role-manager/permissions', [CoreXRoleManagerController::class, 'savePermissions'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.save');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.save');
     Route::post('/role-manager/user-role', [CoreXRoleManagerController::class, 'updateUserRole'])
-        ->middleware('permission:change_user_roles')->name('corex.role-manager.user-role');
+        ->middleware(['permission:change_user_roles', 'agency.required'])->name('corex.role-manager.user-role');
     // Role CRUD
     Route::post('/role-manager/roles', [CoreXRoleManagerController::class, 'storeRole'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.roles.store');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.roles.store');
     Route::put('/role-manager/roles/{role}', [CoreXRoleManagerController::class, 'updateRole'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.roles.update');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.roles.update');
     Route::delete('/role-manager/roles/{role}', [CoreXRoleManagerController::class, 'destroyRole'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.roles.destroy');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.roles.destroy');
     Route::post('/role-manager/copy-permissions', [CoreXRoleManagerController::class, 'copyPermissions'])
-        ->middleware('permission:edit_permissions')->name('corex.role-manager.copy');
+        ->middleware(['permission:edit_permissions', 'agency.required'])->name('corex.role-manager.copy');
 
     // Integrations — System Developer hub for external platform connections
     // (Meta/Facebook OAuth config + public legal page URLs). Owner-only.
@@ -2318,6 +2331,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // session-authed (the /api/v1 group has stateful middleware removed for
         // mobile, so it can't auth a cookie request). Spec: gallery-image-rotation.md
         Route::post('/{property}/rotate-image',[\App\Http\Controllers\CoreX\PropertyController::class, 'rotateImage'])->name('rotate-image');
+        // Rental inspection galleries — only surfaced for rental listings. Spec: rental-images.md
+        Route::post('/{property}/rental-images/upload',[\App\Http\Controllers\CoreX\PropertyController::class, 'uploadRentalImages'])->name('rental-images.upload');
+        Route::post('/{property}/rental-images/save',  [\App\Http\Controllers\CoreX\PropertyController::class, 'saveRentalImagesMeta'])->name('rental-images.save');
+        Route::post('/{property}/rental-images/delete',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteRentalImage'])->name('rental-images.delete');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');
@@ -3225,8 +3242,18 @@ Route::middleware(['auth', 'permission:access_shared_drive'])
     ->group(function () {
         Route::get('/', [\App\Http\Controllers\Documents\SharedDriveController::class, 'index'])
             ->name('index');
-        Route::get('/folder/{folder}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'index'])
+
+        // Drives (top-level containers, optionally access-restricted)
+        Route::post('/drives', [\App\Http\Controllers\Documents\SharedDriveController::class, 'storeDrive'])
+            ->name('drives.store');
+        Route::get('/drives/{drive}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'show'])
+            ->name('drive');
+        Route::get('/drives/{drive}/folder/{folder}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'show'])
             ->name('folder');
+        Route::put('/drives/{drive}/access', [\App\Http\Controllers\Documents\SharedDriveController::class, 'updateDriveAccess'])
+            ->name('drives.access');
+        Route::delete('/drives/{drive}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'destroyDrive'])
+            ->name('drives.destroy');
 
         Route::post('/folders', [\App\Http\Controllers\Documents\SharedDriveController::class, 'storeFolder'])
             ->name('folders.store');

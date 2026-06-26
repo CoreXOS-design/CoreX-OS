@@ -197,8 +197,20 @@
             @if(isset($anchorDate))
                 <input type="hidden" name="date" value="{{ $anchorDate->toDateString() }}">
             @endif
+            @php
+                // Only show scope pills the role's Data Scope ceiling allows.
+                // own → Mine only; branch → Mine + Branch; all → all three.
+                $scopeRank = ['own' => 0, 'branch' => 1, 'all' => 2];
+                $ceilingRank = $scopeRank[$scopeCeiling ?? 'all'] ?? 2;
+                $scopePills = array_filter(
+                    ['all' => 'All', 'branch' => 'Branch', 'own' => 'Mine'],
+                    fn ($k) => ($scopeRank[$k] ?? 0) <= $ceilingRank,
+                    ARRAY_FILTER_USE_KEY
+                );
+            @endphp
+            @if(count($scopePills) > 1)
             <div class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
-                @foreach(['all' => 'All', 'branch' => 'Branch', 'own' => 'Mine'] as $sKey => $sLabel)
+                @foreach($scopePills as $sKey => $sLabel)
                     <label class="cursor-pointer">
                         <input type="radio" name="scope" value="{{ $sKey }}"
                                {{ ($scope ?? 'all') === $sKey ? 'checked' : '' }}
@@ -210,6 +222,7 @@
                     </label>
                 @endforeach
             </div>
+            @endif
         </form>
 
         <div class="flex-1"></div>

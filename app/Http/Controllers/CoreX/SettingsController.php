@@ -85,7 +85,7 @@ class SettingsController extends Controller
         // Feature Settings tab: Contacts — the 4 fixed parents, each with its
         // agency-scoped sub-tags eager-loaded (AT-79). Any legacy tag without a
         // parent is surfaced separately so it can be re-homed.
-        $data['contactTypes']    = ContactType::canonical()->with('subTags')->get()->unique('esign_role')->values();
+        $data['contactTypes']    = ContactType::parents()->with('subTags')->get()->unique('name')->values();
         $data['contactSources']  = ContactSource::orderBy('sort_order')->orderBy('name')->get();
         // Legacy tags awaiting a parent (pre-normalisation). BOUNDED: on an
         // un-normalised install EVERY tag is unassigned, so an unbounded render
@@ -236,7 +236,7 @@ class SettingsController extends Controller
         if ($user && in_array($user->role, ['admin', 'owner', 'super_admin'])) {
             $agencyId = $user->effectiveAgencyId();
             $matrix = \App\Models\AgencyLeaveVisibilityMatrix::matrixForAgency($agencyId);
-            $roles = \App\Models\Role::allRoles()->pluck('name')
+            $roles = \App\Models\Role::allRoles($agencyId)->pluck('name')
                 ->reject(fn($r) => $r === 'super_admin')->values()->toArray();
             $aliases = ['branch_manager' => 'bm', 'bm' => 'branch_manager'];
             $grid = [];

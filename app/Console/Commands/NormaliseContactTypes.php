@@ -57,18 +57,21 @@ class NormaliseContactTypes extends Command
         $this->info($apply ? 'APPLYING contact-type normalisation…' : 'DRY RUN — no changes will be written. Use --force to apply.');
         $this->newLine();
 
-        // Resolve the four canonical parents (created by the additive migration).
+        // The 4 e-sign parents are the only MAP targets (keyed by esign_role).
         $parents = ContactType::query()->canonical()->get()->keyBy('esign_role');
         $missing = array_diff(array_keys(ContactType::CANONICAL), $parents->keys()->all());
         if (!empty($missing)) {
             $this->error('Canonical parents missing: ' . implode(', ', $missing) . '. Run migrations first.');
             return self::FAILURE;
         }
-        $canonicalIds = $parents->pluck('id')->all();
+
+        // ALL six fixed parents (incl. the non-e-sign Owner/Other) are protected —
+        // they are never treated as extras to map/drop.
+        $protectedIds = ContactType::parentIds();
 
         $extras = ContactType::query()
             ->whereNull('deleted_at')
-            ->whereNotIn('id', $canonicalIds)
+            ->whereNotIn('id', $protectedIds)
             ->orderBy('name')
             ->get();
 

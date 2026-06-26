@@ -506,9 +506,27 @@ class AppServiceProvider extends ServiceProvider
         // AgencyScope filters the user out of their own record.
         Event::listen(Login::class, function (Login $event) {
             session()->forget('active_agency_id');
+
+            // Admin Multi-Branch Manager — open CoreX already IN the user's
+            // default managed branch, so they don't have to Switch Branch
+            // manually. This sets the SAME branch context the Switch Branch
+            // control uses (view_as_branch_id). For admins (who hold
+            // branches.view_all) BranchScope is bypassed, so this is context
+            // only — it never hides another branch's data. They land as the
+            // branch's manager (deal defaults + naming) and can switch freely.
+            // Spec: .ai/specs/admin-multi-branch-manager.md §5.1.
+            $loggedIn = $event->user;
+            if ($loggedIn && method_exists($loggedIn, 'defaultManagedBranchId')) {
+                $defaultManaged = $loggedIn->defaultManagedBranchId();
+                if ($defaultManaged) {
+                    session(['view_as_branch_id' => $defaultManaged]);
+                }
+            }
         });
         Event::listen(Logout::class, function (Logout $event) {
             session()->forget('active_agency_id');
+            session()->forget('view_as_branch_id');
+            session()->forget('acting_branch_manager_id'); // legacy key cleanup
         });
 
         // @permission('permission_key') ... @endpermission

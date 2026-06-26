@@ -888,3 +888,91 @@ The Command Center is done when:
 | iCal sync | Yes | Yes + phone reminders as backup |
 | Cost | R200-800/user/month | Built into CoreX — zero extra cost |
 | Pillar integration | Generic entities | Every event/task links to Property, Contact, Deal, Agent |
+
+---
+
+## Role-Based Visibility Scope — Calendar, Tasks & Today (2026-06-23)
+
+> Added to give each agency control over how much of the Command Center an
+> agent sees. Built on the existing Role Manager Data Scope mechanism — not a
+> bespoke system.
+
+### Problem
+The Calendar, Today, and Tasks surfaces showed the whole agency's events and
+tasks to every user. An agent should, by default, see only **their own**
+calendar, tasks and Today entries — while managers and admins can be granted
+wider visibility per role.
+
+### Model
+Two **independent** Data Scope toggles live in **Role Manager → Command Center**,
+rendered as their own module cards:
+
+| Card | Permission key | Controls |
+|------|----------------|----------|
+| **Calendar** | `command_center.calendar.view` | Calendar page + Today's appointment/overdue-event cards |
+| **Tasks** | `command_center.tasks.view` | Task board + archived tasks + Today's overdue-task cards |
+
+Each toggle is **None / Own / Branch / All**:
+
+- **None** — no access. Sidebar entry hidden; the route returns 403
+  (`permission:` middleware on the read routes).
+- **Own** — only the user's own records (`user_id` / `assigned_to`).
+- **Branch** — records in the user's branch (`branch_id`); falls back to Own
+  when the user has no branch.
+- **All** — the whole agency (agency isolation via `BelongsToAgency` still
+  applies — never cross-agency).
+
+The **Today** page has no toggle of its own: its appointment/overdue-event
+cards inherit the **Calendar** scope, its task/overdue-task cards inherit the
+**Tasks** scope.
+
+### Enforcement
+- `PermissionService::calendarScope($user)` / `taskScope($user)` resolve the
+  role's scope (default `own`).
+- `PermissionService::clampScope($requested, $ceiling)` clamps the Calendar
+  page's My/Branch/All pills to the role ceiling — a user can narrow, never
+  widen beyond what Role Manager grants. Pills above the ceiling are hidden.
+- Query narrowing is centralised in `CalendarEvent::scopeVisibleTo()` and
+  `CommandTask::scopeVisibleTo()`.
+
+### Defaults
+- Rollout default (migration `…default_command_center_visibility_scope`):
+  **every existing non-owner role → Own** for both keys. Grants access (no
+  lockouts) while constraining breadth; admins widen per role afterward.
+- Owner roles bypass permission checks → always **All**.
+- Mutations (create/assign/archive-done) remain owner-scoped regardless of
+  view scope; only the **read** surfaces honour the scope.
+
+### Acceptance criteria
+1. Role Manager → Command Center shows three cards: **Command Center**,
+   **Calendar**, **Tasks**, the latter two each with a None/Own/Branch/All
+   Data Scope toggle.
+2. An `agent` (scope Own) sees only their own events on the Calendar, their own
+   tasks on the Task board, and only own entries in Today's schedule/overdue
+   cards.
+3. A role set to Branch sees their branch's events/tasks; a role set to All
+   sees the whole agency's — never another agency's.
+4. A role set to None has the sidebar entry hidden and gets 403 on
+   `/command-center/calendar` and `/command-center/tasks`.
+5. The Calendar My/Branch/All pills never exceed the role ceiling; a requested
+   `?scope=` wider than the ceiling is clamped down.
+6. Changing a role's scope in Role Manager takes effect after the
+   per-request permission cache clears (immediately on next request).
+
+### Files
+- `config/corex-permissions.php` — calendar/tasks keys split into
+  `command_center_calendar` / `command_center_tasks` modules; `.view` keys are
+  type `action` so the scope toggle renders and persists.
+- `app/Services/PermissionService.php` — `calendarScope` / `taskScope` /
+  `clampScope`.
+- `app/Models/CommandCenter/CalendarEvent.php`, `CommandTask.php` —
+  `scopeVisibleTo`.
+- `app/Services/CommandCenter/CalendarEventService.php`, `TaskService.php`,
+  `CommandCentreService.php` — consume scope.
+- `app/Http/Controllers/CommandCenter/CalendarController.php`,
+  `TaskController.php` — ceiling + clamp.
+- `resources/views/command-center/calendar/index.blade.php` — ceiling-aware
+  scope pills.
+- `app/Http/Controllers/CoreX/RoleManagerController.php` — module labels.
+- `routes/web.php` — `permission:` middleware on calendar/tasks read routes.
+- `database/migrations/2026_06_23_120000_default_command_center_visibility_scope.php`.

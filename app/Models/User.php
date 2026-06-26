@@ -9,6 +9,7 @@ use App\Support\SaPhoneNumber;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -333,6 +334,113 @@ class User extends Authenticatable
         return $this->branch_id ? (int) $this->branch_id : null;
     }
 
+    // --- Admin Multi-Branch Manager (spec: admin-multi-branch-manager.md) ---
+    //
+    // An admin can MANAGE several branches and pick a login default. The
+    // "current branch" they operate in is the existing branch-isolation
+    // context (view_as_branch_id, via effectiveBranchId). They "act as" the
+    // manager of whichever managed branch they are currently in. Because
+    // admins hold branches.view_all, BranchScope is bypassed for them, so
+    // being in a branch is CONTEXT only — it never hides another branch's data.
+
+    /** Branches this user manages (the user_managed_branches pivot). */
+    public function managedBranches(): BelongsToMany
+    {
+        return $this->belongsToMany(Branch::class, 'user_managed_branches')
+            ->withPivot('is_default')
+            ->withTimestamps();
+    }
+
+    /** The branch flagged as the login default, if any. Pivot-direct (scope-safe). */
+    public function defaultManagedBranchId(): ?int
+    {
+        $id = \DB::table('user_managed_branches')
+            ->where('user_id', $this->id)
+            ->where('is_default', true)
+            ->value('branch_id');
+
+        return $id ? (int) $id : null;
+    }
+
+    /** True if this user is a self-assigned manager of the given branch. */
+    public function isManagerOfBranch(int $branchId): bool
+    {
+        if ($branchId <= 0) {
+            return false;
+        }
+
+        return \DB::table('user_managed_branches')
+            ->where('user_id', $this->id)
+            ->where('branch_id', $branchId)
+            ->exists();
+    }
+
+    /**
+     * The branch the user is currently acting as manager of: the branch they
+     * are currently in (effectiveBranchId / view_as_branch_id), IF they manage
+     * it. Returns null when they're in "all branches" or a branch they don't
+     * manage — so deal-manager capture only fires in a managed branch context.
+     */
+    public function actingBranchManagerId(): ?int
+    {
+        $branchId = $this->effectiveBranchId();
+        if ($branchId && $this->isManagerOfBranch((int) $branchId)) {
+            return (int) $branchId;
+        }
+
+        return null;
+    }
+
+    /**
+     * Rebuild this user's managed-branch set in one transaction. Shared by the
+     * self-service profile panel and the admin user-edit screen.
+     *
+     * Only branches belonging to $agencyId are accepted (a forged / foreign
+     * branch id is silently dropped). Exactly one row is flagged is_default;
+     * if the chosen default isn't in the accepted set, the first accepted
+     * branch becomes the default. Returns the accepted branch-id collection.
+     *
+     * $agencyId is passed explicitly (NOT read from effectiveAgencyId(), which
+     * is session-scoped) so it stays correct when an admin edits another user.
+     */
+    public function syncManagedBranches(array $branchIds, ?int $defaultId, ?int $agencyId): \Illuminate\Support\Collection
+    {
+        $submitted = collect($branchIds)->map(fn ($v) => (int) $v)->unique();
+
+        $validBranchIds = $agencyId
+            ? Branch::where('agency_id', $agencyId)
+                ->whereIn('id', $submitted->all())
+                ->pluck('id')
+                ->map(fn ($v) => (int) $v)
+                ->values()
+            : collect();
+
+        $defaultId = (int) ($defaultId ?? 0);
+        if (!$validBranchIds->contains($defaultId)) {
+            $defaultId = (int) ($validBranchIds->first() ?? 0);
+        }
+
+        \DB::transaction(function () use ($validBranchIds, $defaultId, $agencyId) {
+            \DB::table('user_managed_branches')->where('user_id', $this->id)->delete();
+
+            $now  = now();
+            $rows = $validBranchIds->map(fn ($bid) => [
+                'user_id'    => $this->id,
+                'branch_id'  => $bid,
+                'agency_id'  => $agencyId,
+                'is_default' => $bid === $defaultId,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])->all();
+
+            if (!empty($rows)) {
+                \DB::table('user_managed_branches')->insert($rows);
+            }
+        });
+
+        return $validBranchIds;
+    }
+
     public function effectiveAgencyId(): ?int
     {
         // Owner-level agency switcher override
@@ -498,7 +606,10 @@ class User extends Authenticatable
      */
     public function isOwnerRole(): bool
     {
-        $roleModel = Role::allRoles()->firstWhere('name', $this->role ?? '');
+        // Owner roles are global (agency_id NULL) and always present in
+        // allRoles() for any agency context, so the resolved agency here
+        // never hides them — it just disambiguates same-named agency roles.
+        $roleModel = Role::allRoles($this->effectiveAgencyId())->firstWhere('name', $this->role ?? '');
 
         return $roleModel && $roleModel->is_owner;
     }
@@ -508,17 +619,17 @@ class User extends Authenticatable
      */
     public function isEffectiveOwner(): bool
     {
-        $roleModel = Role::allRoles()->firstWhere('name', $this->effectiveRole());
+        $roleModel = Role::allRoles($this->effectiveAgencyId())->firstWhere('name', $this->effectiveRole());
 
         return $roleModel && $roleModel->is_owner;
     }
 
     /**
-     * Get the Role model for this user's real role.
+     * Get the Role model for this user's real role (within the user's agency).
      */
     public function roleModel(): ?Role
     {
-        return Role::allRoles()->firstWhere('name', $this->role ?? '');
+        return Role::allRoles($this->effectiveAgencyId())->firstWhere('name', $this->role ?? '');
     }
 
     /**

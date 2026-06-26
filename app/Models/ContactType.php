@@ -28,6 +28,13 @@ class ContactType extends Model
     ];
 
     /**
+     * Fixed parent types that do NOT map to an e-sign role — they exist purely
+     * to categorise contacts (esign_role is null). Locked like the 4 e-sign
+     * parents; together the six are the only top-level contact types.
+     */
+    public const EXTRA_PARENTS = ['Owner', 'Other'];
+
+    /**
      * Primary-type mirror relation (contacts.contact_type_id). Retained for the
      * many existing readers + the e-sign reverse-mapping. Parent membership for
      * NEW work lives in the contact_contact_type pivot (see Contact::parentTypes).
@@ -72,12 +79,36 @@ class ContactType extends Model
     }
 
     /**
-     * Whether this type is one of the four fixed parents. All real contact
-     * types are now parents, so this gates the "no add/rename/delete parent"
-     * lock enforced in ContactTypeController.
+     * All SIX fixed parent types, in display order: the 4 e-sign roles
+     * (Seller/Buyer/Lessor/Lessee) plus the non-e-sign Owner/Other. This is the
+     * set shown in Settings + the contact-type picker, and the only valid
+     * parents a sub-tag or a contact assignment may reference.
+     */
+    public function scopeParents($query)
+    {
+        return $query->where(function ($q) {
+            $q->where(function ($e) {
+                $e->whereIn('esign_role', array_keys(self::CANONICAL))
+                  ->whereIn('name', array_values(self::CANONICAL));
+            })->orWhere(function ($x) {
+                $x->whereNull('esign_role')->whereIn('name', self::EXTRA_PARENTS);
+            });
+        })->orderBy('sort_order')->orderBy('id');
+    }
+
+    /** IDs of the six fixed parents (global — no agency scope). */
+    public static function parentIds(): array
+    {
+        return static::query()->parents()->pluck('id')->all();
+    }
+
+    /**
+     * Whether this type is one of the six fixed parents (4 e-sign + Owner/Other).
+     * Gates the "no add/rename/delete parent" lock in ContactTypeController.
      */
     public function isLocked(): bool
     {
-        return in_array($this->esign_role, array_keys(self::CANONICAL), true);
+        return in_array($this->esign_role, array_keys(self::CANONICAL), true)
+            || (is_null($this->esign_role) && in_array($this->name, self::EXTRA_PARENTS, true));
     }
 }

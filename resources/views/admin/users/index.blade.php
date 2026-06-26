@@ -221,7 +221,7 @@
                                 <label class="block text-xs mb-1" style="color:var(--text-secondary);">Role</label>
                                 <select name="role" class="w-full rounded-md px-3 py-2 text-sm outline-none"
                                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    @foreach(\App\Models\Role::orderBy('sort_order')->get() as $role)
+                                    @foreach(\App\Models\Role::allRoles(auth()->user()?->effectiveAgencyId()) as $role)
                                         @if(!$role->is_owner)
                                         <option value="{{ $role->name }}" {{ $u->role===$role->name?'selected':'' }}>{{ $role->label }}</option>
                                         @endif

@@ -15,6 +15,19 @@ class Agency extends Model
     use SoftDeletes;
 
     /**
+     * Provision the new agency's role set from the global templates as soon
+     * as it is created — UI, seeders, and factories all go through here so no
+     * agency is ever left without its own roles/permissions
+     * (.ai/specs/roles-permissions.md §6). Idempotent + non-destructive.
+     */
+    protected static function booted(): void
+    {
+        static::created(function (Agency $agency) {
+            \App\Services\RoleProvisioningService::provisionForAgency($agency);
+        });
+    }
+
+    /**
      * WhatsApp launch-mode constants per the 2026-05-14 hotfix. Controls how
      * the "Open WhatsApp" buttons hand off to the user's WhatsApp app:
      *

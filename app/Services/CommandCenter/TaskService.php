@@ -4,10 +4,20 @@ namespace App\Services\CommandCenter;
 
 use App\Models\CommandCenter\CommandTask;
 use App\Models\User;
+use App\Services\PermissionService;
 use Illuminate\Support\Collection;
 
 class TaskService
 {
+    /**
+     * Base query narrowed to what this user's role may see
+     * (command_center.tasks.view → own | branch | all).
+     */
+    private function visibleQuery(User $user)
+    {
+        return CommandTask::query()->visibleTo($user, PermissionService::taskScope($user));
+    }
+
     /**
      * Create a task.
      */
@@ -24,7 +34,7 @@ class TaskService
      */
     public function getOpenTasks(User $user, int $limit = 20): Collection
     {
-        return CommandTask::forUser($user->id)
+        return $this->visibleQuery($user)
             ->open()
             ->with(['property', 'contact'])
             ->orderByRaw("CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END")
@@ -38,7 +48,7 @@ class TaskService
      */
     public function getOverdueTasks(User $user, int $limit = 10): Collection
     {
-        return CommandTask::forUser($user->id)
+        return $this->visibleQuery($user)
             ->overdue()
             ->with(['property', 'contact'])
             ->orderBy('due_date')
@@ -51,7 +61,7 @@ class TaskService
      */
     public function getTasksByStatus(User $user): array
     {
-        $tasks = CommandTask::forUser($user->id)
+        $tasks = $this->visibleQuery($user)
             ->whereNotIn('status', [CommandTask::STATUS_DISMISSED])
             ->with(['property', 'contact', 'assignee'])
             ->orderByRaw("CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END")
@@ -74,7 +84,7 @@ class TaskService
      */
     public function getSummary(User $user): array
     {
-        $base = CommandTask::forUser($user->id);
+        $base = $this->visibleQuery($user);
 
         return [
             'today'    => (clone $base)->dueToday()->count(),

@@ -429,6 +429,7 @@ class WorksheetController extends Controller
         $stageMoney = DB::table('deal_money_lines')
             ->join('deals', 'deals.id', '=', 'deal_money_lines.deal_id')
             ->where('deal_money_lines.user_id', $userId)
+            ->whereNull('deal_money_lines.deleted_at') // exclude rebuilt-over (trashed) projection rows
             ->whereNotNull('deals.deal_date')
             ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
             ->selectRaw("
@@ -480,6 +481,7 @@ class WorksheetController extends Controller
         $pipeMoney = DB::table('deal_money_lines')
             ->join('deals', 'deals.id', '=', 'deal_money_lines.deal_id')
             ->where('deal_money_lines.user_id', $userId)
+            ->whereNull('deal_money_lines.deleted_at') // exclude rebuilt-over (trashed) projection rows
             ->whereRaw("LOWER(COALESCE(deals.commission_status,'')) != 'paid'")
             ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
             ->selectRaw("

@@ -498,6 +498,48 @@
             </div>{{-- /x-show profile info --}}
         </div>
 
+        {{-- Branches I Manage (Admin Multi-Branch Manager) — only for admins
+             holding branches.self_assign_managed. Identity only: picking
+             branches here lets you "act as" their manager from the sidebar;
+             it never changes what you can see. --}}
+        @if(!empty($canSelfAssignBranches) && $selfAssignAgencyBranches->count() > 0)
+        <div x-data="{ open:false }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; margin-top:20px; overflow:hidden;">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
+                <div>
+                    <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Branches I Manage</h3>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin:2px 0 0;">Choose the branches you manage and the one CoreX opens to. Switch between them anytime from the sidebar.</p>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+            </button>
+            <div x-show="open" x-cloak style="padding:0 24px 20px;">
+                <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Tick each branch you manage, then mark one as your <strong>default</strong> (the branch loaded when you sign in). The default must be one of the branches you tick.</p>
+                <form method="POST" action="{{ route('agent.portal.managed-branches.update') }}">
+                    @csrf
+                    @method('PATCH')
+                    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+                        @foreach($selfAssignAgencyBranches as $b)
+                            @php
+                                $isManaged = $managedBranchIds->contains((int) $b->id);
+                                $isDefault = $defaultManagedBranchId === (int) $b->id;
+                            @endphp
+                            <div style="display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2);">
+                                <label style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer; margin:0;">
+                                    <input type="checkbox" name="managed_branches[]" value="{{ $b->id }}" {{ $isManaged ? 'checked' : '' }}>
+                                    <span style="font-size:0.8125rem; color:var(--text-primary);">{{ $b->name }}@if($b->code)<span style="color:var(--text-muted);"> ({{ $b->code }})</span>@endif</span>
+                                </label>
+                                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.75rem; color:var(--text-muted); margin:0;">
+                                    <input type="radio" name="default_branch_id" value="{{ $b->id }}" {{ $isDefault ? 'checked' : '' }}>
+                                    Default
+                                </label>
+                            </div>
+                        @endforeach
+                    </div>
+                    <button type="submit" class="corex-btn-primary">Save Managed Branches</button>
+                </form>
+            </div>
+        </div>
+        @endif
+
         {{-- Articles — agent-authored content for the public website profile --}}
         @php $inputStyle = 'width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;'; @endphp
         <div x-data="{ editingId: null, open:false }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; margin-top:20px; overflow:hidden;">

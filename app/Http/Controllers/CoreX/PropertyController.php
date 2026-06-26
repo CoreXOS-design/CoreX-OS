@@ -1283,6 +1283,161 @@ class PropertyController extends Controller
         return back()->with('success', 'Image deleted.')->with('tab', 'gallery');
     }
 
+    // ── Rental inspection galleries ─────────────────────────────────────────
+    // Only meaningful for rental listings. Data lives in properties.rental_images_json,
+    // normalised through Property::rentalImagesStructure(). Files are stored exactly
+    // like marketing gallery images (storeImages → storage/public/properties/{id}/).
+    // Spec: .ai/specs/rental-images.md
+
+    /**
+     * Append uploaded images to one rental section (in_inspection, out_inspection,
+     * or a custom section identified by custom_id). Multipart. Files arrive under
+     * the `images` input. Returns the appended URLs as JSON.
+     */
+    public function uploadRentalImages(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $request->validate([
+            'section'   => 'required|in:in_inspection,out_inspection,custom',
+            'custom_id' => 'nullable|string|required_if:section,custom',
+            'images'    => 'required|array',
+            'images.*'  => 'image|max:51200',
+        ]);
+
+        $structure = $property->rentalImagesStructure();
+        $new       = $this->storeImages($request, 'images', $property->id);
+
+        if (!empty($new)) {
+            if ($request->section === 'custom') {
+                $found = false;
+                foreach ($structure['custom'] as $i => $sec) {
+                    if ($sec['id'] === $request->custom_id) {
+                        $structure['custom'][$i]['images'] = array_values(array_merge($sec['images'], $new));
+                        $found = true;
+                        break;
+                    }
+                }
+                if (!$found) {
+                    abort(404, 'Section not found.');
+                }
+            } else {
+                $structure[$request->section]['images'] = array_values(
+                    array_merge($structure[$request->section]['images'], $new)
+                );
+            }
+
+            $property->update(['rental_images_json' => $structure]);
+        }
+
+        return response()->json(['ok' => true, 'urls' => $new, 'rental_images' => $structure]);
+    }
+
+    /**
+     * Persist the metadata layer of the rental galleries: per-section dates,
+     * custom-section adds (server mints the id) and renames. The structure is
+     * rebuilt server-side from the normalised current state + the posted intent
+     * so a client can never inject arbitrary keys or overwrite stored images.
+     */
+    public function saveRentalImagesMeta(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $data = $request->validate([
+            'action'           => 'required|in:set_date,add_section,rename_section',
+            'section'          => 'required_if:action,set_date|in:in_inspection,out_inspection,custom',
+            // nullable first: the ConvertEmptyStringsToNull middleware turns an
+            // empty custom_id ('' for the fixed in/out sections) into null, which
+            // the string rule would otherwise reject. required_if still forces a
+            // value when the section is custom / the action is a rename.
+            'custom_id'        => 'nullable|string|required_if:section,custom|required_if:action,rename_section',
+            'date'             => 'nullable|date',
+            'name'             => 'required_if:action,add_section,rename_section|string|max:120',
+        ]);
+
+        $structure = $property->rentalImagesStructure();
+
+        if ($data['action'] === 'set_date') {
+            $date = $data['date'] ?? null; // already validated as a date or null
+            if (($data['section'] ?? null) === 'custom') {
+                foreach ($structure['custom'] as $i => $sec) {
+                    if ($sec['id'] === ($data['custom_id'] ?? null)) {
+                        $structure['custom'][$i]['date'] = $date;
+                        break;
+                    }
+                }
+            } else {
+                $structure[$data['section']]['date'] = $date;
+            }
+        } elseif ($data['action'] === 'add_section') {
+            // Mint a collision-free short id against the existing custom sections.
+            do {
+                $id = \Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(6));
+            } while (collect($structure['custom'])->contains('id', $id));
+
+            $structure['custom'][] = [
+                'id'     => $id,
+                'name'   => trim($data['name']),
+                'date'   => null,
+                'images' => [],
+            ];
+        } elseif ($data['action'] === 'rename_section') {
+            foreach ($structure['custom'] as $i => $sec) {
+                if ($sec['id'] === $data['custom_id']) {
+                    $structure['custom'][$i]['name'] = trim($data['name']);
+                    break;
+                }
+            }
+        }
+
+        $property->update(['rental_images_json' => $structure]);
+
+        return response()->json(['ok' => true, 'rental_images' => $structure]);
+    }
+
+    /**
+     * Remove one image from a rental section and delete its file from disk.
+     * Mirrors deleteImage() for the marketing gallery — JSON array entries are
+     * not Eloquent models, so this follows the established image-removal pattern.
+     */
+    public function deleteRentalImage(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $data = $request->validate([
+            'section'   => 'required|in:in_inspection,out_inspection,custom',
+            'custom_id' => 'nullable|string|required_if:section,custom',
+            'index'     => 'required|integer|min:0',
+        ]);
+
+        $structure = $property->rentalImagesStructure();
+        $index     = (int) $data['index'];
+
+        $removeAt = function (array $images, int $idx): array {
+            if (isset($images[$idx])) {
+                $path = str_replace('/storage/', '', parse_url($images[$idx], PHP_URL_PATH));
+                Storage::disk('public')->delete($path);
+                array_splice($images, $idx, 1);
+            }
+            return array_values($images);
+        };
+
+        if ($data['section'] === 'custom') {
+            foreach ($structure['custom'] as $i => $sec) {
+                if ($sec['id'] === $data['custom_id']) {
+                    $structure['custom'][$i]['images'] = $removeAt($sec['images'], $index);
+                    break;
+                }
+            }
+        } else {
+            $structure[$data['section']]['images'] = $removeAt($structure[$data['section']]['images'], $index);
+        }
+
+        $property->update(['rental_images_json' => $structure]);
+
+        return response()->json(['ok' => true, 'rental_images' => $structure]);
+    }
+
     public function reorderImages(Request $request, Property $property)
     {
         $this->authorizeProperty($property);

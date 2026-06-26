@@ -272,3 +272,13 @@ Without `--merge-defaults` in the deploy pipeline, every new permission
 key silently locks the corresponding feature for every non-owner role
 until someone hand-ticks each box in Role Manager. This is what caused
 the April 2026 "admin can't open My Portal / Command Center" incident.
+
+**Roles & permissions are now agency-scoped (2026-06-23).** `role_permissions`
+carries an `agency_id`; each agency owns its own role copies + grants and the
+`agency_id IS NULL` rows are global TEMPLATES used to provision new agencies.
+`corex:sync-permissions --merge-defaults` fans out across the templates AND
+every agency's role copies, so a new key lands everywhere. New agencies
+auto-provision their role set on creation (`Agency::created` →
+`RoleProvisioningService`). Full spec: `.ai/specs/roles-permissions.md`. When
+adding a permission-seeding migration, make it agency-aware — never write a
+`role_permissions` row without an `agency_id` for a tenant role.
