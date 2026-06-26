@@ -266,6 +266,30 @@
         <input type="hidden" name="property_id" :value="selected ? selected.id : ''" form="spr-form">
     </div>
 
+    {{-- AT-105 — FICA auto-kickoff toggle (compliance users only) --}}
+    @if(!empty($canFica))
+    <div x-data="splitterFicaToggle()" class="rounded-md p-4 mb-4"
+         style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid #8b5cf6;">
+        <label class="flex items-start gap-3" :class="propertySelected ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'">
+            <input type="checkbox" name="trigger_fica" value="1" form="spr-form"
+                   :disabled="!propertySelected"
+                   class="mt-0.5 rounded w-4 h-4" style="accent-color:#8b5cf6;">
+            <span>
+                <span class="text-sm font-semibold" style="color: var(--text-primary);">Start a wet-ink FICA verification from this pack</span>
+                <span class="block text-xs mt-1" style="color: var(--text-muted);">
+                    Pre-fills a FICA verification for the property's seller/owner and auto-attaches the
+                    <strong>FICA Form</strong>, <strong>ID copy</strong> and <strong>Proof of Residence</strong>
+                    pages found in this pack. You complete the remaining verification steps afterwards.
+                    Requires at least a labelled <strong>FICA Form</strong> page.
+                </span>
+                <span x-show="!propertySelected" class="block text-xs mt-1" style="color: var(--ds-crimson);">
+                    Select a property above to enable — the FICA contact is the property's seller/owner.
+                </span>
+            </span>
+        </label>
+    </div>
+    @endif
+
     {{-- Keyboard legend --}}
     <div class="legend">
         <span class="legend-title">Shortcuts</span>
@@ -566,6 +590,13 @@ document.addEventListener('alpine:init', () => {
         },
         pick(r) { this.selected = r; this.q = ''; this.results = []; },
         clear() { this.selected = null; },
+    }));
+
+    // AT-105 — FICA toggle enablement driven by property selection (the FICA
+    // contact is the property's seller/owner). FICA-Form-page presence is
+    // enforced server-side, with a clear note back if it is missing.
+    Alpine.data('splitterFicaToggle', () => ({
+        get propertySelected() { return !!Alpine.store('splitterPicker').selected; },
     }));
 });
 </script>
