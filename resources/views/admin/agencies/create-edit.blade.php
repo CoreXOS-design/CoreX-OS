@@ -378,6 +378,29 @@
                 </div>
             </div>
 
+            {{-- AT-101: per-agency photo cap + API read timeout. Blank = defaults
+                 (30 photos / 120s) which reproduce the historic behaviour. --}}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Max photos per listing</label>
+                    <input type="number" name="p24_max_photos" min="1" max="200"
+                           value="{{ old('p24_max_photos', $agency->p24_max_photos) }}"
+                           class="w-full rounded-md px-3 py-2 text-sm"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="30">
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">How many photos to send to Property24 per listing. Blank = default (30). Higher values increase the payload size and the time each submit takes.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">API read timeout (seconds)</label>
+                    <input type="number" name="p24_http_read_timeout" min="30" max="600"
+                           value="{{ old('p24_http_read_timeout', $agency->p24_http_read_timeout) }}"
+                           class="w-full rounded-md px-3 py-2 text-sm"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="120">
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">How long to wait for Property24 to ingest a submit before timing out. Blank = default (120). The background job timeout is automatically this + 60s.</p>
+                </div>
+            </div>
+
             <div class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);"
                  x-data="p24Actions({ testUrl: '{{ route('agencies.p24.test', $agency) }}', refreshUrl: '{{ route('agencies.p24.refresh', $agency) }}', csrf: '{{ csrf_token() }}' })">
                 <div class="flex flex-wrap items-center justify-between gap-3">
