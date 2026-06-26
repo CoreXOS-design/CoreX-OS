@@ -93,10 +93,19 @@ class PdfSplitterController extends Controller
                 ])));
             }
             if ($addr === '') { $addr = '(no address)'; }
+
+            // AT-105 — surface the seller/owner's OWN FICA state so the FICA
+            // kickoff toggle can key off the CONTACT (not the property's
+            // import-set compliance snapshot). null seller = no kickoff target.
+            $seller = $p->sellerOwnerContact();
+            $sellerFica = $seller ? $seller->ficaStatus() : null; // complete|expiring|incomplete|null
+
             return [
-                'id'    => $p->id,
-                'label' => trim($addr . ($p->suburb ? ' — ' . $p->suburb : '')),
-                'ref'   => $p->property_number,
+                'id'          => $p->id,
+                'label'       => trim($addr . ($p->suburb ? ' — ' . $p->suburb : '')),
+                'ref'         => $p->property_number,
+                'seller'      => $seller ? trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? '')) : null,
+                'seller_fica' => $sellerFica,
             ];
         }));
     }
@@ -434,6 +443,7 @@ class PdfSplitterController extends Controller
         $sellerContact  = null;
         $ficaSubmission = null;
         $ficaNote       = null;
+        $ficaReused     = false;
 
         $propertyId = (int) $request->input('property_id');
         if ($propertyId > 0) {
@@ -452,10 +462,15 @@ class PdfSplitterController extends Controller
                     $agencyId,
                 );
 
-                // FICA auto-kickoff — agent toggle, never silent. Requires the
-                // FICA form in the pack, a resolvable contact, and compliance
-                // permission. Missing ID/POR are simply not attached; the agent
-                // uploads them on the FICA screen (agent-upload) afterwards.
+                // FICA auto-kickoff — agent toggle, never silent. The decision to
+                // offer/fire keys off the CONTACT's own FICA state (seller has no
+                // active/approved fica_submission), NEVER the property's compliance
+                // state. Imported P24 stock is auto-marked compliant at property
+                // level (compliance_snapshot_data) — that must NOT suppress a genuine
+                // FICA for an unverified seller. Requires the FICA form in the pack,
+                // a resolvable seller contact, and compliance permission. Missing
+                // ID/POR are simply not attached; the agent uploads them on the FICA
+                // screen (agent-upload) afterwards.
                 $outBySlug = $this->outputsBySlug($outFiles);
                 if ($request->boolean('trigger_fica')) {
                     if (! $request->user()->hasPermission('access_compliance')) {
@@ -467,7 +482,15 @@ class PdfSplitterController extends Controller
                     } elseif ($agencyId <= 0) {
                         $ficaNote = 'FICA verification was not started — could not determine the agency. Pick an active agency and try again.';
                     } else {
-                        $ficaSubmission = $this->kickoffWetInkFica($sellerContact, $agencyId, $outBySlug);
+                        // Dedupe — if the seller already has an in-flight FICA
+                        // verification, open that instead of spawning a duplicate.
+                        $existing = $this->existingActiveFica($sellerContact);
+                        if ($existing) {
+                            $ficaSubmission = $existing;
+                            $ficaReused = true;
+                        } else {
+                            $ficaSubmission = $this->kickoffWetInkFica($sellerContact, $agencyId, $outBySlug);
+                        }
                     }
                 }
             }
@@ -502,6 +525,7 @@ class PdfSplitterController extends Controller
         if ($ficaSubmission) {
             $redirect->with('splitter_fica_url', route('compliance.fica.show', $ficaSubmission));
             $redirect->with('splitter_fica_contact', trim(($sellerContact->first_name ?? '') . ' ' . ($sellerContact->last_name ?? '')));
+            $redirect->with('splitter_fica_reused', $ficaReused);
         } elseif ($ficaNote) {
             $redirect->with('splitter_fica_note', $ficaNote);
         }
@@ -563,6 +587,11 @@ class PdfSplitterController extends Controller
                 'size'             => @filesize($abs) ?: null,
                 'document_type_id' => $typeMap[$labelSlug] ?? null,
                 'source_type'      => 'pdf_splitter',
+                // AT-105 — provenance: which property this pack was split against.
+                // Recorded on EVERY split doc, including contact-only ones (ID/POR),
+                // so a contact's "Not Property-Linked" doc is still traceable to the
+                // split that produced it without polluting the property's Drive.
+                'source_id'        => $property->id,
                 'uploaded_by'      => auth()->id(),
             ]);
 
@@ -648,6 +677,24 @@ class PdfSplitterController extends Controller
         }
 
         return $submission;
+    }
+
+    /**
+     * AT-105 — the seller's most recent IN-FLIGHT FICA verification, if any.
+     * Used to dedupe: splitting another pack for a seller who already has an
+     * open verification opens that one instead of spawning a duplicate.
+     *
+     * "In-flight" = not a terminal outcome. Terminal (rejected / cancelled) and
+     * fully-approved submissions are ignored, so a deliberate re-verify after a
+     * rejection or an expiry still starts a fresh wet-ink.
+     */
+    private function existingActiveFica(Contact $contact): ?FicaSubmission
+    {
+        return FicaSubmission::query()
+            ->where('contact_id', $contact->id)
+            ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved', 'corrections_requested'])
+            ->latest('id')
+            ->first();
     }
 
     /**

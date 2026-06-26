@@ -318,4 +318,74 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
             (new AgencyComplianceDocTypeService())->destinationForSlug($this->agency->id, 'mandate'),
         );
     }
+
+    // ── FICA trigger keys off CONTACT state, not property compliance ────
+
+    public function test_split_docs_record_originating_property_as_source_id(): void
+    {
+        // Provenance: every split doc (incl. contact-only ID) records which
+        // property it was split against, so a contact's "Not Property-Linked"
+        // doc is still traceable to its split.
+        $p = $this->makeProperty();
+        $c = $this->makeSeller($p, 'seller');
+        $this->callLink($p, $c, [$this->outFile('mandate'), $this->outFile('ids')], $this->agency->id);
+
+        $docs = \App\Models\Document::where('source_type', 'pdf_splitter')->get();
+        $this->assertCount(2, $docs);
+        foreach ($docs as $d) {
+            $this->assertSame($p->id, (int) $d->source_id, 'split doc must record originating property');
+        }
+    }
+
+    public function test_search_returns_seller_and_incomplete_fica_status(): void
+    {
+        // The toggle keys off this: an unverified seller (no approved FICA)
+        // returns 'incomplete' regardless of the property's compliance snapshot.
+        $p = $this->makeProperty();
+        $this->makeSeller($p, 'seller');
+
+        $resp = $this->getJson(route('tools.pdf_splitter.properties.search', ['q' => 'Compensation']));
+        $resp->assertOk();
+        $row = collect($resp->json())->firstWhere('id', $p->id);
+
+        $this->assertNotNull($row, 'property should be in search results');
+        $this->assertStringContainsString('Nokuthula', $row['seller']);
+        $this->assertSame('incomplete', $row['seller_fica']);
+    }
+
+    public function test_search_seller_fica_complete_when_approved(): void
+    {
+        $p = $this->makeProperty();
+        $c = $this->makeSeller($p, 'seller');
+        \App\Models\FicaSubmission::create([
+            'contact_id' => $c->id, 'agency_id' => $this->agency->id,
+            'requested_by' => $this->user->id, 'status' => 'approved',
+            'intake_type' => 'wet_ink', 'entity_type' => 'natural',
+            'verified_at' => now(),
+        ]);
+
+        $resp = $this->getJson(route('tools.pdf_splitter.properties.search', ['q' => 'Compensation']));
+        $row = collect($resp->json())->firstWhere('id', $p->id);
+        $this->assertSame('complete', $row['seller_fica']);
+    }
+
+    public function test_dedupe_finds_active_fica_but_ignores_terminal(): void
+    {
+        $p = $this->makeProperty();
+        $c = $this->makeSeller($p, 'seller');
+
+        $existing = app(FicaWetInkService::class)->create($c, $this->agency->id, ['status' => 'submitted']);
+
+        $m = new ReflectionMethod(PdfSplitterController::class, 'existingActiveFica');
+        $m->setAccessible(true);
+        $found = $m->invoke(app(PdfSplitterController::class), $c);
+        $this->assertNotNull($found, 'an in-flight FICA must be found for dedupe');
+        $this->assertSame($existing->id, $found->id);
+
+        // Terminal outcomes do not block a fresh verification.
+        $existing->update(['status' => 'rejected']);
+        $this->assertNull($m->invoke(app(PdfSplitterController::class), $c));
+        $existing->update(['status' => 'approved']);
+        $this->assertNull($m->invoke(app(PdfSplitterController::class), $c));
+    }
 }

@@ -144,9 +144,14 @@
         {{-- AT-105 — FICA verification kicked off from the split pack --}}
         @if(session('splitter_fica_url'))
             <div class="alert-success" style="border-left: 3px solid #8b5cf6;">
-                Wet-ink FICA verification started for
-                <strong>{{ session('splitter_fica_contact') ?: 'the seller/owner' }}</strong>
-                with the FICA documents from this pack.
+                @if(session('splitter_fica_reused'))
+                    <strong>{{ session('splitter_fica_contact') ?: 'The seller/owner' }}</strong>
+                    already has a FICA verification in progress — opened that one (no duplicate created).
+                @else
+                    Wet-ink FICA verification started for
+                    <strong>{{ session('splitter_fica_contact') ?: 'the seller/owner' }}</strong>
+                    with the FICA documents from this pack.
+                @endif
                 <a href="{{ session('splitter_fica_url') }}" style="text-decoration: underline; font-weight: 600;">
                     Open the FICA verification to finish &rarr;
                 </a>
