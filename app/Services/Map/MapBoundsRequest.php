@@ -17,7 +17,8 @@ final class MapBoundsRequest
 
     /** @var string[] */
     public const VALID_LAYERS = [
-        'hfc_listings', 'sold_comps', 'active_listings', 'mic_subjects', 'scheme_owners',
+        'hfc_listings', 'hfc_sold', 'hfc_off_market',
+        'sold_comps', 'active_listings', 'mic_subjects', 'scheme_owners',
         'tracked_properties',
     ];
 
@@ -82,6 +83,11 @@ final class MapBoundsRequest
         public readonly ?string $soldWindow    = null,
         public readonly ?int    $domMin        = null,
         public readonly ?int    $domMax        = null,
+        // Map fixes — specific-agent filter (agency-stock layers) + area/suburb
+        // multi-select (matches properties.p24_suburb_id). Null/empty = no narrowing.
+        public readonly ?int    $agentId       = null,
+        /** @var int[] p24_suburbs.id values */
+        public readonly array   $suburbIds     = [],
     ) {}
 
     public function hasRadiusFilter(): bool
@@ -103,7 +109,8 @@ final class MapBoundsRequest
 
     public function effectiveLimit(): int
     {
-        return min(max(1, $this->limit), self::MAX_LIMIT);
+        $max = (int) config('map.defaults.caps.max_limit', self::MAX_LIMIT);
+        return min(max(1, $this->limit), $max);
     }
 
     /**
@@ -117,10 +124,15 @@ final class MapBoundsRequest
      */
     public function zoomAwarePerLayerLimit(int $layerCount): int
     {
-        $base = max(50, (int) floor($this->effectiveLimit() / max(1, $layerCount)));
+        // Caps are config-driven (config/map.php) — no hardcoded magic numbers.
+        $minPer    = (int) config('map.defaults.caps.min_per_layer', 50);
+        $regionCap = (int) config('map.defaults.caps.region_cap', 200);
+        $townCap   = (int) config('map.defaults.caps.town_cap', 500);
+
+        $base = max($minPer, (int) floor($this->effectiveLimit() / max(1, $layerCount)));
         $span = max(abs($this->north - $this->south), abs($this->east - $this->west));
-        if ($span >= 0.5)  return min($base, 200);
-        if ($span >= 0.05) return min($base, 500);
+        if ($span >= 0.5)  return min($base, $regionCap);
+        if ($span >= 0.05) return min($base, $townCap);
         return $base;
     }
 
@@ -151,7 +163,9 @@ final class MapBoundsRequest
     {
         $base = $this->zoomAwarePerLayerLimit($layerCount);
         if (in_array($key, ['tracked_properties', 'active_listings'], true)) {
-            return min(max($base * 3, 1000), 1500);
+            $floor   = (int) config('map.defaults.caps.dense_layer_floor', 1000);
+            $ceiling = (int) config('map.defaults.caps.dense_layer_ceiling', 1500);
+            return min(max($base * 3, $floor), $ceiling);
         }
         return $base;
     }

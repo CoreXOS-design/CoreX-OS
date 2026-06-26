@@ -601,6 +601,28 @@ CREATE TABLE `agency_lost_deal_reasons` (
   CONSTRAINT `agency_lost_deal_reasons_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_map_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_map_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `center_lat` decimal(10,7) DEFAULT NULL,
+  `center_lng` decimal(10,7) DEFAULT NULL,
+  `default_zoom` tinyint unsigned DEFAULT NULL,
+  `bounds_north` decimal(10,7) DEFAULT NULL,
+  `bounds_south` decimal(10,7) DEFAULT NULL,
+  `bounds_east` decimal(10,7) DEFAULT NULL,
+  `bounds_west` decimal(10,7) DEFAULT NULL,
+  `default_sold_window` varchar(8) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `layer_caps` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_map_settings_agency_unique` (`agency_id`),
+  CONSTRAINT `agency_map_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_policies`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -6532,6 +6554,10 @@ CREATE TABLE `p24_suburbs` (
   `slug` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `p24_id` int unsigned DEFAULT NULL,
   `p24_city_id` bigint unsigned DEFAULT NULL,
+  `latitude` decimal(10,7) DEFAULT NULL,
+  `longitude` decimal(10,7) DEFAULT NULL,
+  `centroid_source` varchar(24) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `centroid_geocoded_at` timestamp NULL DEFAULT NULL,
   `region` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'kzn-south-coast',
   `surrounding_ids` json DEFAULT NULL,
   `confirmed` tinyint(1) NOT NULL DEFAULT '0',
@@ -12154,3 +12180,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (875,'2026_07_04_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (876,'2026_07_05_000001_add_buyer_source_to_contacts_table',171);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (877,'2026_07_05_000002_add_source_to_prospecting_buyer_matches_table',171);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (878,'2026_07_05_000003_add_portal_lead_auto_seed_to_agency_contact_settings',171);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (879,'2026_07_06_000001_create_agency_map_settings_table',172);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (880,'2026_07_06_000002_add_centroid_to_p24_suburbs_table',173);

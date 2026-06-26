@@ -221,7 +221,10 @@
                         // still slate while the pin was purple, reinforcing
                         // the "M missing" misread.
                         $layerDefs = [
-                            ['key' => 'hfc_listings',    'label' => 'HFC Listings',      'colour' => '#0b2a4a', 'letter' => 'H'],
+                            ['key' => 'hfc_listings',    'label' => 'Active Stock',      'colour' => '#0b2a4a', 'letter' => 'H', 'title' => 'Active Stock — your on-market listings only (sold/withdrawn/expired/draft are now their own layers)'],
+                            // Map fixes — agency-stock status layers, OFF by default.
+                            ['key' => 'hfc_sold',        'label' => 'Sold (HFC)',        'colour' => '#dc2626', 'letter' => 'S', 'default_off' => true, 'title' => 'Sold agency stock — period-bounded by the sold-date window below'],
+                            ['key' => 'hfc_off_market',  'label' => 'Off-market',        'colour' => '#94a3b8', 'letter' => 'H', 'default_off' => true, 'title' => 'Off-market agency stock — withdrawn / expired / cancelled / let-out / draft / archived'],
                             ['key' => 'sold_comps',      'label' => 'Sold Comps',        'colour' => '#dc2626', 'letter' => 'S'],
                             ['key' => 'active_listings', 'label' => 'Portal Stock',      'colour' => '#f59e0b', 'letter' => 'P', 'title' => 'Portal Stock — competitor listings captured from Property24 and Private Property'],
                             ['key' => 'mic_subjects',    'label' => 'MIC Subjects',      'colour' => '#7c3aed', 'letter' => 'M'],
@@ -236,7 +239,7 @@
                          transparent box-shaped container so the SVG silhouette is
                          the only visual. Hover/active border + count badge below
                          continue to work unchanged. --}}
-                    <button type="button" data-layer-toggle="{{ $l['key'] }}" data-on="1"
+                    <button type="button" data-layer-toggle="{{ $l['key'] }}" data-on="{{ ($l['default_off'] ?? false) ? '0' : '1' }}"
                             @if($l['sensitive'] ?? false) data-sensitive="1" @endif
                             title="{{ $l['title'] ?? $l['label'] }}"
                             aria-label="Toggle {{ $l['label'] }}"
@@ -266,6 +269,20 @@
                         <span style="color: var(--text-primary);">{{ $label }}</span>
                     </label>
                     @endforeach
+                </div>
+            </div>
+
+            {{-- Part 3 — Buyer Demand heat overlay (suburb-centroid intensity, OFF by
+                 default). Separate from the property heat above; sourced from seeded
+                 wishlists (portal-lead + other, kept source-separable). --}}
+            <div style="margin-bottom: 12px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.8125rem;">
+                    <input type="checkbox" id="buyer-demand-toggle" style="margin: 0;">
+                    <span style="color: var(--text-primary); font-weight: 500;">Buyer Demand</span>
+                    <span id="buyer-demand-count" style="margin-left: auto; font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums;"></span>
+                </label>
+                <div style="font-size: 0.625rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4;">
+                    Suburb-level buyer demand from seeded wishlists. Intensity = buyers wanting that area.
                 </div>
             </div>
 
@@ -329,23 +346,47 @@
                     </div>
                 </details>
 
+                {{-- Map fixes — listing status is now a per-LAYER concern (Active Stock /
+                     Sold / Off-market layers in the Layers row above), so the old
+                     Active/Sold/Draft status checkboxes are removed: the default load is
+                     on-market only (server-side scopeOnMarket), and sold/off-market are
+                     their own toggleable, distinctly-styled layers. --}}
+
+                {{-- Part 4b — specific-agent filter (agency stock layers). --}}
+                @if(($mapAgents ?? collect())->isNotEmpty())
                 <details class="map-filter-block" style="margin-bottom: 4px;">
-                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Listing status</summary>
-                    <div style="display: flex; flex-direction: column; gap: 3px; padding: 6px 4px 8px; font-size: 0.75rem;">
-                        @foreach(['active' => 'Active', 'sold' => 'Sold', 'draft' => 'Draft'] as $val => $label)
-                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                            <input type="checkbox" data-filter-status="{{ $val }}" style="margin: 0;">
-                            <span style="color: var(--text-primary);">{{ $label }}</span>
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Agent</summary>
+                    <div style="padding: 6px 4px 8px; font-size: 0.75rem;">
+                        <select id="filter-agent" style="width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                            <option value="">All agents</option>
+                            @foreach($mapAgents as $a)
+                            <option value="{{ $a->id }}">{{ $a->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </details>
+                @endif
+
+                {{-- Part 4b — area / suburb filter (multi-select on the agency's stock suburbs). --}}
+                @if(($mapSuburbs ?? collect())->isNotEmpty())
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Area / suburb</summary>
+                    <div style="padding: 6px 4px 8px; max-height: 180px; overflow-y: auto;">
+                        @foreach($mapSuburbs as $s)
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.75rem; padding: 2px 0;">
+                            <input type="checkbox" data-filter-suburb="{{ $s->id }}" style="margin: 0;">
+                            <span style="color: var(--text-primary);">{{ $s->name }}</span>
                         </label>
                         @endforeach
                     </div>
                 </details>
+                @endif
 
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Sold date window</summary>
                     <div style="padding: 6px 4px 8px; font-size: 0.75rem;">
                         <select id="filter-sold-window" style="width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
-                            <option value="">All sold</option>
+                            <option value="all">All sold</option>
                             <option value="3mo">Last 3 months</option>
                             <option value="6mo">Last 6 months</option>
                             <option value="12mo">Last 12 months</option>
@@ -493,7 +534,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ── Config / constants ────────────────────────────────────────────────
-    const HFC_BOUNDS = { south: -31.0, north: -30.4, west: 30.0, east: 30.9 };
+    // Multi-tenancy fix — per-agency map config (center / zoom / bounds / default
+    // sold window) from AgencyMapSettings, falling back to config('map.defaults.*').
+    // No more hardcoded HFC KZN South Coast box for every tenant.
+    const MAP_CONFIG = @json($mapConfig);
+    const MAP_BOUNDS = {
+        south: MAP_CONFIG.bounds.south, north: MAP_CONFIG.bounds.north,
+        west:  MAP_CONFIG.bounds.west,  east:  MAP_CONFIG.bounds.east,
+    };
+    const DEMAND_URL = @json(route('corex.map.demand'));
     const PINS_URL = @json(route('corex.map.pins'));
     const CACHE_MAX = 5;
 
@@ -534,6 +583,8 @@ document.addEventListener('DOMContentLoaded', function () {
     //   CMA-S (sold)       red     #dc2626
     const LAYER_COLOURS = {
         hfc_listings:       '#0b2a4a',
+        hfc_sold:           '#dc2626',
+        hfc_off_market:     '#94a3b8',
         sold_comps:         '#dc2626',
         active_listings:    '#f59e0b',
         mic_subjects:       '#7c3aed',
@@ -541,11 +592,13 @@ document.addEventListener('DOMContentLoaded', function () {
         tracked_properties: '#00d4aa',
     };
     const LAYER_LETTERS = {
-        hfc_listings: 'H', sold_comps: 'S', active_listings: 'P',
+        hfc_listings: 'H', hfc_sold: 'S', hfc_off_market: 'H', sold_comps: 'S', active_listings: 'P',
         mic_subjects: 'M', scheme_owners: 'O', tracked_properties: 'T',
     };
     const LAYER_NAMES = {
-        hfc_listings: 'HFC Listing',
+        hfc_listings: 'Active Stock',
+        hfc_sold: 'Sold (HFC)',
+        hfc_off_market: 'Off-market',
         sold_comps: 'Sold Comp',
         active_listings: 'Portal Stock',
         mic_subjects: 'MIC Subject',
@@ -571,6 +624,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // shape lookup in PIN_STYLES.
     const BUCKET_OF = {
         hfc_listings:       'COMPANY',
+        hfc_sold:           'COMPANY',
+        hfc_off_market:     'COMPANY',
         active_listings:    'PORTAL',
         tracked_properties: 'TRACKED',
         sold_comps:         'CMA',
@@ -598,6 +653,9 @@ document.addEventListener('DOMContentLoaded', function () {
         // primary geometry is reused from H. The red-S corner badge is
         // added by the locationIcon caller, not from here.
         S_own:    { shape: 'house',    size: [24, 28], fill: '#0b2a4a', stroke: '#ffffff', strokeWidth: 2, ownSoldBadge: true },
+        // Map fixes — off-market agency stock: muted slate house so dead stock
+        // reads as visually de-emphasised vs live on-market navy.
+        H_muted:  { shape: 'house',    size: [22, 26], fill: '#94a3b8', stroke: '#ffffff', strokeWidth: 2 },
     };
 
     // Bucket → cluster palette. CMA uses purple (the M colour) since the
@@ -624,6 +682,10 @@ document.addEventListener('DOMContentLoaded', function () {
             // safe interpretation — never claim "ours" without evidence).
             return (rec.source_class === 'own') ? 'S_own' : 'S_market';
         }
+        // Map fixes — agency-stock status layers get distinct pins: sold = the
+        // sold-own house+red-S badge, off-market = muted slate house.
+        if (rec.category === 'hfc_sold') return 'S_own';
+        if (rec.category === 'hfc_off_market') return 'H_muted';
         return ({ hfc_listings: 'H', active_listings: 'P', mic_subjects: 'M',
                   scheme_owners: 'O', tracked_properties: 'T' })[rec.category] || null;
     }
@@ -819,6 +881,8 @@ document.addEventListener('DOMContentLoaded', function () {
     function pinKeyForCategory(cat) {
         return ({
             hfc_listings:       'H',
+            hfc_sold:           'S_own',
+            hfc_off_market:     'H_muted',
             active_listings:    'P',
             tracked_properties: 'T',
             mic_subjects:       'M',
@@ -1139,7 +1203,7 @@ document.addEventListener('DOMContentLoaded', function () {
     //   view (lat/lng/z) = HFC default fitBounds. Suppressed for one syncUrlState
     //   cycle after "Reset to HFC area" so the URL is clean post-reset.
     let suppressViewInUrl = false;
-    const ALL_LAYER_KEYS = ['active_listings','hfc_listings','mic_subjects','scheme_owners','sold_comps','tracked_properties'];
+    const ALL_LAYER_KEYS = ['active_listings','hfc_listings','hfc_sold','hfc_off_market','mic_subjects','scheme_owners','sold_comps','tracked_properties'];
     function buildUrlStateParams() {
         const p = new URLSearchParams();
         const set = (k, v) => { if (v !== null && v !== undefined && v !== '') p.set(k, String(v)); };
@@ -1275,9 +1339,13 @@ document.addEventListener('DOMContentLoaded', function () {
         buildingMin:  null,
         buildingMax:  null,
         listingStatus: [],
-        soldWindow:    '',
+        // Sold layer is period-bounded by the agency default (Part 2).
+        soldWindow:    (MAP_CONFIG && MAP_CONFIG.soldWindow) ? MAP_CONFIG.soldWindow : '6mo',
         domMin: null,
         domMax: null,
+        // Part 4b — specific-agent + area/suburb filters.
+        agentId:   null,
+        suburbIds: [],
     };
     let displayMode = localStorage.getItem('corex.map.display_mode') || 'pins';
     let filters = loadFiltersFromStorage();
@@ -1302,7 +1370,9 @@ document.addEventListener('DOMContentLoaded', function () {
              'standMin','standMax','buildingMin','buildingMax','domMin','domMax']
                 .forEach(k => { if (isNum(f[k])) out[k] = f[k]; });
             out.listingStatus = Array.isArray(f.listingStatus) ? f.listingStatus : [];
-            if (isStr(f.soldWindow) && ['','3mo','6mo','12mo','24mo'].includes(f.soldWindow)) out.soldWindow = f.soldWindow;
+            if (isStr(f.soldWindow) && ['','all','3mo','6mo','12mo','24mo'].includes(f.soldWindow)) out.soldWindow = f.soldWindow;
+            if (isNum(f.agentId)) out.agentId = f.agentId;
+            out.suburbIds = Array.isArray(f.suburbIds) ? f.suburbIds.filter(Number.isInteger) : [];
             return out;
         } catch (e) {
             return { ...FILTER_DEFAULTS, types: [...FILTER_DEFAULTS.types], listingStatus: [] };
@@ -1361,7 +1431,13 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         // Sold window.
         const soldEl = document.getElementById('filter-sold-window');
-        if (soldEl) soldEl.value = filters.soldWindow || '';
+        if (soldEl) soldEl.value = filters.soldWindow || 'all';
+        // Part 4b — agent + suburb.
+        const agentEl = document.getElementById('filter-agent');
+        if (agentEl) agentEl.value = filters.agentId != null ? String(filters.agentId) : '';
+        document.querySelectorAll('[data-filter-suburb]').forEach(cb => {
+            cb.checked = Array.isArray(filters.suburbIds) && filters.suburbIds.includes(parseInt(cb.dataset.filterSuburb, 10));
+        });
         // Active-filter chip count.
         const cnt = countActiveFilters();
         const chip = document.getElementById('filters-count-strip');
@@ -1385,18 +1461,21 @@ document.addEventListener('DOMContentLoaded', function () {
     let lastPayload = null; // kept for layer-toggle re-render without refetch
 
     // ── Map init ──────────────────────────────────────────────────────────
-    // Phase B Fix 1a — URL view (?lat=&lng=&z=) takes precedence over
-    // HFC_BOUNDS. Falls back to fitBounds when URL params are absent or
-    // out of range. Done after map creation so setView/fitBounds run on
-    // the live instance.
+    // Phase B Fix 1a — URL view (?lat=&lng=&z=) takes precedence over the
+    // per-agency MAP_CONFIG center/zoom (then MAP_BOUNDS fitBounds). Falls back
+    // when URL params are absent or out of range. Done after map creation so
+    // setView/fitBounds run on the live instance.
     const map = L.map('corex-map', { zoomControl: true, attributionControl: true });
     const __urlView = readMapViewFromUrl();
     if (__urlView) {
         map.setView([__urlView.lat, __urlView.lng], __urlView.zoom);
+    } else if (MAP_CONFIG.center && MAP_CONFIG.center.lat != null) {
+        // Per-agency center/zoom (multi-tenancy fix).
+        map.setView([MAP_CONFIG.center.lat, MAP_CONFIG.center.lng], MAP_CONFIG.zoom || 11);
     } else {
         map.fitBounds([
-            [HFC_BOUNDS.south, HFC_BOUNDS.west],
-            [HFC_BOUNDS.north, HFC_BOUNDS.east],
+            [MAP_BOUNDS.south, MAP_BOUNDS.west],
+            [MAP_BOUNDS.north, MAP_BOUNDS.east],
         ]);
     }
 
@@ -2532,7 +2611,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         // Always send all six layer keys so server gives counts for each;
         // the UI hides disabled ones at render time.
-        ['hfc_listings','sold_comps','active_listings','mic_subjects','scheme_owners','tracked_properties'].forEach(k => params.append('layers[]', k));
+        ['hfc_listings','hfc_sold','hfc_off_market','sold_comps','active_listings','mic_subjects','scheme_owners','tracked_properties'].forEach(k => params.append('layers[]', k));
 
         // Filters — only send when narrowed beyond defaults so the URL stays
         // clean in the common case.
@@ -2561,6 +2640,11 @@ document.addEventListener('DOMContentLoaded', function () {
             filters.listingStatus.forEach(s => params.append('listingStatus[]', s));
         }
         if (filters.soldWindow) params.set('soldWindow', filters.soldWindow);
+        // Part 4b — specific-agent + area/suburb narrowing.
+        if (filters.agentId) params.set('agentId', String(filters.agentId));
+        if (Array.isArray(filters.suburbIds) && filters.suburbIds.length > 0) {
+            filters.suburbIds.forEach(id => params.append('suburbIds[]', String(id)));
+        }
 
         setLoading(true);
         try {
@@ -3489,7 +3573,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // ensuing moveend will trigger a fetch which calls syncUrlState;
         // the flag prevents the new HFC-area center from being re-pinned.
         suppressViewInUrl = true;
-        map.fitBounds([[HFC_BOUNDS.south, HFC_BOUNDS.west], [HFC_BOUNDS.north, HFC_BOUNDS.east]]);
+        map.fitBounds([[MAP_BOUNDS.south, MAP_BOUNDS.west], [MAP_BOUNDS.north, MAP_BOUNDS.east]]);
     });
 
     // Phase 3g V2 — display-mode radios.
@@ -3518,6 +3602,51 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
+    // ── Part 3 — Buyer Demand heat overlay ────────────────────────────────
+    // A SEPARATE heat layer (distinct from the property coverage heat) sourced
+    // from seeded buyer wishlists, placed at suburb centroids. Demand is
+    // source-separable (portal_lead vs other) server-side; the heat intensity
+    // uses the total, the count badge surfaces the split. OFF by default.
+    let buyerDemandLayer = null;
+    async function loadBuyerDemand() {
+        try {
+            const res = await fetch(DEMAND_URL, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!res.ok) return;
+            const data = await res.json();
+            const pts = data.points || [];
+            const maxTotal = pts.reduce((m, p) => Math.max(m, p.total || 0), 1);
+            const heatPts = pts.map(p => [p.lat, p.lng, Math.max(0.15, (p.total || 0) / maxTotal)]);
+            if (buyerDemandLayer) { map.removeLayer(buyerDemandLayer); buyerDemandLayer = null; }
+            if (heatPts.length) {
+                buyerDemandLayer = L.heatLayer(heatPts, {
+                    radius: 38, blur: 28, maxZoom: 16, max: 1.0,
+                    // Blue (low) → red (high) demand — distinct from the property
+                    // coverage gradient so the two heat semantics never confuse.
+                    gradient: { 0.0: '#1e3a8a', 0.35: '#3b82f6', 0.65: '#f59e0b', 1.0: '#dc2626' },
+                }).addTo(map);
+            }
+            const cntEl = document.getElementById('buyer-demand-count');
+            if (cntEl) {
+                const t = data.totals || {};
+                cntEl.textContent = (t.total || 0) + ' buyers · ' + (t.portal_lead || 0) + ' portal · ' + (t.suburbs || 0) + ' areas';
+            }
+        } catch (e) { /* demand overlay is best-effort */ }
+    }
+    (function wireBuyerDemand() {
+        const bd = document.getElementById('buyer-demand-toggle');
+        if (!bd) return;
+        bd.addEventListener('change', () => {
+            if (bd.checked) {
+                loadBuyerDemand();
+            } else if (buyerDemandLayer) {
+                map.removeLayer(buyerDemandLayer);
+                buyerDemandLayer = null;
+                const cntEl = document.getElementById('buyer-demand-count');
+                if (cntEl) cntEl.textContent = '';
+            }
+        });
+    })();
+
     // Phase A.3.1 — pull current state from the inputs. Called by Apply +
     // the search debounce.
     function readFiltersFromUi() {
@@ -3530,12 +3659,18 @@ document.addEventListener('DOMContentLoaded', function () {
             .filter(cb => cb.checked).map(cb => cb.dataset.filterType);
         const listingStatus = Array.from(document.querySelectorAll('[data-filter-status]'))
             .filter(cb => cb.checked).map(cb => cb.dataset.filterStatus);
-        const sw = document.getElementById('filter-sold-window')?.value || '';
+        const sw = document.getElementById('filter-sold-window')?.value || 'all';
         const search = (document.getElementById('filter-search')?.value || '').trim();
+        // Part 4b — agent + suburb.
+        const agentId = intOrNull('filter-agent');
+        const suburbIds = Array.from(document.querySelectorAll('[data-filter-suburb]'))
+            .filter(cb => cb.checked).map(cb => parseInt(cb.dataset.filterSuburb, 10)).filter(Number.isInteger);
 
         return {
             scope:    filters.scope,
             search:   search,
+            agentId,
+            suburbIds,
             yearFrom: intOrNull('filter-year-from'),
             yearTo:   intOrNull('filter-year-to'),
             types:    types.length ? types : [...FILTER_DEFAULTS.types],
@@ -3550,7 +3685,7 @@ document.addEventListener('DOMContentLoaded', function () {
             buildingMin:  intOrNull('filter-building-min'),
             buildingMax:  intOrNull('filter-building-max'),
             listingStatus,
-            soldWindow:   ['','3mo','6mo','12mo','24mo'].includes(sw) ? sw : '',
+            soldWindow:   ['all','3mo','6mo','12mo','24mo'].includes(sw) ? sw : 'all',
             domMin:       intOrNull('filter-dom-min'),
             domMax:       intOrNull('filter-dom-max'),
         };
@@ -3567,9 +3702,13 @@ document.addEventListener('DOMContentLoaded', function () {
     // Apply button — primary commit gesture.
     document.getElementById('filter-apply').addEventListener('click', applyFilters);
 
+    // Part 4b / Part 2 — single-select dropdowns apply immediately.
+    document.getElementById('filter-agent')?.addEventListener('change', applyFilters);
+    document.getElementById('filter-sold-window')?.addEventListener('change', applyFilters);
+
     // Clear All — reset to defaults (preserves scope per role default).
     document.getElementById('filter-clear').addEventListener('click', () => {
-        filters = { ...FILTER_DEFAULTS, types: [...FILTER_DEFAULTS.types], listingStatus: [] };
+        filters = { ...FILTER_DEFAULTS, types: [...FILTER_DEFAULTS.types], listingStatus: [], suburbIds: [], agentId: null };
         persistFilters();
         syncFilterUi();
         cache.length = 0;

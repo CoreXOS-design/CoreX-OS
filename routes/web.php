@@ -2389,6 +2389,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::prefix('map')->middleware(['permission:access_properties', 'agency.required'])->name('corex.map.')->group(function () {
         Route::get('/',                       [\App\Http\Controllers\Map\MapController::class, 'index'])->name('index');
         Route::get('/pins',                   [\App\Http\Controllers\Map\MapController::class, 'pins'])->name('pins');
+        Route::get('/demand',                 [\App\Http\Controllers\Map\MapController::class, 'demand'])->name('demand');
         Route::get('/sold/{layerId}',         [\App\Http\Controllers\Map\MapController::class, 'soldCard'])->name('sold');
         Route::get('/active/{layerId}',       [\App\Http\Controllers\Map\MapController::class, 'activeCard'])->name('active');
         Route::get('/mic-subject/{report}',   [\App\Http\Controllers\Map\MapController::class, 'micSubjectCard'])->name('mic-subject');

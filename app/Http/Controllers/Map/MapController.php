@@ -52,8 +52,52 @@ final class MapController extends Controller
                 ->find($user->effectiveAgencyId())
             : null;
 
+        // Per-agency map config (center / zoom / bounds / default sold window) — the
+        // multi-tenancy fix: every tenant gets its own geography instead of the
+        // hardcoded HFC KZN South Coast box. Falls back to config('map.defaults.*').
+        $mapConfig = $agency
+            ? \App\Models\AgencyMapSettings::forAgency((int) $agency->id)->clientConfig()
+            : [
+                'center'     => config('map.defaults.center'),
+                'zoom'       => config('map.defaults.zoom'),
+                'bounds'     => config('map.defaults.bounds'),
+                'soldWindow' => config('map.defaults.sold_window'),
+            ];
+
+        // Part 4b — populate the specific-agent + area/suburb dropdowns.
+        $agents = collect();
+        $suburbs = collect();
+        if ($agency) {
+            $agents = \App\Models\User::query()
+                ->withoutGlobalScopes()
+                ->where('agency_id', $agency->id)
+                ->whereNull('deleted_at')
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->filter(fn ($u) => filled($u->name))
+                ->values();
+
+            // Suburbs the agency actually has stock in (keeps the dropdown relevant).
+            $suburbIds = DB::table('properties')
+                ->where('agency_id', $agency->id)
+                ->whereNull('deleted_at')
+                ->whereNotNull('p24_suburb_id')
+                ->distinct()
+                ->pluck('p24_suburb_id')
+                ->all();
+            if (! empty($suburbIds)) {
+                $suburbs = \App\Models\P24Suburb::query()
+                    ->whereIn('id', $suburbIds)
+                    ->orderBy('name')
+                    ->get(['id', 'name']);
+            }
+        }
+
         return view('corex.map.index', [
-            'agency' => $agency,
+            'agency'    => $agency,
+            'mapConfig' => $mapConfig,
+            'mapAgents' => $agents,
+            'mapSuburbs' => $suburbs,
         ]);
     }
 
@@ -65,7 +109,7 @@ final class MapController extends Controller
             'east'         => 'required|numeric|between:-180,180',
             'west'         => 'required|numeric|between:-180,180|lte:east',
             'layers'       => 'sometimes|array',
-            'layers.*'     => 'string|in:hfc_listings,sold_comps,active_listings,mic_subjects,scheme_owners,tracked_properties',
+            'layers.*'     => 'string|in:hfc_listings,hfc_sold,hfc_off_market,sold_comps,active_listings,mic_subjects,scheme_owners,tracked_properties',
             'viewMode'     => 'sometimes|string|in:agent,seller',
             'dateFrom'     => 'sometimes|nullable|date',
             'dateTo'       => 'sometimes|nullable|date',
@@ -100,6 +144,10 @@ final class MapController extends Controller
             'soldWindow'      => 'sometimes|nullable|string|in:3mo,6mo,12mo,24mo,all',
             'domMin'          => 'sometimes|nullable|integer|min:0|max:10000',
             'domMax'          => 'sometimes|nullable|integer|min:0|max:10000',
+            // Map fixes — specific-agent + area/suburb filters.
+            'agentId'         => 'sometimes|nullable|integer|min:1',
+            'suburbIds'       => 'sometimes|array',
+            'suburbIds.*'     => 'integer|min:1',
         ]);
 
         // Phase A.3.1 — 'all' scope is admin-only (owner role). Silently
@@ -170,6 +218,8 @@ final class MapController extends Controller
             soldWindow:    $validated['soldWindow']          ?? null,
             domMin:        isset($validated['domMin']) ? (int) $validated['domMin'] : null,
             domMax:        isset($validated['domMax']) ? (int) $validated['domMax'] : null,
+            agentId:       isset($validated['agentId']) ? (int) $validated['agentId'] : null,
+            suburbIds:     array_values(array_map('intval', $validated['suburbIds'] ?? [])),
         );
 
         $startedAt = microtime(true);
@@ -180,6 +230,31 @@ final class MapController extends Controller
         ];
 
         return response()->json($payload);
+    }
+
+    /**
+     * Part 3 — Buyer-Demand heat points (suburb-centroid intensity). Source-separable
+     * (portal_lead vs other) per the two-streams rule. Agency-scoped.
+     */
+    public function demand(Request $request, \App\Services\Map\BuyerDemandMapService $demand): JsonResponse
+    {
+        $user = $request->user();
+        $agencyId = $user?->effectiveAgencyId();
+        if (! $user || ! $agencyId) {
+            return response()->json(['error' => 'No agency context.'], 403);
+        }
+
+        $points = $demand->demandPoints((int) $agencyId);
+
+        return response()->json([
+            'points'  => $points,
+            'totals'  => [
+                'suburbs'     => count($points),
+                'portal_lead' => array_sum(array_column($points, 'portal_lead')),
+                'other'       => array_sum(array_column($points, 'other')),
+                'total'       => array_sum(array_column($points, 'total')),
+            ],
+        ]);
     }
 
     /**

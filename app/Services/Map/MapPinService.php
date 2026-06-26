@@ -75,6 +75,11 @@ final class MapPinService
         // and (b) the cap-detection comparison further down.
         $sources = [
             'hfc_listings'       => fn (int $lim) => $this->hfcListings($req, $lim),
+            // Map fixes — agency stock split into status-distinct layers (the explosion
+            // fix). Active = on-market only (default ON); Sold + Off-market are separate
+            // toggleable layers with distinct pins, OFF by default.
+            'hfc_sold'           => fn (int $lim) => $this->hfcSold($req, $lim),
+            'hfc_off_market'     => fn (int $lim) => $this->hfcOffMarket($req, $lim),
             'sold_comps'         => fn (int $lim) => $this->soldComps($req, $lim),
             'active_listings'    => fn (int $lim) => $this->activeListings($req, $lim),
             'mic_subjects'       => fn (int $lim) => $this->micSubjects($req, $lim),
@@ -257,8 +262,13 @@ final class MapPinService
         ];
     }
 
-    /** @return array{0: array, 1: int} */
-    private function hfcListings(MapBoundsRequest $req, int $limit): array
+    /**
+     * Shared agency-stock base query (bounds + scope + type/price/size + agent/suburb).
+     * STATUS is applied per layer by the caller via Property::scopeOnMarket() /
+     * Property::OFF_MARKET_STATUSES — the single source of truth (no forked status list).
+     * Single table, no joins, so column references stay unambiguous.
+     */
+    private function agencyStockBaseQuery(MapBoundsRequest $req)
     {
         $q = DB::table('properties')
             ->whereNull('deleted_at')
@@ -266,85 +276,160 @@ final class MapPinService
             ->whereBetween('latitude',  [$req->south, $req->north])
             ->whereBetween('longitude', [$req->west,  $req->east]);
 
-        // A.3.1 — scope (my / agency / all) + extended filters.
         $this->applyScopeFilter($q, $req, 'agency_id', 'agent_id');
-
         $this->applyDemoFilter($q, $req, 'is_demo');
         $this->applyPropertyTypeFilter($q, $req, 'property_type');
         $this->applyTypeFilter($q, $req, 'property_type');
         $this->applyBedroomsFilter($q, $req, 'beds');
         $this->applyPriceFilter($q, $req, 'price');
-
-        // A.3.1 — extended filters. Columns are HFC properties-table specific.
         $this->applyRangeFilter($q, $req->bedroomsMin,  $req->bedroomsMax,  'beds');
         $this->applyRangeFilter($q, $req->bathroomsMin, $req->bathroomsMax, 'baths');
         $this->applyRangeFilter($q, $req->standMin,     $req->standMax,     'erf_size_m2');
         $this->applyRangeFilter($q, $req->buildingMin,  $req->buildingMax,  'size_m2');
-        $this->applyStatusFilter($q, $req, 'status');
         $this->applySearchFilter($q, $req, ['address', 'title', 'complex_name', 'suburb']);
+        // Map fixes — specific-agent + area/suburb narrowing.
+        $this->applyAgentFilter($q, $req, 'agent_id');
+        $this->applySuburbFilter($q, $req, 'p24_suburb_id');
+
+        return $q;
+    }
+
+    /** The select column set every agency-stock pin needs. */
+    private function agencyStockColumns(): array
+    {
+        return [
+            'id', 'agency_id', 'address', 'property_type', 'price', 'status',
+            'latitude', 'longitude', 'suburb', 'city', 'town', 'province',
+            'pp_ref', 'p24_ref', 'pp_syndication_status', 'p24_syndication_status',
+            'pp_suburb_id', 'listing_type',
+        ];
+    }
+
+    /** Build a pin array for one agency-stock row (shared across the 3 status layers). */
+    private function agencyStockPin($r, string $layer, ?string $date): array
+    {
+        $p = new \App\Models\Property();
+        $p->setRawAttributes([
+            'id'                     => $r->id,
+            'agency_id'              => $r->agency_id,
+            'status'                 => $r->status,
+            'address'                => $r->address,
+            'suburb'                 => $r->suburb,
+            'city'                   => $r->town ?? $r->city,
+            'town'                   => $r->town,
+            'province'               => $r->province,
+            'property_type'          => $r->property_type,
+            'pp_ref'                 => $r->pp_ref,
+            'p24_ref'                => $r->p24_ref,
+            'pp_syndication_status'  => $r->pp_syndication_status,
+            'p24_syndication_status' => $r->p24_syndication_status,
+            'pp_suburb_id'           => $r->pp_suburb_id,
+            'listing_type'           => $r->listing_type,
+        ]);
+
+        return [
+            'id'                   => (int) $r->id,
+            'layer'                => $layer,
+            'lat'                  => (float) $r->latitude,
+            'lng'                  => (float) $r->longitude,
+            'title'                => $r->address ?: 'Property #' . $r->id,
+            'subtitle'             => $this->formatPropertySubtitle($r),
+            'price'                => $r->price !== null ? (int) $r->price : null,
+            'date'                 => $date,
+            'detail_url'           => route('corex.properties.map-card', ['property' => $r->id]),
+            'sensitive'            => false,
+            'status'               => (string) ($r->status ?? ''),
+            'preferred_public_url' => $p->preferredPublicListingUrl(),
+            'internal_url'         => route('corex.properties.show', $r->id),
+            'public_listing_urls'  => $p->publicListingUrls(),
+        ];
+    }
+
+    /**
+     * Part 1 — Active agency stock. ON-MARKET ONLY by default (the explosion fix):
+     * reuses Property::OFF_MARKET_STATUSES so sold/withdrawn/expired/draft/let-out no
+     * longer plot as identical navy pins. An explicit listingStatus narrows within.
+     *
+     * @return array{0: array, 1: int}
+     */
+    private function hfcListings(MapBoundsRequest $req, int $limit): array
+    {
+        $q = $this->agencyStockBaseQuery($req);
+
+        if (!empty($req->listingStatus)) {
+            $this->applyStatusFilter($q, $req, 'status');
+        } else {
+            // Single source of truth — Property::scopeOnMarket() equivalent.
+            $q->whereNotIn('status', \App\Models\Property::OFF_MARKET_STATUSES);
+        }
 
         $total = (clone $q)->count();
+        $rows = $q->select($this->agencyStockColumns())->orderBy('id')->limit($limit)->get();
+        $pins = $rows->map(fn ($r) => $this->agencyStockPin($r, 'hfc_listings', null))->all();
 
-        // A.2.1 — fetch the columns the URL accessor needs so we can hand
-        // the client a preferred_public_url + status without round-tripping.
-        $rows = $q->select([
-                'id', 'agency_id', 'address', 'property_type', 'price', 'status',
-                'latitude', 'longitude', 'suburb', 'city', 'town', 'province',
-                'pp_ref', 'p24_ref', 'pp_syndication_status', 'p24_syndication_status',
-                'pp_suburb_id', 'listing_type',
-            ])
-            ->orderBy('id')
-            ->limit($limit)
-            ->get();
+        return [$this->applyRadiusFilter($pins, $req), $total];
+    }
 
-        $pins = $rows->map(function ($r) {
-            // Hydrate just enough of a Property to call the accessor — avoids
-            // an N+1 reload of every row through Eloquent.
-            $p = new \App\Models\Property();
-            // setRawAttributes lets isOnHfcWebsite() see the raw id (forceFill
-            // doesn't set the primary key on an unsaved model).
-            $p->setRawAttributes([
-                'id'                       => $r->id,
-                'agency_id'                => $r->agency_id,
-                'status'                   => $r->status,
-                'address'                  => $r->address,
-                'suburb'                   => $r->suburb,
-                'city'                     => $r->town ?? $r->city,
-                'town'                     => $r->town,
-                'province'                 => $r->province,
-                'property_type'            => $r->property_type,
-                'pp_ref'                   => $r->pp_ref,
-                'p24_ref'                  => $r->p24_ref,
-                'pp_syndication_status'    => $r->pp_syndication_status,
-                'p24_syndication_status'   => $r->p24_syndication_status,
-                'pp_suburb_id'             => $r->pp_suburb_id,
-                'listing_type'             => $r->listing_type,
-            ]);
+    /**
+     * Part 2 — Sold agency stock as a DISTINCT, period-bounded layer. status='sold',
+     * sold date from the canonical property_sold_records (properties has no sold-date
+     * column), filtered by the existing sold-window (default = agency setting). Distinct
+     * pin styling driven by status='sold' (S_own) client-side.
+     *
+     * @return array{0: array, 1: int}
+     */
+    private function hfcSold(MapBoundsRequest $req, int $limit): array
+    {
+        $q = $this->agencyStockBaseQuery($req)->where('status', 'sold');
 
-            return [
-                'id'                   => (int) $r->id,
-                'layer'                => 'hfc_listings',
-                'lat'                  => (float) $r->latitude,
-                'lng'                  => (float) $r->longitude,
-                'title'                => $r->address ?: 'Property #' . $r->id,
-                'subtitle'             => $this->formatPropertySubtitle($r),
-                'price'                => $r->price !== null ? (int) $r->price : null,
-                'date'                 => null,
-                'detail_url'           => route('corex.properties.map-card', ['property' => $r->id]),
-                'sensitive'            => false,
-                // A.2.1 — context the JS actionsForRecord() needs for the
-                // smart Open-listing button.
-                'status'               => (string) ($r->status ?? ''),
-                'preferred_public_url' => $p->preferredPublicListingUrl(),
-                'internal_url'         => route('corex.properties.show', $r->id),
-                // A.2.3 Item 4 — full per-portal map so the JS can render a
-                // portal strip (one icon per active portal).
-                'public_listing_urls'  => $p->publicListingUrls(),
-            ];
-        })->all();
+        // Period bound — reuse the existing sold-window (falls back to the agency
+        // default sold window so the Sold layer is always period-bounded).
+        $window = $req->soldWindow ?: \App\Models\AgencyMapSettings::forAgency($req->agencyId)->defaultSoldWindow();
+        $months = match ($window) {
+            '3mo' => 3, '6mo' => 6, '12mo' => 12, '24mo' => 24, default => null,
+        };
+        if ($months !== null) {
+            $cutoff = \Carbon\CarbonImmutable::now()->subMonths($months)->toDateString();
+            $q->whereExists(function ($sub) use ($cutoff) {
+                $sub->from('property_sold_records as psr')
+                    ->whereColumn('psr.property_id', 'properties.id')
+                    ->where('psr.sold_date', '>=', $cutoff);
+            });
+        }
 
-        $pins = $this->applyRadiusFilter($pins, $req);
-        return [$pins, $total];
+        $total = (clone $q)->count();
+        $rows = $q->select($this->agencyStockColumns())->orderBy('id')->limit($limit)->get();
+
+        // Batch the sold date onto each pin (no join → no column ambiguity).
+        $ids = $rows->pluck('id')->all();
+        $soldDates = $ids
+            ? DB::table('property_sold_records')->whereIn('property_id', $ids)
+                ->groupBy('property_id')->selectRaw('property_id, MAX(sold_date) as sd')->pluck('sd', 'property_id')
+            : collect();
+
+        $pins = $rows->map(fn ($r) => $this->agencyStockPin($r, 'hfc_sold', $soldDates[$r->id] ?? null))->all();
+
+        return [$this->applyRadiusFilter($pins, $req), $total];
+    }
+
+    /**
+     * Part 5 — Off-market agency stock (withdrawn / expired / cancelled / let-out /
+     * draft / archived / unavailable / transferred — i.e. OFF_MARKET_STATUSES minus
+     * 'sold', which has its own layer). Muted pin client-side. OFF by default.
+     *
+     * @return array{0: array, 1: int}
+     */
+    private function hfcOffMarket(MapBoundsRequest $req, int $limit): array
+    {
+        $offMarketExceptSold = array_values(array_diff(\App\Models\Property::OFF_MARKET_STATUSES, ['sold']));
+
+        $q = $this->agencyStockBaseQuery($req)->whereIn('status', $offMarketExceptSold);
+
+        $total = (clone $q)->count();
+        $rows = $q->select($this->agencyStockColumns())->orderBy('id')->limit($limit)->get();
+        $pins = $rows->map(fn ($r) => $this->agencyStockPin($r, 'hfc_off_market', null))->all();
+
+        return [$this->applyRadiusFilter($pins, $req), $total];
     }
 
     /**
@@ -1089,6 +1174,20 @@ final class MapPinService
     {
         if (empty($req->listingStatus)) return;
         $q->whereIn($column, $req->listingStatus);
+    }
+
+    /** Map fixes — narrow agency stock to a specific responsible agent. */
+    private function applyAgentFilter($q, MapBoundsRequest $req, string $column): void
+    {
+        if ($req->agentId === null) return;
+        $q->where($column, $req->agentId);
+    }
+
+    /** Map fixes — narrow agency stock to one or more P24 suburbs. */
+    private function applySuburbFilter($q, MapBoundsRequest $req, string $column): void
+    {
+        if (empty($req->suburbIds)) return;
+        $q->whereIn($column, $req->suburbIds);
     }
 
     /**
