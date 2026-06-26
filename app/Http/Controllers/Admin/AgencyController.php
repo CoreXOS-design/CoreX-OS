@@ -304,7 +304,10 @@ class AgencyController extends Controller
             $agencyId = $agency->id;
             dispatch(function () use ($agencyId) {
                 @set_time_limit(0);
-                \Artisan::call('p24:sync-locations', ['--agency' => $agencyId]);
+                // Per-agency credential-validation sync: refresh/stamp only.
+                // It must NOT sweep the GLOBAL location tree on one agency's view
+                // — the authoritative daily run (routes/console.php) owns pruning.
+                \Artisan::call('p24:sync-locations', ['--agency' => $agencyId, '--no-prune' => true]);
             })->afterResponse();
             $extraFlash = ['key' => 'success', 'msg' => 'Property24 locations sync queued. Refresh the page in a few minutes to see updated status.'];
         }
@@ -407,7 +410,10 @@ class AgencyController extends Controller
             $agencyId = $agency->id;
             dispatch(function () use ($agencyId) {
                 @set_time_limit(0);
-                \Artisan::call('p24:sync-locations', ['--agency' => $agencyId]);
+                // Per-agency credential-validation sync: refresh/stamp only.
+                // It must NOT sweep the GLOBAL location tree on one agency's view
+                // — the authoritative daily run (routes/console.php) owns pruning.
+                \Artisan::call('p24:sync-locations', ['--agency' => $agencyId, '--no-prune' => true]);
             })->afterResponse();
             return response()->json([
                 'success' => true,

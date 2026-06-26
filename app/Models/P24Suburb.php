@@ -24,6 +24,7 @@ class P24Suburb extends Model
         'longitude',
         'centroid_source',
         'centroid_geocoded_at',
+        'p24_verified_at',
     ];
 
     protected $casts = [
@@ -34,6 +35,7 @@ class P24Suburb extends Model
         'latitude'        => 'float',
         'longitude'       => 'float',
         'centroid_geocoded_at' => 'datetime',
+        'p24_verified_at' => 'datetime',
     ];
 
     public function city(): \Illuminate\Database\Eloquent\Relations\BelongsTo

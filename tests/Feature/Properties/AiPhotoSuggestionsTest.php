@@ -56,7 +56,7 @@ class AiPhotoSuggestionsTest extends TestCase
         $countryId  = \DB::table('p24_countries')->insertGetId(['p24_id' => 1, 'name' => 'South Africa', 'created_at' => now(), 'updated_at' => now()]);
         $provinceId = \DB::table('p24_provinces')->insertGetId(['p24_id' => 10, 'p24_country_id' => $countryId, 'name' => 'KwaZulu-Natal', 'created_at' => now(), 'updated_at' => now()]);
         $cityId     = \DB::table('p24_cities')->insertGetId(['p24_id' => 100, 'p24_province_id' => $provinceId, 'name' => 'Margate', 'created_at' => now(), 'updated_at' => now()]);
-        $suburbId   = \DB::table('p24_suburbs')->insertGetId(['p24_id' => 1000, 'p24_city_id' => $cityId, 'name' => 'Uvongo', 'slug' => 'uvongo', 'created_at' => now(), 'updated_at' => now()]);
+        $suburbId   = \DB::table('p24_suburbs')->insertGetId(['p24_id' => 1000, 'p24_city_id' => $cityId, 'name' => 'Uvongo', 'slug' => 'uvongo', 'p24_verified_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
         return ['province_id' => $provinceId, 'city_id' => $cityId, 'suburb_id' => $suburbId];
     }

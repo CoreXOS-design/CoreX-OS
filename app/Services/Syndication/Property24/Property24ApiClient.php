@@ -392,7 +392,13 @@ class Property24ApiClient
             if (str_contains($contentType, 'application/json')) {
                 $responseData = $response->json() ?? [];
             } else {
-                $responseData = ['raw' => $response->body()];
+                // AT-P24 remediation (#11): non-JSON error bodies (e.g. P24's
+                // full HTML 503/502 outage pages) bloated response_payload and
+                // blew the MySQL sort buffer on `SELECT * ... ORDER BY id`. Cap
+                // the raw body — extractErrorMessage already ignores raw >500
+                // chars, so 1KB preserves every actionable message while keeping
+                // the log row small.
+                $responseData = ['raw' => mb_substr((string) $response->body(), 0, 1000)];
             }
 
             $this->logToDb($propertyId, $action, $payload ?: null, $responseData, $statusCode, $roundTripMs);

@@ -64,8 +64,13 @@ class P24LocationController extends Controller
             'all'     => 'nullable|boolean',
         ]);
 
+        // Only P24-confirmed suburbs are offered. `p24_verified_at` is stamped by
+        // the location sync / reconcile when P24 returns the suburb in its live
+        // list; phantom/stale rows (NULL) are never selectable, so they can never
+        // reach AppliesP24Location or a saveListing payload. See AT-104 audit.
         $query = P24Suburb::query()
             ->where('p24_city_id', (int) $request->query('city_id'))
+            ->whereNotNull('p24_verified_at')
             ->orderBy('name');
 
         $q = trim((string) $request->query('q', ''));
