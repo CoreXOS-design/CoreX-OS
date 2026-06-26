@@ -52,6 +52,12 @@
                 Sync complete. Reload the page to see updated counts.
                 <button type="button" @click="reload()" class="underline ml-2 hover:opacity-80 transition-all duration-300">Reload now</button>
             </div>
+            {{-- Stamp-and-sweep summary: how many stale P24 locations this run removed (AT-106). --}}
+            <div x-show="!running && !failed && finishedAt && (sweptTotal > 0 || progress.prune_skipped)" x-cloak class="text-[11px] mt-0.5" style="color:rgba(255,255,255,0.6);">
+                <span x-show="progress.prune_skipped">Sweep skipped — P24 returned too few locations this run; the tree was left intact.</span>
+                <span x-show="!progress.prune_skipped && sweptTotal > 0"
+                      x-text="'Swept ' + sweptTotal.toLocaleString() + ' stale location' + (sweptTotal === 1 ? '' : 's') + ' (' + (progress.pruned_cities || 0) + ' cities, ' + (progress.pruned_suburbs || 0).toLocaleString() + ' suburbs)' + ((progress.props_remediated || 0) > 0 ? ' · ' + progress.props_remediated + ' propert' + (progress.props_remediated === 1 ? 'y' : 'ies') + ' remediated' : '')"></span>
+            </div>
         </div>
     </div>
 
@@ -199,6 +205,10 @@ function p24SyncWidget(cfg) {
             if (this.running) return 'Syncing Property24 locations';
             if (this.finishedAt) return 'Sync complete';
             return 'Idle';
+        },
+        get sweptTotal() {
+            const p = this.progress || {};
+            return (+p.pruned_provinces || 0) + (+p.pruned_cities || 0) + (+p.pruned_suburbs || 0);
         },
 
         async init() {
