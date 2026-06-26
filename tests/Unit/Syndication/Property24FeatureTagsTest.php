@@ -326,16 +326,12 @@ class Property24FeatureTagsTest extends TestCase
      */
     public function test_air_conditioned_maps_held_irrigation_sprinkler_do_not(): void
     {
-        // AirConditioningUnit is a "listing feature" tag → it lands in the
-        // featureTags[] "Other" bucket (not top-level tags[]) per the contract.
-        $this->assertContains('AirConditioningUnit', $this->otherTags(['Air Conditioned']));
-        $this->assertNotContains('AirConditioningUnit', $this->buildTags(['Air Conditioned']));
+        // Air Conditioned → AirConditioningUnit. It has no PropertyFeatures field,
+        // so as a global feature it lands in top-level tags[].
+        $this->assertContains('AirConditioningUnit', $this->buildTags(['Air Conditioned']));
 
-        // Held — not mapped (neither the requested nor the real CoreX strings),
-        // so they appear in neither bucket.
+        // Held — not mapped (neither the requested nor the real CoreX strings).
         foreach (['Irrigation System', 'Irrigation', 'Sprinkler System', 'Sprinklers'] as $f) {
-            $this->assertNotContains('Irrigationsystem', $this->otherTags([$f]));
-            $this->assertNotContains('SprinklerSystem', $this->otherTags([$f]));
             $this->assertNotContains('Irrigationsystem', $this->buildTags([$f]));
             $this->assertNotContains('SprinklerSystem', $this->buildTags([$f]));
         }
