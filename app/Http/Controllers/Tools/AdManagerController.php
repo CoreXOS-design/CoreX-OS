@@ -74,6 +74,8 @@ class AdManagerController extends Controller
     private function prebuiltTemplates(): array
     {
         return [
+            // Always first, always A4 — a true print-ready PDF (not html2canvas).
+            ['key' => 'brochure',        'name' => 'Printable Brochure'],
             ['key' => 'power',           'name' => 'Power'],
             ['key' => 'luxe',            'name' => 'Luxe'],
             ['key' => 'split',           'name' => 'Split'],
@@ -196,6 +198,13 @@ class AdManagerController extends Controller
         $vars     = $p->adTemplateVars();
         $prebuilt = [];
         foreach ($this->prebuiltTemplates() as $t) {
+            if ($t['key'] === 'brochure') {
+                // A4 PDF template — preview via the dompdf-safe partial (browser URLs).
+                $prebuilt['brochure'] = view('corex.properties._brochure', [
+                    'b' => app(\App\Services\Properties\PropertyBrochureService::class)->data($p, embed: false),
+                ])->render();
+                continue;
+            }
             $prebuilt[$t['key']] = view('corex.properties._ad-templates', array_merge(
                 ['tpl' => $t['key'], 'baseFontPx' => $plat['base']],
                 $vars,
@@ -240,6 +249,13 @@ class AdManagerController extends Controller
             $customLayout = $custom->layout_json;
         } elseif (! in_array($tpl, array_column($this->prebuiltTemplates(), 'key'), true)) {
             abort(422, 'Unknown template.');
+        }
+
+        // Printable Brochure — a true A4 PDF per property (not an html2canvas
+        // image, no AI copy). Each row carries an A4 preview + a link to the
+        // per-property brochure PDF route. Handled here and returned early.
+        if ($tpl === 'brochure') {
+            return $this->generateBrochures($user, $scope, $data['property_ids']);
         }
 
         // AgencyScope limits these to the current agency already.
@@ -291,6 +307,51 @@ class AdManagerController extends Controller
             }
 
             $results[] = $row;
+        }
+
+        if (empty($results)) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'None of the selected properties are yours to advertise.',
+            ], 403);
+        }
+
+        return response()->json(['ok' => true, 'results' => $results]);
+    }
+
+    /**
+     * Printable Brochure batch — one A4 PDF per property. Returns a row per
+     * property with an A4 preview (rendered via the dompdf-safe partial, browser
+     * URLs) and the per-property brochure PDF route for download. Scope-enforced
+     * per property like every other path here. No AI copy — the brochure is a
+     * self-contained handout, not a social post.
+     */
+    private function generateBrochures(User $user, string $scope, array $propertyIds): JsonResponse
+    {
+        $svc   = app(\App\Services\Properties\PropertyBrochureService::class);
+        $props = Property::with(['agent', 'branch', 'agency'])
+            ->whereIn('id', $propertyIds)
+            ->orderBy('title')
+            ->get();
+
+        $results = [];
+        foreach ($props as $p) {
+            if (! $this->canAdvertise($user, $p, $scope)) {
+                continue;
+            }
+
+            $results[] = [
+                'id'           => $p->id,
+                'title'        => $p->title,
+                'agent_name'   => $p->agent?->name ?? 'Unassigned',
+                'brochure'     => true,
+                'brochure_url' => route('corex.properties.brochure', $p),
+                'html'         => view('corex.properties._brochure', ['b' => $svc->data($p, embed: false)])->render(),
+                'cw'           => 794,
+                'ch'           => 1123,
+                'description'  => null,
+                'ai_error'     => null,
+            ];
         }
 
         if (empty($results)) {

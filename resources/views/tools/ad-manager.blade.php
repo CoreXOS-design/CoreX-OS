@@ -124,11 +124,14 @@
                 <button type="button" @click="template = t.key"
                         class="rounded-md overflow-hidden text-left transition-all duration-300" style="background:var(--surface);"
                         :style="template===t.key ? 'border:1.5px solid var(--brand-button,#0ea5e9); box-shadow:0 0 0 1px var(--brand-button,#0ea5e9);' : 'border:1.5px solid var(--border);'">
-                    <div class="adm-tpl-thumb" :style="'aspect-ratio:'+previewCanvas.w+'/'+previewCanvas.h+'; overflow:hidden; background:#071325; position:relative;'">
-                        <div class="adm-scaled" :data-cw="previewCanvas.w" :style="'position:absolute;top:0;left:0;transform-origin:top left;width:'+previewCanvas.w+'px;height:'+previewCanvas.h+'px;'" x-html="previews[t.key] || ''"></div>
+                    <div class="adm-tpl-thumb" :style="'aspect-ratio:'+tplCanvas(t.key).w+'/'+tplCanvas(t.key).h+'; overflow:hidden; background:'+(t.key==='brochure'?'#fff':'#071325')+'; position:relative;'">
+                        <div class="adm-scaled" :data-cw="tplCanvas(t.key).w" :style="'position:absolute;top:0;left:0;transform-origin:top left;width:'+tplCanvas(t.key).w+'px;height:'+tplCanvas(t.key).h+'px;'" x-html="previews[t.key] || ''"></div>
                         <div x-show="previewLoading" class="absolute inset-0 flex items-center justify-center text-[0.6875rem]" style="color:var(--text-muted); background:var(--surface-2);">Loading…</div>
                     </div>
-                    <div class="px-3 py-2 text-sm font-semibold" style="color:var(--text-primary);" x-text="t.name"></div>
+                    <div class="px-3 py-2 text-sm font-semibold flex items-center gap-2" style="color:var(--text-primary);">
+                        <span x-text="t.name"></span>
+                        <template x-if="t.key==='brochure'"><span class="ds-badge ds-badge-default">PDF · A4</span></template>
+                    </div>
                 </button>
             </template>
         </div>
@@ -197,15 +200,23 @@
                 <div class="rounded-md p-4 flex flex-col lg:flex-row gap-4" style="background:var(--surface); border:1px solid var(--border);">
                     {{-- Preview --}}
                     <div class="flex-shrink-0" style="width:100%; max-width:380px;">
-                        <div class="adm-result-thumb" :style="'width:100%; aspect-ratio:'+r.cw+'/'+r.ch+'; overflow:hidden; border-radius:6px; background:#071325;'">
+                        <div class="adm-result-thumb" :style="'width:100%; aspect-ratio:'+r.cw+'/'+r.ch+'; overflow:hidden; border-radius:6px; background:'+(r.brochure?'#fff':'#071325')+';'">
                             <div class="adm-scaled" :id="'adm-canvas-'+r.id" :data-cw="r.cw"
-                                 :style="'width:'+r.cw+'px; height:'+r.ch+'px; transform-origin:top left; background:#071325; position:relative; font-family:Figtree,Arial,sans-serif;'"
+                                 :style="'width:'+r.cw+'px; height:'+r.ch+'px; transform-origin:top left; background:'+(r.brochure?'#fff':'#071325')+'; position:relative; font-family:Figtree,Arial,sans-serif;'"
                                  x-html="r.custom ? '' : r.html"></div>
                         </div>
-                        <button type="button" @click="downloadRow(r)" class="corex-btn-primary text-sm w-full mt-2 justify-center">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                            Download PNG
-                        </button>
+                        <template x-if="r.brochure">
+                            <a :href="r.brochure_url + '?dl=1'" target="_blank" rel="noopener" class="corex-btn-primary text-sm w-full mt-2 justify-center">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                Download Brochure PDF
+                            </a>
+                        </template>
+                        <template x-if="!r.brochure">
+                            <button type="button" @click="downloadRow(r)" class="corex-btn-primary text-sm w-full mt-2 justify-center">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                Download PNG
+                            </button>
+                        </template>
                     </div>
                     {{-- Info / description --}}
                     <div class="flex-1 min-w-0">
@@ -270,6 +281,9 @@ function adManager() {
         init() {
             window.addEventListener('resize', () => this.fitCanvases());
         },
+
+        // Brochure is A4 portrait; every other template uses the social canvas.
+        tplCanvas(key) { return key === 'brochure' ? { w: 794, h: 1123 } : this.previewCanvas; },
 
         get resultAgents() { return [...new Set(this.results.map(r => r.agent_name))].sort(); },
         get filteredResults() {

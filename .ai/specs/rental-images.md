@@ -116,6 +116,55 @@ All under the `corex.properties.` route group (inherit `permission:access_proper
 
 ---
 
+## 7a. Mobile API (added 2026-06-27)
+
+The mobile app exposes the same three inspection galleries (In Inspection, Out
+Inspection, unlimited custom sections) as the web — but with **two extra gates**:
+the feature is **rental-only AND live-only**. It appears in the app **only once a
+property is a rental listing that has been listed and made live**
+(`listing_type === 'rental'` AND `Property::isOnMarket()` — i.e. status NOT in
+`OFF_MARKET_STATUSES`: not draft/withdrawn/sold/expired/etc).
+
+**Discovery flag.** `rental_inspections_available: bool` is exposed on BOTH
+property payloads:
+- `GET /api/v1/mobile/properties/{property}` — under `property`.
+- `GET /api/v1/mobile/properties/{property}/overview` — at top level (overview
+  has no `property` wrapper). This is the endpoint the detail screen reads.
+
+Both come from the single source of truth `Property::rentalInspectionsAvailable()`
+(rental AND `isOnMarket()`), computed server-side — the app trusts it blindly. The
+app shows the Inspections entry when `true`, hides it otherwise. The dedicated
+endpoints enforce the identical gate server-side, so a crafted request can never
+reach a sale or off-market property (422 `not_a_rental` / `not_live`).
+
+**Upload formats.** `upload` accepts `jpg, jpeg, png, webp, heic, heif`, max 50 MB
+each (HEIC/HEIF are accepted explicitly — Laravel's `image` rule excludes them;
+GD can't downscale HEIC so those are stored as-is). A stale `custom_id` returns
+404 consistently across upload / save(rename) / delete. Section `date` is
+normalised to `Y-m-d` (or null) on save.
+
+**Controller:** `app/Http/Controllers/Api/MobileRentalImagesController.php`
+(token-authenticated mirror of the web `PropertyController` methods). Image
+storage is shared with the web via `app/Services/Images/PropertyImageStorer.php`
+(store → `properties/{id}/`, downscale 2560px / JPEG 85). Every image URL the
+mobile API returns is **absolutised** against `APP_URL`.
+
+| Method & URI | Name | Purpose |
+|---|---|---|
+| `GET /api/v1/mobile/properties/{property}/rental-images` | `v1.mobile.properties.rental-images.index` | Fetch normalised structure (absolute URLs) |
+| `POST /api/v1/mobile/properties/{property}/rental-images/upload` | `v1.mobile.properties.rental-images.upload` | multipart — append images to a section |
+| `POST /api/v1/mobile/properties/{property}/rental-images/save` | `v1.mobile.properties.rental-images.save` | JSON — set date / add / rename custom section |
+| `POST /api/v1/mobile/properties/{property}/rental-images/delete` | `v1.mobile.properties.rental-images.delete` | JSON — delete one image by index |
+
+Every successful response returns the full state:
+`{ property_id, listing_type, is_live, available, rental_images: { in_inspection, out_inspection, custom[] } }`
+(upload additionally returns `uploaded: [absolute urls]`). Scope is enforced by
+the shared `ResolvesMobileDataScope::authorizePropertyAccess()` trait gate
+(own listing always; branch/agency per role scope; else 403). Cross-agency access
+is a 404 (agency global scope). Tests: `tests/Feature/Api/MobileRentalImagesTest.php`.
+
+---
+
 ## 8. Acceptance criteria
 
 - Rental Images tab is **hidden** for `listing_type = 'sale'` and **shown** for `'rental'`.

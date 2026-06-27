@@ -347,6 +347,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/{property}/spaces', [MobilePropertyController::class, 'spacesShow'])->name('v1.mobile.properties.spaces.show');
             Route::put('/{property}/spaces', [MobilePropertyController::class, 'spacesUpdate'])->name('v1.mobile.properties.spaces.update');
+
+            // Rental inspection galleries (in/out/custom) — rental-only + live-only.
+            // The mobile app shows the tab when property.rental_inspections_available
+            // is true; these endpoints enforce the same gate. Spec: .ai/specs/rental-images.md
+            Route::get('/{property}/rental-images',        [\App\Http\Controllers\Api\MobileRentalImagesController::class, 'index'])->name('v1.mobile.properties.rental-images.index');
+            Route::post('/{property}/rental-images/upload', [\App\Http\Controllers\Api\MobileRentalImagesController::class, 'upload'])->name('v1.mobile.properties.rental-images.upload');
+            Route::post('/{property}/rental-images/save',   [\App\Http\Controllers\Api\MobileRentalImagesController::class, 'save'])->name('v1.mobile.properties.rental-images.save');
+            Route::post('/{property}/rental-images/delete', [\App\Http\Controllers\Api\MobileRentalImagesController::class, 'destroyImage'])->name('v1.mobile.properties.rental-images.delete');
         });
 
         // ── Mobile Ellie Voice ──────────────────────────────────────

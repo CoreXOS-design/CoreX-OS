@@ -1609,7 +1609,30 @@ class PropertyController extends Controller
 
         $canManageTemplates = $user->hasPermission('access_properties');
 
-        return view('corex.properties.ad', compact('property', 'savedTemplates', 'canManageTemplates'));
+        // Printable Brochure (always-first / always-A4 template) — preview data
+        // for its picker card. embed:false → plain image URLs (fast browser load);
+        // the real A4 PDF (embed:true) is produced by the brochure() route.
+        $brochureData = app(\App\Services\Properties\PropertyBrochureService::class)->data($property, embed: false);
+
+        return view('corex.properties.ad', compact('property', 'savedTemplates', 'canManageTemplates', 'brochureData'));
+    }
+
+    /**
+     * Printable Brochure — stream the property's A4 PDF data sheet.
+     * The always-first / always-A4 entry in the Ad Manager template picker.
+     * Spec: .ai/specs/ad-manager.md §"Printable Brochure".
+     */
+    public function brochure(Property $property, \App\Services\Properties\PropertyBrochureService $service)
+    {
+        $this->authorizeProperty($property);
+
+        $pdf = $service->pdf($property);
+
+        // ?dl=1 forces a download; default opens inline so the picker card can
+        // preview it in a new tab.
+        return request()->boolean('dl')
+            ? $pdf->download($service->filename($property))
+            : $pdf->stream($service->filename($property));
     }
 
     public function livePreview(Property $property, \Illuminate\Http\Request $request)
@@ -1714,72 +1737,15 @@ class PropertyController extends Controller
         return $data;
     }
 
+    // Marketing-gallery + rental-inspection image storage delegates to the
+    // canonical PropertyImageStorer so the web and mobile channels share one
+    // store-location / sizing / encoding implementation (no drift).
     private function storeImages(Request $request, string $field, int $propertyId): array
     {
-        $urls = [];
-        if ($request->hasFile($field)) {
-            foreach ($request->file($field) as $file) {
-                $path = $file->store("properties/{$propertyId}", 'public');
-                $this->downscaleStoredImage($path, 2560, 85);
-                $urls[] = Storage::url($path);
-            }
-        }
-        return $urls;
-    }
-
-    /**
-     * Resize a stored image down to a sensible web size (max dimension on
-     * longest edge, JPEG re-encoded at given quality). Keeps file paths /
-     * extensions intact. Uses GD so no extra dependency is needed.
-     * Original file is overwritten in place. Failures are swallowed so the
-     * upload still succeeds — the source file simply isn't resized.
-     */
-    private function downscaleStoredImage(string $relativePath, int $maxEdge = 2560, int $quality = 85): void
-    {
-        if (!function_exists('imagecreatefromstring')) {
-            return;
-        }
-
-        $disk = Storage::disk('public');
-        if (!$disk->exists($relativePath)) {
-            return;
-        }
-
-        $absolute = $disk->path($relativePath);
-
-        $info = @getimagesize($absolute);
-        if (!$info) {
-            return;
-        }
-        [$width, $height] = $info;
-        $maxSide = max($width, $height);
-
-        if ($maxSide <= $maxEdge && $info[2] === IMAGETYPE_JPEG) {
-            return;
-        }
-
-        $bytes = @file_get_contents($absolute);
-        if ($bytes === false) {
-            return;
-        }
-        $src = @imagecreatefromstring($bytes);
-        unset($bytes);
-        if (!$src) {
-            return;
-        }
-
-        if ($maxSide > $maxEdge) {
-            $scale     = $maxEdge / $maxSide;
-            $newWidth  = max(1, (int) round($width * $scale));
-            $newHeight = max(1, (int) round($height * $scale));
-            $dst       = imagecreatetruecolor($newWidth, $newHeight);
-            imagecopyresampled($dst, $src, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-            imagedestroy($src);
-            $src = $dst;
-        }
-
-        @imagejpeg($src, $absolute, $quality);
-        imagedestroy($src);
+        return app(\App\Services\Images\PropertyImageStorer::class)->storeMany(
+            $request->hasFile($field) ? (array) $request->file($field) : [],
+            $propertyId
+        );
     }
 
     private function agentList(?Property $property = null): \Illuminate\Support\Collection

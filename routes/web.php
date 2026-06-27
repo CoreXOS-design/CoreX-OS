@@ -2323,6 +2323,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{property}/map-card',     [\App\Http\Controllers\Map\MapController::class, 'propertyCard'])->name('map-card');
         Route::get('/{property}/edit',         [\App\Http\Controllers\CoreX\PropertyController::class, 'edit'])->name('edit');
         Route::get('/{property}/ad',           [\App\Http\Controllers\CoreX\PropertyController::class, 'ad'])->name('ad');
+        // Printable Brochure — A4 PDF data sheet (always-first Ad Manager template).
+        Route::get('/{property}/brochure',     [\App\Http\Controllers\CoreX\PropertyController::class, 'brochure'])->name('brochure');
         Route::put('/{property}',              [\App\Http\Controllers\CoreX\PropertyController::class, 'update'])->name('update');
         Route::delete('/{property}',           [\App\Http\Controllers\CoreX\PropertyController::class, 'destroy'])->name('destroy');
         Route::post('/{property}/restore',     [\App\Http\Controllers\CoreX\PropertyController::class, 'restore'])->name('restore')->withTrashed();

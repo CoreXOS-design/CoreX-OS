@@ -43,7 +43,16 @@ class MobilePropertyController extends Controller
 
         $query = Property::query();
         if ($agentFilter !== null) {
-            $query->where('agent_id', $agentFilter);
+            // Co-listing rule (mirrors the web PropertyController): a property
+            // may carry a secondary (co-listing) agent on pp_second_agent_id.
+            // When scoping to one agent, match whether they are the PRIMARY
+            // (agent_id) OR the SECONDARY, so a co-listed property appears under
+            // both agents' "My properties". A property is a single row, so the
+            // OR still returns it exactly once.
+            $query->where(function ($q) use ($agentFilter) {
+                $q->where('agent_id', $agentFilter)
+                  ->orWhere('pp_second_agent_id', $agentFilter);
+            });
         } elseif ($scope === 'branch') {
             $query->where('branch_id', $user->effectiveBranchId() ?: -1);
         }
@@ -708,6 +717,12 @@ class MobilePropertyController extends Controller
             'size_m2'        => $property->size_m2,
             'erf_size_m2'    => $property->erf_size_m2,
 
+            // Rental inspection galleries gate — same flag as the show payload,
+            // here at top level (overview has no nested `property` wrapper). The
+            // app reads this to decide whether to render the Inspections entry.
+            // Single source of truth: Property::rentalInspectionsAvailable().
+            'rental_inspections_available' => $property->rentalInspectionsAvailable(),
+
             'description'    => $property->description,
             'cover_image'    => $coverImage,
             'photo_count'    => count($allImages),
@@ -1142,6 +1157,13 @@ class MobilePropertyController extends Controller
             // Same first image as the web listing card (allImages()[0]), absolute.
             'thumbnail'       => $this->coverImageUrl($property),
 
+            // Rental inspection galleries (in/out/custom) are a rental-only,
+            // live-only feature. This flag is the single signal the mobile app
+            // uses to decide whether to render the "Inspections" tab; the
+            // dedicated endpoints under /rental-images enforce the same gate
+            // server-side. Spec: .ai/specs/rental-images.md
+            'rental_inspections_available' => $property->rentalInspectionsAvailable(),
+
             // Audit
             'agent_id'        => $property->agent_id,
             'agent_name'      => $property->agent?->name,
@@ -1202,27 +1224,11 @@ class MobilePropertyController extends Controller
     }
 
     // ── Authorization ───────────────────────────────────────────
+    // Delegates to the shared trait gate (ResolvesMobileDataScope) so the
+    // single-record property scope check lives in exactly one place across the
+    // mobile API.
     private function authorizeProperty(User $user, Property $property): void
     {
-        // Own listing — always allowed.
-        if ((int) $property->agent_id === (int) $user->id) {
-            return;
-        }
-
-        // Otherwise allow per the role data scope (mirrors the web, where a
-        // branch manager / agency-wide role can open team listings).
-        $scope = \App\Services\PermissionService::getDataScope($user, 'properties') ?? 'own';
-
-        if ($scope === 'all') {
-            return;
-        }
-
-        if ($scope === 'branch'
-            && $property->branch_id
-            && (int) $property->branch_id === (int) $user->effectiveBranchId()) {
-            return;
-        }
-
-        abort(403, 'This property is outside your visibility scope.');
+        $this->authorizePropertyAccess($user, $property);
     }
 }

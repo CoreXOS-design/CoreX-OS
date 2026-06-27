@@ -222,6 +222,62 @@ copy. Batch capped at 50 properties.
 
 ---
 
+## 10c. Printable Brochure (always-first · always-A4 · true PDF)
+
+A special pre-built template that is **always first** in every picker and **always
+A4** regardless of the platform/size selector. Unlike the social-square templates
+(rendered client-side to PNG via html2canvas), the brochure is a **true single-page
+A4 PDF** rendered server-side with **dompdf** (`barryvdh/laravel-dompdf`, already a
+dependency) — it is meant to be printed and handed out, so it must be vector text,
+A4 and print-crisp.
+
+**Layout** (mirrors a Property24 printable brochure): centred agency logo header;
+hero collage (1 large + 2 stacked) with a price badge overlay; a 6-photo thumbnail
+strip; title + location; a 5-metric row (beds / baths / garages / parking / floor
+size) with icons; Rates & Levy badges; a 4-column feature checklist (from
+`features_json`); the full property description; and an agent card (photo, name,
+phone, email) with a scan-to-view **QR code** linking to the public listing preview.
+
+**Architecture**
+- `App\Services\Properties\PropertyBrochureService` — single source of truth.
+  - `data(Property, bool $embed)` builds the `$b` array consumed by the partial.
+    `embed=true` (PDF) → every image is a downscaled base64 **data-URI** (GD), so
+    dompdf needs no remote fetching and the file is self-contained; `embed=false`
+    (browser thumbnail) → plain URLs (fast; no GD/QR work).
+  - `pdf(Property)` renders `corex.properties.brochure-pdf` to an A4 dompdf doc.
+  - Robustness: never remote-fetches the app's OWN host (a `/storage/...` URL whose
+    file is missing locally returns null instantly instead of hanging on an HTTP
+    round-trip to ourselves); external CDN images use a short-timeout best-effort
+    fetch; QR is cached 1 day and only fetched for the real PDF.
+- `resources/views/corex/properties/_brochure.blade.php` — **dompdf-safe** partial
+  (tables not flex/grid; `background-size:cover` LONGHAND not the shorthand
+  slash-syntax dompdf can't parse; data-URI SVG `<img>` icons via the bundled
+  php-svg-lib; border-radius background clipping for circular photo). The SAME
+  partial renders the PDF AND the picker-card thumbnails in the browser.
+- `resources/views/corex/properties/brochure-pdf.blade.php` — `@page{margin:0}` A4
+  wrapper; the brochure's 794px width = A4 @ 96dpi, its 30px padding = print margin.
+- Route `GET /corex/properties/{property}/brochure` → `PropertyController@brochure`
+  (`corex.properties.brochure`). `?dl=1` forces a download attachment; default
+  streams inline. Property-access scope enforced (`AuthorizesPropertyAccess`);
+  `AgencyScope` makes a foreign-agency listing 404, never a leak.
+
+**Surfaces**
+- Single-property **Create Ad** (`ad.blade.php`): a featured brochure card sits
+  above the social grid (always first) with an A4 portrait preview + Download/Open
+  PDF actions linking to the route.
+- Bulk **Tools → Ad Manager**: `brochure` is the first entry in the catalogue
+  (`AdManagerController::prebuiltTemplates()`), previewed at A4; selecting it makes
+  `generate()` return one row per property with an A4 preview + a Download Brochure
+  PDF link (no html2canvas, no AI copy — the brochure is a self-contained handout).
+
+**Acceptance**
+- [ ] Brochure card is first and A4 on both surfaces.
+- [ ] Route streams `application/pdf` starting `%PDF`; `?dl=1` is an attachment.
+- [ ] Degrades cleanly with 0 images / no agent / missing rates|levy.
+- [ ] Foreign-agency listing 404s. Covered by `tests/Feature/Properties/BrochurePdfTest.php`.
+
+---
+
 ## 11. Files to create / modify
 
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — property-aware builder,
@@ -237,3 +293,15 @@ copy. Batch capped at 50 properties.
 - `resources/views/corex/properties/_ad-templates.blade.php` — 10 new template layouts +
   branding/logo resolution.
 - `.ai/CHAT_STARTER.md` — status update.
+
+### Printable Brochure (§10c)
+- `app/Services/Properties/PropertyBrochureService.php` — brochure data + dompdf PDF (new).
+- `resources/views/corex/properties/_brochure.blade.php` — dompdf-safe A4 partial (new).
+- `resources/views/corex/properties/brochure-pdf.blade.php` — A4 PDF wrapper (new).
+- `app/Http/Controllers/CoreX/PropertyController.php` — `brochure()` method + `ad()` passes
+  `$brochureData` for the picker card.
+- `routes/web.php` — `corex.properties.brochure` route.
+- `resources/views/corex/properties/ad.blade.php` — featured always-first brochure card.
+- `app/Http/Controllers/Tools/AdManagerController.php` + `resources/views/tools/ad-manager.blade.php`
+  — brochure first in the catalogue + A4 preview + per-property PDF links.
+- `tests/Feature/Properties/BrochurePdfTest.php` — route/scope/data coverage (new).

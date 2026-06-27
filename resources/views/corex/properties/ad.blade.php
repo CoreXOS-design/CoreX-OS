@@ -110,6 +110,48 @@
         </div>
     </div>
 
+    {{-- ═══ FEATURED — PRINTABLE BROCHURE (always first · always A4 · true PDF) ═══ --}}
+    <div style="max-width:1760px;width:100%;margin-bottom:26px;">
+        <div class="tpl-card" style="display:flex;gap:24px;align-items:stretch;padding:22px;cursor:default;border-color:rgba(0,180,216,0.35);"
+             onmouseover="this.style.borderColor='rgba(0,180,216,0.55)'" onmouseout="this.style.borderColor='rgba(0,180,216,0.35)'">
+            {{-- A4 portrait preview --}}
+            <a href="{{ route('corex.properties.brochure', $property) }}" target="_blank" rel="noopener"
+               style="flex-shrink:0;width:210px;text-decoration:none;">
+                <div style="width:210px;aspect-ratio:794/1123;overflow:hidden;border-radius:8px;background:#fff;box-shadow:0 8px 28px rgba(0,0,0,0.45);position:relative;">
+                    <div style="position:absolute;top:0;left:0;width:794px;height:1123px;transform-origin:top left;transform:scale(0.2645);">
+                        @include('corex.properties._brochure', ['b' => $brochureData])
+                    </div>
+                </div>
+            </a>
+            {{-- Copy + actions --}}
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;">
+                <div style="display:inline-flex;align-items:center;gap:8px;margin-bottom:10px;">
+                    <span style="font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#04221a;background:#19c37d;padding:4px 10px;border-radius:5px;">Printable · PDF</span>
+                    <span style="font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#fff;background:rgba(255,255,255,0.12);padding:4px 10px;border-radius:5px;">A4</span>
+                </div>
+                <div style="font-size:22px;font-weight:900;color:#fff;letter-spacing:-0.02em;">Printable Brochure</div>
+                <p style="font-size:13px;color:rgba(255,255,255,0.45);line-height:1.6;margin-top:8px;max-width:560px;">
+                    A full A4 property data sheet — photos, price, features, rates &amp; levy, the full description, your agent
+                    card and a scan-to-view QR code. Rendered as a true print-ready PDF, not a social graphic.
+                </p>
+                <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;">
+                    <a href="{{ route('corex.properties.brochure', ['property' => $property, 'dl' => 1]) }}"
+                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;background:#e63946;color:#fff;text-decoration:none;transition:opacity 0.12s;"
+                       onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                        <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        Download PDF
+                    </a>
+                    <a href="{{ route('corex.properties.brochure', $property) }}" target="_blank" rel="noopener"
+                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;background:rgba(255,255,255,0.06);color:#fff;border:1.5px solid rgba(255,255,255,0.12);text-decoration:none;transition:all 0.12s;"
+                       onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.12)'">
+                        <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        Open PDF
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {{-- Pre-built cards — responsive fill: as many ≥300px columns as fit, thumbnails scale to card width (JS) --}}
     <div class="tpl-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:22px; max-width:1760px; width:100%;">
         @foreach($prebuilt as $tplDef)

@@ -796,6 +796,19 @@ class Property extends Model
     }
 
     /**
+     * Whether the rental inspection galleries (in/out/custom) are available for
+     * this property. Single source of truth for the mobile `rental_inspections_available`
+     * flag (exposed on both the show + overview payloads) AND the server-side gate
+     * in MobileRentalImagesController: rental-only AND live-only. The mobile app
+     * trusts this flag blindly, so it is computed here and nowhere else.
+     * Spec: .ai/specs/rental-images.md
+     */
+    public function rentalInspectionsAvailable(): bool
+    {
+        return strtolower((string) $this->listing_type) === 'rental' && $this->isOnMarket();
+    }
+
+    /**
      * Phase A.2.1 — public-facing ad URLs across the portals we syndicate to.
      * Returns one slot per portal; null when that portal isn't currently
      * activated or doesn't have a working URL pattern.

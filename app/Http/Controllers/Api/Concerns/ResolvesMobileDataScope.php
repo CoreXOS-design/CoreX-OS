@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Concerns;
 
+use App\Models\Property;
 use App\Models\User;
 use App\Services\PermissionService;
 use Illuminate\Support\Collection;
@@ -114,5 +115,38 @@ trait ResolvesMobileDataScope
         );
 
         return $agentId;
+    }
+
+    /**
+     * Single-record gate: may this user touch this property?
+     *
+     * Mirrors the web (CoreX\PropertyController) and the long-standing private
+     * MobilePropertyController::authorizeProperty — own listing always allowed,
+     * otherwise allowed per the role data scope (branch manager / agency-wide
+     * roles can open team listings). Aborts 403 when out of scope.
+     */
+    protected function authorizePropertyAccess(User $user, Property $property): void
+    {
+        // Own listing — always allowed, whether the user is the PRIMARY
+        // (agent_id) or the SECONDARY co-listing agent (pp_second_agent_id).
+        // A co-listed property is "theirs" for both agents (mirrors the web).
+        if ((int) $property->agent_id === (int) $user->id
+            || (int) $property->pp_second_agent_id === (int) $user->id) {
+            return;
+        }
+
+        $scope = PermissionService::getDataScope($user, 'properties') ?? 'own';
+
+        if ($scope === 'all') {
+            return;
+        }
+
+        if ($scope === 'branch'
+            && $property->branch_id
+            && (int) $property->branch_id === (int) $user->effectiveBranchId()) {
+            return;
+        }
+
+        abort(403, 'This property is outside your visibility scope.');
     }
 }
