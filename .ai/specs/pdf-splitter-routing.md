@@ -233,6 +233,25 @@ boundary. The "both ID+POR → id_copy" symptom is a LABEL issue (the POR page
 submitted as doc-type `ids`), proven by `test_real_link_two_id_labelled_pages_*`;
 the slot is always derived correctly from the page's label (no server collapse).
 
+## Final assignment model (2026-06-27) — the agent's tick is absolute
+
+Headless-chromium proof (driving the exact deployed markup) showed the POST is
+always faithful to the on-screen Alpine state — so the bug was never stale
+serialisation. It was the auto-resolve FIGHTING the agent: it pre-ticked BOTH
+parties on every FICA/ID/POR page and re-ran on every click, so the screen (and
+thus the POST) drifted from what the agent ticked. Rebuilt to this exact spec:
+- **No default** — pages load with zero contacts (killed "default both parties").
+- **Touch is absolute** — once the agent ticks a page, nothing re-evaluates or
+  overrides its contacts (`resolveAssignments` and reassign-on-click REMOVED).
+- **Forward-fill convenience** — `forwardFill()` carries a just-set page's set to
+  the following UNTOUCHED pages only, filtered to each page's valid candidates;
+  it stops dead at the first touched page and never overrides one. So a per-party
+  pack (seller's three docs, then buyer's) needs only a tick at each party
+  boundary; everything else pre-fills, and the POST can only ever be the ticks.
+Page state field renamed `manual`→`touched`. Verified headless: on-load empty;
+natural ticking seller→1-3 / buyer→4-6 posts `[1,1,1,2,2,2]` (ticks==posted);
+touching page 3 leaves page 4's buyer intact.
+
 ## Manual-QA flags (cannot prove statically)
 
 - The Alpine `:checked` submission gotcha is avoided by design (hidden inputs);

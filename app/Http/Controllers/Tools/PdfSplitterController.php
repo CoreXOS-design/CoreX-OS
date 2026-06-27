@@ -477,18 +477,6 @@ class PdfSplitterController extends Controller
      */
     public function link(Request $request)
     {
-        // ───────────────────────────────────────────────────────────────────
-        // TEMP DIAGNOSTIC (AT-105) — dump the RAW browser POST exactly as it
-        // arrives, before any processing, so we can compare the live submit to
-        // what the agent ticked on screen. REMOVE once the slot bug is pinned.
-        \Illuminate\Support\Facades\Log::info('AT-105 link() RAW BROWSER POST', [
-            'property_id'  => $request->input('property_id'),
-            'trigger_fica' => $request->input('trigger_fica'),
-            'labels'       => $request->input('labels'),
-            'contacts'     => $request->input('contacts'),
-        ]);
-        // ───────────────────────────────────────────────────────────────────
-
         $manifest = $this->loadManifestArrayOrNull(session('splitter_manifest_id'));
         if (! $manifest) {
             return redirect()->route('tools.pdf_splitter.index')
