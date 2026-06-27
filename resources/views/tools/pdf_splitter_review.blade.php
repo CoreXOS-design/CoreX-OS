@@ -30,7 +30,7 @@
                 ? implode(' ', array_map(fn($k,$v)=>"{$k}={$v}", array_keys($nonZ), $nonZ))
                 : 'no hits',
             'contactIds' => [],
-            'manual'     => false,
+            'touched'    => false,
         ];
     }
 @endphp
@@ -367,7 +367,8 @@ document.addEventListener('alpine:init', () => {
         pickProp(r) { this.property = r; this.q = ''; this.propResults = []; this.loadContacts(r.id); },
         clearProperty() {
             this.property = null; this.contacts = []; this.contactsById = {};
-            this.pages.forEach(p => { p.contactIds = []; p.manual = false; });
+            // Back to a clean slate: no contacts, nothing touched.
+            this.pages.forEach(p => { p.contactIds = []; p.touched = false; });
         },
         async loadContacts(id) {
             this.loadingContacts = true;
@@ -380,7 +381,8 @@ document.addEventListener('alpine:init', () => {
             } catch (e) { this.contacts = []; }
             this.loadingContacts = false;
             this.indexContacts();
-            this.resolveAssignments();
+            // DEFAULT: nothing pre-ticked. Pages start with zero contacts and the
+            // agent's ticks are the only source of truth. No auto-resolve runs.
         },
         indexContacts() { this.contactsById = {}; this.contacts.forEach(c => this.contactsById[c.id] = c); },
 
@@ -396,40 +398,41 @@ document.addEventListener('alpine:init', () => {
             return ids;
         },
 
-        // ── sticky auto-resolve (per doc-type, carries the whole SET) ──────
-        resolveAssignments() {
-            // Carry forward the PREVIOUS page's contact set (filtered to each
-            // page's own valid candidates); a manual change updates the carry
-            // going forward. Keyed by PAGE ORDER, not by doc-type.
-            //
-            // Why order, not doc-type: a real pack is laid out per PARTY —
-            // seller FICA / seller ID / seller POR, then buyer FICA / buyer ID /
-            // buyer POR. A per-doc-type sticky bled the seller's ID/POR choice
-            // onto the buyer's same-type pages, silently reverting the buyer's
-            // ID + POR to the seller (buyer ends up with only its FICA page;
-            // the seller collects both parties' pages). Carrying the previous
-            // page keeps each party's contiguous run on that party — the agent
-            // only switches at the party boundary.
-            let running = null;
-            for (const pg of this.pages) {
-                const cand = this.allCandidateIds(pg.label);
-                if (pg.manual) { running = pg.contactIds.slice(); continue; }
-                pg.contactIds = (running !== null)
-                    ? running.filter(id => cand.includes(id))
-                    : cand.slice();   // first page → full role-resolved set
-                running = pg.contactIds.slice();
-            }
-        },
+        // ── assignment: the agent's tick is the single source of truth ────
+        // No default (pages start empty), no reassign-on-click, no per-doc-type
+        // sticky. A page the agent has TOUCHED is theirs forever. The only
+        // convenience is forwardFill(): when a page is set, its set carries as
+        // the STARTING value of the following UNTOUCHED pages — it stops dead at
+        // the first touched page and never overrides one. So the screen (and the
+        // POST, which mirrors it) can only ever be what the agent actually ticked.
         isChecked(pg, cid) { return pg.contactIds.includes(cid); },
         toggleContact(pg, cid) {
             const i = pg.contactIds.indexOf(cid);
             if (i >= 0) pg.contactIds.splice(i, 1); else pg.contactIds.push(cid);
-            pg.manual = true;
-            this.resolveAssignments();
+            pg.touched = true;                 // the agent owns this page now
+            this.forwardFill(pg);              // pre-fill the next UNTOUCHED run only
         },
-        onLabelChange(pg) { pg.manual = false; this.resolveAssignments(); },
-        setAll(slug) { this.pages.forEach(p => { p.label = slug; p.manual = false; }); this.resolveAssignments(); },
-        resetAuto() { this.pages.forEach((p, i) => { p.label = (@json(array_values($pageSeed)))[i].label; p.manual = false; }); this.resolveAssignments(); },
+        forwardFill(fromPg) {
+            const from = this.pages.indexOf(fromPg);
+            const src  = fromPg.contactIds.slice();
+            for (let i = from + 1; i < this.pages.length; i++) {
+                const pg = this.pages[i];
+                if (pg.touched) break;         // locked to the agent's choice — never override
+                pg.contactIds = src.filter(id => this.allCandidateIds(pg.label).includes(id));
+            }
+        },
+        // Changing a page's doc-type drops only contacts no longer valid for the
+        // new type; it never touches OTHER pages and never re-resolves.
+        onLabelChange(pg) {
+            pg.contactIds = pg.contactIds.filter(id => this.allCandidateIds(pg.label).includes(id));
+        },
+        setAll(slug) {
+            this.pages.forEach(p => { p.label = slug; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
+        },
+        resetAuto() {
+            const seed = @json(array_values($pageSeed));
+            this.pages.forEach((p, i) => { p.label = seed[i].label; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(p.label).includes(id)); });
+        },
 
         // ── FICA toggle (reactive) ────────────────────────────────────────
         ficaTargetIds() {
@@ -507,11 +510,12 @@ document.addEventListener('alpine:init', () => {
             } catch (e) { this.addError = 'Network error.'; }
             this.addBusy = false;
         },
-        // Tick the just-added contact on the page that requested it (and make sticky).
+        // Tick the just-added contact on the page that requested it — the agent
+        // chose to add them here, so this counts as touching that page.
         tickNewContact(cid, role) {
             const pg = this.pages.find(p => p.page === this.addPage);
             if (pg && this.contactsById[cid] && !pg.contactIds.includes(cid)) {
-                pg.contactIds.push(cid); pg.manual = true; this.resolveAssignments();
+                pg.contactIds.push(cid); pg.touched = true; this.forwardFill(pg);
             }
         },
     }));
