@@ -4869,9 +4869,11 @@
             {{-- Compliance documents checklist (AT-94) — mirrors the marketing-readiness gate --}}
             @include('corex.properties._compliance-checklist', ['complianceChecklist' => $complianceChecklist ?? [], 'property' => $property])
 
-            {{-- Upload --}}
-            <div>
-                <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload File</h3>
+            {{-- Upload — supports one or many files. When more than one file is
+                 chosen, a Document Type selector appears under each item so the
+                 agent can tag every file before saving in a single submit. --}}
+            <div x-data="driveUpload()">
+                <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload Files</h3>
                 <form method="POST" action="{{ route('corex.properties.files.store', $property) }}"
                       enctype="multipart/form-data" class="space-y-3">
                     @csrf
@@ -4880,18 +4882,22 @@
                                style="border-color:var(--border-hover); color:var(--text-secondary); min-width:200px;"
                                onmouseover="this.style.borderColor='var(--brand-icon)'" onmouseout="this.style.borderColor='var(--border-hover)'">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" /></svg>
-                            <span id="drive-label">Select a file (max 50 MB)</span>
-                            <input type="file" name="file" class="hidden"
-                                   onchange="document.getElementById('drive-label').textContent = this.files[0].name; document.getElementById('drive-submit').classList.remove('hidden');">
+                            <span x-text="files.length === 0
+                                ? 'Select files (multiple allowed, max 50 MB each)'
+                                : (files.length === 1 ? files[0].name : files.length + ' files selected')">Select files (multiple allowed, max 50 MB each)</span>
+                            <input type="file" name="files[]" multiple class="hidden" @change="onSelect($event)">
                         </label>
-                        <button id="drive-submit" type="submit"
-                                class="hidden px-4 py-2 rounded-md text-sm font-semibold text-white"
-                                style="background:var(--brand-button,#0ea5e9);">
+                        <button type="submit" x-show="files.length > 0" x-cloak
+                                class="px-4 py-2 rounded-md text-sm font-semibold text-white"
+                                style="background:var(--brand-button,#0ea5e9);"
+                                x-text="files.length > 1 ? 'Save & Upload' : 'Upload'">
                             Upload
                         </button>
                     </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <select name="document_type_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+
+                    {{-- Single file: one shared Document Type + Contact selector --}}
+                    <div x-show="files.length === 1" x-cloak class="grid grid-cols-2 gap-3">
+                        <select name="document_types[0]" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
                             <option value="">Document Type (optional)</option>
                             @foreach($documentTypes as $dt)
                             <option value="{{ $dt->id }}">{{ $dt->label }}</option>
@@ -4899,6 +4905,30 @@
                         </select>
                         <select name="contact_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
                             <option value="">Link to Contact (optional)</option>
+                            @foreach($property->contacts as $c)
+                            <option value="{{ $c->id }}">{{ $c->name }}{{ $c->type ? ' ('.$c->type->name.')' : '' }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    {{-- Multiple files: a Document Type selector under each item --}}
+                    <div x-show="files.length > 1" x-cloak class="space-y-2">
+                        <div class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                            <template x-for="(f, i) in files" :key="i">
+                                <div class="flex items-center gap-3 px-3 py-2" style="border-bottom:1px solid var(--border);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m.75 12 3 3m0 0 3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                                    <span class="text-sm flex-1 min-w-0 truncate" style="color:var(--text-primary);" x-text="f.name"></span>
+                                    <select :name="'document_types[' + i + ']'" class="text-xs rounded-md border px-2 py-1.5 flex-shrink-0" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary); min-width:180px;">
+                                        <option value="">Document Type (optional)</option>
+                                        @foreach($documentTypes as $dt)
+                                        <option value="{{ $dt->id }}">{{ $dt->label }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </template>
+                        </div>
+                        <select name="contact_id" class="w-full text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+                            <option value="">Link all to Contact (optional)</option>
                             @foreach($property->contacts as $c)
                             <option value="{{ $c->id }}">{{ $c->name }}{{ $c->type ? ' ('.$c->type->name.')' : '' }}</option>
                             @endforeach
@@ -5920,6 +5950,19 @@ function pendingContactsManager(searchUrl, seed = []) {
             this.pendingNew.push({ ...this.newForm });
             this.newForm      = { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' };
             this.showNewForm  = false;
+        },
+    };
+}
+
+// Drive upload (existing property): track the chosen files so a Document Type
+// selector can be rendered per item when more than one file is picked. The
+// per-item selects use document_types[i] keyed by the same FileList index the
+// browser submits, so each file is tagged with its own type in one POST.
+function driveUpload() {
+    return {
+        files: [],
+        onSelect(e) {
+            this.files = Array.from(e.target.files || []).map(f => ({ name: f.name }));
         },
     };
 }

@@ -898,6 +898,58 @@
                     <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; border:1px solid var(--border); color:var(--text-muted); text-decoration:none;">View</a>
                     @endif
 
+                    @if($docCfg['type'] === 'id_copy')
+                    {{-- ID Copy: choose PDF or front+back photos (combined into one PDF server-side) --}}
+                    <form method="POST" action="{{ route('agent.portal.upload') }}" enctype="multipart/form-data" class="w-full"
+                          x-data="{ mode: 'pdf', pdfName: '', frontName: '', backName: '' }">
+                        @csrf
+                        <input type="hidden" name="document_type" value="id_copy">
+                        <input type="hidden" name="id_upload_mode" :value="mode">
+
+                        {{-- Mode toggle --}}
+                        <div class="flex items-center gap-1" style="margin-bottom:8px;">
+                            <button type="button" @click="mode = 'pdf'"
+                                    :style="mode === 'pdf'
+                                        ? 'font-size:0.6875rem; padding:4px 12px; border-radius:6px; cursor:pointer; background:color-mix(in srgb, var(--brand-button) 14%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 30%, transparent);'
+                                        : 'font-size:0.6875rem; padding:4px 12px; border-radius:6px; cursor:pointer; background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);'">PDF</button>
+                            <button type="button" @click="mode = 'photo'"
+                                    :style="mode === 'photo'
+                                        ? 'font-size:0.6875rem; padding:4px 12px; border-radius:6px; cursor:pointer; background:color-mix(in srgb, var(--brand-button) 14%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 30%, transparent);'
+                                        : 'font-size:0.6875rem; padding:4px 12px; border-radius:6px; cursor:pointer; background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);'">Photo</button>
+                        </div>
+
+                        {{-- PDF mode --}}
+                        <div x-show="mode === 'pdf'">
+                            <label style="display:inline-block; font-size:0.75rem; padding:4px 10px; border-radius:6px; cursor:pointer; background:color-mix(in srgb, var(--brand-button) 12%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent); white-space:nowrap;">
+                                {{ $doc ? 'Replace PDF' : 'Upload PDF' }}
+                                <input type="file" name="file" accept=".pdf" class="hidden"
+                                       @change="pdfName = $event.target.files[0]?.name || ''; if(pdfName) $el.closest('form').submit();">
+                            </label>
+                        </div>
+
+                        {{-- Photo mode: front + back --}}
+                        <div x-show="mode === 'photo'" x-cloak class="flex flex-col" style="gap:6px;">
+                            <label style="display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:0.75rem; padding:4px 10px; border-radius:6px; cursor:pointer; background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                                <span x-text="frontName || 'Front photo'" :style="frontName ? '' : 'color:var(--text-muted);'" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+                                <span style="color:var(--brand-button); flex-shrink:0;" x-text="frontName ? 'Change' : 'Choose'"></span>
+                                <input type="file" name="id_front" accept=".jpg,.jpeg,.png,.webp" capture="environment" class="hidden"
+                                       @change="frontName = $event.target.files[0]?.name || ''">
+                            </label>
+                            <label style="display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:0.75rem; padding:4px 10px; border-radius:6px; cursor:pointer; background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                                <span x-text="backName || 'Back photo'" :style="backName ? '' : 'color:var(--text-muted);'" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+                                <span style="color:var(--brand-button); flex-shrink:0;" x-text="backName ? 'Change' : 'Choose'"></span>
+                                <input type="file" name="id_back" accept=".jpg,.jpeg,.png,.webp" capture="environment" class="hidden"
+                                       @change="backName = $event.target.files[0]?.name || ''">
+                            </label>
+                            <button type="submit" :disabled="!frontName || !backName"
+                                    :style="(frontName && backName)
+                                        ? 'font-size:0.75rem; padding:5px 10px; border-radius:6px; cursor:pointer; background:color-mix(in srgb, var(--brand-button) 12%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);'
+                                        : 'font-size:0.75rem; padding:5px 10px; border-radius:6px; cursor:not-allowed; background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); opacity:0.7;'">
+                                {{ $doc ? 'Replace with both sides' : 'Upload both sides' }}
+                            </button>
+                        </div>
+                    </form>
+                    @else
                     <form method="POST" action="{{ route('agent.portal.upload') }}" enctype="multipart/form-data" class="flex items-center gap-1"
                           x-data="{ fileName: '' }">
                         @csrf
@@ -920,6 +972,7 @@
                                    @change="fileName = $event.target.files[0]?.name || ''; if(fileName) $el.closest('form').submit();">
                         </label>
                     </form>
+                    @endif
                 </div>
             </div>
             @endforeach

@@ -759,6 +759,7 @@
             @endphp
             <thead>
                 <tr style="background: var(--surface-2);">
+                    <th class="text-left px-3 py-2.5 text-xs font-semibold uppercase tracking-wider w-20" style="color:var(--text-muted);"></th>
                     @foreach($sortCols as $col)
                         <th class="{{ $col['align'] }} px-4 py-2.5 text-xs font-semibold uppercase tracking-wider {{ $col['hide'] }}" style="color:var(--text-muted);">
                             @if($col['key'])
@@ -780,6 +781,8 @@
             <tbody>
                 @foreach($properties as $property)
                 @php
+                    $rowImages = $property->allImages();
+                    $rowThumb  = $rowImages[0] ?? null;
                     $rowListingLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
                     $rowStatusKey   = strtolower((string) ($property->status ?: 'draft'));
                     $rowStatusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
@@ -791,6 +794,20 @@
                 @endphp
                 <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
                     onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                    <td class="px-3 py-2">
+                        <a href="{{ route('corex.properties.show', $property) }}" class="block w-16 h-16 rounded-md overflow-hidden flex-shrink-0" style="background:var(--brand-default,#0b2a4a);">
+                            @if($rowThumb)
+                                <img src="{{ $rowThumb }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy">
+                            @else
+                                <span class="flex items-center justify-center w-full h-full">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color:rgba(255,255,255,0.18);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>
+                                    </svg>
+                                </span>
+                            @endif
+                        </a>
+                    </td>
                     <td class="px-4 py-2.5">
                         <a href="{{ route('corex.properties.show', $property) }}" class="font-semibold text-sm transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
                             {{ Str::limit($property->title, 35) }}
@@ -805,7 +822,7 @@
                     <td class="px-4 py-2.5 text-xs capitalize hidden sm:table-cell" style="color:var(--text-secondary);">
                         {{ str_replace('_', ' ', $property->property_type) }}
                     </td>
-                    <td class="px-4 py-2.5 text-sm font-semibold text-right" style="color:var(--brand-default,#0b2a4a);">
+                    <td class="px-4 py-2.5 text-sm font-semibold text-right whitespace-nowrap" style="color:var(--brand-default,#0b2a4a);">
                         {{ $property->formattedPrice() }}
                     </td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->beds ?? '—' }}</td>
@@ -834,8 +851,8 @@
                     </td>
                     <td class="px-4 py-2.5 text-left">
                         <div class="inline-flex flex-row gap-1.5 items-center">
-                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowBrandPillStyle }}">{{ $rowListingLabel }}</span>
-                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowStatusPillStyle }}">{{ $rowStatusLabel }}</span>
+                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowBrandPillStyle }}">{{ $rowListingLabel }}</span>
+                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowStatusPillStyle }}">{{ $rowStatusLabel }}</span>
                         </div>
                     </td>
                     <td class="px-4 py-2.5 text-right">

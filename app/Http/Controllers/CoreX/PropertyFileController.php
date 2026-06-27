@@ -21,38 +21,65 @@ class PropertyFileController extends Controller
     {
         $this->authorizeProperty($property);
 
-        $request->validate([
-            'file'  => $this->documentUploadRule(51200),
+        // Two accepted shapes, normalised below into one (files[] + document_types[]):
+        //  - Multi:  files[]          + document_types[]  (Drive tab multi-upload)
+        //  - Single: file             + document_type_id  (compliance-checklist
+        //            preset-type upload — type chosen automatically for the agent)
+        $isSingle = $request->hasFile('file') && ! $request->hasFile('files');
+
+        $request->validate($isSingle ? [
+            'file'             => $this->documentUploadRule(51200),
             'document_type_id' => 'nullable|exists:document_types,id',
+            'contact_id'       => ['nullable', new ExistsInScope(Contact::class)],
+        ] : [
+            // One or many files in a single submit. Each file carries its own
+            // optional document type, keyed by the same index in document_types[].
+            'files'            => 'required|array|min:1',
+            'files.*'          => $this->documentUploadRule(51200),
+            'document_types'   => 'nullable|array',
+            'document_types.*' => 'nullable|exists:document_types,id',
             // ExistsInScope keeps a cross-agency / soft-deleted contact from being attached.
-            'contact_id' => ['nullable', new ExistsInScope(Contact::class)],
+            'contact_id'       => ['nullable', new ExistsInScope(Contact::class)],
         ]);
 
-        $uploaded = $request->file('file');
-        $path = $uploaded->store("properties/{$property->id}/files", 'public');
+        if ($isSingle) {
+            $files = [$request->file('file')];
+            $types = [$request->input('document_type_id') ?: null];
+        } else {
+            $files = $request->file('files');
+            $types = $request->input('document_types', []);
+        }
+        $contactId = $request->filled('contact_id') ? $request->input('contact_id') : null;
 
-        DB::transaction(function () use ($request, $property, $uploaded, $path) {
-            $doc = Document::create([
-                'original_name'    => $uploaded->getClientOriginalName(),
-                'storage_path'     => $path,
-                'disk'             => 'public',
-                'mime_type'        => $uploaded->getMimeType(),
-                'size'             => $uploaded->getSize(),
-                'document_type_id' => $request->input('document_type_id') ?: null,
-                'source_type'      => 'upload',
-                'uploaded_by'      => auth()->id(),
-            ]);
+        DB::transaction(function () use ($files, $types, $contactId, $property) {
+            foreach ($files as $i => $uploaded) {
+                $path = $uploaded->store("properties/{$property->id}/files", 'public');
 
-            // Attach to property
-            $doc->properties()->attach($property->id);
+                $doc = Document::create([
+                    'original_name'    => $uploaded->getClientOriginalName(),
+                    'storage_path'     => $path,
+                    'disk'             => 'public',
+                    'mime_type'        => $uploaded->getMimeType(),
+                    'size'             => $uploaded->getSize(),
+                    'document_type_id' => $types[$i] ?? null,
+                    'source_type'      => 'upload',
+                    'uploaded_by'      => auth()->id(),
+                ]);
 
-            // Attach to contact if selected
-            if ($request->filled('contact_id')) {
-                $doc->contacts()->attach($request->input('contact_id'));
+                // Attach to property
+                $doc->properties()->attach($property->id);
+
+                // Attach to contact if selected (applies to every uploaded file)
+                if ($contactId) {
+                    $doc->contacts()->attach($contactId);
+                }
             }
         });
 
-        return back()->with('success', 'File uploaded.')->with('tab', 'drive');
+        $count   = count($files);
+        $message = $count === 1 ? 'File uploaded.' : "{$count} files uploaded.";
+
+        return back()->with('success', $message)->with('tab', 'drive');
     }
 
     public function destroy(Property $property, Document $document)

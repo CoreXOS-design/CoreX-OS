@@ -161,15 +161,44 @@
             </a>
             @endif
 
-            {{-- Create Listing from Contact (only if no linked properties) --}}
+            {{-- Create Listing from Contact (only if no linked properties).
+                 Agent chooses the Classic form (single-page) or the guided
+                 Upload Wizard — both pre-fill the contact's address and link
+                 the contact as the seller/landlord on save. --}}
             @if(auth()->user()->hasPermission('access_properties') && $contact->properties()->count() === 0)
-            <a href="{{ route('corex.properties.create') }}?contact_id={{ $contact->id }}"
-               target="_blank" rel="noopener"
-               class="corex-btn-primary flex-shrink-0 no-underline"
-               title="Create a new property linked to this contact (opens in a new tab)">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                Create Listing
-            </a>
+            <div class="relative flex-shrink-0" x-data="{ open: false }" @keydown.escape.window="open = false">
+                <button type="button" @click="open = !open"
+                        class="corex-btn-primary no-underline"
+                        title="Create a new property linked to this contact">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                    Create Listing
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 ml-0.5" :class="open ? 'rotate-180' : ''" style="transition:transform .2s;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </button>
+                <div x-show="open" x-transition @click.outside="open = false"
+                     class="absolute right-0 mt-1 w-60 rounded-md overflow-hidden z-30 shadow-lg"
+                     style="background:var(--surface); border:1px solid var(--border);" x-cloak>
+                    <a href="{{ route('corex.properties.wizard') }}?contact_id={{ $contact->id }}"
+                       target="_blank" rel="noopener"
+                       class="flex items-start gap-2.5 px-3 py-2.5 no-underline transition-colors"
+                       style="color:var(--text-primary);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+                        <span>
+                            <span class="block text-sm font-semibold">Upload Wizard</span>
+                            <span class="block text-xs" style="color:var(--text-muted);">Guided, 4 quick steps</span>
+                        </span>
+                    </a>
+                    <a href="{{ route('corex.properties.create') }}?contact_id={{ $contact->id }}"
+                       target="_blank" rel="noopener"
+                       class="flex items-start gap-2.5 px-3 py-2.5 no-underline transition-colors"
+                       style="color:var(--text-primary); border-top:1px solid var(--border);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m11.25 5.5H18a2.25 2.25 0 0 1-2.25-2.25v-2.25"/></svg>
+                        <span>
+                            <span class="block text-sm font-semibold">Classic Form</span>
+                            <span class="block text-xs" style="color:var(--text-muted);">Everything on one page</span>
+                        </span>
+                    </a>
+                </div>
+            </div>
             @endif
 
             {{-- Delete button --}}

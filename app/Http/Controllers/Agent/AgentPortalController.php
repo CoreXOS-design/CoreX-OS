@@ -17,6 +17,7 @@ use App\Models\TrainingCourse;
 use App\Models\User;
 use App\Models\UserDocument;
 use App\Services\Images\AgentProfilePhotoService;
+use App\Services\Images\IdDocumentPdfService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -317,6 +318,12 @@ class AgentPortalController extends Controller
 
         $user = auth()->user();
 
+        // ID Copy captured as two phone photos (front + back) → combine into a
+        // single PDF so it lands as ONE id_copy document.
+        if ($request->document_type === 'id_copy' && $request->input('id_upload_mode') === 'photo') {
+            return $this->storeIdPhotos($request, $user);
+        }
+
         $request->validate([
             'document_type' => ['required', 'string', 'max:50'],
             'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
@@ -377,6 +384,44 @@ class AgentPortalController extends Controller
         }
 
         return back()->with('success', 'Document uploaded — pending verification.');
+    }
+
+    /**
+     * Combine a front + back ID photo into a single two-page PDF and store it as
+     * the agent's ID Copy document. Keeps the ID Copy as one id_copy record so
+     * the portal's latest-per-type grouping and verifier view stay correct.
+     */
+    private function storeIdPhotos(Request $request, User $user)
+    {
+        $request->validate([
+            'id_front' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+            'id_back'  => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+        ]);
+
+        $pdfBinary = app(IdDocumentPdfService::class)->combine(
+            $request->file('id_front'),
+            $request->file('id_back'),
+        );
+
+        $fileName = 'id-copy-' . now()->format('Ymd-His') . '.pdf';
+        $path     = 'agent-docs/' . $user->id . '/' . \Illuminate\Support\Str::random(20) . '.pdf';
+        \Storage::disk('public')->put($path, $pdfBinary);
+
+        UserDocument::create([
+            'user_id'       => $user->id,
+            'agency_id'     => $user->agency_id,
+            'document_type' => UserDocument::DOCUMENT_TYPE_ID_COPY,
+            'file_path'     => $path,
+            'file_name'     => $fileName,
+            'file_size'     => strlen($pdfBinary),
+            'mime_type'     => 'application/pdf',
+            'status'        => 'pending',
+            'verified_at'   => null,
+            'verified_by'   => null,
+            'uploaded_by'   => $user->id,
+        ]);
+
+        return back()->with('success', 'ID copy uploaded — pending verification.');
     }
 
     // ══════════════════════════════════════════════════════════════
