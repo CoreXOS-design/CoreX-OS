@@ -163,12 +163,12 @@ class UserManagementController extends Controller
         $user = User::create([
             'name'                        => $fullName,
             'email'                       => $data['email'],
-            'display_email'               => $data['display_email'] ?: null,
+            'display_email'               => ($data['display_email'] ?? null) ?: null,
             'password'                    => 'INVITE_PENDING',
             'role'                        => $data['role'],
-            'branch_id'                   => $data['branch_id'] ?: null,
+            'branch_id'                   => ($data['branch_id'] ?? null) ?: null,
             'agency_id'                   => auth()->user()->effectiveAgencyId(),
-            'designation'                 => $data['designation'] ?: null,
+            'designation'                 => ($data['designation'] ?? null) ?: null,
             'is_active'                   => true,
             'is_admin'                    => in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0,
             'email_verified_at'           => null,
@@ -309,11 +309,11 @@ class UserManagementController extends Controller
         $user->name       = $fullName;
         $user->email      = $data['email'];
         // AT-79 — outward-facing override (null = fall back to the login email).
-        $user->display_email = $data['display_email'] ?: null;
+        $user->display_email = ($data['display_email'] ?? null) ?: null;
         $user->role       = $data['role'];
         $user->is_admin   = in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0;
-        $user->branch_id  = $data['branch_id'] ?: null;
-        $user->designation = $data['designation'] ?: null;
+        $user->branch_id  = ($data['branch_id'] ?? null) ?: null;
+        $user->designation = ($data['designation'] ?? null) ?: null;
         // show_on_website and exclude_from_p24 are managed in edit mode by their
         // own instant AJAX switches, which submit NO field on the main form. Only
         // assign them when the request actually carries the field — otherwise a

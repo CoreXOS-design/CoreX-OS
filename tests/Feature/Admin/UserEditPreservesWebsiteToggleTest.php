@@ -34,6 +34,16 @@ class UserEditPreservesWebsiteToggleTest extends TestCase
         Http::fake(['*' => Http::response('', 200)]);
         Queue::fake(); // don't run the P24 sync job
 
+        // The roles table is seeded by a data migration; the schema snapshot
+        // used in tests carries structure only, so seed the roles this test's
+        // role-validation (Rule::in(Role::roleNames())) needs, then bust cache.
+        foreach ([['agent', 'Agent'], ['super_admin', 'Super Admin']] as [$n, $l]) {
+            \App\Models\Role::firstOrCreate(['name' => $n], [
+                'label' => $l, 'is_owner' => false, 'can_be_deleted' => true, 'sort_order' => 1,
+            ]);
+        }
+        \App\Models\Role::clearCache();
+
         $agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal', 'website_enabled' => true]);
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
 

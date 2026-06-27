@@ -38,7 +38,7 @@ class IdCopyPhotoUploadTest extends TestCase
         Storage::fake('public');
         $user = $this->makeAgent();
 
-        $response = $this->actingAs($user)->post('/my-portal/upload', [
+        $response = $this->actingAs($user)->post('/corex/my-portal/upload', [
             'document_type' => 'id_copy',
             'id_upload_mode' => 'photo',
             'id_front' => UploadedFile::fake()->image('front.jpg', 800, 500),
@@ -62,7 +62,7 @@ class IdCopyPhotoUploadTest extends TestCase
         Storage::fake('public');
         $user = $this->makeAgent();
 
-        $response = $this->actingAs($user)->post('/my-portal/upload', [
+        $response = $this->actingAs($user)->post('/corex/my-portal/upload', [
             'document_type' => 'id_copy',
             'id_upload_mode' => 'photo',
             'id_front' => UploadedFile::fake()->image('front.jpg', 800, 500),
