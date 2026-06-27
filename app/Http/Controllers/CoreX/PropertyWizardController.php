@@ -57,8 +57,36 @@ class PropertyWizardController extends Controller
             ->filter()
             ->values();
 
+        // Pre-fill from contact when launched from a contact page (AT-60 parity
+        // with the Classic form). The contact's STRUCTURED address seeds step 1
+        // and the contact is linked to the draft on createDraft().
+        $preLinkedContact = null;
+        $contactPrefill   = null;
+        if ($contactId = $request->query('contact_id')) {
+            $contact = \App\Models\Contact::find($contactId);
+            if ($contact) {
+                $preLinkedContact = $contact;
+                $contactPrefill = [
+                    'contact_id'         => $contact->id,
+                    'unit_number'        => $contact->unit_number,
+                    'floor_number'       => $contact->floor_number,
+                    'unit_section_block' => $contact->unit_section_block,
+                    'complex_name'       => $contact->complex_name,
+                    'street_number'      => $contact->street_number,
+                    'street_name'        => $contact->street_name,
+                    'suburb'             => $contact->suburb,
+                    'city'               => $contact->city,
+                    'province'           => $contact->province,
+                    'p24_province_id'    => (int) ($contact->p24_province_id ?? 0),
+                    'p24_city_id'        => (int) ($contact->p24_city_id ?? 0),
+                    'p24_suburb_id'      => (int) ($contact->p24_suburb_id ?? 0),
+                ];
+            }
+        }
+
         return view('corex.properties.wizard', compact(
-            'draft', 'settingItems', 'branches', 'agents', 'suburbs'
+            'draft', 'settingItems', 'branches', 'agents', 'suburbs',
+            'preLinkedContact', 'contactPrefill'
         ));
     }
 
@@ -96,7 +124,11 @@ class PropertyWizardController extends Controller
             'half_baths'      => 'nullable|integer|min:0|max:20',
             'garages'         => 'required|integer|min:0|max:20',
             'title'           => 'required|string|max:200',
+            'contact_id'      => 'nullable|integer|exists:contacts,id',
         ]);
+
+        $contactId = $data['contact_id'] ?? null;
+        unset($data['contact_id']);
 
         // Verify P24 chain and overwrite text columns with canonical names.
         $data = $this->applyP24Location($data);
@@ -116,6 +148,24 @@ class PropertyWizardController extends Controller
                 newP24SuburbId: (int) $property->p24_suburb_id,
                 actorUserId: $user->id,
             ));
+        }
+
+        // Link the originating contact as the seller side of the listing
+        // (sale → seller, rental → landlord), mirroring the Classic form so the
+        // contact never lands orphaned and the compliance gate sees a seller.
+        if ($contactId) {
+            $contact = \App\Models\Contact::find($contactId);
+            if ($contact) {
+                $role = ($property->listing_type ?? 'sale') === 'rental' ? 'landlord' : 'seller';
+                $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
+                \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
+                event(new \App\Events\Contact\ContactLinkedToProperty(
+                    contact: $contact,
+                    property: $property,
+                    role: $role,
+                    actorUserId: $user->id,
+                ));
+            }
         }
 
         if ($request->wantsJson()) {

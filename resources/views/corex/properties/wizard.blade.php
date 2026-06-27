@@ -18,6 +18,7 @@
         },
         existingImages: {{ collect($draft?->gallery_images_json ?? [])->values()->toJson() }},
         suburbs: {{ $suburbs->toJson() }},
+        contactPrefill: {{ json_encode($contactPrefill ?? null) }},
     })">
 
     {{-- Header --}}
@@ -25,7 +26,13 @@
         <div class="flex items-start justify-between">
             <div>
                 <h2 class="text-xl font-bold text-white tracking-tight">New Property</h2>
-                <p class="text-sm mt-1" style="color:rgba(255,255,255,0.65);">Add a listing in 4 quick steps. Save as draft any time.</p>
+                @if(!empty($preLinkedContact))
+                    <p class="text-sm mt-1" style="color:rgba(255,255,255,0.85);">
+                        Creating a listing for <span class="font-semibold text-white">{{ $preLinkedContact->full_name }}</span> — they'll be linked as the seller (or landlord, for a rental) and their address is pre-filled.
+                    </p>
+                @else
+                    <p class="text-sm mt-1" style="color:rgba(255,255,255,0.65);">Add a listing in 4 quick steps. Save as draft any time.</p>
+                @endif
             </div>
             <div class="flex items-center gap-2">
                 @include('layouts.partials.tour-header-launcher')
@@ -228,12 +235,12 @@
                     <div class="p-4 rounded-b-md" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
                         @include('corex._partials.p24-location-picker', [
                             'fieldPrefix'        => 'p24',
-                            'initialProvinceId'  => 0,
-                            'initialCityId'      => 0,
-                            'initialSuburbId'    => 0,
-                            'initialProvinceName'=> '',
-                            'initialCityName'    => '',
-                            'initialSuburbName'  => '',
+                            'initialProvinceId'  => (int) ($contactPrefill['p24_province_id'] ?? 0),
+                            'initialCityId'      => (int) ($contactPrefill['p24_city_id'] ?? 0),
+                            'initialSuburbId'    => (int) ($contactPrefill['p24_suburb_id'] ?? 0),
+                            'initialProvinceName'=> $contactPrefill['province'] ?? '',
+                            'initialCityName'    => $contactPrefill['city'] ?? '',
+                            'initialSuburbName'  => $contactPrefill['suburb'] ?? '',
                             'denormaliseNames'   => false,
                         ])
                         <div class="text-[11px] mt-2" style="color:var(--text-muted);">
@@ -614,6 +621,7 @@ function propertyWizard(config) {
         propertyId: config.draftId,
         csrf: config.csrf,
         routes: config.routes,
+        contactId: config.contactPrefill?.contact_id || null,
 
         // P24 picker state is owned by the included partial component.
         // We mirror only the final IDs into s1 via the p24-location-changed
@@ -637,6 +645,16 @@ function propertyWizard(config) {
         s3: { description: '', mandate_type: '', branch_id: '{{ auth()->user()->effectiveBranchId() ?? '' }}', agent_id: '{{ auth()->id() }}', size_m2: null, erf_size_m2: null, deposit_amount: null, lease_start_date: '', lease_end_date: '', rental_amount: null },
 
         init() {
+            // Seed step 1 from the originating contact's structured address.
+            const pf = config.contactPrefill;
+            if (pf) {
+                ['unit_number','floor_number','unit_section_block','complex_name',
+                 'street_number','street_name','suburb','city','province',
+                 'p24_province_id','p24_city_id','p24_suburb_id'].forEach(k => {
+                    if (pf[k] !== null && pf[k] !== undefined && pf[k] !== '') this.s1[k] = pf[k];
+                });
+            }
+
             // Sync P24 picker state into s1 so submitStep1 picks it up.
             window.addEventListener('p24-location-changed:p24', (e) => {
                 if (!e.detail) return;
@@ -679,6 +697,7 @@ function propertyWizard(config) {
             try {
                 const body = new FormData();
                 Object.entries(this.s1).forEach(([k, v]) => body.append(k, v ?? ''));
+                if (this.contactId) body.append('contact_id', this.contactId);
                 body.append('_token', this.csrf);
                 const r = await fetch(this.routes.draft, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body });
                 const j = await r.json();

@@ -22,12 +22,18 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('agencies', function (Blueprint $table) {
-            $table->unsignedSmallInteger('p24_max_photos')->nullable()->default(150)->after('p24_enabled');
-            $table->unsignedSmallInteger('p24_http_read_timeout')->nullable()->default(120)->after('p24_max_photos');
+            if (! Schema::hasColumn('agencies', 'p24_max_photos')) {
+                $table->unsignedSmallInteger('p24_max_photos')->nullable()->default(150)->after('p24_enabled');
+            }
+            if (! Schema::hasColumn('agencies', 'p24_http_read_timeout')) {
+                $table->unsignedSmallInteger('p24_http_read_timeout')->nullable()->default(120)->after('p24_max_photos');
+            }
         });
 
         Schema::table('p24_syndication_logs', function (Blueprint $table) {
-            $table->unsignedInteger('round_trip_ms')->nullable()->after('status_code');
+            if (! Schema::hasColumn('p24_syndication_logs', 'round_trip_ms')) {
+                $table->unsignedInteger('round_trip_ms')->nullable()->after('status_code');
+            }
         });
     }
 

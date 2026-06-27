@@ -12198,7 +12198,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (879,'2026_07_06_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (880,'2026_07_06_000002_add_centroid_to_p24_suburbs_table',173);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (881,'2026_06_26_160000_add_p24_photo_cap_and_timeout_settings',174);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (882,'2026_06_26_160000_add_destination_flags_to_agency_document_type_compliance',175);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (861,'2026_06_26_120000_add_p24_verified_at_to_p24_suburbs',157);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (862,'2026_06_26_120001_purge_phantom_addington_suburb',157);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (863,'2026_06_26_140000_add_verified_at_softdeletes_to_p24_provinces_cities',158);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (864,'2026_06_26_220000_add_p24_image_signature_to_properties',159);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (883,'2026_06_26_120000_add_p24_verified_at_to_p24_suburbs',157);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (884,'2026_06_26_120001_purge_phantom_addington_suburb',157);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (885,'2026_06_26_140000_add_verified_at_softdeletes_to_p24_provinces_cities',158);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (886,'2026_06_26_220000_add_p24_image_signature_to_properties',159);
