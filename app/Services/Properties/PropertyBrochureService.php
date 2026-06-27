@@ -70,9 +70,15 @@ class PropertyBrochureService
             $stripSrc = $strip;
         }
 
-        // ── Logo: branch → agency, else null (partial falls back to wordmark) ──
-        $logoPath = $branch?->logo_path ?: $agency?->logo_path;
-        $logoSrc  = $logoPath ? $this->logoSrc($logoPath, $embed) : null;
+        // ── Logo: try BOTH the branch logo and the agency logo (first that
+        // resolves wins), else null → the partial falls back to the wordmark.
+        // Trying both matters because a branch can carry a stale logo_path whose
+        // file is missing while the agency's logo is fine. ──
+        $logoCandidates = array_values(array_filter([
+            $branch?->logo_path,
+            $agency?->logo_path,
+        ], fn ($v) => trim((string) $v) !== ''));
+        $logoSrc = $this->logoSrc($logoCandidates, $embed);
 
         // ── Agent photo (circular) ──
         $agentPhoto = $agent ? $this->imageSrc($agent->profilePhotoUrl(), $embed, self::PHOTO_W) : null;
@@ -235,31 +241,105 @@ class PropertyBrochureService
     }
 
     /**
-     * Resolve an agency/branch logo path to a data-URI (embed) or asset URL.
-     * Logos keep their original bytes/format (preserve transparency). For the
-     * PDF we read straight off the public disk; if the stored path doesn't
-     * resolve there we fall back to the asset URL (covers paths stored with a
-     * host or odd prefix).
+     * Resolve the first usable logo from a list of candidate disk paths to a
+     * data-URI (embed) or asset URL (browser). Logos keep their original
+     * bytes/format (preserve transparency).
+     *
+     * For the PDF each candidate is tried in turn: read straight off the public
+     * disk, and if that path doesn't resolve here (e.g. staging serves storage
+     * from a mounted drive the disk root doesn't point at) fall back to an HTTP
+     * GET of the public URL — the web server serves it even when the local path
+     * doesn't. A single, short-timeout fetch, so it's safe to do for our own
+     * host (unlike the bulk property images).
+     *
+     * @param  string[]  $candidates
      */
-    private function logoSrc(string $diskPath, bool $embed): ?string
+    private function logoSrc(array $candidates, bool $embed): ?string
     {
-        $rel = ltrim($diskPath, '/');
+        // Strip a stray leading public/ or storage/ some installs store.
+        $candidates = array_map(
+            fn ($p) => preg_replace('#^(public/|storage/)#', '', ltrim((string) $p, '/')),
+            $candidates,
+        );
+
         if (! $embed) {
-            return asset('storage/' . $rel);
+            return $candidates ? asset('storage/' . $candidates[0]) : null;
         }
 
-        $bytes = null;
-        try {
-            $disk = Storage::disk('public');
-            if ($disk->exists($rel)) {
-                $bytes = $disk->get($rel);
+        foreach ($candidates as $rel) {
+            $bytes = null;
+            try {
+                $disk = Storage::disk('public');
+                if ($disk->exists($rel)) {
+                    $bytes = $disk->get($rel);
+                }
+            } catch (\Throwable) {
+                // fall through to HTTP
             }
-        } catch (\Throwable) {
-            // fall through
-        }
-        $bytes ??= $this->readImageBytes(asset('storage/' . $rel));
+            $bytes ??= $this->httpGet(asset('storage/' . $rel));
 
-        return $bytes !== null ? $this->rawDataUri($bytes) : null;
+            if ($bytes !== null && $bytes !== '') {
+                return $this->scaledLogoDataUri($bytes, 600);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Downscale a logo (preserving transparency) to a PNG data-URI. Logos are
+     * displayed ~52px tall, so a full-res upload (often multi-MB) is needlessly
+     * embedded raw otherwise. SVG / GD-undecodable logos fall back to raw bytes
+     * (dompdf renders SVG via php-svg-lib), so vector logos still work.
+     */
+    private function scaledLogoDataUri(string $bytes, int $maxW): ?string
+    {
+        if (! function_exists('imagecreatefromstring')) {
+            return $this->rawDataUri($bytes);
+        }
+        $src = @imagecreatefromstring($bytes);
+        if ($src === false) {
+            return $this->rawDataUri($bytes); // SVG / unknown → embed as-is
+        }
+
+        $w = imagesx($src);
+        $h = imagesy($src);
+        $tw = ($maxW > 0 && $w > $maxW) ? $maxW : max(1, $w);
+        $th = max(1, (int) round($h * $tw / max(1, $w)));
+
+        $dst = imagecreatetruecolor($tw, $th);
+        imagealphablending($dst, false);
+        imagesavealpha($dst, true);
+        imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 0, 0, 0, 127));
+        imagecopyresampled($dst, $src, 0, 0, 0, 0, $tw, $th, $w, $h);
+        imagedestroy($src);
+
+        ob_start();
+        imagepng($dst, null, 6);
+        $png = (string) ob_get_clean();
+        imagedestroy($dst);
+
+        return 'data:image/png;base64,' . base64_encode($png);
+    }
+
+    /** Short-timeout HTTP GET of any URL (incl. our own host). Null on failure. */
+    private function httpGet(string $url): ?string
+    {
+        if (! preg_match('#^https?://#i', $url)) {
+            return null;
+        }
+        try {
+            $ctx = stream_context_create([
+                'http'  => ['timeout' => 5, 'follow_location' => 1],
+                'https' => ['timeout' => 5, 'follow_location' => 1],
+                'ssl'   => ['verify_peer' => false, 'verify_peer_name' => false],
+            ]);
+            $bytes = @file_get_contents($url, false, $ctx);
+
+            return $bytes !== false && $bytes !== '' ? $bytes : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
