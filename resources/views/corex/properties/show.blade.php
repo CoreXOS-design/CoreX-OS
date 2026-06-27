@@ -578,12 +578,18 @@
                     'Status'        => !empty($property->status),
                     'Suburb'        => !empty($property->suburb),
                     'Description'   => !empty($property->description),
-                    'Beds'          => $property->beds > 0,
-                    'Baths'         => $property->baths > 0,
                     'Listing Agent' => !empty($property->agent_id),
                     'Photos'        => count($property->allImages()) > 0,
                     'Listed Date'   => !empty($property->listed_date),
                 ];
+                // Beds/Baths only count toward readiness for habitable dwellings.
+                // Vacant land/plot, farms, commercial and industrial stock are not
+                // normally listed with bedroom/bathroom counts, so requiring them
+                // would permanently cap their readiness below 100%.
+                if ($property->requiresBedsBaths()) {
+                    $readinessChecks['Beds']  = $property->beds > 0;
+                    $readinessChecks['Baths'] = $property->baths > 0;
+                }
                 $readinessTotal = count($readinessChecks);
                 $readinessDone  = count(array_filter($readinessChecks));
                 $readinessPct   = (int) round(($readinessDone / $readinessTotal) * 100);

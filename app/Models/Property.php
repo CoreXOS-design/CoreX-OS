@@ -56,6 +56,46 @@ class Property extends Model
     }
 
     /**
+     * Whether this property type is a habitable dwelling that is normally
+     * listed with bedroom/bathroom counts. Land, farms, commercial and
+     * industrial stock are not — so readiness/completeness gates must not
+     * demand Beds/Baths for them. Classification mirrors the same
+     * normalised-token matching used by the P24 type resolver
+     * (Property24ListingMapper::resolvePropertyTypeId) so the two never
+     * disagree on what counts as "land/commercial".
+     */
+    public function requiresBedsBaths(): bool
+    {
+        $type = (string) $this->property_type;
+        if ($type === '') {
+            // Unknown type: assume a dwelling so we never silently drop the
+            // Beds/Baths gate for a normal residential listing.
+            return true;
+        }
+
+        // Normalise: lowercase, non-alphanum → single space, collapse, trim,
+        // then pad so whole-token matching ("land" not "highland") works.
+        $norm = trim(preg_replace('/\s+/', ' ', preg_replace('/[^a-z0-9]+/i', ' ', strtolower($type))));
+        $padded = " {$norm} ";
+        $contains = static function (string ...$needles) use ($padded): bool {
+            foreach ($needles as $n) {
+                if (str_contains($padded, " {$n} ")) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // Land / farm / commercial / industrial → no Beds/Baths expected.
+        if ($contains('industrial')) return false;
+        if ($contains('commercial', 'office', 'retail', 'hospitality')) return false;
+        if ($contains('farm', 'smallholding', 'small holding', 'agricultural')) return false;
+        if ($contains('vacant land', 'land', 'plot', 'stand', 'erf')) return false;
+
+        return true;
+    }
+
+    /**
      * Derived public-website fields surfaced on every serialisation so the
      * listing's cosmetic slug and canonical public URL are available
      * everywhere CoreX shows the property. Both are computed (never stored),
