@@ -11,6 +11,7 @@
                     <p class="text-sm text-white/60">Proportional trust account interest</p>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
+                    @include('layouts.partials.tour-header-launcher')
                     @if(\Illuminate\Support\Facades\Route::has('deposit-interest-calculator.history'))
                         <a href="{{ route('deposit-interest-calculator.history') }}" class="corex-btn-outline" data-tour="calc-deposit-interest-history">History</a>
                     @endif

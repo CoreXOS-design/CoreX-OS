@@ -13,6 +13,7 @@
                 <p class="text-sm text-white/60">All assigned rentals &mdash; not period-based.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('rentals.create') }}" data-tour="rent-stock-new" class="corex-btn-primary inline-flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>

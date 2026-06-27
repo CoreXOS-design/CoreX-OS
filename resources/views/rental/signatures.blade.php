@@ -54,6 +54,7 @@
                 </p>
             </div>
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('docuperfect.rental.uploadAndSend') }}"
                    data-tour="rent-signatures-upload"
                    class="corex-btn-primary inline-flex items-center gap-2">

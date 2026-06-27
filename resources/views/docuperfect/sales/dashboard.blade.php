@@ -11,6 +11,7 @@
                 <p class="text-sm text-white/60">Send, track and manage signed sales documents.</p>
             </div>
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('docuperfect.sales.send') }}" class="corex-btn-primary inline-flex items-center gap-2" data-tour="dp-sales-send">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     Upload &amp; Send New

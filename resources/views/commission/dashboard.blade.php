@@ -11,6 +11,9 @@
                 <h1 class="text-xl font-bold text-white leading-tight">My Earnings</h1>
                 <p class="text-sm text-white/60">Commission, cap progress, and revenue share at a glance.</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 

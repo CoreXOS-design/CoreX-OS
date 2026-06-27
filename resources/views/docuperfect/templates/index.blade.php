@@ -20,6 +20,7 @@
                 <p class="text-sm text-white/60">Upload, organise, and configure your document templates.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 <form method="POST" action="{{ route('docuperfect.templates.upload') }}" enctype="multipart/form-data" class="flex items-center" id="tplUploadForm" data-tour="dp-templates-upload">
                     @csrf
                     <label class="corex-btn-primary cursor-pointer text-sm inline-flex items-center gap-2">

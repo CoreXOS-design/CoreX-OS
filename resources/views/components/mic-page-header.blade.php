@@ -18,8 +18,12 @@
             <p class="text-sm text-white/60" style="margin: 4px 0 0 0;">{{ $subtitle }}</p>
             @endif
         </div>
-        @isset($actions)
-        <div class="flex items-center gap-2 flex-wrap">{{ $actions }}</div>
-        @endisset
+        {{-- Always rendered so the tour "?" launcher has a header home on every MIC
+             page; navy variant matches the white-on-navy header chrome. The
+             launcher self-gates (renders nothing on tour-less pages). --}}
+        <div class="flex items-center gap-2 flex-wrap">
+            @include('layouts.partials.tour-header-launcher')
+            {{ $actions ?? '' }}
+        </div>
     </div>
 </div>

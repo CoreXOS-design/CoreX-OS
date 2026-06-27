@@ -3,8 +3,15 @@
 @section('corex-content')
 <div class="space-y-6">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comms-wa-devices-intro">
-        <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Capture</h1>
-        <p class="text-sm text-white/60">Register the device that runs the read-only capture extension. Business WhatsApp conversations with loaded contacts are archived for compliance.</p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Capture</h1>
+                <p class="text-sm text-white/60">Register the device that runs the read-only capture extension. Business WhatsApp conversations with loaded contacts are archived for compliance.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
+        </div>
     </div>
 
     @if(session('success'))

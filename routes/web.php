@@ -601,7 +601,7 @@ Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_
 
 // ===== DEAL REGISTER V2 =====
 Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:deals_v2.view');
+    Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:access_deal_register_v2');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create');
     Route::get('/search/properties', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchProperties'])->name('deals-v2.search.properties');
@@ -611,7 +611,7 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::get('/{deal}/edit', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'edit'])->name('deals-v2.edit')->middleware('permission:deals_v2.edit');
     Route::put('/{deal}', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'update'])->name('deals-v2.update')->middleware('permission:deals_v2.edit');
     Route::delete('/{deal}', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'destroy'])->name('deals-v2.destroy')->middleware('permission:deals_v2.archive');
-    Route::get('/{deal}', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'show'])->name('deals-v2.show')->middleware('permission:deals_v2.view');
+    Route::get('/{deal}', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'show'])->name('deals-v2.show')->middleware('permission:access_deal_register_v2');
 
     // Step actions
     Route::post('/steps/{step}/complete', [\App\Http\Controllers\DealV2\DealStepController::class, 'complete'])->name('deals-v2.steps.complete')->middleware('permission:deals_v2.edit');

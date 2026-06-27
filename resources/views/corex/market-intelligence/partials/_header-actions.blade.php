@@ -6,7 +6,8 @@
     $isManager = auth()->user()?->hasPermission('prospecting_setup.manage') ?? false;
     $includeInStockToggle = (bool) request()->boolean('include_in_stock');
 @endphp
-@include('layouts.partials.tour-header-launcher')
+{{-- Tour "?" launcher is now rendered by the x-mic-page-header component itself,
+     so it appears on every MIC page (not just the ones passing these actions). --}}
 @if($isManager)
     <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
            style="color: rgba(255,255,255,0.8);"

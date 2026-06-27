@@ -21,6 +21,9 @@
                     &middot; Expired and terminated lease agreements.
                 </p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 

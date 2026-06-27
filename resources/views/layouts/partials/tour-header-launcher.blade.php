@@ -20,11 +20,22 @@
     $__hdrTour = \App\Support\Tours\TourRegistry::forRoute(
         \Illuminate\Support\Facades\Route::currentRouteName()
     );
+    // The button adapts to the header backdrop it lands in. Pass variant="surface"
+    // from light/surface headers (x-page-header, x-list-header); the default
+    // "navy" suits the branded brand-default banners.
+    $__hdrSlotClass = (($variant ?? 'navy') === 'surface') ? 'tour-slot-surface' : 'tour-slot-navy';
 @endphp
 @if($__hdrTour && \App\Support\Tours\TourRegistry::visibleTo($__hdrTour, auth()->user()))
-    {{-- Empty slot; the tour engine appends the "?" button here on init(). --}}
-    <div id="tour-launcher-slot"
-         data-tour-header-slot
-         style="flex-shrink:0; display:flex; align-items:center;"></div>
+    {{-- Empty slot; the tour engine appends the "?" button here on init().
+         Wrapped in @once so that even if this partial is included more than once
+         on a page (e.g. via a shared header component AND a bespoke header) the
+         slot renders EXACTLY once — the id `tour-launcher-slot` stays unique and
+         the engine always finds the single right target. --}}
+    @once
+        <div id="tour-launcher-slot"
+             data-tour-header-slot
+             class="{{ $__hdrSlotClass }}"
+             style="flex-shrink:0; display:flex; align-items:center;"></div>
+    @endonce
 @endif
 @endauth

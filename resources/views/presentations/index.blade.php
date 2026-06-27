@@ -13,6 +13,7 @@
                 <p class="text-sm" style="color: rgba(255,255,255,0.6);">Seller presentations, evaluations and pricing analysis.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
                 @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
                     <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline text-sm">P24 Suburbs</a>
                 @endif

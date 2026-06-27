@@ -21,10 +21,13 @@
                 @endif
             </div>
         </div>
-        <a href="{{ route('presentations.show', $presentation) }}"
-           class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
-            &larr; Overview
-        </a>
+        <div class="flex items-center gap-2 flex-wrap">
+            @include('layouts.partials.tour-header-launcher')
+            <a href="{{ route('presentations.show', $presentation) }}"
+               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+                &larr; Overview
+            </a>
+        </div>
     </div>
 </div>
 

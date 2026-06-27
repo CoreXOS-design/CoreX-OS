@@ -64,6 +64,7 @@
         </div>
       </div>
       <div class="flex items-center gap-2">
+        @include('layouts.partials.tour-header-launcher')
         @if($archived)
           <a href="/ellie" class="corex-btn-outline">Hide Archived</a>
         @else

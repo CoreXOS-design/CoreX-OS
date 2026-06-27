@@ -16,9 +16,12 @@
                     <p class="text-sm text-white/60">Open a drive to browse its folders and files. Restricted drives are visible only to invited members.</p>
                 </div>
             </div>
-            @if($can['createDrive'])
-                <button type="button" @click="showDriveModal = true" class="corex-btn-primary">+ New Drive</button>
-            @endif
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+                @if($can['createDrive'])
+                    <button type="button" @click="showDriveModal = true" class="corex-btn-primary">+ New Drive</button>
+                @endif
+            </div>
         </div>
     </div>
 

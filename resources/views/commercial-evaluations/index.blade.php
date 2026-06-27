@@ -11,6 +11,7 @@
                 <p class="text-sm text-white/60">Evaluate commercial, industrial, hospitality &amp; agricultural properties</p>
             </div>
             <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher')
                 <a href="{{ route('commercial-evaluations.create') }}" class="corex-btn-primary" data-tour="re-commercial-evals-new">
                     + New Evaluation
                 </a>

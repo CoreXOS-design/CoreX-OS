@@ -12,6 +12,9 @@
                 </h1>
                 <p class="text-sm text-white/60">Searchable index of physically filed mandates.</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 
