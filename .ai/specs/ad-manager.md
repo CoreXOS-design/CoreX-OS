@@ -245,11 +245,16 @@ the right. **Property features are intentionally NOT listed.** Download filename
 
 **Font**: the PDF embeds **Inter** (the CoreX UI font) — TTFs committed at
 `resources/fonts/inter/Inter-{400,500,600,700}.ttf`, registered via `@font-face` in
-`brochure-pdf.blade.php`. dompdf caches font metrics under `storage/fonts/` (dir
-committed via `.gitkeep`; generated cache gitignored) — the directory must exist and
-be writable in every environment. Image robustness: GD-undecodable formats (e.g.
-`.webp` on a no-webp GD build) embed their raw bytes rather than dropping (dompdf
-renders webp/png/jpeg natively).
+`brochure-pdf.blade.php`. dompdf must WRITE a font-metrics cache; its default
+`storage/fonts/` is created by the deploy user and is NOT writable by php-fpm
+(→ "Permission denied" on staging). So `PropertyBrochureService::pdf()` points
+dompdf's `fontDir`/`fontCache` at **`storage/app/dompdf-fonts`**, which the service
+`@mkdir`s at runtime — created by the web process, so it's owned/writable by it on
+every host (and already gitignored under `storage/app`). The **location pin** is a
+**GD-drawn PNG** (`pinDataUri()`), not an inline SVG — an inline SVG's point gets
+clipped at the text baseline in dompdf/browsers; a raster sizes predictably.
+Image robustness: GD-undecodable formats (e.g. `.webp` on a no-webp GD build) embed
+their raw bytes rather than dropping (dompdf renders webp/png/jpeg natively).
 
 **Architecture**
 - `App\Services\Properties\PropertyBrochureService` — single source of truth.

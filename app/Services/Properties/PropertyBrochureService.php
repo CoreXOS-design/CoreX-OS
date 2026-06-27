@@ -155,7 +155,34 @@ class PropertyBrochureService
         $pdf->setOption('isPhpEnabled', false);
         $pdf->setOption('dpi', 96);
 
+        // dompdf MUST write a font-metrics cache for the embedded Inter @font-face.
+        // The default (storage/fonts) is created by the deploy user, so php-fpm
+        // (www-data) can't write there → "Permission denied" (staging). Point it at
+        // a dir the APP creates at runtime under the already-writable storage/app,
+        // so it's owned by the web process and writable everywhere. See spec §10c.
+        $fontDir = $this->fontCacheDir();
+        if ($fontDir !== null) {
+            $pdf->setOption('fontDir', $fontDir);
+            $pdf->setOption('fontCache', $fontDir);
+        }
+
         return $pdf;
+    }
+
+    /**
+     * A writable directory for dompdf's font cache, created by the web process
+     * (so ownership/permissions are correct). Returns null if it can't be made,
+     * leaving dompdf on its default — the caller still renders, the cache write
+     * just falls back.
+     */
+    private function fontCacheDir(): ?string
+    {
+        $dir = storage_path('app/dompdf-fonts');
+        if (! is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+
+        return is_dir($dir) && is_writable($dir) ? $dir : null;
     }
 
     /** A filesystem-safe download name: "Brochure - {address}.pdf". */
