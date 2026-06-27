@@ -56,9 +56,9 @@
     {{-- ── 1. Header — agency logo, centred ── --}}
     <div style="text-align:center;padding:22px 32px 14px;">
         @if(!empty($b['logo']))
-            <img src="{{ $b['logo'] }}" alt="" style="height:52px;max-width:340px;">
+            <img src="{{ $b['logo'] }}" alt="" style="height:78px;max-width:510px;">
         @else
-            <span style="font-weight:700;font-size:24px;color:#0b2a4a;">{{ $b['agencyName'] }}</span>
+            <span style="font-weight:700;font-size:30px;color:#0b2a4a;">{{ $b['agencyName'] }}</span>
         @endif
     </div>
 
