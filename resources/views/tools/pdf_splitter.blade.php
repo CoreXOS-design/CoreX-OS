@@ -141,20 +141,24 @@
             </div>
         @endif
 
-        {{-- AT-105 — FICA verification kicked off from the split pack --}}
-        @if(session('splitter_fica_url'))
+        {{-- AT-105 — FICA verification(s) kicked off from the split pack. One
+             line per distinct contact (many-to-many → multiple parties). --}}
+        @if(session('splitter_fica_results'))
             <div class="alert-success" style="border-left: 3px solid #8b5cf6;">
-                @if(session('splitter_fica_reused'))
-                    <strong>{{ session('splitter_fica_contact') ?: 'The seller/owner' }}</strong>
-                    already has a FICA verification in progress — opened that one (no duplicate created).
-                @else
-                    Wet-ink FICA verification started for
-                    <strong>{{ session('splitter_fica_contact') ?: 'the seller/owner' }}</strong>
-                    with the FICA documents from this pack.
-                @endif
-                <a href="{{ session('splitter_fica_url') }}" style="text-decoration: underline; font-weight: 600;">
-                    Open the FICA verification to finish &rarr;
-                </a>
+                <div style="font-weight:600; margin-bottom:4px;">Wet-ink FICA verification{{ count(session('splitter_fica_results')) === 1 ? '' : 's' }} from this pack:</div>
+                <ul style="margin:0; padding-left:18px;">
+                    @foreach(session('splitter_fica_results') as $f)
+                        <li>
+                            <strong>{{ $f['contact'] ?? 'the contact' }}</strong>
+                            @if(!empty($f['reused']))
+                                — already had a verification in progress; opened that one (no duplicate).
+                            @else
+                                — started with {{ $f['slots'] ?? 0 }} document{{ ($f['slots'] ?? 0) === 1 ? '' : 's' }} attached.
+                            @endif
+                            <a href="{{ $f['url'] }}" style="text-decoration: underline; font-weight: 600;">Open to finish &rarr;</a>
+                        </li>
+                    @endforeach
+                </ul>
             </div>
         @elseif(session('splitter_fica_note'))
             <div class="alert-error">

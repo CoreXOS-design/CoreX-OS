@@ -434,6 +434,45 @@ class Property extends Model
         return $contacts->count() === 1 ? $contacts->first() : null;
     }
 
+    /**
+     * AT-105 enhancement — the canonical pivot-role SET a routing contact_role
+     * resolves across. 'seller_owner' deliberately spans BOTH seller and owner
+     * (esign auto-link writes 'owner' for sellers — investigation §3). Returns
+     * [] for 'none' / unknown so callers skip contact resolution cleanly.
+     *
+     * @return string[]
+     */
+    public static function pivotRolesForContactRole(?string $contactRole): array
+    {
+        return [
+            'seller_owner' => ['seller', 'owner'],
+            'buyer'        => ['buyer'],
+            'tenant'       => ['tenant'],
+            'landlord'     => ['landlord'],
+            'lessor'       => ['lessor'],
+        ][$contactRole] ?? [];
+    }
+
+    /**
+     * AT-105 enhancement — ALL contacts attached to this property in a given
+     * routing role, in pivot order. Unlike sellerOwnerContact() this is
+     * multi-valued (joint sellers / joint buyers) and never collapses to a
+     * single guess. Case-/whitespace-insensitive on the stored pivot role.
+     * Returns an empty collection for role 'none'/unknown or no matches.
+     */
+    public function contactsForRole(?string $contactRole): \Illuminate\Support\Collection
+    {
+        $set = self::pivotRolesForContactRole($contactRole);
+        if (empty($set)) {
+            return collect();
+        }
+
+        return $this->contacts()->get()->filter(function ($c) use ($set) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $set, true);
+        })->values();
+    }
+
     // ── Presentations V2 ──
 
     public function presentations(): HasMany

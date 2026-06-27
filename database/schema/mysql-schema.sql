@@ -172,7 +172,7 @@ CREATE TABLE `agencies` (
   `p24_password` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `p24_user_group_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_enabled` tinyint(1) NOT NULL DEFAULT '0',
-  `p24_max_photos` smallint unsigned DEFAULT '150',
+  `p24_max_photos` smallint unsigned DEFAULT '30',
   `p24_http_read_timeout` smallint unsigned DEFAULT '120',
   `p24_locations_synced_at` timestamp NULL DEFAULT NULL,
   `p24_last_sync_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -513,6 +513,8 @@ CREATE TABLE `agency_document_type_compliance` (
   `is_compliance_required` tinyint(1) NOT NULL DEFAULT '0',
   `save_to_property` tinyint(1) DEFAULT NULL,
   `save_to_contact` tinyint(1) DEFAULT NULL,
+  `contact_roles` json DEFAULT NULL,
+  `fica_slot` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -1922,9 +1924,9 @@ DROP TABLE IF EXISTS `client_otps`;
 CREATE TABLE `client_otps` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `client_user_id` bigint unsigned DEFAULT NULL,
-  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `purpose` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'activation',
-  `code_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `purpose` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'activation',
+  `code_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `used_at` timestamp NULL DEFAULT NULL,
   `attempts` tinyint unsigned NOT NULL DEFAULT '0',
@@ -4149,6 +4151,8 @@ CREATE TABLE `document_types` (
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `grouping` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'shared',
+  `contact_roles` json DEFAULT NULL,
+  `fica_slot` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none',
   `listing_types` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -4365,9 +4369,9 @@ CREATE TABLE `docuperfect_named_fields` (
   `field_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'text',
   `default_options` json DEFAULT NULL,
   `sort_order` int NOT NULL DEFAULT '0',
-  `source_type` enum('property','contact','agent','deal','static','computed','manual') COLLATE utf8mb4_unicode_ci DEFAULT 'manual',
-  `source_column` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `source_contact_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_type` enum('property','contact','agent','deal','static','computed','manual') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'manual',
+  `source_column` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_contact_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -6320,7 +6324,7 @@ CREATE TABLE `p24_cities` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `p24_id` bigint unsigned NOT NULL,
   `p24_province_id` bigint unsigned NOT NULL,
-  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `p24_verified_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -6543,7 +6547,7 @@ CREATE TABLE `p24_provinces` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `p24_id` bigint unsigned NOT NULL,
   `p24_country_id` bigint unsigned NOT NULL,
-  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `p24_verified_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -9624,7 +9628,7 @@ CREATE TABLE `seller_info_share_links` (
   `contact_id` bigint unsigned DEFAULT NULL,
   `sent_by_user_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned NOT NULL,
-  `token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `accessed_count` int unsigned NOT NULL DEFAULT '0',
   `last_accessed_at` timestamp NULL DEFAULT NULL,
@@ -12198,7 +12202,8 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (879,'2026_07_06_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (880,'2026_07_06_000002_add_centroid_to_p24_suburbs_table',173);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (881,'2026_06_26_160000_add_p24_photo_cap_and_timeout_settings',174);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (882,'2026_06_26_160000_add_destination_flags_to_agency_document_type_compliance',175);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (861,'2026_06_26_120000_add_p24_verified_at_to_p24_suburbs',157);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (862,'2026_06_26_120001_purge_phantom_addington_suburb',157);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (863,'2026_06_26_140000_add_verified_at_softdeletes_to_p24_provinces_cities',158);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (864,'2026_06_26_220000_add_p24_image_signature_to_properties',159);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (883,'2026_06_26_120000_add_p24_verified_at_to_p24_suburbs',176);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (884,'2026_06_26_120001_purge_phantom_addington_suburb',176);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (885,'2026_06_26_140000_add_verified_at_softdeletes_to_p24_provinces_cities',176);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (886,'2026_06_26_220000_add_p24_image_signature_to_properties',176);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (888,'2026_06_27_120000_add_contact_role_and_fica_slot_to_document_types',177);

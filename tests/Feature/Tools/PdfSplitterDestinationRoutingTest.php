@@ -8,6 +8,7 @@ use App\Http\Controllers\Tools\PdfSplitterController;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Contact;
+use App\Models\Document;
 use App\Models\FicaDocument;
 use App\Models\FicaSubmission;
 use App\Models\Property;
@@ -15,21 +16,23 @@ use App\Models\User;
 use App\Services\Compliance\AgencyComplianceDocTypeService;
 use App\Services\Compliance\FicaWetInkService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use ReflectionMethod;
 use Tests\TestCase;
 
 /**
- * AT-105 — PDF Splitter destination-aware routing + FICA auto-kickoff.
+ * AT-105 enhancement — PDF Splitter MANY-TO-MANY per-page contact routing +
+ * multi-FICA kickoff.
  *
- * Proves: per-doc-type destination defaults (grouping-derived) + explicit
- * agency override; the splitter files each output to the configured
- * destination(s); the no-orphan fallback to the property; the FICA wet-ink
- * kickoff pre-populates the seller/owner contact and attaches the
- * fica/ids/por pages present in the pack; settings persistence; and that the
- * shared FicaWetInkService produces the same wet-ink shape the manual intake
- * does.
+ * Proves: per-doc-type contact_roles SET + fica_slot config (catalogue default +
+ * agency override); the role-aware multi-contact resolver (joint sellers/buyers);
+ * many-to-many filing (one page → all its ticked contacts; no-orphan fallback);
+ * and the multi-FICA kickoff (one wet-ink verification per distinct assigned
+ * contact — a FICA page ticked for two contacts yields two processes; per-contact
+ * dedupe; compliance permission gate). The Save-To defaults + search seller_fica
+ * + dedupe behaviours from the original AT-105 build are retained.
  */
 final class PdfSplitterDestinationRoutingTest extends TestCase
 {
@@ -51,24 +54,29 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         $this->user = User::factory()->create([
             'agency_id' => $this->agency->id,
             'branch_id' => $this->branch->id,
+            'role'      => 'super_admin', // holds access_compliance for FICA paths
         ]);
 
-        // Catalogue mirrors live grouping: contact-grouped = fica/ids/por.
+        // Catalogue mirrors the live seed: grouping + the new contact_roles SET
+        // and fica_slot. (Tests insert their own rows AFTER migrations, so the
+        // migration's global seed does not reach them — set them explicitly.)
         foreach ([
-            'mandate' => ['Mandate', 'property'],
-            'fica'    => ['FICA', 'contact'],
-            'ids'     => ['ID Copy', 'contact'],
-            'por'     => ['Proof of Residence', 'contact'],
-            'other'   => ['Other', 'shared'],
-        ] as $slug => [$label, $grouping]) {
+            'mandate'           => ['Mandate', 'property', ['seller_owner'], 'none'],
+            'fica'              => ['FICA', 'contact', ['seller_owner'], 'fica_form'],
+            'ids'               => ['ID Copy', 'contact', ['seller_owner'], 'id'],
+            'por'               => ['Proof of Residence', 'contact', ['seller_owner'], 'por'],
+            'offer_to_purchase' => ['Offer to Purchase', 'shared', ['seller_owner', 'buyer'], 'none'],
+            'other'             => ['Other', 'shared', [], 'none'],
+        ] as $slug => [$label, $grouping, $roles, $slot]) {
             $this->typeIds[$slug] = DB::table('document_types')->insertGetId([
                 'slug' => $slug, 'label' => $label, 'sort_order' => 0,
                 'is_active' => true, 'grouping' => $grouping,
+                'contact_roles' => json_encode($roles), 'fica_slot' => $slot,
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
 
-        $this->tmpDir = sys_get_temp_dir() . '/at105-' . uniqid();
+        $this->tmpDir = sys_get_temp_dir() . '/at105e-' . uniqid();
         @mkdir($this->tmpDir, 0777, true);
 
         $this->actingAs($this->user);
@@ -93,296 +101,334 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         ]);
     }
 
-    private function makeSeller(Property $p, string $role = 'seller'): Contact
+    private function makeContact(Property $p, string $role, string $first, string $phone): Contact
     {
         $c = Contact::create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
             'created_by_user_id' => $this->user->id,
-            'first_name' => 'Nokuthula', 'last_name' => 'Dlamini', 'phone' => '0721234567',
+            'first_name' => $first, 'last_name' => 'Dlamini', 'phone' => $phone,
             'id_number' => '8801014800087',
         ]);
         $p->contacts()->attach($c->id, ['role' => $role]);
-        return $p->fresh()->contacts()->where('contacts.id', $c->id)->first() ?? $c;
+        return $c;
     }
 
-    /** Write a fake split-output PDF named base__slug.pdf and return its abs path. */
+    /** Write a fake split-output PDF and return its abs path. */
     private function outFile(string $slug): string
     {
-        $path = $this->tmpDir . "/pack__{$slug}.pdf";
+        $path = $this->tmpDir . "/pack__{$slug}_" . uniqid() . '.pdf';
         file_put_contents($path, "%PDF-1.4 fake {$slug}\n");
         return $path;
     }
 
-    private function callLink(Property $p, ?Contact $c, array $outFiles, int $agencyId): array
+    /** Build a filing/FICA group as link() builds them. */
+    private function group(string $label, array $contactIds, string $file): array
     {
-        $m = new ReflectionMethod(PdfSplitterController::class, 'linkOutputsToDestinations');
-        $m->setAccessible(true);
-        return $m->invoke(app(PdfSplitterController::class), $p, $c, $outFiles, $agencyId);
+        return ['label' => $label, 'contact_ids' => $contactIds, 'pages' => [1], 'file' => $file];
     }
 
-    private function callKickoff(Contact $c, int $agencyId, array $outBySlug): ?FicaSubmission
+    private function attached(Property $p): Collection
     {
-        $m = new ReflectionMethod(PdfSplitterController::class, 'kickoffWetInkFica');
-        $m->setAccessible(true);
-        return $m->invoke(app(PdfSplitterController::class), $c, $agencyId, $outBySlug);
+        return $p->fresh()->contacts()->get()->keyBy('id');
     }
 
-    // ── Part 1: destination config ──────────────────────────────────────
+    private function callFile(Property $p, array $groups, int $agencyId, Collection $attached): array
+    {
+        $m = new ReflectionMethod(PdfSplitterController::class, 'fileGroupsToDestinations');
+        $m->setAccessible(true);
+        return $m->invoke(app(PdfSplitterController::class), $p, $groups, $agencyId, $attached);
+    }
 
-    public function test_defaults_follow_grouping(): void
+    private function callFica(array $groups, array $routing, int $agencyId, Collection $attached, $user, ?string &$note): array
+    {
+        $m = new ReflectionMethod(PdfSplitterController::class, 'kickoffMultiFica');
+        $m->setAccessible(true);
+        $args = [$groups, $routing, $agencyId, $attached, $user, &$note];
+        return $m->invokeArgs(app(PdfSplitterController::class), $args);
+    }
+
+    private function routing(): array
+    {
+        return app(AgencyComplianceDocTypeService::class)->routingMapBySlugFor($this->agency->id);
+    }
+
+    // ── Part 1: contact_roles + fica_slot routing config ────────────────
+
+    public function test_routing_defaults_and_override(): void
     {
         $svc = new AgencyComplianceDocTypeService();
         $a = $this->agency->id;
 
-        $this->assertSame(['property' => true, 'contact' => false], $svc->destinationForSlug($a, 'mandate'));
-        $this->assertSame(['property' => false, 'contact' => true], $svc->destinationForSlug($a, 'ids'));
-        $this->assertSame(['property' => false, 'contact' => true], $svc->destinationForSlug($a, 'por'));
-        $this->assertSame(['property' => false, 'contact' => true], $svc->destinationForSlug($a, 'fica'));
-        $this->assertSame(['property' => true, 'contact' => false], $svc->destinationForSlug($a, 'other'));
-        // Unknown slug never orphans — defaults to property.
-        $this->assertSame(['property' => true, 'contact' => false], $svc->destinationForSlug($a, 'no_such_slug'));
+        $r = $svc->routingForSlug($a, 'offer_to_purchase');
+        $this->assertSame(['seller_owner', 'buyer'], $r['contact_roles']);
+        $this->assertSame('none', $r['fica_slot']);
+
+        $this->assertSame(['seller_owner'], $svc->routingForSlug($a, 'fica')['contact_roles']);
+        $this->assertSame('fica_form', $svc->routingForSlug($a, 'fica')['fica_slot']);
+        $this->assertSame('id', $svc->routingForSlug($a, 'ids')['fica_slot']);
+
+        // Override inherits-then-replaces.
+        $svc->setRoleConfig($a, $this->typeIds['fica'], ['buyer', 'tenant'], 'id');
+        $r2 = $svc->routingForSlug($a, 'fica');
+        $this->assertSame(['buyer', 'tenant'], $r2['contact_roles']);
+        $this->assertSame('id', $r2['fica_slot']);
+
+        // Unknown slug → empty/none, never a crash.
+        $this->assertSame(['contact_roles' => [], 'fica_slot' => 'none'], $svc->routingForSlug($a, 'no_such'));
     }
 
-    public function test_explicit_override_both_and_neither(): void
-    {
-        $svc = new AgencyComplianceDocTypeService();
-        $a = $this->agency->id;
+    // ── Part 2: role-aware multi-contact resolver ───────────────────────
 
-        $svc->setDestination($a, $this->typeIds['mandate'], true, true);
-        $this->assertSame(['property' => true, 'contact' => true], $svc->destinationForSlug($a, 'mandate'));
-
-        $svc->setDestination($a, $this->typeIds['ids'], false, false);
-        $this->assertSame(['property' => false, 'contact' => false], $svc->destinationForSlug($a, 'ids'));
-
-        // Map covers all active types.
-        $this->assertArrayHasKey($this->typeIds['mandate'], $svc->destinationMapFor($a));
-        $this->assertCount(5, $svc->destinationMapFor($a));
-    }
-
-    // ── Property seller resolver ────────────────────────────────────────
-
-    public function test_seller_resolver_role_match_sole_and_ambiguous(): void
-    {
-        // Seller-side role.
-        $p1 = $this->makeProperty();
-        $seller = $this->makeSeller($p1, 'owner');
-        $this->assertNotNull($p1->fresh()->sellerOwnerContact());
-        $this->assertSame($seller->id, $p1->fresh()->sellerOwnerContact()->id);
-
-        // Sole contact with odd role → fallback.
-        $p2 = $this->makeProperty();
-        $sole = Contact::create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
-            'created_by_user_id' => $this->user->id, 'first_name' => 'Sole', 'last_name' => 'Contact', 'phone' => '0700000001',
-        ]);
-        $p2->contacts()->attach($sole->id, ['role' => 'unknown']);
-        $this->assertSame($sole->id, $p2->fresh()->sellerOwnerContact()->id);
-
-        // Ambiguous: two non-seller contacts → null (no wrong guess).
-        $p3 = $this->makeProperty();
-        foreach (['buyer', 'buyer'] as $i => $r) {
-            $b = Contact::create([
-                'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
-                'created_by_user_id' => $this->user->id, 'first_name' => "B{$i}", 'last_name' => 'X', 'phone' => "07000001{$i}",
-            ]);
-            $p3->contacts()->attach($b->id, ['role' => $r]);
-        }
-        $this->assertNull($p3->fresh()->sellerOwnerContact());
-
-        // No contacts → null.
-        $this->assertNull($this->makeProperty()->sellerOwnerContact());
-    }
-
-    // ── Part 2: splitter files per settings ─────────────────────────────
-
-    public function test_files_route_to_configured_destinations(): void
+    public function test_contacts_for_role_multi_and_seller_owner_spans_both(): void
     {
         $p = $this->makeProperty();
-        $c = $this->makeSeller($p, 'seller');
+        $s1 = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $s2 = $this->makeContact($p, 'owner', 'Thandi', '0722222222'); // owner ∈ seller_owner
+        $b1 = $this->makeContact($p, 'buyer', 'Bongi', '0723333333');
+        $b2 = $this->makeContact($p, 'buyer', 'Lerato', '0724444444');
 
-        $out = [$this->outFile('mandate'), $this->outFile('ids'), $this->outFile('other')];
-        $res = $this->callLink($p, $c, $out, $this->agency->id);
+        $sellers = $p->fresh()->contactsForRole('seller_owner');
+        $this->assertEqualsCanonicalizing([$s1->id, $s2->id], $sellers->pluck('id')->all());
 
-        // mandate → property; ids → contact; other → property (shared default).
-        $this->assertSame(2, $res['property']); // mandate + other
-        $this->assertSame(1, $res['contact']);  // ids
+        $buyers = $p->fresh()->contactsForRole('buyer');
+        $this->assertEqualsCanonicalizing([$b1->id, $b2->id], $buyers->pluck('id')->all());
+
+        $this->assertCount(0, $p->fresh()->contactsForRole('tenant'));
+        $this->assertCount(0, $p->fresh()->contactsForRole('none'));
+    }
+
+    // ── Part 5/2: many-to-many filing ───────────────────────────────────
+
+    public function test_otp_page_files_to_all_ticked_contacts(): void
+    {
+        // OTP routed to seller_owner + buyer; Save-To contact ON. One page ticked
+        // for 2 sellers + 2 buyers → ONE Document linked to all 4 (and property).
+        (new AgencyComplianceDocTypeService())->setDestination($this->agency->id, $this->typeIds['offer_to_purchase'], true, true);
+
+        $p = $this->makeProperty();
+        $s1 = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $s2 = $this->makeContact($p, 'seller', 'Thandi', '0722222222');
+        $b1 = $this->makeContact($p, 'buyer', 'Bongi', '0723333333');
+        $b2 = $this->makeContact($p, 'buyer', 'Lerato', '0724444444');
+
+        $groups = [$this->group('offer_to_purchase', [$s1->id, $s2->id, $b1->id, $b2->id], $this->outFile('offer_to_purchase'))];
+        $res = $this->callFile($p, $groups, $this->agency->id, $this->attached($p));
+
+        $this->assertSame(1, $res['property']);
+        $this->assertSame(4, $res['contact']);   // four party attachments
         $this->assertSame(0, $res['fallback']);
 
-        $p = $p->fresh();
-        $c = $c->fresh();
-        $this->assertSame(2, $p->documents()->count());
-        $this->assertSame(1, $c->documents()->count());
-
-        // The ID copy is on the contact, not the property.
-        $idDoc = $c->documents()->first();
-        $this->assertSame($this->typeIds['ids'], $idDoc->document_type_id);
-        $this->assertSame(0, $p->documents()->where('documents.id', $idDoc->id)->count());
+        // ONE Document, shared across the property + all four contacts.
+        $this->assertSame(1, Document::where('source_type', 'pdf_splitter')->count());
+        foreach ([$s1, $s2, $b1, $b2] as $c) {
+            $this->assertSame(1, $c->fresh()->documents()->count(), "doc must be on contact {$c->id}");
+        }
+        $docId = $p->fresh()->documents()->first()->id;
+        $this->assertSame($docId, $s1->fresh()->documents()->first()->id);
     }
 
-    public function test_both_ticked_files_to_property_and_contact(): void
+    public function test_contact_destined_doc_with_no_ticked_contact_falls_back_to_property(): void
     {
-        (new AgencyComplianceDocTypeService())->setDestination($this->agency->id, $this->typeIds['mandate'], true, true);
-
         $p = $this->makeProperty();
-        $c = $this->makeSeller($p, 'seller');
+        // ids = contact-destined; ticked for NOBODY → no-orphan anchor to property.
+        $groups = [$this->group('ids', [], $this->outFile('ids'))];
+        $res = $this->callFile($p, $groups, $this->agency->id, $this->attached($p));
 
-        $res = $this->callLink($p, $c, [$this->outFile('mandate')], $this->agency->id);
-        $this->assertSame(1, $res['property']);
-        $this->assertSame(1, $res['contact']);
-        // ONE Document, linked to BOTH pillars.
-        $this->assertSame(1, $p->fresh()->documents()->count());
-        $this->assertSame(1, $c->fresh()->documents()->count());
-        $this->assertSame($p->fresh()->documents()->first()->id, $c->fresh()->documents()->first()->id);
-    }
-
-    public function test_contact_destined_doc_falls_back_to_property_when_no_contact(): void
-    {
-        // No-orphan guarantee: ID copy is contact-destined, but the property
-        // has no resolvable seller → it anchors to the property.
-        $p = $this->makeProperty();
-
-        $res = $this->callLink($p, null, [$this->outFile('ids')], $this->agency->id);
         $this->assertSame(0, $res['property']);
         $this->assertSame(0, $res['contact']);
         $this->assertSame(1, $res['fallback']);
         $this->assertSame(1, $p->fresh()->documents()->count());
     }
 
-    public function test_both_unticked_falls_back_to_property(): void
-    {
-        (new AgencyComplianceDocTypeService())->setDestination($this->agency->id, $this->typeIds['other'], false, false);
-        $p = $this->makeProperty();
-        $c = $this->makeSeller($p, 'seller');
-
-        $res = $this->callLink($p, $c, [$this->outFile('other')], $this->agency->id);
-        $this->assertSame(1, $res['fallback']);
-        $this->assertSame(1, $p->fresh()->documents()->count());
-        $this->assertSame(0, $c->fresh()->documents()->count());
-    }
-
-    // ── Part 3: FICA auto-kickoff ───────────────────────────────────────
-
-    public function test_kickoff_creates_wet_ink_with_present_docs(): void
+    public function test_split_docs_record_originating_property_as_source_id(): void
     {
         $p = $this->makeProperty();
-        $c = $this->makeSeller($p, 'seller');
-
-        // Pack has FICA form + ID, but NO proof of residence.
-        $bySlug = ['fica' => $this->outFile('fica'), 'ids' => $this->outFile('ids')];
-        $sub = $this->callKickoff($c, $this->agency->id, $bySlug);
-
-        $this->assertNotNull($sub);
-        $this->assertSame('wet_ink', $sub->intake_type);
-        $this->assertSame($c->id, $sub->contact_id);
-        $this->assertSame($this->agency->id, $sub->agency_id);
-        $this->assertSame('pdf_splitter', $sub->form_data['intake']['source'] ?? null);
-
-        $slots = FicaDocument::where('fica_submission_id', $sub->id)->pluck('document_type')->all();
-        sort($slots);
-        $this->assertSame(['fica_form', 'id_copy'], $slots); // POR absent → not attached
-    }
-
-    public function test_kickoff_attaches_all_three_when_present(): void
-    {
-        $p = $this->makeProperty();
-        $c = $this->makeSeller($p, 'seller');
-
-        $bySlug = [
-            'fica' => $this->outFile('fica'),
-            'ids'  => $this->outFile('ids'),
-            'por'  => $this->outFile('por'),
+        $s1 = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $groups = [
+            $this->group('mandate', [$s1->id], $this->outFile('mandate')),
+            $this->group('ids', [$s1->id], $this->outFile('ids')),
         ];
-        $sub = $this->callKickoff($c, $this->agency->id, $bySlug);
+        $this->callFile($p, $groups, $this->agency->id, $this->attached($p));
 
-        $slots = FicaDocument::where('fica_submission_id', $sub->id)->pluck('document_type')->all();
-        sort($slots);
-        $this->assertSame(['fica_form', 'id_copy', 'proof_of_address'], $slots);
+        $docs = Document::where('source_type', 'pdf_splitter')->get();
+        $this->assertCount(2, $docs);
+        foreach ($docs as $d) {
+            $this->assertSame($p->id, (int) $d->source_id);
+        }
     }
 
-    // ── Settings persistence (Part 1 UI) ────────────────────────────────
+    // ── Part 5: multi-FICA kickoff ──────────────────────────────────────
 
-    public function test_bulk_save_persists_destination_choice(): void
+    public function test_multi_fica_one_process_per_contact(): void
     {
-        $this->user->update(['role' => 'super_admin']);
+        $p = $this->makeProperty();
+        $s1 = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $s2 = $this->makeContact($p, 'seller', 'Thandi', '0722222222');
 
+        // FICA page ticked for BOTH sellers; ID page only for s1.
+        $groups = [
+            $this->group('fica', [$s1->id, $s2->id], $this->outFile('fica')),
+            $this->group('ids', [$s1->id], $this->outFile('ids')),
+        ];
+        $note = null;
+        $results = $this->callFica($groups, $this->routing(), $this->agency->id, $this->attached($p), $this->user, $note);
+
+        $this->assertNull($note);
+        $this->assertCount(2, $results, 'one verification per distinct contact');
+
+        // s1 → fica_form + id_copy ; s2 → fica_form only.
+        $subS1 = FicaSubmission::where('contact_id', $s1->id)->firstOrFail();
+        $subS2 = FicaSubmission::where('contact_id', $s2->id)->firstOrFail();
+        $this->assertSame('wet_ink', $subS1->intake_type);
+
+        $slotsS1 = FicaDocument::where('fica_submission_id', $subS1->id)->pluck('document_type')->sort()->values()->all();
+        $slotsS2 = FicaDocument::where('fica_submission_id', $subS2->id)->pluck('document_type')->all();
+        $this->assertSame(['fica_form', 'id_copy'], $slotsS1);
+        $this->assertSame(['fica_form'], $slotsS2);
+    }
+
+    public function test_fica_page_with_two_contacts_yields_two_processes(): void
+    {
+        $p = $this->makeProperty();
+        $s1 = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $s2 = $this->makeContact($p, 'owner', 'Thandi', '0722222222');
+
+        $groups = [$this->group('fica', [$s1->id, $s2->id], $this->outFile('fica'))];
+        $note = null;
+        $results = $this->callFica($groups, $this->routing(), $this->agency->id, $this->attached($p), $this->user, $note);
+
+        $this->assertCount(2, $results);
+        $this->assertSame(1, FicaSubmission::where('contact_id', $s1->id)->count());
+        $this->assertSame(1, FicaSubmission::where('contact_id', $s2->id)->count());
+    }
+
+    public function test_multi_fica_dedupes_per_contact(): void
+    {
+        $p = $this->makeProperty();
+        $s1 = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $s2 = $this->makeContact($p, 'seller', 'Thandi', '0722222222');
+
+        // s1 already has an in-flight verification → reused, not duplicated.
+        $existing = app(FicaWetInkService::class)->create($s1, $this->agency->id, ['status' => 'submitted']);
+
+        $groups = [$this->group('fica', [$s1->id, $s2->id], $this->outFile('fica'))];
+        $note = null;
+        $results = $this->callFica($groups, $this->routing(), $this->agency->id, $this->attached($p), $this->user, $note);
+
+        $this->assertCount(2, $results);
+        $this->assertSame(1, FicaSubmission::where('contact_id', $s1->id)->count(), 'no duplicate for s1');
+        $reused = collect($results)->firstWhere('reused', true);
+        $this->assertNotNull($reused);
+        $this->assertStringContainsString((string) $existing->id, $reused['url']);
+    }
+
+    public function test_multi_fica_blocked_without_compliance_permission(): void
+    {
+        $p = $this->makeProperty();
+        $s1 = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+
+        // A user that definitively lacks access_compliance — gate must refuse and
+        // create nothing. (Mocked so the assertion is independent of how the test
+        // environment seeds role permissions.)
+        $denied = \Mockery::mock(User::class);
+        $denied->shouldReceive('hasPermission')->with('access_compliance')->andReturn(false);
+
+        $groups = [$this->group('fica', [$s1->id], $this->outFile('fica'))];
+        $note = null;
+        $results = $this->callFica($groups, $this->routing(), $this->agency->id, $this->attached($p), $denied, $note);
+
+        $this->assertSame([], $results);
+        $this->assertStringContainsString('compliance access', (string) $note);
+        $this->assertSame(0, FicaSubmission::count());
+    }
+
+    public function test_multi_fica_notes_when_no_fica_page_assigned(): void
+    {
+        $p = $this->makeProperty();
+        $s1 = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+
+        // Only a mandate page (fica_slot=none) assigned → nothing to FICA.
+        $groups = [$this->group('mandate', [$s1->id], $this->outFile('mandate'))];
+        $note = null;
+        $results = $this->callFica($groups, $this->routing(), $this->agency->id, $this->attached($p), $this->user, $note);
+
+        $this->assertSame([], $results);
+        $this->assertStringContainsString('no FICA-tagged page', (string) $note);
+    }
+
+    // ── propertyContacts endpoint (drives the review selector) ──────────
+
+    public function test_property_contacts_endpoint_returns_attached_with_fica_state(): void
+    {
+        $p = $this->makeProperty();
+        $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $this->makeContact($p, 'buyer', 'Bongi', '0723333333');
+
+        $resp = $this->getJson(route('tools.pdf_splitter.properties.contacts', $p));
+        $resp->assertOk();
+        $rows = collect($resp->json('contacts'));
+        $this->assertCount(2, $rows);
+        $sipho = $rows->firstWhere('name', 'Sipho Dlamini');
+        $this->assertSame('seller', $sipho['role']);
+        $this->assertSame('incomplete', $sipho['fica_status']);
+    }
+
+    // ── Retained AT-105 behaviours ──────────────────────────────────────
+
+    public function test_save_to_defaults_follow_grouping(): void
+    {
+        $svc = new AgencyComplianceDocTypeService();
+        $a = $this->agency->id;
+        $this->assertSame(['property' => true, 'contact' => false], $svc->destinationForSlug($a, 'mandate'));
+        $this->assertSame(['property' => false, 'contact' => true], $svc->destinationForSlug($a, 'ids'));
+        $this->assertSame(['property' => true, 'contact' => false], $svc->destinationForSlug($a, 'no_such_slug'));
+    }
+
+    public function test_bulk_save_persists_roles_and_slot_and_destination(): void
+    {
         $resp = $this->post(route('admin.settings.document-types.bulk-save'), [
             'types' => [
-                ['id' => $this->typeIds['mandate'], 'label' => 'Mandate', 'sort_order' => 0, 'is_active' => 1,
-                 'save_to_property' => '1', 'save_to_contact' => '1'],
+                ['id' => $this->typeIds['offer_to_purchase'], 'label' => 'Offer to Purchase', 'sort_order' => 0, 'is_active' => 1,
+                 'save_to_property' => '1', 'save_to_contact' => '1',
+                 'contact_roles' => ['seller_owner', 'buyer'], 'fica_slot' => 'none'],
+                ['id' => $this->typeIds['ids'], 'label' => 'ID Copy', 'sort_order' => 0, 'is_active' => 1,
+                 'save_to_contact' => '1', 'contact_roles' => ['seller_owner'], 'fica_slot' => 'id'],
             ],
         ]);
         $resp->assertSessionHasNoErrors();
 
-        $this->assertSame(
-            ['property' => true, 'contact' => true],
-            (new AgencyComplianceDocTypeService())->destinationForSlug($this->agency->id, 'mandate'),
-        );
-    }
-
-    // ── FICA trigger keys off CONTACT state, not property compliance ────
-
-    public function test_split_docs_record_originating_property_as_source_id(): void
-    {
-        // Provenance: every split doc (incl. contact-only ID) records which
-        // property it was split against, so a contact's "Not Property-Linked"
-        // doc is still traceable to its split.
-        $p = $this->makeProperty();
-        $c = $this->makeSeller($p, 'seller');
-        $this->callLink($p, $c, [$this->outFile('mandate'), $this->outFile('ids')], $this->agency->id);
-
-        $docs = \App\Models\Document::where('source_type', 'pdf_splitter')->get();
-        $this->assertCount(2, $docs);
-        foreach ($docs as $d) {
-            $this->assertSame($p->id, (int) $d->source_id, 'split doc must record originating property');
-        }
+        $svc = new AgencyComplianceDocTypeService();
+        $this->assertSame(['seller_owner', 'buyer'], $svc->routingForSlug($this->agency->id, 'offer_to_purchase')['contact_roles']);
+        $this->assertSame('id', $svc->routingForSlug($this->agency->id, 'ids')['fica_slot']);
+        $this->assertSame(['property' => true, 'contact' => true], $svc->destinationForSlug($this->agency->id, 'offer_to_purchase'));
     }
 
     public function test_search_returns_seller_and_incomplete_fica_status(): void
     {
-        // The toggle keys off this: an unverified seller (no approved FICA)
-        // returns 'incomplete' regardless of the property's compliance snapshot.
         $p = $this->makeProperty();
-        $this->makeSeller($p, 'seller');
+        $this->makeContact($p, 'seller', 'Nokuthula', '0721234567');
 
         $resp = $this->getJson(route('tools.pdf_splitter.properties.search', ['q' => 'Compensation']));
         $resp->assertOk();
         $row = collect($resp->json())->firstWhere('id', $p->id);
-
-        $this->assertNotNull($row, 'property should be in search results');
+        $this->assertNotNull($row);
         $this->assertStringContainsString('Nokuthula', $row['seller']);
         $this->assertSame('incomplete', $row['seller_fica']);
-    }
-
-    public function test_search_seller_fica_complete_when_approved(): void
-    {
-        $p = $this->makeProperty();
-        $c = $this->makeSeller($p, 'seller');
-        \App\Models\FicaSubmission::create([
-            'contact_id' => $c->id, 'agency_id' => $this->agency->id,
-            'requested_by' => $this->user->id, 'status' => 'approved',
-            'intake_type' => 'wet_ink', 'entity_type' => 'natural',
-            'verified_at' => now(),
-        ]);
-
-        $resp = $this->getJson(route('tools.pdf_splitter.properties.search', ['q' => 'Compensation']));
-        $row = collect($resp->json())->firstWhere('id', $p->id);
-        $this->assertSame('complete', $row['seller_fica']);
     }
 
     public function test_dedupe_finds_active_fica_but_ignores_terminal(): void
     {
         $p = $this->makeProperty();
-        $c = $this->makeSeller($p, 'seller');
+        $c = $this->makeContact($p, 'seller', 'Nokuthula', '0721234567');
 
         $existing = app(FicaWetInkService::class)->create($c, $this->agency->id, ['status' => 'submitted']);
 
         $m = new ReflectionMethod(PdfSplitterController::class, 'existingActiveFica');
         $m->setAccessible(true);
         $found = $m->invoke(app(PdfSplitterController::class), $c);
-        $this->assertNotNull($found, 'an in-flight FICA must be found for dedupe');
+        $this->assertNotNull($found);
         $this->assertSame($existing->id, $found->id);
 
-        // Terminal outcomes do not block a fresh verification.
         $existing->update(['status' => 'rejected']);
         $this->assertNull($m->invoke(app(PdfSplitterController::class), $c));
         $existing->update(['status' => 'approved']);

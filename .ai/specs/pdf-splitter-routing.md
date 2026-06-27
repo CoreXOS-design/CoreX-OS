@@ -96,7 +96,106 @@ FICA kickoff gated by `access_compliance` — hidden + server-enforced if absent
 - Existing splitter + FICA extended, not forked; `storeWetInk` still works via the shared service.
 - Nav/settings present; configurable; no hardcode. php -l, view:clear, dev-check pass; Tinker-verified.
 
-## Files
+---
+
+# AT-105 ENHANCEMENT — Many-to-many per-page contact routing + multi-FICA (2026-06-27)
+
+Extends the above (no fork). The splitter review is now a PER-PAGE assignment
+surface where each page links to ONE OR MANY contacts ACROSS MULTIPLE roles, and
+"Link to CoreX" is split from "Download ZIP". FICA becomes one wet-ink process
+per distinct assigned contact.
+
+## Part 1 — Doc-type routing config (contact_roles SET + fica_slot)
+
+`document_types` gains two catalogue columns (migration
+`2026_06_27_120000_add_contact_role_and_fica_slot_to_document_types`):
+- `contact_roles` JSON — the SET of parties a page of this type may route to:
+  any of `seller_owner | buyer | tenant | landlord | lessor`. `seller_owner`
+  resolves across the pivot SET `[seller, owner]`. `[]` = routes to no contact.
+  Seeded: mandate/fica/ids/por/disclosure/listing_form → `[seller_owner]`;
+  **offer_to_purchase → `[seller_owner, buyer]`** (the OTP links to all parties).
+- `fica_slot` string — `id | por | fica_form | none`. Seeded fica→fica_form,
+  ids→id, por→por.
+
+Per-agency OVERRIDE lives on `agency_document_type_compliance` as nullable
+`contact_roles` (JSON) + `fica_slot` — NULL inherits the catalogue (the AT-105
+Save-To pattern). `AgencyComplianceDocTypeService` gains `routingForSlug()`,
+`routingMapBySlugFor()`, `routingMapFor()`, `setRoleConfig()`. These REPLACE the
+two former hardcodes (the slug→FICA-slot map and the party_role default).
+
+Settings → Document Types: "Routes To" role CHECKBOXES (tick any) + "FICA Slot"
+select, per row, agency-overridable. The **admin screen keeps `sort_order`**; the
+**splitter review picker lists doc types ALPHABETICALLY by label** (display-only
+sort in `pdf_splitter_review.blade.php`).
+
+## Part 2 — Role-aware multi-contact resolver
+
+`Property::contactsForRole(string $contactRole): Collection` returns ALL attached
+contacts in the role-set (joint sellers/buyers), case-insensitive on the pivot
+role. `Property::pivotRolesForContactRole()` is the canonical role→pivot-set map.
+`sellerOwnerContact()` is KEPT (still used by `searchProperties`).
+
+## Part 3 — Per-page assignment review screen
+
+Rebuilt `pdf_splitter_review.blade.php` (one Alpine component). Each page row:
+doc-type select + a contact-assignment cell that, for each of the doc-type's
+allowed roles, lists that role's property contacts as CHECKBOXES. The agent ticks
+ANY number ACROSS any/all roles (OTP page → all sellers + all buyers at once).
+- **Auto-resolve:** first render ticks the role-resolved SET (all contacts in the
+  doc-type's roles).
+- **Sticky inheritance (per doc-type, whole SET):** the first page of a type
+  defaults to its role-resolved set; each later page of the SAME type defaults to
+  the previous page's tick-SET; an override replaces the set and becomes the new
+  sticky. Independent per doc-type (FICA set vs OTP set never mix).
+- **Unresolved role** (no attached contact) → inline select-existing / create-new,
+  which links the contact to the property in that role (reuses
+  `corex.properties.contacts.{search,link,createAndLink}`) and re-resolves.
+- Posted as `contacts[page][]` (a SET per page). Submission uses hidden inputs
+  mirrored from Alpine state (NOT checkbox `:checked`) so the post is
+  deterministic. Shortcut legend REMOVED.
+
+## Part 4 — Two distinct actions
+
+`confirm()` = **Download ZIP** only (no filing, no FICA). New `link()` =
+**Link to CoreX** (file + FICA, no ZIP). Same form, two `formaction` submit
+buttons. Manifest retained in session so either action can follow a split.
+
+## Part 5 — Multi-FICA kickoff (contact-keyed, per party)
+
+`link()` groups pages by `(label, contact-SET)`, extracts each via qpdf
+`extractPageSet` (arbitrary page lists), files one Document per group to the
+property and/or EACH ticked contact (`fileGroupsToDestinations`, no-orphan
+fallback to property). Then `kickoffMultiFica` groups the FICA-slot pages by EACH
+assigned contact → ONE wet-ink `FicaSubmission` per distinct contact (a FICA page
+ticked for two contacts → two processes), slotting each page per its `fica_slot`
+via the shared `FicaWetInkService`. Per-contact dedupe (`existingActiveFica`),
+agent TOGGLE (default on when an assigned FICA contact isn't `complete`),
+compliance-permission gated. NO `fica_submissions` schema change.
+
+## Manual-QA flags (cannot prove statically)
+
+- The Alpine `:checked` submission gotcha is avoided by design (hidden inputs);
+  still worth one real-browser click-through of Link + ZIP.
+- Legacy `lessee` (vs canonical `tenant`) pivot rows, if any, won't resolve under
+  role `tenant` until normalised.
+
+## Enhancement files
+
+- NEW `database/migrations/2026_06_27_120000_add_contact_role_and_fica_slot_to_document_types.php`
+- EDIT `app/Models/Property.php` (`contactsForRole()`, `pivotRolesForContactRole()`)
+- EDIT `app/Models/SplitterDocType.php` (casts/consts)
+- EDIT `app/Services/Compliance/AgencyComplianceDocTypeService.php` (routing resolvers)
+- EDIT `app/Http/Controllers/Tools/PdfSplitterController.php` (`link()`, `propertyContacts()`, group helpers, multi-FICA; `confirm()` now ZIP-only)
+- EDIT `app/Http/Controllers/Admin/SplitterDocTypeController.php` (roles/slot persist)
+- EDIT `resources/views/admin/splitter/doc-types.blade.php` (Routes-To checkboxes + FICA-slot select)
+- EDIT `resources/views/tools/pdf_splitter_review.blade.php` (per-page assignment rebuild)
+- EDIT `resources/views/tools/pdf_splitter.blade.php` (multi-FICA banner)
+- EDIT `routes/web.php` (`properties/{property}/contacts`, `link`)
+- EDIT `tests/Feature/Tools/PdfSplitterDestinationRoutingTest.php`
+
+---
+
+## Files (original build)
 
 - NEW `database/migrations/*_add_destination_flags_to_agency_document_type_compliance.php`
 - NEW `app/Services/Compliance/FicaWetInkService.php`
