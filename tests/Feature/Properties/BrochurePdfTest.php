@@ -50,7 +50,10 @@ final class BrochurePdfTest extends TestCase
         $res = $this->actingAs($agent)->get(route('corex.properties.brochure', ['property' => $property, 'dl' => 1]));
 
         $res->assertOk();
-        $this->assertStringContainsString('attachment', strtolower((string) $res->headers->get('content-disposition')));
+        $disposition = (string) $res->headers->get('content-disposition');
+        $this->assertStringContainsString('attachment', strtolower($disposition));
+        // Filename is "Brochure - {address}.pdf" (address → suburb, city, province here).
+        $this->assertStringContainsString('Brochure - Glenmore, Port Edward', $disposition);
     }
 
     public function test_foreign_agency_listing_is_not_retrievable(): void

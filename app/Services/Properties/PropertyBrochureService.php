@@ -30,10 +30,11 @@ use Illuminate\Support\Facades\Storage;
  */
 class PropertyBrochureService
 {
-    /** Max embedded widths (px) — keep the PDF small + dompdf fast. */
-    private const HERO_W  = 760;
-    private const THUMB_W = 260;
-    private const PHOTO_W = 200;
+    /** Max embedded widths (px) — keep the PDF small + dompdf fast. Sized for
+     *  A4 print: hero right photo displays ~470px wide, thumbnails ~150px. */
+    private const HERO_W  = 520;
+    private const THUMB_W = 220;
+    private const PHOTO_W = 160;
 
     /**
      * Build the brochure data array consumed by the `_brochure` partial.
@@ -50,16 +51,15 @@ class PropertyBrochureService
         $agency = $property->agency;
         $branch = $property->branch;
 
-        // ── Images: hero (up to 3) + thumbnail strip (up to 6) ──
-        // The hero set is a subset of the strip, so for the PDF we fetch each
-        // unique source ONCE and scale it to both widths — no double network/IO.
+        // ── Images: 2 hero photos (40% / 60%) + a 5-photo thumbnail strip ──
+        // For the PDF we fetch each unique source ONCE — no double network/IO.
         $images = $property->displayImages();
-        $hero   = array_slice($images, 0, 3);
-        $strip  = array_slice($images, 0, 6);
+        $hero   = array_slice($images, 0, 2);
+        $strip  = array_slice($images, 2, 5);
 
         if ($embed) {
             $bytesByUrl = [];
-            foreach ($strip as $u) {
+            foreach (array_merge($hero, $strip) as $u) {
                 $bytesByUrl[$u] ??= $this->readImageBytes($u);
             }
             $heroSrc  = array_map(fn ($u) => $this->scaledDataUri($bytesByUrl[$u] ?? null, self::HERO_W), $hero);
@@ -72,7 +72,7 @@ class PropertyBrochureService
 
         // ── Logo: branch → agency, else null (partial falls back to wordmark) ──
         $logoPath = $branch?->logo_path ?: $agency?->logo_path;
-        $logoSrc  = $logoPath ? $this->diskSrc($logoPath, $embed, 0) : null;
+        $logoSrc  = $logoPath ? $this->logoSrc($logoPath, $embed) : null;
 
         // ── Agent photo (circular) ──
         $agentPhoto = $agent ? $this->imageSrc($agent->profilePhotoUrl(), $embed, self::PHOTO_W) : null;
@@ -94,8 +94,13 @@ class PropertyBrochureService
         // ── Feature checklist: the flat features_json list (deduped) ──
         $features = $this->features($property);
 
-        // ── Description: split into paragraphs on blank lines ──
-        $description = $this->paragraphs((string) ($property->description ?? ''));
+        // ── Description: split into paragraphs, capped so the brochure stays
+        // one A4 page (the full listing is one QR scan away). ──
+        $description = $this->paragraphs((string) ($property->description ?? ''), 900);
+
+        // ── Location pin — a GD-drawn PNG (not an inline SVG, which dompdf/browsers
+        // clip at the text baseline). Raster → predictable, identical in both hosts. ──
+        $pin = $this->pinDataUri();
 
         // ── QR → public shareable preview of the listing ──
         // Only fetched for the real PDF (embed). Browser thumbnails skip it so a
@@ -124,6 +129,7 @@ class PropertyBrochureService
 
             'features'    => $features,
             'description' => $description,
+            'pin'         => $pin,
 
             'agentName'   => $agent?->name ?: ($agency?->name ?: ''),
             'agentPhone'  => $agent ? ($agent->cell ?: $agent->phone ?: '') : '',
@@ -152,13 +158,29 @@ class PropertyBrochureService
         return $pdf;
     }
 
-    /** A filesystem-safe download name for the PDF. */
+    /** A filesystem-safe download name: "Brochure - {address}.pdf". */
     public function filename(Property $property): string
     {
-        $slug = preg_replace('/[^A-Za-z0-9]+/', '-', (string) $property->title);
-        $slug = trim((string) $slug, '-') ?: ('property-' . $property->id);
+        $address = $this->addressLine($property);
+        // Keep spaces/commas readable; strip only characters illegal in filenames.
+        $address = trim((string) preg_replace('/[\/\\\\:*?"<>|]+/', ' ', $address));
+        $address = trim((string) preg_replace('/\s+/', ' ', $address));
+        if ($address === '') {
+            $address = 'Property ' . $property->id;
+        }
 
-        return 'Brochure - ' . $slug . '.pdf';
+        return 'Brochure - ' . $address . '.pdf';
+    }
+
+    /** Full human address line: street, suburb, city, province (whatever's present). */
+    private function addressLine(Property $property): string
+    {
+        return implode(', ', array_filter([
+            $property->address,
+            $property->suburb,
+            $property->city,
+            $property->province,
+        ], fn ($v) => trim((string) $v) !== ''));
     }
 
     // ── image resolution ────────────────────────────────────────────────
@@ -186,31 +208,31 @@ class PropertyBrochureService
     }
 
     /**
-     * Resolve a public-disk path (logo) to a data-URI (embed) or asset URL.
-     * Logos keep their original bytes/format (preserve transparency).
+     * Resolve an agency/branch logo path to a data-URI (embed) or asset URL.
+     * Logos keep their original bytes/format (preserve transparency). For the
+     * PDF we read straight off the public disk; if the stored path doesn't
+     * resolve there we fall back to the asset URL (covers paths stored with a
+     * host or odd prefix).
      */
-    private function diskSrc(string $diskPath, bool $embed, int $maxW): ?string
+    private function logoSrc(string $diskPath, bool $embed): ?string
     {
+        $rel = ltrim($diskPath, '/');
         if (! $embed) {
-            return asset('storage/' . ltrim($diskPath, '/'));
+            return asset('storage/' . $rel);
         }
 
+        $bytes = null;
         try {
             $disk = Storage::disk('public');
-            if (! $disk->exists($diskPath)) {
-                return null;
+            if ($disk->exists($rel)) {
+                $bytes = $disk->get($rel);
             }
-            $bytes = $disk->get($diskPath);
         } catch (\Throwable) {
-            return null;
+            // fall through
         }
+        $bytes ??= $this->readImageBytes(asset('storage/' . $rel));
 
-        // Logos: embed as-is to preserve transparency; only recompress if huge.
-        if ($maxW > 0) {
-            return $this->scaledDataUri($bytes, $maxW) ?? $this->rawDataUri($bytes);
-        }
-
-        return $this->rawDataUri($bytes);
+        return $bytes !== null ? $this->rawDataUri($bytes) : null;
     }
 
     /**
@@ -288,7 +310,10 @@ class PropertyBrochureService
 
         $src = @imagecreatefromstring($bytes);
         if ($src === false) {
-            return null;
+            // GD can't decode it (e.g. a .webp on a GD build without webp).
+            // dompdf still renders webp/png/jpeg natively, so embed the raw
+            // bytes rather than dropping the image.
+            return $this->rawDataUri($bytes);
         }
 
         $w = imagesx($src);
@@ -356,6 +381,51 @@ class PropertyBrochureService
         });
     }
 
+    /**
+     * Draw a small grey map-pin as a PNG data-URI (GD). Used inline next to the
+     * location text. A raster image sizes/clips predictably in dompdf and the
+     * browser alike — unlike an inline SVG, whose point gets clipped at the text
+     * baseline. Drawn at 4× then downsampled for a smooth edge.
+     */
+    private function pinDataUri(): ?string
+    {
+        if (! function_exists('imagecreatetruecolor') || ! function_exists('imagefilledpolygon')) {
+            return null;
+        }
+
+        $s = 4;                 // supersample factor
+        $w = 28; $h = 36;       // logical pin box
+        $W = $w * $s; $H = $h * $s;
+
+        $im = imagecreatetruecolor($W, $H);
+        imagealphablending($im, false);
+        imagesavealpha($im, true);
+        imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127)); // transparent
+        imagealphablending($im, true);
+
+        $grey = imagecolorallocate($im, 107, 107, 107); // #6b6b6b
+        // Head (circle) + downward point (triangle) = teardrop.
+        imagefilledellipse($im, 14 * $s, 13 * $s, 22 * $s, 22 * $s, $grey);
+        imagefilledpolygon($im, array_map(fn ($v) => $v * $s, [4, 18, 24, 18, 14, 35]), $grey);
+        // Hole — punch a transparent disc in the head.
+        imagealphablending($im, false);
+        imagefilledellipse($im, 14 * $s, 12 * $s, 9 * $s, 9 * $s, imagecolorallocatealpha($im, 0, 0, 0, 127));
+        imagealphablending($im, true);
+
+        $out = imagecreatetruecolor($w, $h);
+        imagealphablending($out, false);
+        imagesavealpha($out, true);
+        imagecopyresampled($out, $im, 0, 0, 0, 0, $w, $h, $W, $H);
+        imagedestroy($im);
+
+        ob_start();
+        imagepng($out);
+        $png = (string) ob_get_clean();
+        imagedestroy($out);
+
+        return 'data:image/png;base64,' . base64_encode($png);
+    }
+
     /** Public, shareable preview URL for the QR target. */
     private function previewUrl(Property $property): string
     {
@@ -395,23 +465,60 @@ class PropertyBrochureService
             fn ($v) => $v !== '',
         )));
 
-        $cap   = 24; // 4 columns × 6 rows — fits the page
-        $items = array_slice($all, 0, $cap);
+        $cap   = 18; // + Rates/Levy = up to 20 cells → 5 rows of 4, fits the page
+        $items = array_map(
+            // Truncate long labels with an ellipsis so a feature never wraps a cell.
+            fn ($v) => mb_strlen($v) > 24 ? rtrim(mb_substr($v, 0, 23)) . '…' : $v,
+            array_slice($all, 0, $cap),
+        );
         $more  = max(0, count($all) - $cap);
 
-        return ['items' => $items, 'more' => $more];
+        return ['items' => array_values($items), 'more' => $more];
     }
 
-    /** Split a description into trimmed paragraphs on blank lines. */
-    private function paragraphs(string $text): array
+    /**
+     * Split a description into trimmed paragraphs on blank lines, capped to a
+     * total character budget so the brochure stays a single A4 page. The last
+     * kept paragraph is trimmed at a word boundary with an ellipsis when the
+     * budget is hit (the QR links to the full listing).
+     */
+    private function paragraphs(string $text, int $maxChars = 0): array
     {
         $text = trim(str_replace(["\r\n", "\r"], "\n", $text));
         if ($text === '') {
             return [];
         }
 
-        $parts = preg_split('/\n{2,}/', $text) ?: [$text];
+        $parts = array_values(array_filter(
+            array_map('trim', preg_split('/\n{2,}/', $text) ?: [$text]),
+            fn ($p) => $p !== '',
+        ));
 
-        return array_values(array_filter(array_map('trim', $parts), fn ($p) => $p !== ''));
+        if ($maxChars <= 0) {
+            return $parts;
+        }
+
+        $out = [];
+        $used = 0;
+        foreach ($parts as $p) {
+            if ($used >= $maxChars) {
+                break;
+            }
+            if ($used + mb_strlen($p) <= $maxChars) {
+                $out[] = $p;
+                $used += mb_strlen($p);
+                continue;
+            }
+            // Trim this paragraph to the remaining budget at a word boundary.
+            $slice = mb_substr($p, 0, max(0, $maxChars - $used));
+            $cut   = mb_strrpos($slice, ' ');
+            if ($cut !== false && $cut > 40) {
+                $slice = mb_substr($slice, 0, $cut);
+            }
+            $out[] = rtrim($slice, " ,.;:") . '…';
+            break;
+        }
+
+        return $out;
     }
 }

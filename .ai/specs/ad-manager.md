@@ -231,12 +231,25 @@ A4 PDF** rendered server-side with **dompdf** (`barryvdh/laravel-dompdf`, alread
 dependency) — it is meant to be printed and handed out, so it must be vector text,
 A4 and print-crisp.
 
-**Layout** (mirrors a Property24 printable brochure): centred agency logo header;
-hero collage (1 large + 2 stacked) with a price badge overlay; a 6-photo thumbnail
-strip; title + location; a 5-metric row (beds / baths / garages / parking / floor
-size) with icons; Rates & Levy badges; a 4-column feature checklist (from
-`features_json`); the full property description; and an agent card (photo, name,
-phone, email) with a scan-to-view **QR code** linking to the public listing preview.
+**Layout** (top→bottom): **centred agency logo** header; a **full-bleed photo grid**
+— two hero photos (40% / 60%) with a solid-navy, square (un-rounded) **price badge
+on the bottom-right of the right photo**, then a **5-photo thumbnail strip**; centred
+title + location (pin); a **specs bar** (beds / baths / garages / parking) with line
+icons — **any 0/empty spec is hidden** (vacant land shows no specs row); a **single
+sub-heading line** of **Rates & Taxes · Levy · Floor Size** (only those present);
+a **justified** description **capped so the brochure stays a single A4 page** (the QR
+links to the full listing); and a footer with the **agent** (rounded-square photo,
+name, phone, email) on the left and a **QR code** to the public listing preview on
+the right. **Property features are intentionally NOT listed.** Download filename is
+`Brochure - {address}.pdf`.
+
+**Font**: the PDF embeds **Inter** (the CoreX UI font) — TTFs committed at
+`resources/fonts/inter/Inter-{400,500,600,700}.ttf`, registered via `@font-face` in
+`brochure-pdf.blade.php`. dompdf caches font metrics under `storage/fonts/` (dir
+committed via `.gitkeep`; generated cache gitignored) — the directory must exist and
+be writable in every environment. Image robustness: GD-undecodable formats (e.g.
+`.webp` on a no-webp GD build) embed their raw bytes rather than dropping (dompdf
+renders webp/png/jpeg natively).
 
 **Architecture**
 - `App\Services\Properties\PropertyBrochureService` — single source of truth.
