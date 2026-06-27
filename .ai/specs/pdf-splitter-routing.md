@@ -198,6 +198,23 @@ both Blades. Auto-launch once + re-launch from each page's "?" launcher + listed
 in the Guided Tours directory (`tools-` prefix → "Tools & Calculators"). Gated
 `access_pdf_splitter`.
 
+## FICA slot-collapse fix (2026-06-27) — root cause was the LABEL, not the slot
+
+Live test: ID + POR + FICA pages to one contact → both ID and POR filed to
+`id_copy`, POR slot empty. **Investigation (proven on staging):** the slot
+mapping/loop/config are all CORRECT — `FICA_SLOT_TO_DOC_TYPE` is distinct
+(`id→id_copy`, `por→proof_of_address`, `fica_form→fica_form`), `por`'s
+`fica_slot` is `por` (catalogue + agency override), and calling `kickoffMultiFica`
+with labels `ids`/`por`/`fica` yields three distinct slots. The collapse is
+UPSTREAM: the POR page was classified `ids`, not `por`. A SA proof-of-residence
+is an AFFIDAVIT headed "Republic of South Africa" quoting the deponent's ID
+number + date of birth, so `classifyPage()` scores it higher on the `ids` keyword
+bucket than `por`, and `ids` outranks `por` in the priority list → auto-label
+`ids` → `fica_slot` `id` → `id_copy`. **Fix:** the score→label decision is
+extracted into `resolveLabel()` with a strong Proof-of-Residence override — an
+explicit "proof of residence"/"proof of address" phrase wins over `ids`; a pure
+ID page (no such phrase) is unaffected. The agent can still relabel on review.
+
 ## Manual-QA flags (cannot prove statically)
 
 - The Alpine `:checked` submission gotcha is avoided by design (hidden inputs);

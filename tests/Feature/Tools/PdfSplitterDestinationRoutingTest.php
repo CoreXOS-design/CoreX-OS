@@ -317,6 +317,34 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         $this->assertSame(['fica_form'], FicaDocument::where('fica_submission_id', $selloSub->id)->pluck('document_type')->all());
     }
 
+    public function test_proof_of_residence_classifies_as_por_not_ids(): void
+    {
+        // ROOT CAUSE of the live "both pages → id_copy" bug: a SA proof-of-
+        // residence affidavit scores higher on the 'ids' keyword bucket
+        // (republic of south africa + id number + date of birth) than 'por', and
+        // 'ids' outranks 'por' — so it auto-labelled 'ids' and filed to id_copy.
+        // The slot mapping is correct; the LABEL was wrong. The override fixes it.
+        $m = new ReflectionMethod(PdfSplitterController::class, 'resolveLabel');
+        $m->setAccessible(true);
+        $ctrl = app(PdfSplitterController::class);
+
+        // POR affidavit: ids out-scores por, but the explicit phrase wins → 'por'.
+        $affidavit = 'republic of south africa i the undersigned do hereby declare under oath '
+            . 'id number 8801014800087 date of birth this serves as proof of residence i reside at';
+        $this->assertSame('por', $m->invoke($ctrl, ['ids' => 3, 'por' => 1], $affidavit));
+        $this->assertSame('por', $m->invoke($ctrl, ['ids' => 3, 'por' => 1], 'proof of address bearing my id number date of birth republic of south africa'));
+
+        // A pure ID page (no POR phrase) is unaffected → stays 'ids'.
+        $idPage = 'republic of south africa identity document id number date of birth passport';
+        $this->assertSame('ids', $m->invoke($ctrl, ['ids' => 5, 'por' => 0], $idPage));
+
+        // A clean POR utility bill scores only por → 'por' (no override needed).
+        $this->assertSame('por', $m->invoke($ctrl, ['por' => 2, 'ids' => 0], 'proof of address utility bill water and electricity'));
+
+        // Highest-score-wins + tie-break still hold for the non-FICA buckets.
+        $this->assertSame('mandate', $m->invoke($ctrl, ['mandate' => 2, 'fica' => 1], 'sole mandate'));
+    }
+
     public function test_fica_with_only_id_assigned_starts_and_attaches_id_leaving_por_empty(): void
     {
         // ADDITION 1 — attach-what's-present: a contact with only an ID page (no

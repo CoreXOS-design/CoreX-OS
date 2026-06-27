@@ -1142,9 +1142,31 @@ class PdfSplitterController extends Controller
             }
         }
 
-        // Priority: mandate > offer_to_purchase > fica > ids > por >
-        //           rates_taxes > body_corporate > house_rules >
-        //           condition_report > listing_form > disclosure > other
+        $label = $this->resolveLabel($scores, $t);
+
+        return [$label, $snippet, $scores];
+    }
+
+    /**
+     * Resolve the winning doc-type label from the keyword scores.
+     *
+     * Highest score wins; ties break by priority order (earlier = stronger):
+     *   mandate > offer_to_purchase > fica > ids > por > rates_taxes >
+     *   body_corporate > house_rules > condition_report > listing_form >
+     *   disclosure > other.
+     *
+     * AT-105 — strong Proof-of-Residence override. A SA proof of residence is
+     * commonly an AFFIDAVIT headed "Republic of South Africa" that quotes the
+     * deponent's ID number and date of birth — so it out-scores the 'por'
+     * bucket on the 'ids' bucket and would auto-label 'ids', filing into the
+     * FICA ID slot (id_copy) instead of Proof of Residence (proof_of_address).
+     * That is the live "both pages → id_copy" bug: the slot mapping is correct,
+     * but the POR page was mis-classified 'ids' upstream. An explicit
+     * "proof of residence" / "proof of address" phrase is unambiguous, so
+     * honour it over 'ids'. A pure ID page carries no such phrase → unaffected.
+     */
+    private function resolveLabel(array $scores, string $t): string
+    {
         $priority = [
             'mandate', 'offer_to_purchase', 'fica', 'ids', 'por',
             'rates_taxes', 'body_corporate', 'house_rules',
@@ -1160,7 +1182,13 @@ class PdfSplitterController extends Controller
             }
         }
 
-        return [$label, $snippet, $scores];
+        if ($label === 'ids'
+            && ($scores['por'] ?? 0) > 0
+            && (str_contains($t, 'proof of residence') || str_contains($t, 'proof of address'))) {
+            $label = 'por';
+        }
+
+        return $label;
     }
 
     // =========================================================================
