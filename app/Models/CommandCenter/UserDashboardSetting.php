@@ -99,9 +99,11 @@ class UserDashboardSetting extends Model
             'task_due_reminders'         => true,
             'task_reminder_hours_before' => 4,
             // Legacy hours column retained for back-compat; minutes is canonical
-            // for event reminders (mobile sends a total-minutes lead-time).
+            // for event reminders (mobile sends a total-minutes lead-time). The
+            // default lead-time is 60 minutes (1h) — the mobile contract default
+            // for agent.event_due.
             'event_reminder_hours_before' => 24,
-            'event_reminder_minutes_before' => 1440, // 24h
+            'event_reminder_minutes_before' => 60,
 
             'auto_archive_done_days'     => null,
             'overdue_daily_digest'       => true,

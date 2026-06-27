@@ -496,7 +496,9 @@ class NotificationPreferenceService
             'event_reminder_minutes_before', 'event_reminder_hours_before',
             'lease_reminder_days_before','idle_threshold_days',
         ], true)) {
-            $threshold = (int) $dashboard->{$col};
+            // Clamp on read too, so a legacy out-of-range stored value never
+            // leaks through the GET snapshot.
+            $threshold = $this->clampThreshold($type, (int) $dashboard->{$col});
         }
 
         return [
@@ -535,9 +537,28 @@ class NotificationPreferenceService
             'event_reminder_minutes_before', 'event_reminder_hours_before',
             'lease_reminder_days_before','idle_threshold_days',
         ], true)) {
-            $dashboard->{$col} = (int) $row['threshold'];
+            // Clamp to the event-type's allowed bounds so an out-of-range client
+            // value (e.g. agent.event_due below 5 min or above 10080 = 7 days) is
+            // pinned to the range instead of persisting a nonsensical lead-time.
+            $dashboard->{$col} = $this->clampThreshold($type, (int) $row['threshold']);
         }
 
         $dashboard->save();
+    }
+
+    /**
+     * Pin a threshold to the event-type's [threshold_min, threshold_max] bounds.
+     * Either bound may be null (open-ended), in which case it isn't enforced.
+     */
+    private function clampThreshold(NotificationEventType $type, int $value): int
+    {
+        if ($type->threshold_min !== null) {
+            $value = max((int) $type->threshold_min, $value);
+        }
+        if ($type->threshold_max !== null) {
+            $value = min((int) $type->threshold_max, $value);
+        }
+
+        return $value;
     }
 }

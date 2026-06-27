@@ -137,7 +137,7 @@ unique(user_id, notification_event_type_id, subject_type, subject_id, threshold_
 | key | label | source |
 |---|---|---|
 | `agent.task_due` | Task due reminder | adapter → `task_due_reminders` |
-| `agent.event_due` | Calendar event reminder | adapter → existing `event_reminder_hours_before` |
+| `agent.event_due` | Calendar event reminder | adapter → `event_reminder_minutes_before` (minutes; default **60**, range **[5, 10080]**). Authoritative lead-time `ProcessReminders` reads; legacy `event_reminder_hours_before` is no longer read (fallback ×60 only for un-migrated rows). Threshold clamped to the range on PUT and on read. |
 | `agent.lease_expiring` | Lease expiry alert | adapter → `lease_expiry_reminders` |
 | `agent.idle` | Idle workspace alert | adapter → `idle_alerts_enabled` |
 | `agent.daily_digest` | Daily overdue digest email | adapter → `overdue_daily_digest` |
