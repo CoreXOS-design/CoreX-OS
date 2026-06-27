@@ -132,7 +132,7 @@
     @endif
 
     {{-- Property picker --}}
-    <div class="card p-4 mb-4" style="border-left: 3px solid var(--brand-icon, #0ea5e9);">
+    <div class="card p-4 mb-4" data-tour="spr-property" style="border-left: 3px solid var(--brand-icon, #0ea5e9);">
         <div class="flex items-center justify-between mb-2">
             <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
                 Link split documents to a property
@@ -174,7 +174,7 @@
 
     {{-- FICA toggle (compliance users only) --}}
     @if(!empty($canFica))
-    <div class="card p-4 mb-4" style="border-left: 3px solid #8b5cf6;" x-show="property">
+    <div class="card p-4 mb-4" data-tour="spr-fica" style="border-left: 3px solid #8b5cf6;" x-show="property">
         <label class="flex items-start gap-3" :class="ficaHasTargets ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'">
             <input type="checkbox" :checked="ficaChecked" @change="ficaOverride = $event.target.checked" :disabled="!ficaHasTargets"
                    class="mt-0.5 rounded w-4 h-4" style="accent-color:#8b5cf6;">
@@ -194,7 +194,7 @@
     @endif
 
     {{-- Bulk doc-type tools --}}
-    <div class="toolbar">
+    <div class="toolbar" data-tour="spr-doctype">
         <span class="tb-label">Bulk:</span>
         <select class="tb-select" x-model="bulkType">
             @foreach($docTypes as $key => $label)
@@ -233,7 +233,7 @@
                     <tr>
                         <th style="width:230px">Page</th>
                         <th style="width:170px">Document type</th>
-                        <th>Assign to contact(s)</th>
+                        <th data-tour="spr-assign">Assign to contact(s)</th>
                         <th style="width:230px">OCR snippet</th>
                     </tr>
                 </thead>
@@ -311,12 +311,12 @@
         </div>
 
         <div class="flex items-center gap-3 flex-wrap" style="margin-top:4px;">
-            <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}"
+            <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
                     :disabled="!property"
                     :title="property ? 'File each page to its destination(s) and assigned contact(s)' : 'Pick a property first'">
                 &#x1F517;&nbsp; Link to CoreX
             </button>
-            <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}"
+            <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}" data-tour="spr-zip"
                     title="Produce the split ZIP only — no filing, no FICA">
                 &#x2913;&nbsp; Download ZIP
             </button>

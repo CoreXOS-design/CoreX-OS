@@ -172,6 +172,32 @@ via the shared `FicaWetInkService`. Per-contact dedupe (`existingActiveFica`),
 agent TOGGLE (default on when an assigned FICA contact isn't `complete`),
 compliance-permission gated. NO `fica_submissions` schema change.
 
+## Addition 1 — FICA auto-attach ID/POR by assignment
+
+`kickoffMultiFica` collects EVERY fica-tagged group (doc-types whose `fica_slot`
+is `id`/`por`/`fica_form`) by EACH assigned `contact_id` — so a contact's wet-ink
+verification pre-fills its ID, Proof-of-Residence and FICA-Form slots from the
+pages THAT contact was ticked on (matched by tick, never by role). Attach-what's-
+present: any of id/por/form that exist are attached; the rest are left for the
+agent. Multi-contact correctness falls out of the per-`contact_id` collection —
+Elize-as-buyer gets HER id/por, a seller gets THEIRS, independently; a contact
+with only an ID page still starts a verification with just the ID. (This is the
+enhancement's existing slot-collection — no new code; tests added to lock it.)
+
+## Addition 2 — Guided tour (reuses the AT-41 tour engine, no fork)
+
+Two coordinated tours in `app/Support/Tours/defs/pdf-splitter.php` (data only,
+merged by `TourRegistry::all()`): `tools-pdf-splitter` (route
+`tools.pdf_splitter.index` — name the pack → choose PDF → Upload & Split) and
+`tools-pdf-splitter-review` (route `tools.pdf_splitter.review` — link a property,
+fix doc types, assign pages to contact(s) incl. multi-tick + sticky + select/
+create, FICA toggle, Link to CoreX vs Download ZIP, post-link FICA/Open-to-finish).
+The flow spans two screens, so it's two tours because the engine skips any step
+whose `data-tour` anchor isn't on the current page. `data-tour` anchors added to
+both Blades. Auto-launch once + re-launch from each page's "?" launcher + listed
+in the Guided Tours directory (`tools-` prefix → "Tools & Calculators"). Gated
+`access_pdf_splitter`.
+
 ## Manual-QA flags (cannot prove statically)
 
 - The Alpine `:checked` submission gotcha is avoided by design (hidden inputs);

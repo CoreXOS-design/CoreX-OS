@@ -206,7 +206,7 @@
                   x-data="{ hasFile: false }">
                 @csrf
 
-                <div class="field">
+                <div class="field" data-tour="splitter-base-name">
                     <label for="base_name">Base Name</label>
                     <input type="text"
                            id="base_name"
@@ -219,7 +219,7 @@
                     @enderror
                 </div>
 
-                <div class="field">
+                <div class="field" data-tour="splitter-file">
                     <label for="pdf">PDF File <span class="label-hint">(max 50 MB)</span></label>
                     <input type="file"
                            id="pdf"
@@ -231,7 +231,7 @@
                     @enderror
                 </div>
 
-                <button type="submit" :disabled="!hasFile"
+                <button type="submit" :disabled="!hasFile" data-tour="splitter-upload-btn"
                         :class="hasFile ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'"
                         class="text-sm w-full">Upload &amp; Split</button>
             </form>

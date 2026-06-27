@@ -287,6 +287,52 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         $this->assertSame(['fica_form'], $slotsS2);
     }
 
+    public function test_fica_auto_attaches_id_and_por_by_assignment_per_contact(): void
+    {
+        // ADDITION 1 — each contact's FICA pre-fills its ID/POR/form slots from
+        // the SAME contact's assigned pages (matched by tick, never by role).
+        $p = $this->makeProperty();
+        $elize = $this->makeContact($p, 'buyer', 'Elize', '0721111111');
+        $sello = $this->makeContact($p, 'seller', 'Sello', '0722222222');
+
+        // Elize (buyer) ticked on FICA + ID + POR; Sello (seller) on FICA only.
+        $groups = [
+            $this->group('fica', [$elize->id], $this->outFile('fica')),
+            $this->group('ids',  [$elize->id], $this->outFile('ids')),
+            $this->group('por',  [$elize->id], $this->outFile('por')),
+            $this->group('fica', [$sello->id], $this->outFile('fica2')),
+        ];
+        $note = null;
+        $results = $this->callFica($groups, $this->routing(), $this->agency->id, $this->attached($p), $this->user, $note);
+        $this->assertCount(2, $results);
+
+        $elizeSub = FicaSubmission::where('contact_id', $elize->id)->firstOrFail();
+        $selloSub = FicaSubmission::where('contact_id', $sello->id)->firstOrFail();
+
+        $this->assertSame(
+            ['fica_form', 'id_copy', 'proof_of_address'],
+            FicaDocument::where('fica_submission_id', $elizeSub->id)->pluck('document_type')->sort()->values()->all()
+        );
+        // Sello gets only HIS form — Elize's ID/POR never leak to him.
+        $this->assertSame(['fica_form'], FicaDocument::where('fica_submission_id', $selloSub->id)->pluck('document_type')->all());
+    }
+
+    public function test_fica_with_only_id_assigned_starts_and_attaches_id_leaving_por_empty(): void
+    {
+        // ADDITION 1 — attach-what's-present: a contact with only an ID page (no
+        // FICA form, no POR) still starts a verification with the ID attached.
+        $p = $this->makeProperty();
+        $c = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+
+        $groups = [$this->group('ids', [$c->id], $this->outFile('ids'))];
+        $note = null;
+        $results = $this->callFica($groups, $this->routing(), $this->agency->id, $this->attached($p), $this->user, $note);
+
+        $this->assertCount(1, $results);
+        $sub = FicaSubmission::where('contact_id', $c->id)->firstOrFail();
+        $this->assertSame(['id_copy'], FicaDocument::where('fica_submission_id', $sub->id)->pluck('document_type')->all());
+    }
+
     public function test_fica_page_with_two_contacts_yields_two_processes(): void
     {
         $p = $this->makeProperty();
