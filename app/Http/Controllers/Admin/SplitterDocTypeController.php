@@ -8,6 +8,7 @@ use App\Services\Compliance\AgencyComplianceDocTypeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class SplitterDocTypeController extends Controller
 {
@@ -30,13 +31,26 @@ class SplitterDocTypeController extends Controller
         }
         $complianceMap = $agencyId ? $this->compliance->complianceMapFor($agencyId) : [];
 
-        return view('admin.splitter.doc-types', compact('types', 'context', 'complianceMap'));
+        // AT-105 — effective per-agency "Save To" destinations, keyed by
+        // document_type_id (stored choice merged over the grouping default).
+        $destinationMap = $agencyId ? $this->compliance->destinationMapFor($agencyId) : [];
+
+        // AT-105 enh — effective per-agency contact_role + fica_slot routing,
+        // keyed by document_type_id (override merged over catalogue default).
+        $routingMap = $agencyId ? $this->compliance->routingMapFor($agencyId) : [];
+
+        return view('admin.splitter.doc-types', compact('types', 'context', 'complianceMap', 'destinationMap', 'routingMap'));
     }
 
     public function store(Request $request)
     {
         $request->validate([
-            'label' => 'required|string|max:100',
+            'label'            => 'required|string|max:100',
+            'contact_roles'    => ['nullable', 'array'],
+            'contact_roles.*'  => [Rule::in(SplitterDocType::CONTACT_ROLES)],
+            'fica_slot'        => ['nullable', Rule::in(SplitterDocType::FICA_SLOTS)],
+            'save_to_property' => 'nullable',
+            'save_to_contact'  => 'nullable',
         ]);
 
         $slug = Str::slug($request->input('label'), '_');
@@ -45,14 +59,34 @@ class SplitterDocTypeController extends Controller
             return back()->withErrors(['label' => "A type with slug '{$slug}' already exists."]);
         }
 
-        $maxSort = SplitterDocType::max('sort_order') ?? 0;
+        $maxSort      = SplitterDocType::max('sort_order') ?? 0;
+        $saveContact  = filter_var($request->input('save_to_contact'), FILTER_VALIDATE_BOOLEAN);
+        // Routes-To/FICA only mean anything with a Contact destination — drop them
+        // if Contact is off (matches the gated UI).
+        $roles = $saveContact
+            ? array_values(array_filter((array) $request->input('contact_roles', []), fn ($r) => in_array($r, SplitterDocType::CONTACT_ROLES, true)))
+            : [];
+        $ficaSlot = $saveContact ? ($request->input('fica_slot', 'none') ?: 'none') : 'none';
 
-        SplitterDocType::create([
-            'slug'       => $slug,
-            'label'      => $request->input('label'),
-            'sort_order' => $maxSort + 1,
-            'is_active'  => true,
+        $type = SplitterDocType::create([
+            'slug'          => $slug,
+            'label'         => $request->input('label'),
+            'sort_order'    => $maxSort + 1,
+            'is_active'     => true,
+            'contact_roles' => $roles,
+            'fica_slot'     => $ficaSlot,
         ]);
+
+        // Persist the per-agency Save-To destination for the new type.
+        $agencyId = $this->currentAgencyId();
+        if ($agencyId) {
+            $this->compliance->setDestination(
+                $agencyId,
+                $type->id,
+                filter_var($request->input('save_to_property'), FILTER_VALIDATE_BOOLEAN),
+                $saveContact,
+            );
+        }
 
         return back()->with('success', 'Document type added.');
     }
@@ -93,6 +127,11 @@ class SplitterDocTypeController extends Controller
             'types.*.listing_types'       => 'nullable|array',
             'types.*.listing_types.*'     => 'in:sale,rental',
             'types.*.compliance_required' => 'nullable',
+            'types.*.save_to_property'    => 'nullable',
+            'types.*.save_to_contact'     => 'nullable',
+            'types.*.contact_roles'       => ['nullable', 'array'],
+            'types.*.contact_roles.*'     => [Rule::in(SplitterDocType::CONTACT_ROLES)],
+            'types.*.fica_slot'           => ['nullable', Rule::in(SplitterDocType::FICA_SLOTS)],
         ]);
 
         // Per-agency compliance flag target. An unchecked checkbox is simply
@@ -115,6 +154,21 @@ class SplitterDocTypeController extends Controller
             if ($agencyId) {
                 $required = filter_var($data['compliance_required'] ?? false, FILTER_VALIDATE_BOOLEAN);
                 $this->compliance->setRequired($agencyId, (int) $data['id'], $required);
+
+                // AT-105 — persist the per-agency "Save To" destination. An
+                // unchecked box is absent from the payload, so each flag is set
+                // explicitly true/false.
+                $saveToProperty = filter_var($data['save_to_property'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $saveToContact  = filter_var($data['save_to_contact'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $this->compliance->setDestination($agencyId, (int) $data['id'], $saveToProperty, $saveToContact);
+
+                // AT-105 enh — persist the per-agency contact_roles SET +
+                // fica_slot routing. Unticked roles are absent from the payload,
+                // so the set is rebuilt explicitly (never inherits a stale value).
+                $roles    = array_values(array_filter((array) ($data['contact_roles'] ?? []), fn ($r) => in_array($r, SplitterDocType::CONTACT_ROLES, true)));
+                $ficaSlot = $data['fica_slot'] ?? 'none';
+                $ficaSlot = in_array($ficaSlot, SplitterDocType::FICA_SLOTS, true) ? $ficaSlot : 'none';
+                $this->compliance->setRoleConfig($agencyId, (int) $data['id'], $roles, $ficaSlot);
             }
         }
 

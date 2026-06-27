@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\Tools;
 
 use App\Http\Controllers\Controller;
+use App\Models\Contact;
 use App\Models\Document;
 use App\Models\DocumentType;
+use App\Models\FicaSubmission;
 use App\Models\Property;
 use App\Models\SplitterDocType;
+use App\Services\Compliance\AgencyComplianceDocTypeService;
+use App\Services\Compliance\FicaWetInkService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -18,6 +22,17 @@ class PdfSplitterController extends Controller
 {
     /** Minimum override count before a learned phrase is activated in classifyPage(). */
     private const LEARN_THRESHOLD = 5;
+
+    /**
+     * AT-105 enh — routing fica_slot token → FicaDocument.document_type slot.
+     * Replaces the former hardcoded slug→slot map; the slug→fica_slot half now
+     * lives per-doc-type in settings (document_types.fica_slot + agency override).
+     */
+    public const FICA_SLOT_TO_DOC_TYPE = [
+        'fica_form' => 'fica_form',
+        'id'        => 'id_copy',
+        'por'       => 'proof_of_address',
+    ];
 
     // Executable paths — configured via .env / config/splitter.php
     private static function qpdfPath(): string     { return config('splitter.qpdf_path', 'qpdf'); }
@@ -89,12 +104,48 @@ class PdfSplitterController extends Controller
                 ])));
             }
             if ($addr === '') { $addr = '(no address)'; }
+
+            // AT-105 — surface the seller/owner's OWN FICA state so the FICA
+            // kickoff toggle can key off the CONTACT (not the property's
+            // import-set compliance snapshot). null seller = no kickoff target.
+            $seller = $p->sellerOwnerContact();
+            $sellerFica = $seller ? $seller->ficaStatus() : null; // complete|expiring|incomplete|null
+
             return [
-                'id'    => $p->id,
-                'label' => trim($addr . ($p->suburb ? ' — ' . $p->suburb : '')),
-                'ref'   => $p->property_number,
+                'id'          => $p->id,
+                'label'       => trim($addr . ($p->suburb ? ' — ' . $p->suburb : '')),
+                'ref'         => $p->property_number,
+                'seller'      => $seller ? trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? '')) : null,
+                'seller_fica' => $sellerFica,
             ];
         }));
+    }
+
+    /**
+     * AT-105 enh — the contacts attached to a property, with their pivot role
+     * and own FICA state. Drives the per-page contact selector + sticky
+     * auto-resolution on the review screen. Scoped to the user's visible
+     * properties; soft-deleted / cross-agency contacts never appear (the
+     * contacts() relation respects SoftDeletes + ContactScope).
+     */
+    public function propertyContacts(Request $request, int $property)
+    {
+        $prop = Property::query()->visibleTo($request->user())->find($property);
+        if (! $prop) {
+            return response()->json(['contacts' => []], 404);
+        }
+
+        $contacts = $prop->contacts()->get()->map(function ($c) {
+            $name = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''));
+            return [
+                'id'          => $c->id,
+                'name'        => $name !== '' ? $name : '(no name)',
+                'role'        => strtolower(trim((string) ($c->pivot->role ?? ''))),
+                'fica_status' => $c->ficaStatus(), // complete|expiring|incomplete
+            ];
+        })->values();
+
+        return response()->json(['contacts' => $contacts]);
     }
 
     public function run(Request $request)
@@ -277,26 +328,37 @@ class PdfSplitterController extends Controller
      */
     public function review()
     {
-        $manifestId = session('splitter_manifest_id');
-        if (!$manifestId) {
+        $manifest = $this->loadManifestArrayOrNull(session('splitter_manifest_id'));
+        if (! $manifest) {
             return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'No active session. Please upload a PDF first.']);
+                ->withErrors(['pdf' => 'No active session, or it expired. Please upload a PDF first.']);
         }
 
-        if (!preg_match('/^[a-z0-9_-]+__\d{8}_\d{6}$/', $manifestId)) {
-            return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'Invalid session token.']);
+        // AT-105 — the FICA auto-kickoff toggle is only offered to users who
+        // can act on compliance. Server-enforced again in link().
+        $canFica = (bool) (auth()->user()?->hasPermission('access_compliance'));
+
+        // AT-105 enh — per-agency routing (contact_roles SET + fica_slot) by slug,
+        // plus the pivot-role SET each routing role resolves across, so the review
+        // screen can auto-resolve + sticky-assign per-page contacts client-side.
+        $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
+        $routing  = $agencyId > 0
+            ? app(AgencyComplianceDocTypeService::class)->routingMapBySlugFor($agencyId)
+            : [];
+
+        $roleSets = [];
+        foreach (SplitterDocType::CONTACT_ROLES as $r) {
+            $roleSets[$r] = Property::pivotRolesForContactRole($r);
         }
+        $roleLabels = [
+            'seller_owner' => 'Seller / Owner',
+            'buyer'        => 'Buyer',
+            'tenant'       => 'Tenant',
+            'landlord'     => 'Landlord',
+            'lessor'       => 'Lessor',
+        ];
 
-        $manifestRel = 'private/splitter/tmp/' . $manifestId . '/manifest.json';
-        if (!Storage::disk('local')->exists($manifestRel)) {
-            return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'Session expired or manifest not found. Please re-upload.']);
-        }
-
-        $manifest = json_decode(Storage::disk('local')->get($manifestRel), true);
-
-        return view('tools.pdf_splitter_review', compact('manifest'));
+        return view('tools.pdf_splitter_review', compact('manifest', 'canFica', 'routing', 'roleSets', 'roleLabels'));
     }
 
     /**
@@ -305,24 +367,12 @@ class PdfSplitterController extends Controller
      */
     public function confirm(Request $request)
     {
-        $manifestId = session('splitter_manifest_id');
-        if (!$manifestId) {
-            return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'Session expired. Please re-upload.']);
-        }
-
-        if (!preg_match('/^[a-z0-9_-]+__\d{8}_\d{6}$/', $manifestId)) {
-            return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'Invalid session token.']);
-        }
-
-        $manifestRel = 'private/splitter/tmp/' . $manifestId . '/manifest.json';
-        if (!Storage::disk('local')->exists($manifestRel)) {
+        $manifest = $this->loadManifestArrayOrNull(session('splitter_manifest_id'));
+        if (! $manifest) {
             return redirect()->route('tools.pdf_splitter.index')
                 ->withErrors(['pdf' => 'Session expired or manifest not found. Please re-upload.']);
         }
 
-        $manifest    = json_decode(Storage::disk('local')->get($manifestRel), true);
         $base        = $manifest['base'];
         $ts          = $manifest['ts'];
         $origRel     = $manifest['origRel'];
@@ -330,27 +380,11 @@ class PdfSplitterController extends Controller
         $outDirRel   = $manifest['outDirRel'];
         $tmpRel      = $manifest['tmpRel'];
         $pCount      = (int)$manifest['pCount'];
-        $autoLabels  = $manifest['labels'];   // string-keyed (from JSON)
         $snippets    = $manifest['snippets'];
         $pageScores  = $manifest['pageScores'];
 
-        // Apply posted overrides — whitelist against DOC_TYPES keys
-        $posted       = $request->input('labels', []);
-        $validBuckets = array_keys($this->docTypes());
-        $finalLabels  = [];   // int-keyed for groupRanges()
-        $overrides    = [];   // [page => ['from' => old, 'to' => new]]
-
-        for ($p = 1; $p <= $pCount; $p++) {
-            $auto     = $autoLabels[(string)$p] ?? 'other';
-            $override = isset($posted[(string)$p]) ? trim($posted[(string)$p]) : null;
-
-            if ($override !== null && in_array($override, $validBuckets, true) && $override !== $auto) {
-                $finalLabels[$p] = $override;
-                $overrides[$p]   = ['from' => $auto, 'to' => $override];
-            } else {
-                $finalLabels[$p] = $auto;
-            }
-        }
+        // Apply posted overrides — whitelist against active doc types.
+        [$finalLabels, $overrides] = $this->resolveFinalLabels($request, $manifest['labels'], $pCount);
 
         // Log overrides as feedback and incrementally update learned phrases
         if (!empty($overrides)) {
@@ -419,47 +453,264 @@ class PdfSplitterController extends Controller
         $zip->addFromString($base . '__summary.txt', $summary);
         $zip->close();
 
-        // Optionally link each split PDF to a Property's drive.
-        $linkedCount = 0;
-        $linkedProperty = null;
-        $propertyId = (int) $request->input('property_id');
-        if ($propertyId > 0) {
-            $linkedProperty = Property::query()
-                ->visibleTo($request->user())
-                ->find($propertyId);
-
-            if ($linkedProperty) {
-                $linkedCount = $this->linkOutputsToProperty($linkedProperty, $outFiles);
-            }
-        }
-
-        // Cleanup tmp PNGs/TXTs; originals + output PDFs are kept
-        Storage::disk('local')->deleteDirectory($tmpRel);
-        session()->forget('splitter_manifest_id');
-
-        // After generating ZIP: go back to upload screen, and trigger download there (hidden iframe).
+        // ZIP-ONLY action ("Download ZIP"). Filing to the property/contacts and
+        // any FICA kickoff are the SEPARATE "Link to CoreX" action (link()) —
+        // the two intents are never conflated. The manifest is retained in the
+        // session so the agent can still run Link afterwards from the same split.
         session([
             'splitter_last_zip'      => $zipAbsNorm,
             'splitter_last_zip_name' => basename($zipAbsNorm),
         ]);
 
-        $redirect = redirect()
+        return redirect()
             ->route('tools.pdf_splitter.index')
-            ->with('splitter_download_url', route('tools.pdf_splitter.download'));
+            ->with('splitter_download_url', route('tools.pdf_splitter.download'))
+            ->with('status', 'ZIP generated — your download will start automatically.');
+    }
 
-        if ($linkedProperty && $linkedCount > 0) {
-            $redirect->with('status', "ZIP generated and {$linkedCount} document(s) linked to {$linkedProperty->address}.");
+    /**
+     * AT-105 enhancement — "Link to CoreX" action. Files each page to its
+     * configured destination(s) keyed to its PER-PAGE assigned contact, and
+     * (toggle) kicks off ONE wet-ink FICA per distinct contact that has FICA
+     * pages assigned. Produces NO ZIP. The agent's per-page contact choices
+     * arrive in contacts[page]; doc-type overrides in labels[page].
+     */
+    public function link(Request $request)
+    {
+        $manifest = $this->loadManifestArrayOrNull(session('splitter_manifest_id'));
+        if (! $manifest) {
+            return redirect()->route('tools.pdf_splitter.index')
+                ->withErrors(['pdf' => 'Session expired or manifest not found. Please re-upload.']);
+        }
+
+        $base        = $manifest['base'];
+        $origRel     = $manifest['origRel'];
+        $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
+        $outDirRel   = $manifest['outDirRel'];
+        $pCount      = (int) $manifest['pCount'];
+        $autoLabels  = $manifest['labels'];
+        $snippets    = $manifest['snippets'];
+        $pageScores  = $manifest['pageScores'];
+
+        // A property is mandatory for filing — Download ZIP is the no-property path.
+        $propertyId = (int) $request->input('property_id');
+        $property   = $propertyId > 0
+            ? Property::query()->visibleTo($request->user())->find($propertyId)
+            : null;
+
+        if (! $property) {
+            return redirect()->route('tools.pdf_splitter.review')
+                ->withErrors(['pdf' => 'Select a property above before linking — "Link to CoreX" files the documents to that property. Use "Download ZIP" if you only want the files.']);
+        }
+
+        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? $property->agency_id ?? 0);
+
+        // Resolve final labels (apply whitelisted overrides) — same as confirm().
+        [$finalLabels, $overrides] = $this->resolveFinalLabels($request, $autoLabels, $pCount);
+        if (! empty($overrides)) {
+            $this->logFeedback($base, $overrides, $snippets, $pageScores);
+        }
+
+        // Per-page assigned contacts — MANY-TO-MANY. Each page carries a SET of
+        // contacts across any/all of the doc-type's allowed roles (the OTP links
+        // to all sellers AND all buyers at once). Only contacts actually attached
+        // to THIS property are honoured (the page selector + link/create flow keep
+        // the pivot current); anything else is dropped (no orphan, no cross-
+        // property leak).
+        $attached     = $property->contacts()->get()->keyBy('id');
+        $postedC      = (array) $request->input('contacts', []);
+        $pageContacts = [];                       // page => int[] (attached ids)
+        for ($p = 1; $p <= $pCount; $p++) {
+            $raw = $postedC[(string) $p] ?? [];
+            $ids = collect(is_array($raw) ? $raw : [$raw])
+                ->map(fn ($v) => (int) $v)
+                ->filter(fn ($cid) => $cid > 0 && $attached->has($cid))
+                ->unique()->sort()->values()->all();
+            $pageContacts[$p] = $ids;
+        }
+
+        // Group pages by (label, exact-contact-SET). Pages sharing a label and the
+        // same set of ticked contacts merge into one output. Non-contiguous pages
+        // are fine — extractPageSet handles arbitrary page lists.
+        $groups = [];   // key => ['label'=>, 'contact_ids'=>int[], 'pages'=>int[]]
+        for ($p = 1; $p <= $pCount; $p++) {
+            $label = $finalLabels[$p];
+            $ids   = $pageContacts[$p];
+            $key   = $label . '|' . (empty($ids) ? 'none' : implode(',', $ids));
+            if (! isset($groups[$key])) {
+                $groups[$key] = ['label' => $label, 'contact_ids' => $ids, 'pages' => []];
+            }
+            $groups[$key]['pages'][] = $p;
+        }
+
+        if (empty($groups)) {
+            return redirect()->route('tools.pdf_splitter.review')
+                ->withErrors(['pdf' => 'No pages were assigned to any label.']);
+        }
+
+        Storage::disk('local')->makeDirectory($outDirRel);
+        $outDirAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($outDirRel));
+
+        // Extract one PDF per group from the original.
+        $gi = 0;
+        foreach ($groups as $key => &$g) {
+            $gi++;
+            $idsPart = empty($g['contact_ids']) ? 'unassigned' : ('c' . implode('-', $g['contact_ids']));
+            $outAbs  = $outDirAbsNorm . '/' . $base . '__' . $g['label'] . '__' . $idsPart . '__g' . $gi . '.pdf';
+            $this->extractPageSet($origAbsNorm, $g['pages'], $outAbs);
+            $g['file'] = $outAbs;
+        }
+        unset($g);
+
+        $routing = app(AgencyComplianceDocTypeService::class)->routingMapBySlugFor($agencyId);
+
+        // File every group to its destination(s) + assigned contact.
+        $filed = $this->fileGroupsToDestinations($property, array_values($groups), $agencyId, $attached);
+
+        // FICA — group the FICA-relevant pages by assigned contact; one wet-ink
+        // verification per distinct contact. Agent TOGGLE, never silent.
+        $ficaResults = [];
+        $ficaNote    = null;
+        if ($request->boolean('trigger_fica')) {
+            $ficaResults = $this->kickoffMultiFica(
+                array_values($groups), $routing, $agencyId, $attached, $request->user(), $ficaNote
+            );
+        }
+
+        // Post-link state: the agent has FINISHED this pack — the index hides the
+        // uploader and shows a Finish panel that returns to the property. (The ZIP
+        // path does NOT set this, so it keeps the uploader.)
+        $propLabel = trim((string) ($property->address ?: $property->title ?: ''));
+        $redirect = redirect()->route('tools.pdf_splitter.index')
+            ->with('splitter_linked', true)
+            ->with('splitter_property_url', route('corex.properties.show', $property))
+            ->with('splitter_property_label', $propLabel !== '' ? $propLabel : null);
+
+        // Filing summary banner.
+        $totalFiled = $filed['property'] + $filed['contact'] + $filed['fallback'];
+        if ($totalFiled > 0) {
+            $parts = [];
+            if ($filed['property'] > 0) { $parts[] = "{$filed['property']} to the property"; }
+            if ($filed['contact'] > 0)  { $parts[] = "{$filed['contact']} to the assigned contact" . ($filed['contact'] === 1 ? '' : 's'); }
+            if ($filed['fallback'] > 0) { $parts[] = "{$filed['fallback']} to the property (no contact assigned)"; }
+            $redirect->with('status', 'Documents linked — ' . implode(', ', $parts) . '.');
+        } else {
+            $redirect->with('status', 'No documents were filed — check the Save-To settings for these document types.');
+        }
+
+        // FICA banner(s) — one line per contact (started or reused).
+        if (! empty($ficaResults)) {
+            $redirect->with('splitter_fica_results', $ficaResults);
+        } elseif ($ficaNote) {
+            $redirect->with('splitter_fica_note', $ficaNote);
         }
 
         return $redirect;
     }
 
     /**
-     * Copy each split output into the property's drive as Document records,
-     * tagged with a DocumentType when the splitter label slug matches.
-     * Returns the number of files linked.
+     * Manifest loader shared by review()/confirm()/link() — validates the
+     * session token shape, then returns the decoded manifest array or null.
      */
-    private function linkOutputsToProperty(Property $property, array $outFiles): int
+    private function loadManifestArrayOrNull(?string $manifestId): ?array
+    {
+        if (! $manifestId || ! preg_match('/^[a-z0-9_-]+__\d{8}_\d{6}$/', $manifestId)) {
+            return null;
+        }
+        $rel = 'private/splitter/tmp/' . $manifestId . '/manifest.json';
+        if (! Storage::disk('local')->exists($rel)) {
+            return null;
+        }
+        $decoded = json_decode(Storage::disk('local')->get($rel), true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * Apply posted label overrides (whitelisted against active doc types) over
+     * the OCR auto-labels. Returns [finalLabels (int-keyed), overrides].
+     *
+     * @return array{0: array<int,string>, 1: array<int,array{from:string,to:string}>}
+     */
+    private function resolveFinalLabels(Request $request, array $autoLabels, int $pCount): array
+    {
+        $posted       = $request->input('labels', []);
+        $validBuckets = array_keys($this->docTypes());
+        $finalLabels  = [];
+        $overrides    = [];
+
+        for ($p = 1; $p <= $pCount; $p++) {
+            $auto     = $autoLabels[(string) $p] ?? 'other';
+            $override = isset($posted[(string) $p]) ? trim($posted[(string) $p]) : null;
+
+            if ($override !== null && in_array($override, $validBuckets, true) && $override !== $auto) {
+                $finalLabels[$p] = $override;
+                $overrides[$p]   = ['from' => $auto, 'to' => $override];
+            } else {
+                $finalLabels[$p] = $auto;
+            }
+        }
+
+        return [$finalLabels, $overrides];
+    }
+
+    /**
+     * Build a qpdf page-selection spec from an arbitrary page-number list,
+     * collapsing consecutive runs into ranges (e.g. [1,2,3,5] → "1-3,5").
+     */
+    private function pageSpec(array $pages): string
+    {
+        $pages = array_values(array_unique(array_map('intval', $pages)));
+        sort($pages);
+        if (empty($pages)) {
+            return '';
+        }
+
+        $spec = [];
+        $start = $prev = $pages[0];
+        foreach (array_slice($pages, 1) as $p) {
+            if ($p === $prev + 1) { $prev = $p; continue; }
+            $spec[] = $start === $prev ? (string) $start : "{$start}-{$prev}";
+            $start = $prev = $p;
+        }
+        $spec[] = $start === $prev ? (string) $start : "{$start}-{$prev}";
+
+        return implode(',', $spec);
+    }
+
+    /**
+     * Extract an arbitrary ordered set of pages from the original into one PDF.
+     * Replaces the range-extract + pdfunite dance for the per-group filing path.
+     */
+    private function extractPageSet(string $origAbsNorm, array $pages, string $outAbsNorm): void
+    {
+        $spec = $this->pageSpec($pages);
+        if ($spec === '') {
+            throw new \RuntimeException('extractPageSet called with no pages.');
+        }
+
+        $proc = new Process([self::qpdfPath(), $origAbsNorm, '--pages', $origAbsNorm, $spec, '--', $outAbsNorm]);
+        $proc->setTimeout(120);
+        $proc->run();
+
+        if (! $proc->isSuccessful()) {
+            throw new \RuntimeException("qpdf page-set extract failed for {$spec}: " . trim((string) $proc->getErrorOutput()));
+        }
+    }
+
+    /**
+     * AT-105 enh — file each (label, contact-SET) group as ONE Document, attached
+     * to the property and/or to EACH ticked contact per the agency Save-To config.
+     * Many-to-many: a group ticked for N contacts links its Document to all N.
+     *
+     * No-orphan guarantee: the property is always the split target, so any group
+     * whose configured destination cannot be honoured (contact destination with
+     * no ticked contact, or neither flag set) is anchored to the property.
+     *
+     * @param array<int,array{label:string,contact_ids:int[],pages:int[],file:string}> $groups
+     * @return array{property:int, contact:int, fallback:int}
+     */
+    private function fileGroupsToDestinations(Property $property, array $groups, int $agencyId, \Illuminate\Support\Collection $attached): array
     {
         $publicDisk = Storage::disk('public');
         $dir = "properties/{$property->id}/files";
@@ -467,21 +718,20 @@ class PdfSplitterController extends Controller
             $publicDisk->makeDirectory($dir);
         }
 
-        // slug → DocumentType id (cached)
-        $typeMap = DocumentType::query()
-            ->whereIn('slug', collect($outFiles)->map(fn ($f) => $this->labelFromFilename(basename($f)))->filter()->unique()->values())
-            ->pluck('id', 'slug')
-            ->toArray();
+        $destinations = app(AgencyComplianceDocTypeService::class);
 
-        $count = 0;
-        foreach ($outFiles as $abs) {
-            if (! is_file($abs)) continue;
+        $slugs   = collect($groups)->pluck('label')->filter()->unique()->values();
+        $typeMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('id', 'slug')->toArray();
 
-            $labelSlug = $this->labelFromFilename(basename($abs));
+        $result = ['property' => 0, 'contact' => 0, 'fallback' => 0];
+        foreach ($groups as $g) {
+            $abs = $g['file'] ?? null;
+            if (! $abs || ! is_file($abs)) continue;
+
+            $labelSlug = $g['label'];
             $filename  = basename($abs);
             $relPath   = $dir . '/' . Str::random(8) . '_' . $filename;
 
-            // Copy file into public disk
             $stream = @fopen($abs, 'rb');
             if (! $stream) continue;
             $publicDisk->put($relPath, $stream);
@@ -495,26 +745,137 @@ class PdfSplitterController extends Controller
                 'size'             => @filesize($abs) ?: null,
                 'document_type_id' => $typeMap[$labelSlug] ?? null,
                 'source_type'      => 'pdf_splitter',
+                // Provenance: the property this pack was split against — recorded on
+                // every split doc (incl. contact-only ones) so a contact's
+                // "Not Property-Linked" doc is still traceable to its split.
+                'source_id'        => $property->id,
                 'uploaded_by'      => auth()->id(),
             ]);
 
-            $doc->properties()->attach($property->id);
-            $count++;
+            $dest = $labelSlug
+                ? $destinations->destinationForSlug($agencyId, $labelSlug)
+                : ['property' => true, 'contact' => false];
+
+            $didAttach = false;
+            if ($dest['property']) {
+                $doc->properties()->attach($property->id);
+                $result['property']++;
+                $didAttach = true;
+            }
+            if ($dest['contact'] && ! empty($g['contact_ids'])) {
+                foreach ($g['contact_ids'] as $cid) {
+                    $contact = $attached->get($cid);
+                    if (! $contact) continue;
+                    $partyRole = strtolower(trim((string) ($contact->pivot->role ?? ''))) ?: 'seller';
+                    $doc->contacts()->attach($cid, ['party_role' => $partyRole]);
+                    $result['contact']++;
+                    $didAttach = true;
+                }
+            }
+
+            if (! $didAttach) {
+                $doc->properties()->attach($property->id);
+                $result['fallback']++;
+            }
         }
 
-        return $count;
+        return $result;
     }
 
     /**
-     * Extract the label slug from a splitter output filename:
-     * "base__label.pdf" → "label"
+     * AT-105 enh — multi-FICA kickoff. Groups the FICA-relevant pages (doc-types
+     * whose fica_slot != none) by EACH assigned contact and creates ONE wet-ink
+     * FICA verification per distinct contact. A FICA page ticked for two contacts
+     * yields two independent verifications (each party FICAs individually).
+     * Contact-keyed; dedupes against an in-flight verification per contact. No
+     * fica_submissions schema change.
+     *
+     * @param array<int,array{label:string,contact_ids:int[],pages:int[],file:string}> $groups
+     * @param array<string,array{label:string,contact_roles:string[],fica_slot:string}> $routing
+     * @return array<int,array{contact:string,url:string,reused:bool,slots:int}>
      */
-    private function labelFromFilename(string $filename): ?string
+    private function kickoffMultiFica(array $groups, array $routing, int $agencyId, \Illuminate\Support\Collection $attached, $user, ?string &$ficaNote): array
     {
-        if (! preg_match('/__([a-z0-9_]+)\.pdf$/i', $filename, $m)) {
-            return null;
+        if (! $user || ! $user->hasPermission('access_compliance')) {
+            $ficaNote = 'FICA verification was not started — you do not have compliance access.';
+            return [];
         }
-        return strtolower($m[1]);
+        if ($agencyId <= 0) {
+            $ficaNote = 'FICA verification was not started — could not determine the agency. Pick an active agency and try again.';
+            return [];
+        }
+
+        // contactId => [ ['slot'=>ficaDocType, 'file'=>abs], ... ]
+        $perContact = [];
+        foreach ($groups as $g) {
+            $ficaSlot = $routing[$g['label']]['fica_slot'] ?? 'none';
+            $docSlot  = self::FICA_SLOT_TO_DOC_TYPE[$ficaSlot] ?? null;
+            if (! $docSlot) continue;                       // not a FICA-tagged type
+            $abs = $g['file'] ?? null;
+            if (! $abs || ! is_file($abs)) continue;
+            foreach ($g['contact_ids'] as $cid) {
+                $perContact[$cid][] = ['slot' => $docSlot, 'file' => $abs];
+            }
+        }
+
+        if (empty($perContact)) {
+            $ficaNote = 'FICA verification was not started — no FICA-tagged page in this pack was assigned to a contact.';
+            return [];
+        }
+
+        $service = app(FicaWetInkService::class);
+        $results = [];
+        foreach ($perContact as $cid => $slots) {
+            $contact = $attached->get($cid);
+            if (! $contact) continue;
+
+            $existing = $this->existingActiveFica($contact);
+            if ($existing) {
+                $submission = $existing;
+                $reused     = true;
+            } else {
+                $submission = null;
+                DB::transaction(function () use ($service, $contact, $agencyId, $slots, &$submission) {
+                    $submission = $service->create($contact, $agencyId, ['source' => 'pdf_splitter']);
+                    foreach ($slots as $s) {
+                        $service->addStoredDocument($submission, $s['file'], basename($s['file']), $s['slot']);
+                    }
+                });
+                $reused = false;
+                if ($submission) {
+                    $service->fireSubmitted($submission, $contact, auth()->id());
+                }
+            }
+
+            if ($submission) {
+                $results[] = [
+                    'contact' => trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'the contact',
+                    'url'     => route('compliance.fica.show', $submission),
+                    'reused'  => $reused,
+                    'slots'   => count($slots),
+                ];
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * AT-105 — the seller's most recent IN-FLIGHT FICA verification, if any.
+     * Used to dedupe: splitting another pack for a seller who already has an
+     * open verification opens that one instead of spawning a duplicate.
+     *
+     * "In-flight" = not a terminal outcome. Terminal (rejected / cancelled) and
+     * fully-approved submissions are ignored, so a deliberate re-verify after a
+     * rejection or an expiry still starts a fresh wet-ink.
+     */
+    private function existingActiveFica(Contact $contact): ?FicaSubmission
+    {
+        return FicaSubmission::query()
+            ->where('contact_id', $contact->id)
+            ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved', 'corrections_requested'])
+            ->latest('id')
+            ->first();
     }
 
     // =========================================================================
@@ -781,9 +1142,31 @@ class PdfSplitterController extends Controller
             }
         }
 
-        // Priority: mandate > offer_to_purchase > fica > ids > por >
-        //           rates_taxes > body_corporate > house_rules >
-        //           condition_report > listing_form > disclosure > other
+        $label = $this->resolveLabel($scores, $t);
+
+        return [$label, $snippet, $scores];
+    }
+
+    /**
+     * Resolve the winning doc-type label from the keyword scores.
+     *
+     * Highest score wins; ties break by priority order (earlier = stronger):
+     *   mandate > offer_to_purchase > fica > ids > por > rates_taxes >
+     *   body_corporate > house_rules > condition_report > listing_form >
+     *   disclosure > other.
+     *
+     * AT-105 — strong Proof-of-Residence override. A SA proof of residence is
+     * commonly an AFFIDAVIT headed "Republic of South Africa" that quotes the
+     * deponent's ID number and date of birth — so it out-scores the 'por'
+     * bucket on the 'ids' bucket and would auto-label 'ids', filing into the
+     * FICA ID slot (id_copy) instead of Proof of Residence (proof_of_address).
+     * That is the live "both pages → id_copy" bug: the slot mapping is correct,
+     * but the POR page was mis-classified 'ids' upstream. An explicit
+     * "proof of residence" / "proof of address" phrase is unambiguous, so
+     * honour it over 'ids'. A pure ID page carries no such phrase → unaffected.
+     */
+    private function resolveLabel(array $scores, string $t): string
+    {
         $priority = [
             'mandate', 'offer_to_purchase', 'fica', 'ids', 'por',
             'rates_taxes', 'body_corporate', 'house_rules',
@@ -799,7 +1182,13 @@ class PdfSplitterController extends Controller
             }
         }
 
-        return [$label, $snippet, $scores];
+        if ($label === 'ids'
+            && ($scores['por'] ?? 0) > 0
+            && (str_contains($t, 'proof of residence') || str_contains($t, 'proof of address'))) {
+            $label = 'por';
+        }
+
+        return $label;
     }
 
     // =========================================================================

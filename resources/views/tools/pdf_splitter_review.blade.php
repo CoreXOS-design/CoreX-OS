@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -9,207 +10,117 @@
     $pageScores = $manifest['pageScores'];
     $docTypes   = $manifest['docTypes'];    // ['mandate' => 'Mandate', ...]
 
-    // Keyboard shortcut map: first unique letter of each key, in order
-    // Override manually to avoid collisions
-    $keyMap = [
-        'm' => 'mandate',
-        'f' => 'fica',
-        'i' => 'ids',
-        'p' => 'por',
-        'c' => 'condition_report',
-        'l' => 'listing_form',
-        'r' => 'rates_taxes',
-        'b' => 'body_corporate',
-        'h' => 'house_rules',
-        'o' => 'offer_to_purchase',
-        'd' => 'disclosure',
-        'x' => 'other',
-    ];
+    // AT-105 small fix — the doc-type picker on THIS review screen lists
+    // alphabetically by label (case-insensitive); the list outgrew sort_order
+    // scanning. Scoped to the splitter review only — the admin settings screen
+    // keeps its deliberate sort_order arrangement (separate query/view).
+    uasort($docTypes, fn ($a, $b) => strcasecmp((string) $a, (string) $b));
 
-    // Badge colour map (tailwind-style token â†’ inline style)
-    $badgeStyle = [
-        'mandate'           => 'background:#dbeafe;color:#1e3a8a',
-        'fica'              => 'background:#ede9fe;color:#4c1d95',
-        'ids'               => 'background:#dcfce7;color:#14532d',
-        'por'               => 'background:#fef9c3;color:#713f12',
-        'condition_report'  => 'background:#fff7ed;color:#7c2d12',
-        'listing_form'      => 'background:#f0fdf4;color:#065f46',
-        'rates_taxes'       => 'background:#fef3c7;color:#78350f',
-        'body_corporate'    => 'background:#f0f9ff;color:#0c4a6e',
-        'house_rules'       => 'background:#fdf4ff;color:#701a75',
-        'offer_to_purchase' => 'background:#fff1f2;color:#881337',
-        'disclosure'        => 'background:#f8fafc;color:#1e293b',
-        'other'             => 'background:#f1f5f9;color:#475569',
-    ];
+    // Pre-build per-page seed data for the Alpine component (contacts resolve
+    // client-side once a property is picked).
+    $pageSeed = [];
+    for ($p = 1; $p <= $pCount; $p++) {
+        $sc   = $pageScores[(string)$p] ?? [];
+        $nonZ = array_filter($sc, fn($v) => $v > 0);
+        $pageSeed[] = [
+            'page'    => $p,
+            'label'   => $labels[(string)$p] ?? 'other',
+            'snippet' => $snippets[(string)$p] ?? '',
+            'scores'  => !empty($nonZ)
+                ? implode(' ', array_map(fn($k,$v)=>"{$k}={$v}", array_keys($nonZ), $nonZ))
+                : 'no hits',
+            'contactIds' => [],
+            'touched'    => false,
+        ];
+    }
 @endphp
 <style>
 #spr *, #spr { box-sizing: border-box; }
-
-#spr {
-    color: var(--text-primary);
-    font-size: 0.875rem;
-}
-
-#spr .wrap { max-width: 1160px; margin: 0 auto; padding: 0 1.5rem; }
-
-/* Alert */
+#spr { color: var(--text-primary); font-size: 0.875rem; }
+#spr .wrap { max-width: 1240px; margin: 0 auto; padding: 0 1.5rem; }
 #spr .alert { padding:10px 14px; border-radius:6px; font-size:.85rem; margin-bottom:14px; }
 #spr .alert-error {
-    background: color-mix(in srgb, #ef4444 12%, var(--surface));
-    border:1px solid color-mix(in srgb, #ef4444 25%, var(--border));
+    background: color-mix(in srgb, var(--ds-crimson, #ef4444) 12%, var(--surface));
+    border:1px solid color-mix(in srgb, var(--ds-crimson, #ef4444) 25%, var(--border));
     color:var(--ds-crimson);
 }
-
-/* â”€â”€ Toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+#spr .card { background: var(--surface); border: 1px solid var(--border); border-radius:6px; }
 #spr .toolbar {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     background: var(--surface); border: 1px solid var(--border);
     border-left: 3px solid var(--brand-icon, #0ea5e9);
     border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 12px;
 }
-#spr .toolbar .sel-count {
-    font-size:0.78rem; font-weight:700; color: var(--brand-icon, #0ea5e9);
-    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, var(--surface));
-    padding:3px 9px; border-radius:6px;
-    margin-right:4px; white-space:nowrap;
-}
 #spr .tb-label { font-size:.75rem; font-weight:600; color:var(--text-muted); white-space:nowrap; }
-#spr .tb-sep   { width:1px; height:18px; background:var(--border); flex-shrink:0; }
-
 #spr select.tb-select {
     font-size:.82rem; padding:5px 8px; border:1px solid var(--border);
     border-radius:6px; background:var(--surface); color:var(--text-primary); cursor:pointer;
 }
 #spr button.tb-btn {
     font-size:.78rem; font-weight:600; padding:5px 12px;
-    border-radius:6px; border:1px solid transparent; cursor:pointer;
+    border-radius:6px; border:1px solid var(--border); cursor:pointer;
+    background:var(--surface-2, var(--surface)); color:var(--text-secondary);
     transition: all 300ms; white-space:nowrap;
 }
 #spr button.tb-btn:hover { opacity:.85; }
-#spr .btn-apply  { background:var(--brand-button, #0ea5e9); color:#fff; }
-#spr .btn-reset  { background:var(--surface); color:var(--ds-crimson); border-color: color-mix(in srgb, #ef4444 40%, var(--border)); }
-#spr .btn-other  { background:var(--surface-2, var(--surface)); color:var(--text-secondary); border-color:var(--border); }
-#spr .btn-gen    { background:var(--brand-button, #0ea5e9); color:#fff; border:none; border-radius:6px;
-                   padding:0.625rem 1.5rem; font-size:.875rem; font-weight:600; cursor:pointer;
-                   transition: all 300ms;
-                   box-shadow: 0 4px 6px -1px color-mix(in srgb, var(--brand-button, #0ea5e9) 20%, transparent); }
-#spr .btn-gen:hover { filter: brightness(1.1);
-                      box-shadow: 0 6px 10px -2px color-mix(in srgb, var(--brand-button, #0ea5e9) 30%, transparent); }
-
-/* â”€â”€ Shortcut legend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-#spr .legend {
-    display:flex; flex-wrap:wrap; gap:5px;
-    background:var(--surface); border:1px solid var(--border);
-    border-left: 3px solid var(--brand-default, #0b2a4a);
-    border-radius:6px; padding:0.75rem 1rem; margin-bottom:12px;
-    align-items:center;
-}
-#spr .legend-title { font-size:.72rem; font-weight:700; color:var(--text-muted);
-                     text-transform:uppercase; letter-spacing:.05em; margin-right:6px; }
-#spr .key-chip {
-    display:inline-flex; align-items:center; gap:4px;
-    font-size:.75rem; padding:2px 7px; border-radius:4px;
-    border:1px solid var(--border); background:var(--surface-2, var(--surface)); color:var(--text-primary);
-    user-select:none; cursor:default;
-}
-#spr .key-chip kbd {
-    font-family:'JetBrains Mono', monospace; font-weight:700; font-size:.78rem;
-    background:var(--surface-2, var(--surface)); border-radius:6px; padding:1px 5px;
-    border:1px solid var(--border);
-}
-
-/* â”€â”€ Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-#spr .tbl-wrap {
-    background:var(--surface); border:1px solid var(--border); border-radius:6px;
-    overflow:hidden; margin-bottom:16px;
-}
+#spr .tbl-wrap { background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:16px; }
 #spr table { width:100%; border-collapse:collapse; }
 #spr thead th {
     background:var(--surface-2, var(--surface)); color:var(--text-muted); font-size:.72rem;
     font-weight:600; letter-spacing:.05em; text-transform:uppercase;
-    padding:9px 10px; text-align:left; white-space:nowrap;
-    border-bottom: 1px solid var(--border);
+    padding:9px 10px; text-align:left; white-space:nowrap; border-bottom: 1px solid var(--border);
 }
-#spr tbody tr {
-    border-bottom:1px solid var(--border); cursor:pointer;
-    transition: background 300ms;
-}
+#spr tbody tr { border-bottom:1px solid var(--border); }
 #spr tbody tr:last-child { border-bottom:none; }
-#spr tbody tr:hover { background:var(--surface-2, var(--surface)); }
-#spr tbody tr.selected {
-    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface)) !important;
-    outline:2px solid var(--brand-icon, #0ea5e9);
-    outline-offset:-2px;
-}
-
-#spr td { padding:6px 10px; vertical-align:middle; }
-
-/* Thumbnail */
-#spr .thumb-cell { width:360px; text-align:center; }
+#spr td { padding:8px 10px; vertical-align:top; }
+#spr .thumb-cell { width:230px; text-align:center; }
 #spr .thumb-cell img {
-    max-width: none !important;
-    width:256px !important; max-width:256px !important; height:auto; border:1px solid var(--border);
-    border-radius:6px; display:block; margin:0 auto;
-    background:var(--surface-2, var(--surface));
+    width:200px !important; max-width:200px !important; height:auto; border:1px solid var(--border);
+    border-radius:6px; display:block; margin:0 auto; background:var(--surface-2, var(--surface));
 }
-#spr .thumb-cell .pg-num {
-    font-weight:700; color:var(--brand-icon, #0ea5e9); font-size:.8rem;
-    margin-top:2px; display:block; text-align:center;
-}
-
-/* Auto badge */
-#spr .badge {
-    display:inline-block; font-size:.7rem; font-weight:700;
-    padding:2px 7px; border-radius:6px; white-space:nowrap;
-}
-
-/* Scores tooltip trigger */
-#spr .score-tip { font-size:.7rem; color:var(--text-muted); cursor:help;
-                  white-space:nowrap; border-bottom:1px dotted var(--text-muted); }
-
-/* Dropdown */
+#spr .thumb-cell .pg-num { font-weight:700; color:var(--brand-icon, #0ea5e9); font-size:.8rem; margin-top:2px; display:block; }
 #spr select.lbl-select {
     font-size:.82rem; padding:5px 7px; border:1px solid var(--border);
     border-radius:6px; background:var(--surface); color:var(--text-primary); cursor:pointer;
-    width:100%; min-width:148px; transition: border-color 300ms, box-shadow 300ms;
+    width:100%; min-width:150px;
 }
-#spr select.lbl-select:focus {
-    outline:none;
-    border-color:var(--brand-button, #0ea5e9);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-button, #0ea5e9) 15%, transparent);
-}
-
-/* Snippet */
-#spr .snippet {
-    font-size:.76rem; color:var(--text-secondary); max-width:360px;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
+#spr .snippet { font-size:.74rem; color:var(--text-secondary); max-width:280px;
+    overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 #spr .snippet.empty { color:var(--text-muted); font-style:italic; }
-
-/* Bottom bar */
-#spr .bottom-bar {
-    display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:4px;
+#spr .score-tip { font-size:.68rem; color:var(--text-muted); }
+#spr .role-group { margin-bottom:6px; }
+#spr .role-title { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:2px; }
+#spr .chip {
+    display:inline-flex; align-items:center; gap:5px; font-size:.76rem;
+    padding:3px 8px; margin:2px 4px 2px 0; border-radius:6px;
+    border:1px solid var(--border); background:var(--surface-2, var(--surface));
+    color:var(--text-primary); cursor:pointer; user-select:none;
 }
-#spr .btn-back {
-    font-size:.85rem; color:var(--text-muted); text-decoration:none; padding:4px 0;
-    transition: color 300ms;
-}
-#spr .btn-back:hover { color:var(--brand-icon, #0ea5e9); }
+#spr .chip input { accent-color: var(--ds-green, #16a34a); width:14px; height:14px; cursor:pointer; }
+#spr .chip.checked { border-color: var(--ds-green, #16a34a); background: color-mix(in srgb, var(--ds-green, #16a34a) 10%, var(--surface)); }
+#spr .add-link { font-size:.72rem; color:var(--brand-icon, #0ea5e9); cursor:pointer; text-decoration:underline; }
+#spr .mini { background:var(--surface-2, var(--surface)); border:1px solid var(--border); border-radius:6px; padding:8px; margin-top:4px; }
+#spr .mini input { width:100%; padding:5px 7px; font-size:.78rem; border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--text-primary); margin-bottom:4px; }
+#spr .mini .res { padding:4px 6px; font-size:.78rem; cursor:pointer; border-radius:4px; }
+#spr .mini .res:hover { background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, var(--surface)); }
+#spr .btn-gen { background:var(--brand-button, #0ea5e9); color:#fff; border:none; border-radius:6px;
+    padding:0.625rem 1.5rem; font-size:.875rem; font-weight:600; cursor:pointer; transition: all 300ms; }
+#spr .btn-gen:hover { filter: brightness(1.1); }
+#spr .btn-gen.secondary { background:var(--surface); color:var(--text-secondary); border:1px solid var(--border); }
+#spr .btn-gen:disabled { opacity:.5; cursor:not-allowed; }
+#spr .btn-back { font-size:.85rem; color:var(--text-muted); text-decoration:none; padding:4px 0; }
+#spr [x-cloak] { display:none !important; }
 </style>
 
-<div id="spr">
+<div id="spr" x-data="splitterReview()" x-cloak>
 <div class="wrap">
 
-    {{-- Header bar --}}
+    {{-- Header --}}
     <div class="rounded-md px-6 py-5 mb-5" style="background: var(--brand-default, #0b2a4a);">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-                <h1 class="text-xl font-bold text-white leading-tight">PDF Pack Splitter — Review Labels</h1>
-                <p class="text-sm text-white/60">
-                    <strong>{{ $base }}</strong> · {{ $pCount }} pages · Click rows to select · Use keyboard shortcuts to label
-                </p>
-            </div>
-        </div>
+        <h1 class="text-xl font-bold text-white leading-tight">PDF Pack Splitter — Review &amp; Assign</h1>
+        <p class="text-sm text-white/60">
+            <strong>{{ $base }}</strong> · {{ $pCount }} pages · Set each page's document type, then tick the contact(s) it belongs to.
+        </p>
     </div>
 
     @if($errors->any())
@@ -220,352 +131,393 @@
         </div>
     @endif
 
-    {{-- Property link (optional) --}}
-    <div x-data="splitterPropertyPicker()" class="rounded-md p-4 mb-4"
-         style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
+    {{-- Property picker --}}
+    <div class="card p-4 mb-4" data-tour="spr-property" style="border-left: 3px solid var(--brand-icon, #0ea5e9);">
         <div class="flex items-center justify-between mb-2">
             <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
-                Link split documents to a property (optional)
+                Link split documents to a property
             </label>
-            <template x-if="selected">
-                <button type="button" @click="clear()" class="text-xs underline" style="color: var(--text-secondary);">Clear</button>
-            </template>
+            <button type="button" x-show="property" @click="clearProperty()" class="text-xs underline" style="color: var(--text-secondary);">Clear</button>
         </div>
 
-        <template x-if="!selected">
-            <div class="relative">
-                <input type="text" x-model="q" @input.debounce.250="search()" @focus="search()"
-                       placeholder="Search property by address, suburb, ref…"
-                       class="w-full px-3 py-2 rounded-md text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <div x-show="results.length > 0" class="absolute left-0 right-0 top-full mt-1 rounded-md z-10 max-h-72 overflow-y-auto"
-                     style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-                    <template x-for="r in results" :key="r.id">
-                        <button type="button" @click="pick(r)"
-                                class="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
-                                style="color: var(--text-primary);">
-                            <div x-text="r.label"></div>
-                            <div class="text-xs" style="color: var(--text-muted);" x-text="r.ref ? ('Ref: ' + r.ref) : ''"></div>
-                        </button>
-                    </template>
-                </div>
-                <div x-show="searching" class="absolute right-3 top-2.5 text-xs" style="color: var(--text-muted);">…</div>
+        <div x-show="!property" class="relative">
+            <input type="text" x-model="q" @input.debounce.250="searchProps()" @focus="searchProps()"
+                   placeholder="Search property by address, suburb, ref…"
+                   class="w-full px-3 py-2 rounded-md text-sm"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <div x-show="propResults.length > 0" class="absolute left-0 right-0 top-full mt-1 rounded-md z-20 max-h-72 overflow-y-auto"
+                 style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                <template x-for="r in propResults" :key="r.id">
+                    <button type="button" @click="pickProp(r)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
+                        <div x-text="r.label"></div>
+                        <div class="text-xs" style="color: var(--text-muted);" x-text="r.ref ? ('Ref: ' + r.ref) : ''"></div>
+                    </button>
+                </template>
             </div>
-        </template>
+        </div>
 
-        <template x-if="selected">
-            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
-                 style="background: var(--surface-2); border: 1px solid var(--border);">
-                <div class="text-sm" style="color: var(--text-primary);">
-                    <span x-text="selected.label"></span>
-                    <span class="text-xs ml-2" style="color: var(--text-muted);" x-text="selected.ref ? ('Ref: ' + selected.ref) : ''"></span>
-                </div>
+        <div x-show="property" class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
+             style="background: var(--surface-2); border: 1px solid var(--border);">
+            <div class="text-sm" style="color: var(--text-primary);">
+                <span x-text="property?.label"></span>
+                <span class="text-xs ml-2" style="color: var(--text-muted);" x-text="property && property.ref ? ('Ref: ' + property.ref) : ''"></span>
             </div>
-        </template>
-
-        <input type="hidden" name="property_id" :value="selected ? selected.id : ''" form="spr-form">
+            <span class="text-xs" style="color: var(--text-muted);">
+                <span x-show="loadingContacts">Loading contacts…</span>
+                <span x-show="!loadingContacts" x-text="contacts.length + ' contact' + (contacts.length===1?'':'s') + ' linked'"></span>
+            </span>
+        </div>
+        <p x-show="!property" class="text-xs mt-2" style="color: var(--text-muted);">
+            Pick a property to enable per-page contact assignment and the “Link to CoreX” action. You can still “Download ZIP” without one.
+        </p>
     </div>
 
-    {{-- Keyboard legend --}}
-    <div class="legend">
-        <span class="legend-title">Shortcuts</span>
-        @foreach($keyMap as $key => $type)
-            @if(isset($docTypes[$type]))
-                <span class="key-chip">
-                    <kbd>{{ strtoupper($key) }}</kbd>
-                    {{ $docTypes[$type] }}
+    {{-- FICA toggle (compliance users only) --}}
+    @if(!empty($canFica))
+    <div class="card p-4 mb-4" data-tour="spr-fica" style="border-left: 3px solid #8b5cf6;" x-show="property">
+        <label class="flex items-start gap-3" :class="ficaHasTargets ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'">
+            <input type="checkbox" :checked="ficaChecked" @change="ficaOverride = $event.target.checked" :disabled="!ficaHasTargets"
+                   class="mt-0.5 rounded w-4 h-4" style="accent-color:#8b5cf6;">
+            <span>
+                <span class="text-sm font-semibold" style="color: var(--text-primary);">Start wet-ink FICA verification(s) from this pack</span>
+                <span x-show="ficaHasTargets" class="block text-xs mt-1" style="color: var(--text-muted);">
+                    One verification per distinct contact who has a FICA / ID / Proof-of-Residence page assigned
+                    (<strong x-text="ficaTargetCount"></strong> will be started or reused). Each party FICAs individually.
+                    The assigned pages auto-attach to the right slots; you finish the rest.
                 </span>
-            @endif
-        @endforeach
-        <span class="key-chip" style="margin-left:8px;color:#94a3b8;">
-            <kbd>&uarr;&darr;</kbd> navigate &nbsp; <kbd>Esc</kbd> deselect
-        </span>
+                <span x-show="!ficaHasTargets" class="block text-xs mt-1" style="color: var(--text-muted);">
+                    Assign a FICA / ID / Proof-of-Residence page to a contact to enable this.
+                </span>
+            </span>
+        </label>
     </div>
+    @endif
 
-    {{-- Toolbar --}}
-    <div class="toolbar" id="spr-toolbar">
-        <span class="sel-count" id="sel-count">0 selected</span>
-
-        <span class="tb-sep"></span>
-        <span class="tb-label">Set selected &rarr;</span>
-        <select class="tb-select" id="tb-type-select">
+    {{-- Bulk doc-type tools --}}
+    <div class="toolbar" data-tour="spr-doctype">
+        <span class="tb-label">Bulk:</span>
+        <select class="tb-select" x-model="bulkType">
             @foreach($docTypes as $key => $label)
                 <option value="{{ $key }}">{{ $label }}</option>
             @endforeach
         </select>
-        <button type="button" class="tb-btn btn-apply" id="tb-apply">Apply</button>
-
-        <span class="tb-sep"></span>
-        <button type="button" class="tb-btn btn-reset" id="tb-reset">Reset selected</button>
-        <button type="button" class="tb-btn btn-other" id="tb-all-other">Set ALL &rarr; Other</button>
+        <button type="button" class="tb-btn" @click="setAll(bulkType)">Set ALL pages →</button>
+        <button type="button" class="tb-btn" @click="resetAuto()">Reset to auto-detected</button>
+        <span class="tb-label" style="margin-left:auto;" x-show="property">
+            Tip: the first page of each type pre-ticks its role contacts; later pages inherit your last choice.
+        </span>
     </div>
 
+    {{-- The form. Two distinct submit actions (formaction). --}}
     <form method="POST" action="{{ route('tools.pdf_splitter.confirm') }}" id="spr-form">
         @csrf
+        <input type="hidden" name="property_id" :value="property ? property.id : ''">
+        @if(!empty($canFica))
+            <input type="hidden" name="trigger_fica" :value="ficaChecked ? '1' : '0'">
+        @endif
+
+        {{-- Deterministic submission: hidden inputs mirror Alpine state, so the
+             posted labels/contacts never depend on a checkbox :checked quirk. --}}
+        <template x-for="pg in pages" :key="pg.page">
+            <div>
+                <input type="hidden" :name="`labels[${pg.page}]`" :value="pg.label">
+                <template x-for="cid in pg.contactIds" :key="cid">
+                    <input type="hidden" :name="`contacts[${pg.page}][]`" :value="cid">
+                </template>
+            </div>
+        </template>
 
         <div class="tbl-wrap">
             <table>
                 <thead>
                     <tr>
-                        <th style="width:540px">Page</th>
-                        <th style="width:100px">Auto</th>
-                        <th style="width:165px">Label</th>
-                        <th style="width:140px">Scores</th>
-                        <th>OCR Snippet</th>
+                        <th style="width:230px">Page</th>
+                        <th style="width:170px">Document type</th>
+                        <th data-tour="spr-assign">Assign to contact(s)</th>
+                        <th style="width:230px">OCR snippet</th>
                     </tr>
                 </thead>
-                <tbody id="spr-tbody">
-                @for($p = 1; $p <= $pCount; $p++)
-                    @php
-                        $auto  = $labels[(string)$p] ?? 'other';
-                        $snip  = $snippets[(string)$p] ?? '';
-                        $sc    = $pageScores[(string)$p] ?? [];
-                        // Build non-zero score string for tooltip
-                        $nonZ  = array_filter($sc, fn($v) => $v > 0);
-                        $scStr = !empty($nonZ)
-                            ? implode(' ', array_map(fn($k,$v)=>"{$k}={$v}", array_keys($nonZ), $nonZ))
-                            : 'no hits';
-                        $style = $badgeStyle[$auto] ?? $badgeStyle['other'];
-                    @endphp
-                    <tr data-page="{{ $p }}" data-auto="{{ $auto }}">
-                        {{-- Page # + thumbnail --}}
-                        <td class="thumb-cell">
-                            <img src="{{ route('tools.pdf_splitter.thumb', $p) }}"
-                                 alt="p{{ $p }}" loading="lazy">
-                            <span class="pg-num">{{ $p }}</span>
-                        </td>
+                <tbody>
+                    <template x-for="pg in pages" :key="pg.page">
+                        <tr>
+                            {{-- Thumbnail --}}
+                            <td class="thumb-cell">
+                                <img :src="thumbTpl.replace('__PAGE__', pg.page)" :alt="`p${pg.page}`" loading="lazy">
+                                <span class="pg-num" x-text="`Page ${pg.page}`"></span>
+                            </td>
 
-                        {{-- Auto label badge --}}
-                        <td>
-                            <span class="badge" style="{{ $style }}">
-                                {{ strtoupper(str_replace('_', ' ', $auto)) }}
-                            </span>
-                        </td>
+                            {{-- Doc type --}}
+                            <td>
+                                <select class="lbl-select" x-model="pg.label" @change="onLabelChange(pg)">
+                                    @foreach($docTypes as $key => $dtLabel)
+                                        <option value="{{ $key }}">{{ $dtLabel }}</option>
+                                    @endforeach
+                                </select>
+                            </td>
 
-                        {{-- Override dropdown --}}
-                        <td>
-                            <select name="labels[{{ $p }}]"
-                                    class="lbl-select"
-                                    data-auto="{{ $auto }}">
-                                @foreach($docTypes as $key => $dtLabel)
-                                    <option value="{{ $key }}" @selected($key === $auto)>
-                                        {{ $dtLabel }}
-                                    </option>
-                                @endforeach
-                            </select>
-                        </td>
+                            {{-- Contact assignment (many-to-many across roles) --}}
+                            <td>
+                                <template x-if="!property">
+                                    <span class="text-xs" style="color: var(--text-muted);">Pick a property above to assign contacts.</span>
+                                </template>
+                                <template x-if="property">
+                                    <div>
+                                        <template x-if="docRoles(pg.label).length === 0">
+                                            <span class="text-xs" style="color: var(--text-muted);">This type isn’t routed to a contact (files to the property).</span>
+                                        </template>
 
-                        {{-- Scores --}}
-                        <td>
-                            <span class="score-tip" title="{{ $scStr }}">{{ $scStr }}</span>
-                        </td>
+                                        <template x-for="role in docRoles(pg.label)" :key="role">
+                                            <div class="role-group">
+                                                <div class="role-title" x-text="roleLabels[role] || role"></div>
+                                                <template x-for="c in roleCandidates(role)" :key="c.id">
+                                                    <label class="chip" :class="isChecked(pg, c.id) ? 'checked' : ''">
+                                                        <input type="checkbox" :checked="isChecked(pg, c.id)" @change="toggleContact(pg, c.id)">
+                                                        <span x-text="c.name"></span>
+                                                        <span x-show="c.fica_status !== 'complete'" title="Not FICA-verified" style="color: var(--ds-crimson, #ef4444);">•</span>
+                                                    </label>
+                                                </template>
+                                                <span x-show="roleCandidates(role).length === 0" class="text-xs" style="color: var(--text-muted);">No <span x-text="(roleLabels[role]||role).toLowerCase()"></span> linked. </span>
+                                                <span class="add-link" @click="openAdd(pg.page, role)">+ Add <span x-text="roleLabels[role] || role"></span></span>
 
-                        {{-- Snippet --}}
-                        <td>
-                            @if($snip !== '')
-                                <span class="snippet" title="{{ e($snip) }}">{{ $snip }}</span>
-                            @else
-                                <span class="snippet empty">(no OCR text)</span>
-                            @endif
-                        </td>
-                    </tr>
-                @endfor
+                                                {{-- Inline add: search existing OR create new --}}
+                                                <div class="mini" x-show="addKey === (pg.page + ':' + role)" @click.outside="closeAdd()">
+                                                    <input type="text" x-model="addQ" @input.debounce.250="searchContacts()" placeholder="Search existing contact…">
+                                                    <template x-for="r in addResults" :key="r.id">
+                                                        <div class="res" @click="linkExisting(r, role)" x-text="r.name + (r.phone ? (' · ' + r.phone) : '')"></div>
+                                                    </template>
+                                                    <div class="text-xs mt-1 mb-1" style="color: var(--text-muted);">— or create new —</div>
+                                                    <input type="text" x-model="newC.first_name" placeholder="First name">
+                                                    <input type="text" x-model="newC.last_name" placeholder="Last name">
+                                                    <input type="text" x-model="newC.phone" placeholder="Phone">
+                                                    <input type="text" x-model="newC.email" placeholder="Email (optional)">
+                                                    <button type="button" class="tb-btn" @click="createNew(role)" :disabled="addBusy">Create &amp; link</button>
+                                                    <span x-show="addError" class="text-xs" style="color: var(--ds-crimson);" x-text="addError"></span>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                            </td>
+
+                            {{-- Snippet + scores --}}
+                            <td>
+                                <div class="snippet" :class="pg.snippet ? '' : 'empty'" x-text="pg.snippet || '(no OCR text)'"></div>
+                                <div class="score-tip" x-text="pg.scores"></div>
+                            </td>
+                        </tr>
+                    </template>
                 </tbody>
             </table>
         </div>
 
-        <div class="bottom-bar" x-data>
-            <button type="submit" class="btn-gen">
-                &#x2913;&nbsp; <span x-text="$store.splitterPicker.selected ? 'ZIP &amp; Link' : 'ZIP'">ZIP</span>
+        <div class="flex items-center gap-3 flex-wrap" style="margin-top:4px;">
+            <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
+                    :disabled="!property"
+                    :title="property ? 'File each page to its destination(s) and assigned contact(s)' : 'Pick a property first'">
+                &#x1F517;&nbsp; Link to CoreX
+            </button>
+            <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}" data-tour="spr-zip"
+                    title="Produce the split ZIP only — no filing, no FICA">
+                &#x2913;&nbsp; Download ZIP
             </button>
             <a href="{{ route('tools.pdf_splitter.index') }}" class="btn-back">&larr; Upload a different PDF</a>
         </div>
     </form>
-
 </div>
 </div>
-
-<script>
-(function () {
-    'use strict';
-
-    /* â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    const TOTAL   = {{ $pCount }};
-    const KEY_MAP = @json($keyMap);   // { 'm': 'mandate', ... }
-
-    /* â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    let selected     = new Set();   // page numbers (int)
-    let lastSelected = null;
-
-    /* â”€â”€ DOM helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    const tbody    = document.getElementById('spr-tbody');
-    const countEl  = document.getElementById('sel-count');
-
-    function row(p)    { return tbody.querySelector(`tr[data-page="${p}"]`); }
-    function sel(p)    { return tbody.querySelector(`select[name="labels[${p}]"]`); }
-
-    /* â”€â”€ Selection rendering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    function renderSelection() {
-        tbody.querySelectorAll('tr[data-page]').forEach(tr => {
-            const p = +tr.dataset.page;
-            tr.classList.toggle('selected', selected.has(p));
-        });
-        const n = selected.size;
-        countEl.textContent = n === 0 ? '0 selected'
-                            : n === 1 ? '1 page selected'
-                            : `${n} pages selected`;
-    }
-
-    function selectOnly(p) {
-        selected.clear();
-        selected.add(p);
-        lastSelected = p;
-        renderSelection();
-    }
-
-    function selectRange(from, to) {
-        const lo = Math.min(from, to);
-        const hi = Math.max(from, to);
-        selected.clear();
-        for (let p = lo; p <= hi; p++) selected.add(p);
-        renderSelection();
-    }
-
-    function scrollToRow(p) {
-        const r = row(p);
-        if (r) r.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
-
-    /* â”€â”€ Row click â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    tbody.addEventListener('click', function (e) {
-        // Ignore clicks on the select dropdown itself
-        if (e.target.tagName === 'SELECT') return;
-
-        const tr = e.target.closest('tr[data-page]');
-        if (!tr) return;
-        const p = +tr.dataset.page;
-
-        if (e.shiftKey && lastSelected !== null) {
-            selectRange(lastSelected, p);
-        } else {
-            if (selected.size === 1 && selected.has(p)) {
-                selected.clear();
-                lastSelected = null;
-                renderSelection();
-            } else {
-                selectOnly(p);
-            }
-        }
-    });
-
-    /* â”€â”€ Apply label to selected rows â”€â”€â”€â”€â”€â”€â”€â”€ */
-    function applyLabel(label, advance) {
-        if (selected.size === 0) return;
-        selected.forEach(p => {
-            const s = sel(p);
-            if (s) s.value = label;
-        });
-
-        if (advance) {
-            // Move selection to the page immediately after the last selected
-            const maxP = Math.max(...selected);
-            const next = Math.min(maxP + 1, TOTAL);
-            selectOnly(next);
-            scrollToRow(next);
-        }
-    }
-
-    /* â”€â”€ Keyboard shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    document.addEventListener('keydown', function (e) {
-        const tag = e.target.tagName;
-        // Allow typing in selects/inputs/buttons normally â€” only intercept when body / table is focused
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-        if (tag === 'BUTTON') return;
-        // Allow select dropdown navigation without stealing keys
-        if (tag === 'SELECT') return;
-
-        const key = e.key.toLowerCase();
-
-        if (KEY_MAP[key]) {
-            e.preventDefault();
-            if (selected.size > 0) applyLabel(KEY_MAP[key], true);
-            return;
-        }
-
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            e.preventDefault();
-            if (selected.size === 0) {
-                selectOnly(1);
-                scrollToRow(1);
-                return;
-            }
-            const ref  = e.key === 'ArrowDown' ? Math.max(...selected) : Math.min(...selected);
-            const next = e.key === 'ArrowDown'
-                ? Math.min(ref + 1, TOTAL)
-                : Math.max(ref - 1, 1);
-            selectOnly(next);
-            scrollToRow(next);
-            return;
-        }
-
-        if (e.key === 'Escape') {
-            selected.clear();
-            lastSelected = null;
-            renderSelection();
-        }
-    });
-
-    /* â”€â”€ Toolbar buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    document.getElementById('tb-apply').addEventListener('click', function () {
-        const v = document.getElementById('tb-type-select').value;
-        applyLabel(v, false);
-    });
-
-    document.getElementById('tb-reset').addEventListener('click', function () {
-        selected.forEach(p => {
-            const s = sel(p);
-            if (s) s.value = s.dataset.auto;
-        });
-    });
-
-    document.getElementById('tb-all-other').addEventListener('click', function () {
-        for (let p = 1; p <= TOTAL; p++) {
-            const s = sel(p);
-            if (s) s.value = 'other';
-        }
-    });
-
-    /* â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    // Pre-select page 1 so keyboard shortcuts work immediately
-    selectOnly(1);
-})();
-</script>
 
 <script>
 document.addEventListener('alpine:init', () => {
-    Alpine.store('splitterPicker', { selected: null });
+    Alpine.data('splitterReview', () => ({
+        // ── config from the server ────────────────────────────────────────
+        docTypes:   @json($docTypes),
+        routing:    @json($routing),     // {slug:{label,contact_roles[],fica_slot}}
+        roleSets:   @json($roleSets),    // {role:[pivotRole,...]}
+        roleLabels: @json($roleLabels),
+        searchUrl:       '{{ route('tools.pdf_splitter.properties.search') }}',
+        contactsTpl:     '{{ route('tools.pdf_splitter.properties.contacts', ['property' => '__ID__']) }}',
+        thumbTpl:        '{{ route('tools.pdf_splitter.thumb', ['page' => '__PAGE__']) }}',
+        contactSearchTpl:'{{ route('corex.properties.contacts.search', ['property' => '__PID__']) }}',
+        contactLinkTpl:  '{{ route('corex.properties.contacts.link', ['property' => '__PID__']) }}',
+        contactCreateTpl:'{{ route('corex.properties.contacts.createAndLink', ['property' => '__PID__']) }}',
+        csrf:            '{{ csrf_token() }}',
 
-    Alpine.data('splitterPropertyPicker', () => ({
-        q: '',
-        results: [],
-        searching: false,
-        get selected() { return Alpine.store('splitterPicker').selected; },
-        set selected(v) { Alpine.store('splitterPicker').selected = v; },
-        async search() {
+        // ── state ─────────────────────────────────────────────────────────
+        pages:      @json($pageSeed),
+        bulkType:   'other',
+        q: '', propResults: [],
+        property: null,
+        contacts: [], contactsById: {}, loadingContacts: false,
+        ficaOverride: null,
+        // inline add-contact panel
+        addKey: null, addRole: null, addPage: null, addQ: '', addResults: [], addBusy: false, addError: '',
+        newC: { first_name:'', last_name:'', phone:'', email:'' },
+
+        // ── property search ───────────────────────────────────────────────
+        async searchProps() {
             const q = this.q.trim();
-            if (q.length < 2) { this.results = []; return; }
-            this.searching = true;
+            if (q.length < 2) { this.propResults = []; return; }
             try {
-                const res = await fetch(`{{ route('tools.pdf_splitter.properties.search') }}?q=${encodeURIComponent(q)}`, {
-                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                    credentials: 'same-origin',
+                const res = await fetch(`${this.searchUrl}?q=${encodeURIComponent(q)}`, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin',
                 });
-                this.results = res.ok ? await res.json() : [];
-            } catch (e) { this.results = []; }
-            finally { this.searching = false; }
+                this.propResults = res.ok ? await res.json() : [];
+            } catch (e) { this.propResults = []; }
         },
-        pick(r) { this.selected = r; this.q = ''; this.results = []; },
-        clear() { this.selected = null; },
+        pickProp(r) { this.property = r; this.q = ''; this.propResults = []; this.loadContacts(r.id); },
+        clearProperty() {
+            this.property = null; this.contacts = []; this.contactsById = {};
+            // Back to a clean slate: no contacts, nothing touched.
+            this.pages.forEach(p => { p.contactIds = []; p.touched = false; });
+        },
+        async loadContacts(id) {
+            this.loadingContacts = true;
+            try {
+                const res = await fetch(this.contactsTpl.replace('__ID__', id), {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin',
+                });
+                const j = res.ok ? await res.json() : { contacts: [] };
+                this.contacts = j.contacts || [];
+            } catch (e) { this.contacts = []; }
+            this.loadingContacts = false;
+            this.indexContacts();
+            // DEFAULT: nothing pre-ticked. Pages start with zero contacts and the
+            // agent's ticks are the only source of truth. No auto-resolve runs.
+        },
+        indexContacts() { this.contactsById = {}; this.contacts.forEach(c => this.contactsById[c.id] = c); },
+
+        // ── role → candidate resolution ───────────────────────────────────
+        docRoles(slug) { return (this.routing[slug] && this.routing[slug].contact_roles) || []; },
+        roleCandidates(role) {
+            const set = (this.roleSets[role] || []).map(r => r.toLowerCase());
+            return this.contacts.filter(c => set.includes((c.role || '').toLowerCase()));
+        },
+        allCandidateIds(slug) {
+            const ids = [];
+            this.docRoles(slug).forEach(role => this.roleCandidates(role).forEach(c => { if (!ids.includes(c.id)) ids.push(c.id); }));
+            return ids;
+        },
+
+        // ── assignment: the agent's tick is the single source of truth ────
+        // No default (pages start empty), no reassign-on-click, no per-doc-type
+        // sticky. A page the agent has TOUCHED is theirs forever. The only
+        // convenience is forwardFill(): when a page is set, its set carries as
+        // the STARTING value of the following UNTOUCHED pages — it stops dead at
+        // the first touched page and never overrides one. So the screen (and the
+        // POST, which mirrors it) can only ever be what the agent actually ticked.
+        isChecked(pg, cid) { return pg.contactIds.includes(cid); },
+        toggleContact(pg, cid) {
+            const i = pg.contactIds.indexOf(cid);
+            if (i >= 0) pg.contactIds.splice(i, 1); else pg.contactIds.push(cid);
+            pg.touched = true;                 // the agent owns this page now
+            this.forwardFill(pg);              // pre-fill the next UNTOUCHED run only
+        },
+        forwardFill(fromPg) {
+            const from = this.pages.indexOf(fromPg);
+            const src  = fromPg.contactIds.slice();
+            for (let i = from + 1; i < this.pages.length; i++) {
+                const pg = this.pages[i];
+                if (pg.touched) break;         // locked to the agent's choice — never override
+                pg.contactIds = src.filter(id => this.allCandidateIds(pg.label).includes(id));
+            }
+        },
+        // Changing a page's doc-type drops only contacts no longer valid for the
+        // new type; it never touches OTHER pages and never re-resolves.
+        onLabelChange(pg) {
+            pg.contactIds = pg.contactIds.filter(id => this.allCandidateIds(pg.label).includes(id));
+        },
+        setAll(slug) {
+            this.pages.forEach(p => { p.label = slug; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
+        },
+        resetAuto() {
+            const seed = @json(array_values($pageSeed));
+            this.pages.forEach((p, i) => { p.label = seed[i].label; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(p.label).includes(id)); });
+        },
+
+        // ── FICA toggle (reactive) ────────────────────────────────────────
+        ficaTargetIds() {
+            const ids = new Set();
+            for (const pg of this.pages) {
+                const slot = this.routing[pg.label] && this.routing[pg.label].fica_slot;
+                if (slot && slot !== 'none') pg.contactIds.forEach(id => ids.add(id));
+            }
+            return [...ids];
+        },
+        get ficaHasTargets() { return this.property && this.ficaTargetIds().length > 0; },
+        get ficaTargetCount() { return this.ficaTargetIds().length; },
+        get ficaNeedsVerify() {
+            return this.ficaTargetIds().some(id => { const c = this.contactsById[id]; return c && c.fica_status !== 'complete'; });
+        },
+        get ficaChecked() {
+            if (!this.ficaHasTargets) return false;
+            return this.ficaOverride === null ? this.ficaNeedsVerify : this.ficaOverride;
+        },
+
+        // ── inline add contact (reuses the property-contact endpoints) ────
+        pivotRoleFor(role) { return (this.roleSets[role] || ['seller'])[0]; },
+        openAdd(page, role) {
+            this.addKey = page + ':' + role; this.addPage = page; this.addRole = role;
+            this.addQ = ''; this.addResults = []; this.addError = '';
+            this.newC = { first_name:'', last_name:'', phone:'', email:'' };
+        },
+        closeAdd() { this.addKey = null; },
+        async searchContacts() {
+            const q = this.addQ.trim();
+            if (q.length < 2 || !this.property) { this.addResults = []; return; }
+            try {
+                const url = this.contactSearchTpl.replace('__PID__', this.property.id) + `?q=${encodeURIComponent(q)}`;
+                const res = await fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+                const j = res.ok ? await res.json() : [];
+                this.addResults = (Array.isArray(j) ? j : (j.contacts || j.results || [])).map(r => ({
+                    id: r.id, name: r.name || r.full_name || ((r.first_name||'')+' '+(r.last_name||'')).trim() || '(no name)', phone: r.phone || '',
+                }));
+            } catch (e) { this.addResults = []; }
+        },
+        async linkExisting(r, role) {
+            this.addBusy = true; this.addError = '';
+            try {
+                const res = await fetch(this.contactLinkTpl.replace('__PID__', this.property.id), {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type':'application/json', 'Accept':'application/json', 'X-CSRF-TOKEN': this.csrf },
+                    body: JSON.stringify({ contact_id: r.id, role: this.pivotRoleFor(role) }),
+                });
+                if (!res.ok) { const j = await res.json().catch(()=>({})); this.addError = j.message || 'Could not link contact.'; this.addBusy=false; return; }
+                this.closeAdd();
+                await this.loadContacts(this.property.id);
+                this.tickNewContact(r.id, role);
+            } catch (e) { this.addError = 'Network error.'; }
+            this.addBusy = false;
+        },
+        async createNew(role) {
+            if (!this.newC.first_name || !this.newC.last_name || !this.newC.phone) { this.addError = 'First name, last name and phone are required.'; return; }
+            this.addBusy = true; this.addError = '';
+            try {
+                const res = await fetch(this.contactCreateTpl.replace('__PID__', this.property.id), {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type':'application/json', 'Accept':'application/json', 'X-CSRF-TOKEN': this.csrf },
+                    body: JSON.stringify({ ...this.newC, role: this.pivotRoleFor(role), bypass_duplicate_check: true }),
+                });
+                if (!res.ok) {
+                    const j = await res.json().catch(()=>({}));
+                    this.addError = j.message || 'Could not create contact — try “search existing” instead.';
+                    this.addBusy = false; return;
+                }
+                const j = await res.json();
+                const newId = j.contact && j.contact.id ? j.contact.id : null;
+                this.closeAdd();
+                await this.loadContacts(this.property.id);
+                if (newId) this.tickNewContact(newId, role);
+            } catch (e) { this.addError = 'Network error.'; }
+            this.addBusy = false;
+        },
+        // Tick the just-added contact on the page that requested it — the agent
+        // chose to add them here, so this counts as touching that page.
+        tickNewContact(cid, role) {
+            const pg = this.pages.find(p => p.page === this.addPage);
+            if (pg && this.contactsById[cid] && !pg.contactIds.includes(cid)) {
+                pg.contactIds.push(cid); pg.touched = true; this.forwardFill(pg);
+            }
+        },
     }));
 });
 </script>

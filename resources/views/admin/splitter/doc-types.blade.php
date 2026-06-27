@@ -3,7 +3,25 @@
 
 @section('corex-content')
 
-@php $isSettings = ($context ?? 'splitter') === 'settings'; @endphp
+@php
+    $isSettings = ($context ?? 'splitter') === 'settings';
+
+    // AT-105 enh — plain-English labels for the routing controls (STANDARDS F.8).
+    // contact_roles is a MANY-set (tick any combination); OTP ticks Seller + Buyer.
+    $contactRoleOptions = [
+        'seller_owner' => 'Seller / Owner',
+        'buyer'        => 'Buyer',
+        'tenant'       => 'Tenant',
+        'landlord'     => 'Landlord',
+        'lessor'       => 'Lessor',
+    ];
+    $ficaSlotOptions = [
+        'none'      => '— Not a FICA doc —',
+        'fica_form' => 'FICA Form',
+        'id'        => 'ID Copy',
+        'por'       => 'Proof of Residence',
+    ];
+@endphp
 
 <div class="w-full space-y-6">
 
@@ -54,7 +72,8 @@
         <div class="lg:col-span-1 space-y-4">
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                 <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">Add New Type</h3>
-                <form method="POST" action="{{ $storeRoute }}" class="space-y-3">
+                <form method="POST" action="{{ $storeRoute }}" class="space-y-3"
+                      x-data="{ contact: {{ old('save_to_contact') ? 'true' : 'false' }} }">
                     @csrf
                     <div>
                         <label for="dt-label" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Label <span style="color: var(--ds-crimson);">*</span></label>
@@ -66,6 +85,45 @@
                             <p class="mt-1 text-xs" style="color: var(--ds-crimson);">{{ $message }}</p>
                         @enderror
                         <p class="mt-1 text-xs" style="color: var(--text-muted);">Slug is auto-generated from the label.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Save to</label>
+                        <div class="flex items-center gap-4">
+                            <label class="flex items-center gap-1.5 text-sm cursor-pointer" style="color: var(--text-secondary);">
+                                <input type="checkbox" name="save_to_property" value="1" {{ old('save_to_property') ? 'checked' : '' }}
+                                       class="rounded w-4 h-4" style="accent-color: var(--brand-icon);">
+                                Property
+                            </label>
+                            <label class="flex items-center gap-1.5 text-sm cursor-pointer" style="color: var(--text-secondary);">
+                                <input type="checkbox" name="save_to_contact" value="1" x-model="contact" {{ old('save_to_contact') ? 'checked' : '' }}
+                                       class="rounded w-4 h-4" style="accent-color: var(--ds-green);">
+                                Contact
+                            </label>
+                        </div>
+                    </div>
+                    <div :style="contact ? '' : 'opacity:0.4; pointer-events:none;'" :title="contact ? '' : 'Tick Contact to route this type to a party'">
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Routes to (tick any)</label>
+                        <div class="space-y-1">
+                            @foreach($contactRoleOptions as $val => $human)
+                                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color: var(--text-secondary);">
+                                    <input type="checkbox" name="contact_roles[]" value="{{ $val }}"
+                                           {{ in_array($val, (array) old('contact_roles', [])) ? 'checked' : '' }}
+                                           class="rounded w-4 h-4" style="accent-color: var(--ds-green);">
+                                    {{ $human }}
+                                </label>
+                            @endforeach
+                        </div>
+                        <p class="mt-1 text-xs" style="color: var(--text-muted);">A page of this type can be assigned to any/all of these parties.</p>
+                    </div>
+                    <div :style="contact ? '' : 'opacity:0.4; pointer-events:none;'">
+                        <label for="dt-fica-slot" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">FICA slot</label>
+                        <select id="dt-fica-slot" name="fica_slot"
+                                class="w-full rounded-md px-3 py-2 text-sm"
+                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            @foreach($ficaSlotOptions as $val => $human)
+                                <option value="{{ $val }}" @selected(old('fica_slot','none')===$val)>{{ $human }}</option>
+                            @endforeach
+                        </select>
                     </div>
                     <button type="submit" class="corex-btn-primary w-full">Add Type</button>
                 </form>
@@ -127,6 +185,15 @@
                                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Label</th>
                                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Slug</th>
                                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Listing Type</th>
+                                        <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-40" style="color: var(--text-muted);">
+                                            <span class="cursor-help" title="When the PDF Splitter files a document of this type, save it to the property record, the linked seller/owner contact, or both. Tick either or both. Applies to this agency only.">Save To &#9432;</span>
+                                        </th>
+                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-36" style="color: var(--text-muted);">
+                                            <span class="cursor-help" title="Which party a split page of this type is assigned to on the review screen. 'Seller / Owner' covers both seller and owner roles. Applies to this agency only.">Routes To &#9432;</span>
+                                        </th>
+                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-36" style="color: var(--text-muted);">
+                                            <span class="cursor-help" title="If this is a FICA document, which wet-ink FICA upload slot it fills (FICA Form, ID Copy, or Proof of Residence). Pages of FICA types are grouped per assigned contact into one verification each. Applies to this agency only.">FICA Slot &#9432;</span>
+                                        </th>
                                         <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-24" style="color: var(--text-muted);">Active</th>
                                         <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-32" style="color: var(--text-muted);">
                                             <span class="cursor-help" title="When ticked, a property cannot be marketed until at least one document of this type is on its Drive. Applies to this agency only. Photos and listing details are always required.">Compliance required &#9432;</span>
@@ -136,8 +203,16 @@
                                 </thead>
                                 <tbody>
                                     @foreach($types as $i => $t)
-                                    @php $assigned = $t->listing_types ?? []; @endphp
-                                    <tr class="transition-colors" style="border-top: 1px solid var(--border);">
+                                    @php
+                                        $assigned = $t->listing_types ?? [];
+                                        $dest  = $destinationMap[$t->id] ?? ['property' => true, 'contact' => false];
+                                        $route = $routingMap[$t->id] ?? ['contact_roles' => [], 'fica_slot' => 'none'];
+                                    @endphp
+                                    {{-- AT-105 — Routes-To/FICA are gated on the Contact destination (meaningless
+                                         without it). Greyed via pointer-events (NOT `disabled`) so saved roles still
+                                         POST and are never wiped when Contact is un-ticked. --}}
+                                    <tr class="transition-colors" style="border-top: 1px solid var(--border);"
+                                        x-data="{ contact: {{ $dest['contact'] ? 'true' : 'false' }} }">
                                         <td class="px-4 py-3">
                                             <input type="hidden" name="types[{{ $i }}][id]" value="{{ $t->id }}">
                                             <input type="number" name="types[{{ $i }}][sort_order]" value="{{ $t->sort_order }}"
@@ -190,6 +265,46 @@
                                                     </label>
                                                 </div>
                                             </div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex items-center justify-center gap-3">
+                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-secondary);"
+                                                       title="Save a {{ $t->label }} to the property's Drive.">
+                                                    <input type="checkbox" name="types[{{ $i }}][save_to_property]" value="1"
+                                                           {{ $dest['property'] ? 'checked' : '' }}
+                                                           class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--brand-icon);">
+                                                    Property
+                                                </label>
+                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-secondary);"
+                                                       title="Save a {{ $t->label }} to the linked contact(s). Enables Routes-To + FICA Slot.">
+                                                    <input type="checkbox" name="types[{{ $i }}][save_to_contact]" value="1" x-model="contact"
+                                                           {{ $dest['contact'] ? 'checked' : '' }}
+                                                           class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--ds-green);">
+                                                    Contact
+                                                </label>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <div class="space-y-1" :style="contact ? '' : 'opacity:0.4; pointer-events:none;'"
+                                                 :title="contact ? '' : 'Tick Contact to route this type to a party'">
+                                                @foreach($contactRoleOptions as $val => $human)
+                                                    <label class="flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                                                        <input type="checkbox" name="types[{{ $i }}][contact_roles][]" value="{{ $val }}"
+                                                               {{ in_array($val, $route['contact_roles'] ?? []) ? 'checked' : '' }}
+                                                               class="rounded w-3.5 h-3.5" style="accent-color: var(--ds-green);">
+                                                        {{ $human }}
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <select name="types[{{ $i }}][fica_slot]"
+                                                    class="w-full rounded-md px-2 py-1 text-sm"
+                                                    :style="contact ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); opacity:0.4; pointer-events:none;'">
+                                                @foreach($ficaSlotOptions as $val => $human)
+                                                    <option value="{{ $val }}" @selected($route['fica_slot']===$val)>{{ $human }}</option>
+                                                @endforeach
+                                            </select>
                                         </td>
                                         <td class="px-4 py-3 text-center">
                                             <select name="types[{{ $i }}][is_active]"

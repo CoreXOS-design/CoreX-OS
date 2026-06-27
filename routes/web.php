@@ -766,6 +766,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
     Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.download');
     Route::get('/tools/pdf-splitter/properties/search', [PdfSplitterController::class, 'searchProperties'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.properties.search');
+    Route::get('/tools/pdf-splitter/properties/{property}/contacts', [PdfSplitterController::class, 'propertyContacts'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.properties.contacts')->where('property', '[0-9]+');
+    // AT-105 enh — per-page "Link to CoreX" (file + multi-FICA) is a distinct
+    // action from the ZIP download. Both submit the per-page assignments.
+    Route::post('/tools/pdf-splitter/link', [PdfSplitterController::class, 'link'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link');
 
     // PDF Suite — hub + 7 sibling tools (Splitter is reachable from the hub)
     Route::middleware('permission:access_pdf_suite')->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {

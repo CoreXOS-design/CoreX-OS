@@ -389,6 +389,78 @@ class Property extends Model
                     ->withTimestamps();
     }
 
+    /**
+     * AT-105 — the seller/owner-side contact for this property, used when the
+     * PDF Splitter files contact-destined documents (FICA, ID, Proof of
+     * Residence) and when pre-populating a wet-ink FICA verification.
+     *
+     * Priority: a contact whose pivot role is on the seller side
+     * (seller/owner/landlord/lessor — canon from BackfillContactPropertyRoles).
+     * Falls back to the sole linked contact when there is exactly one, so a
+     * property whose single contact has a NULL/odd role still resolves. Returns
+     * null when ambiguous (multiple contacts, none seller-side) — the caller
+     * then files to the property only (no orphan, no wrong guess).
+     */
+    public function sellerOwnerContact(): ?Contact
+    {
+        $contacts = $this->contacts()->get();
+
+        if ($contacts->isEmpty()) {
+            return null;
+        }
+
+        $sellerSide = ['seller', 'owner', 'landlord', 'lessor'];
+        $match = $contacts->first(function ($c) use ($sellerSide) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $sellerSide, true);
+        });
+
+        if ($match) {
+            return $match;
+        }
+
+        return $contacts->count() === 1 ? $contacts->first() : null;
+    }
+
+    /**
+     * AT-105 enhancement — the canonical pivot-role SET a routing contact_role
+     * resolves across. 'seller_owner' deliberately spans BOTH seller and owner
+     * (esign auto-link writes 'owner' for sellers — investigation §3). Returns
+     * [] for 'none' / unknown so callers skip contact resolution cleanly.
+     *
+     * @return string[]
+     */
+    public static function pivotRolesForContactRole(?string $contactRole): array
+    {
+        return [
+            'seller_owner' => ['seller', 'owner'],
+            'buyer'        => ['buyer'],
+            'tenant'       => ['tenant'],
+            'landlord'     => ['landlord'],
+            'lessor'       => ['lessor'],
+        ][$contactRole] ?? [];
+    }
+
+    /**
+     * AT-105 enhancement — ALL contacts attached to this property in a given
+     * routing role, in pivot order. Unlike sellerOwnerContact() this is
+     * multi-valued (joint sellers / joint buyers) and never collapses to a
+     * single guess. Case-/whitespace-insensitive on the stored pivot role.
+     * Returns an empty collection for role 'none'/unknown or no matches.
+     */
+    public function contactsForRole(?string $contactRole): \Illuminate\Support\Collection
+    {
+        $set = self::pivotRolesForContactRole($contactRole);
+        if (empty($set)) {
+            return collect();
+        }
+
+        return $this->contacts()->get()->filter(function ($c) use ($set) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $set, true);
+        })->values();
+    }
+
     // ── Presentations V2 ──
 
     public function presentations(): HasMany
