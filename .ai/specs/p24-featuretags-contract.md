@@ -80,8 +80,12 @@ Per [CONTRACT], each of these IS a `Tag` enum member of **Type: "listing feature
 | Path tried | Result | Source |
 |-----------|--------|--------|
 | `featureType: "Other"` + tags | renders as a stray **"Other" room row** — wrong | [OBSERVED] |
-| top-level `tags[]` | reported showing under **Rooms** — wrong | [OBSERVED, earlier] — **re-confirm**, see [OPEN] |
+| top-level `tags[]` (connectivity **ports** only) | renders as a **phantom room** ("TV Port" room on #1322) — wrong | [OBSERVED, 2026-06-27] — **RESOLVED**, see §3c |
+| top-level `tags[]` (security/descriptive: Alarm, CCTV, Sea, …) | rides the listing as a feature — correct | [OBSERVED] |
 | `PropertyFeatures` boolean | renders under **"Other Features"** — correct | [OBSERVED] |
+
+### 3c. RESOLVED (2026-06-27) — connectivity ports are room-detail ONLY
+The connectivity-port Tags **`InternetPort`, `TelephonePort`, `TVPort`** are room-detail descriptors (the `*RoomOptions` neighbourhood of the Tag enum). On #1322 a **global** "TV Port" (selected on the connectivity feature screen, not attached to a room) flowed to top-level `tags[]` and P24 rendered it as a standalone **"TV Port" room**. These three Tags now NEVER ride top-level `tags[]` — they are emitted ONLY inside a room's `featureTags[].tags`, where buildFeatureTags() already places them when the feature is attached to a space. Enforced by `Property24ListingMapper::ROOM_DETAIL_ONLY_TAGS` (filtered in `buildTags()`); kept in `FEATURE_TAG_MAP` so the per-room path is unaffected. This closes Option A vs Option B (§4b.2) **for the port family only**: top-level tags[] is rejected for ports; the security/descriptive family is unchanged (top-level tags[] is correct for those).
 
 ---
 

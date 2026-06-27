@@ -486,6 +486,27 @@ class Property24ListingMapper
     ];
 
     /**
+     * P24 `Tag` enum members that are ROOM-DETAIL descriptors only — they describe
+     * a connectivity point INSIDE a specific room and have NO valid listing-level
+     * meaning. In the swagger Tag enum they sit in the room-options neighbourhood
+     * (alongside BalconyRoomOptions / FireplaceRoomOptions / OpenPlanRoomOptions —
+     * storage/p24_swagger.json). Emitted as a loose top-level `tags[]` entry, P24
+     * renders each as a standalone feature ROW that reads as a phantom room (a
+     * global "TV Port" shows up as a "TV Port" room — the AT-P24 bug on listing
+     * #1322). They are valid ONLY inside a room's `featureTags[].tags`, where
+     * buildFeatureTags() already places them when the feature is attached to a
+     * space. So buildTags() filters them out of the top-level array. They are
+     * deliberately KEPT in FEATURE_TAG_MAP — the per-room path still needs them.
+     *
+     * Resolves the §4b.2 [OPEN] in .ai/specs/p24-featuretags-contract.md for the
+     * connectivity-port family: top-level tags[] is the WRONG home (Option A is
+     * rejected for these); room featureTags[] is the only correct one.
+     */
+    private const ROOM_DETAIL_ONLY_TAGS = [
+        'InternetPort', 'TelephonePort', 'TVPort',
+    ];
+
+    /**
      * AT-102/AT-103 — CoreX space type → P24 FeatureType enum (storage/p24_swagger.json).
      * Drives featureTags[] so each room shows as a separate NAMED room on P24. Only
      * confident, direct equivalents are mapped; CoreX space types with no clean P24
@@ -535,6 +556,7 @@ class Property24ListingMapper
             $lookup[strtolower($label)] = $tag;
         }
         $propertyFeatureLabels = array_flip(self::PROPERTY_FEATURE_LABELS);
+        $roomDetailOnly = array_flip(self::ROOM_DETAIL_ONLY_TAGS);
 
         $tags = [];
         foreach ($feats as $feat) {
@@ -544,7 +566,14 @@ class Property24ListingMapper
                 continue;
             }
             if (isset($lookup[$key])) {
-                $tags[] = $lookup[$key];
+                $tag = $lookup[$key];
+                // Room-detail connectivity ports (TVPort/InternetPort/TelephonePort)
+                // have NO valid listing-level home — at top level P24 renders them
+                // as phantom rooms. They ride a room's featureTags[].tags only.
+                if (isset($roomDetailOnly[$tag])) {
+                    continue;
+                }
+                $tags[] = $tag;
             }
         }
 
