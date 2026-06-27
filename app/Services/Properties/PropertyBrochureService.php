@@ -90,12 +90,8 @@ class PropertyBrochureService
         $parking = $this->countSpaces($property, 'Parking');
         $size    = $property->size_m2 ? number_format((int) $property->size_m2) . ' m²' : null;
 
-        // ── Location line: suburb, city, province (whatever's present) ──
-        $location = implode(', ', array_filter([
-            $property->suburb,
-            $property->city,
-            $property->province,
-        ], fn ($v) => trim((string) $v) !== ''));
+        // ── Location line: full address — street, suburb, city, province ──
+        $location = implode(', ', $this->addressParts($property));
 
         // ── Feature checklist: the flat features_json list (deduped) ──
         $features = $this->features($property);
@@ -205,15 +201,48 @@ class PropertyBrochureService
         return 'Brochure - ' . $address . '.pdf';
     }
 
-    /** Full human address line: street, suburb, city, province (whatever's present). */
+    /** Full human address line: street, suburb, city, province (deduped). */
     private function addressLine(Property $property): string
     {
-        return implode(', ', array_filter([
-            $property->address,
+        return implode(', ', $this->addressParts($property));
+    }
+
+    /**
+     * The property's full address as ordered parts — street, suburb, city,
+     * province — dropping any empty part and any consecutive case-insensitive
+     * duplicate (e.g. a listing whose suburb and city are both "Southbroom"
+     * renders "1 Tavistock, Southbroom, KwaZulu-Natal", not "…, Southbroom,
+     * Southbroom, …"). The street prefers the curated `address`, else
+     * "{street_number} {street_name}", else the complex name.
+     *
+     * @return string[]
+     */
+    private function addressParts(Property $property): array
+    {
+        $street = trim((string) $property->address);
+        if ($street === '') {
+            $street = trim(trim((string) $property->street_number) . ' ' . trim((string) $property->street_name));
+        }
+        if ($street === '' && trim((string) $property->complex_name) !== '') {
+            $street = trim((string) $property->complex_name);
+        }
+
+        $parts = array_filter([
+            $street,
             $property->suburb,
             $property->city,
             $property->province,
-        ], fn ($v) => trim((string) $v) !== ''));
+        ], fn ($v) => trim((string) $v) !== '');
+
+        $out = [];
+        foreach ($parts as $part) {
+            $part = trim((string) $part);
+            if (empty($out) || mb_strtolower((string) end($out)) !== mb_strtolower($part)) {
+                $out[] = $part;
+            }
+        }
+
+        return $out;
     }
 
     // ── image resolution ────────────────────────────────────────────────
