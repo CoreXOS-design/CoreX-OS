@@ -53,8 +53,8 @@
 
 <div style="width:794px;background:#ffffff;color:#2b2b2b;font-family:'Inter','DejaVu Sans',Arial,sans-serif;padding:0 0 14px;">
 
-    {{-- ── 1. Header — agency logo, centred ── --}}
-    <div style="text-align:center;padding:22px 32px 14px;">
+    {{-- ── 1. Header — agency logo, centred (sits near the top edge) ── --}}
+    <div style="text-align:center;padding:6px 32px 12px;">
         @if(!empty($b['logo']))
             <img src="{{ $b['logo'] }}" alt="" style="height:78px;max-width:510px;">
         @else

@@ -55,4 +55,35 @@ class EventDueReminderNotification extends Notification
             'property_id' => $this->event->property_id,
         ];
     }
+
+    /**
+     * FCM payload for the device push. Mirrors the shape PushTransport expects
+     * ({ notification: {title, body}, data: {...strings} }) and the deep-link
+     * convention used by PushNewPortalLeadToMobile, so the app can route the tap
+     * straight to the event.
+     *
+     * NB: this notification's via() intentionally does NOT include an 'fcm'
+     * channel — every device push in CoreX is sent imperatively through
+     * App\Services\Push\PushNotificationService (the storm-guarded funnel), not
+     * via a Laravel notification channel. ProcessReminders calls this method and
+     * hands the payload to that service. See .ai/specs/push-notifications.md.
+     */
+    public function toFcmPayload(): array
+    {
+        return [
+            'notification' => [
+                'title' => "Upcoming: {$this->event->title}",
+                'body'  => 'Starts ' . $this->event->event_date->diffForHumans(),
+            ],
+            'data' => [
+                'type'        => 'event_due_reminder',
+                'event_id'    => (string) $this->event->id,
+                'property_id' => (string) ($this->event->property_id ?? ''),
+                'event_date'  => optional($this->event->event_date)->toIso8601String() ?? '',
+                'action_url'  => '/corex/command-center/calendar',
+                'deep_link'   => '/calendar/events/' . $this->event->id,
+                'icon'        => 'calendar',
+            ],
+        ];
+    }
 }

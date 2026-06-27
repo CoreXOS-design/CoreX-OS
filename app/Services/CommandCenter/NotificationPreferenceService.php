@@ -474,7 +474,10 @@ class NotificationPreferenceService
 
         $toggleMap = [
             'task_reminder_hours_before' => 'task_due_reminders',
-            'event_reminder_hours_before' => null,
+            // Event reminder is always-on (no separate on/off toggle); the user
+            // silences it via the master push/in-app switches + channel toggles.
+            'event_reminder_minutes_before' => null,
+            'event_reminder_hours_before' => null, // legacy column (pre-minutes)
             'lease_reminder_days_before' => 'lease_expiry_reminders',
             'idle_threshold_days' => 'idle_alerts_enabled',
             'overdue_daily_digest' => 'overdue_daily_digest',
@@ -489,7 +492,8 @@ class NotificationPreferenceService
         }
 
         if ($type->threshold_unit !== 'none' && in_array($col, [
-            'task_reminder_hours_before','event_reminder_hours_before',
+            'task_reminder_hours_before',
+            'event_reminder_minutes_before', 'event_reminder_hours_before',
             'lease_reminder_days_before','idle_threshold_days',
         ], true)) {
             $threshold = (int) $dashboard->{$col};
@@ -527,7 +531,8 @@ class NotificationPreferenceService
         }
 
         if ($type->threshold_unit !== 'none' && isset($row['threshold']) && in_array($col, [
-            'task_reminder_hours_before','event_reminder_hours_before',
+            'task_reminder_hours_before',
+            'event_reminder_minutes_before', 'event_reminder_hours_before',
             'lease_reminder_days_before','idle_threshold_days',
         ], true)) {
             $dashboard->{$col} = (int) $row['threshold'];

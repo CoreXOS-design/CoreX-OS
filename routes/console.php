@@ -133,8 +133,12 @@ Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
 
 // ── Command Center ──
 
-// Process calendar reminders — runs every 15 minutes
-Schedule::command('command-center:reminders')->everyFifteenMinutes()->withoutOverlapping();
+// Process calendar/task reminders — runs every 5 minutes. The cadence is the
+// lower bound on lead-time precision: an event fires at the first tick its
+// event_date enters [now, now + lead], so effective lead ∈ [lead − 5min, lead].
+// 5-min ticks keep sub-hour reminders (event_reminder_minutes_before, min 5)
+// honoured to within one tick instead of the old ±15min slop.
+Schedule::command('command-center:reminders')->everyFiveMinutes()->withoutOverlapping();
 
 // Calculate property health scores — runs nightly at 02:00
 Schedule::command('command-center:health')->dailyAt('02:00')->withoutOverlapping();

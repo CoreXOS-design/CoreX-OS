@@ -14,7 +14,8 @@ class UserDashboardSetting extends Model
         'doc_reminders_enabled', 'doc_reminder_hours_before',
         'lease_expiry_reminders', 'lease_reminder_days_before',
         'fica_reminders', 'ffc_reminders',
-        'task_due_reminders', 'task_reminder_hours_before', 'event_reminder_hours_before',
+        'task_due_reminders', 'task_reminder_hours_before',
+        'event_reminder_hours_before', 'event_reminder_minutes_before',
         'auto_archive_done_days',
         'overdue_daily_digest', 'digest_time',
         'default_calendar_view', 'weekend_visible',
@@ -97,7 +98,11 @@ class UserDashboardSetting extends Model
             'ffc_reminders'              => true,
             'task_due_reminders'         => true,
             'task_reminder_hours_before' => 4,
+            // Legacy hours column retained for back-compat; minutes is canonical
+            // for event reminders (mobile sends a total-minutes lead-time).
             'event_reminder_hours_before' => 24,
+            'event_reminder_minutes_before' => 1440, // 24h
+
             'auto_archive_done_days'     => null,
             'overdue_daily_digest'       => true,
             'digest_time'                => '08:00',
