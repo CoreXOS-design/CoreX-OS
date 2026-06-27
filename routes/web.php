@@ -623,8 +623,8 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     // Settlement
     Route::get('/{deal}/settlement', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'settle'])->name('deals-v2.settlement.index')->middleware('permission:deals_v2.edit');
     Route::post('/{deal}/settlement', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'saveSettlement'])->name('deals-v2.settlement.save')->middleware('permission:deals_v2.edit');
-    Route::get('/{deal}/settlement/print', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'printSettlement'])->name('deals-v2.settlement.print')->middleware('permission:deals_v2.view');
-    Route::get('/{deal}/settlement/payslip/{user}', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'printAgentPayslip'])->name('deals-v2.settlement.payslip')->middleware('permission:deals_v2.view');
+    Route::get('/{deal}/settlement/print', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'printSettlement'])->name('deals-v2.settlement.print')->middleware('permission:access_deal_register_v2');
+    Route::get('/{deal}/settlement/payslip/{user}', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'printAgentPayslip'])->name('deals-v2.settlement.payslip')->middleware('permission:access_deal_register_v2');
 });
 
 // ===== DEPOSIT TRUST INTEREST =====

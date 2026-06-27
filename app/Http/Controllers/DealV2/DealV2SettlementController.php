@@ -127,7 +127,10 @@ class DealV2SettlementController extends Controller
 
     public function printSettlement(DealV2 $deal)
     {
-        abort_unless(auth()->user()?->hasPermission('deals_v2.view'), 403);
+        // Gate on the umbrella access key (same as the register index/show), NOT
+        // deals_v2.view — otherwise a role whose access_deal_register_v2 was
+        // revoked could still deep-link the settlement financials.
+        abort_unless(auth()->user()?->hasPermission('access_deal_register_v2'), 403);
 
         $deal->load(['agents', 'settlements', 'property', 'listingAgent', 'sellingAgent']);
         $summary = $this->buildSettlementSummary($deal);
@@ -157,7 +160,8 @@ class DealV2SettlementController extends Controller
 
     public function printAgentPayslip(DealV2 $deal, User $user)
     {
-        abort_unless(auth()->user()?->hasPermission('deals_v2.view'), 403);
+        // Same umbrella-access gate as printSettlement (see note there).
+        abort_unless(auth()->user()?->hasPermission('access_deal_register_v2'), 403);
 
         $deal->load(['agents', 'settlements', 'property']);
         $summary = $this->buildSettlementSummary($deal);
