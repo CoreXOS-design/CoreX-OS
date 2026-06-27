@@ -106,14 +106,29 @@ class Property24FeatureTagsTest extends TestCase
         $this->assertSame(['Sea'], $this->buildTags(['Sea View', 'Some Feature P24 Does Not Know']));
     }
 
-    public function test_security_and_connectivity_features_map(): void
+    public function test_security_features_map_to_top_level_tags(): void
     {
-        // Security/connectivity amenities have NO PropertyFeatures field → top-level tags[].
-        $tags = $this->buildTags(['Alarm System', 'CCTV', 'Fibre Port Typo', 'TV Port']);
+        // Security amenities have NO PropertyFeatures field → top-level tags[].
+        $tags = $this->buildTags(['Alarm System', 'CCTV', 'Fibre Port Typo']);
 
         $this->assertContains('AlarmSystem', $tags);
         $this->assertContains('ClosedCircuitTV', $tags);
-        $this->assertContains('TVPort', $tags);
+    }
+
+    /**
+     * Connectivity-port tags (TVPort/InternetPort/TelephonePort) are room-detail
+     * descriptors — at top level P24 renders them as phantom rooms (AT-P24 bug on
+     * #1322: a global "TV Port" showed up as a "TV Port" room). They must NOT ride
+     * the top-level tags[] array; they belong only inside a room's featureTags[].
+     */
+    public function test_connectivity_ports_never_emit_as_top_level_tags(): void
+    {
+        $tags = $this->buildTags(['Alarm System', 'TV Port', 'Internet Port', 'Telephone Port']);
+
+        $this->assertContains('AlarmSystem', $tags);   // real listing feature stays
+        $this->assertNotContains('TVPort', $tags);
+        $this->assertNotContains('InternetPort', $tags);
+        $this->assertNotContains('TelephonePort', $tags);
     }
 
     public function test_empty_or_missing_features_returns_empty_array(): void
@@ -180,11 +195,12 @@ class Property24FeatureTagsTest extends TestCase
         $types = collect($this->invoke('buildFeatureTags', $p))->pluck('featureType')->all();
         $this->assertNotContains('Other', $types);
 
-        // The global amenities land in top-level tags[] instead.
+        // The global security amenity lands in top-level tags[]; the global TV Port
+        // does NOT (it is a room-detail port that would render as a phantom room).
         $tags = $this->invoke('buildTags', $p);
-        $this->assertContains('TVPort', $tags);
         $this->assertContains('AlarmSystem', $tags);
-        // And the per-room TV Port still attaches to its room.
+        $this->assertNotContains('TVPort', $tags);
+        // The per-room TV Port still attaches to its room — the only correct home.
         $bed = collect($this->invoke('buildFeatureTags', $p))->firstWhere('featureType', 'Bedroom')['tags'] ?? [];
         $this->assertContains('TVPort', $bed);
     }
