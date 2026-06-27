@@ -430,6 +430,139 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         $this->assertStringContainsString('no FICA-tagged page', (string) $note);
     }
 
+    // ── REAL submit path (HTTP link() with a real PDF + manifest) ───────
+
+    private function binaryAvailable(string $bin): bool
+    {
+        try {
+            $p = new \Symfony\Component\Process\Process([$bin, '--version']);
+            $p->setTimeout(20); $p->run();
+            return $p->isSuccessful();
+        } catch (\Throwable) { return false; }
+    }
+
+    /** Build a real N-page PDF on the local disk + the manifest link() reads. */
+    private function seedSplitterManifest(int $pages): string
+    {
+        $src = $this->tmpDir . '/src.pdf';
+        $gs = new \Symfony\Component\Process\Process(['gs', '-q', '-o', $src, '-sDEVICE=pdfwrite', '-c', "1 1 {$pages} {/Helvetica findfont 40 scalefont setfont showpage} for"]);
+        $gs->setTimeout(60); $gs->run();
+        $this->assertFileExists($src, 'ghostscript must produce the test PDF');
+
+        $id = 'pack__20260101_000000';
+        $origRel   = 'private/splitter/originals/' . $id . '.pdf';
+        $outDirRel = 'private/splitter/output/' . $id;
+        $tmpRel    = 'private/splitter/tmp/' . $id;
+        Storage::disk('local')->put($origRel, file_get_contents($src));
+
+        $labels = $snippets = $scores = [];
+        for ($i = 1; $i <= $pages; $i++) { $labels[(string)$i] = 'other'; $snippets[(string)$i] = ''; $scores[(string)$i] = []; }
+        Storage::disk('local')->put($tmpRel . '/manifest.json', json_encode([
+            'base' => 'pack', 'ts' => '20260101_000000', 'origRel' => $origRel,
+            'outDirRel' => $outDirRel, 'tmpRel' => $tmpRel, 'pCount' => $pages,
+            'labels' => $labels, 'snippets' => $snippets, 'pageScores' => $scores, 'docTypes' => [],
+        ]));
+
+        return $id;
+    }
+
+    public function test_real_link_submit_six_pages_seller_and_buyer_each_get_three_distinct_slots(): void
+    {
+        foreach (['qpdf', 'gs'] as $bin) {
+            if (! $this->binaryAvailable($bin)) { $this->markTestSkipped("{$bin} not on PATH"); }
+        }
+        Storage::fake('local');
+
+        $p = $this->makeProperty();
+        $seller = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $buyer  = $this->makeContact($p, 'buyer',  'Bongi', '0723333333');
+
+        $id = $this->seedSplitterManifest(6);
+
+        // The exact shape the review screen submits: per-page label + contact(s).
+        // p1-3 → seller (FICA, ID, POR); p4-6 → buyer (FICA, ID, POR).
+        $resp = $this->withSession(['splitter_manifest_id' => $id])->post(route('tools.pdf_splitter.link'), [
+            'property_id'  => $p->id,
+            'trigger_fica' => '1',
+            'labels'   => [1 => 'fica', 2 => 'ids', 3 => 'por', 4 => 'fica', 5 => 'ids', 6 => 'por'],
+            'contacts' => [
+                1 => [$seller->id], 2 => [$seller->id], 3 => [$seller->id],
+                4 => [$buyer->id],  5 => [$buyer->id],  6 => [$buyer->id],
+            ],
+        ]);
+        $resp->assertRedirect();
+
+        foreach ([$seller, $buyer] as $c) {
+            $sub = FicaSubmission::where('contact_id', $c->id)->first();
+            $this->assertNotNull($sub, "FICA must exist for {$c->first_name}");
+            $slots = FicaDocument::where('fica_submission_id', $sub->id)->pluck('document_type')->sort()->values()->all();
+            $this->assertSame(
+                ['fica_form', 'id_copy', 'proof_of_address'], $slots,
+                "{$c->first_name} must have 3 DISTINCT slots; got: " . implode(',', $slots)
+            );
+        }
+        $this->assertSame(2, FicaSubmission::count(), 'exactly two FICA processes — seller + buyer');
+        $this->assertSame(6, FicaDocument::count(), 'six documents — nothing dropped, nothing merged');
+    }
+
+    public function test_real_link_submit_three_pages_one_contact_gets_three_distinct_slots(): void
+    {
+        // BUG A via the REAL path: ID + POR + FICA pages, all one contact,
+        // CORRECTLY labelled → three distinct slots (id_copy, proof_of_address,
+        // fica_form). Proves the slot is never collapsed server-side.
+        foreach (['qpdf', 'gs'] as $bin) {
+            if (! $this->binaryAvailable($bin)) { $this->markTestSkipped("{$bin} not on PATH"); }
+        }
+        Storage::fake('local');
+
+        $p = $this->makeProperty();
+        $c = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $id = $this->seedSplitterManifest(3);
+
+        $resp = $this->withSession(['splitter_manifest_id' => $id])->post(route('tools.pdf_splitter.link'), [
+            'property_id'  => $p->id,
+            'trigger_fica' => '1',
+            'labels'   => [1 => 'fica', 2 => 'ids', 3 => 'por'],
+            'contacts' => [1 => [$c->id], 2 => [$c->id], 3 => [$c->id]],
+        ]);
+        $resp->assertRedirect();
+
+        $sub = FicaSubmission::where('contact_id', $c->id)->firstOrFail();
+        $this->assertSame(
+            ['fica_form', 'id_copy', 'proof_of_address'],
+            FicaDocument::where('fica_submission_id', $sub->id)->pluck('document_type')->sort()->values()->all()
+        );
+    }
+
+    public function test_real_link_two_id_labelled_pages_merge_to_id_copy_proving_label_is_the_cause(): void
+    {
+        // The "both ID and POR landed in id_copy" symptom is a LABEL issue, not a
+        // slot collapse: when the POR page is submitted as doc-type 'ids' (e.g. a
+        // POR affidavit auto-classified IDs and not switched), both 'ids' pages
+        // share the id_copy slot. With label 'por' they would split (test above).
+        foreach (['qpdf', 'gs'] as $bin) {
+            if (! $this->binaryAvailable($bin)) { $this->markTestSkipped("{$bin} not on PATH"); }
+        }
+        Storage::fake('local');
+
+        $p = $this->makeProperty();
+        $c = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+        $id = $this->seedSplitterManifest(3);
+
+        $resp = $this->withSession(['splitter_manifest_id' => $id])->post(route('tools.pdf_splitter.link'), [
+            'property_id'  => $p->id,
+            'trigger_fica' => '1',
+            'labels'   => [1 => 'fica', 2 => 'ids', 3 => 'ids'], // page 3 mislabelled IDs
+            'contacts' => [1 => [$c->id], 2 => [$c->id], 3 => [$c->id]],
+        ]);
+        $resp->assertRedirect();
+
+        $sub = FicaSubmission::where('contact_id', $c->id)->firstOrFail();
+        $slots = FicaDocument::where('fica_submission_id', $sub->id)->pluck('document_type')->sort()->values()->all();
+        // fica_form + ONE id_copy (the two 'ids' pages merged) — no proof_of_address.
+        $this->assertSame(['fica_form', 'id_copy'], $slots);
+    }
+
     // ── propertyContacts endpoint (drives the review selector) ──────────
 
     public function test_property_contacts_endpoint_returns_attached_with_fica_state(): void

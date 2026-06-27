@@ -215,6 +215,24 @@ extracted into `resolveLabel()` with a strong Proof-of-Residence override — an
 explicit "proof of residence"/"proof of address" phrase wins over `ids`; a pure
 ID page (no such phrase) is unaffected. The agent can still relabel on review.
 
+## Buyer-drops-pages + slot-collapse — root cause was the CLIENT sticky (2026-06-27)
+
+Live 6-page test (seller FICA/ID/POR + buyer FICA/ID/POR): buyer ended with only
+its FICA doc; seller collected both parties' ID/POR. **Investigation via a REAL
+HTTP test** (`test_real_link_submit_*` — POSTs to `link()` with a real qpdf PDF +
+manifest, not a hand-built array): the SERVER is correct — the exact submit yields
+seller `{fica_form,id_copy,proof_of_address}` + buyer `{fica_form,id_copy,proof_of_address}`,
+2 processes, 6 docs, nothing dropped/merged. So the bug is in the CLIENT submit.
+**Root cause:** `resolveAssignments()` sticky was keyed **per doc-type, globally**
+(`sticky[dt]`). A real pack is laid out per PARTY (seller's three docs, then
+buyer's three), so the seller's `ids`/`por` sticky bled onto the buyer's same-type
+pages, silently reverting the buyer's ID + POR to the seller. **Fix:** carry the
+**previous page's** set (page-order, filtered to each page's candidates), so each
+party's contiguous run stays on that party; the agent only switches at the party
+boundary. The "both ID+POR → id_copy" symptom is a LABEL issue (the POR page
+submitted as doc-type `ids`), proven by `test_real_link_two_id_labelled_pages_*`;
+the slot is always derived correctly from the page's label (no server collapse).
+
 ## Manual-QA flags (cannot prove statically)
 
 - The Alpine `:checked` submission gotcha is avoided by design (hidden inputs);

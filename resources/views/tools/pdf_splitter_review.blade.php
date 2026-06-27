@@ -398,17 +398,26 @@ document.addEventListener('alpine:init', () => {
 
         // ── sticky auto-resolve (per doc-type, carries the whole SET) ──────
         resolveAssignments() {
-            const sticky = {};
+            // Carry forward the PREVIOUS page's contact set (filtered to each
+            // page's own valid candidates); a manual change updates the carry
+            // going forward. Keyed by PAGE ORDER, not by doc-type.
+            //
+            // Why order, not doc-type: a real pack is laid out per PARTY —
+            // seller FICA / seller ID / seller POR, then buyer FICA / buyer ID /
+            // buyer POR. A per-doc-type sticky bled the seller's ID/POR choice
+            // onto the buyer's same-type pages, silently reverting the buyer's
+            // ID + POR to the seller (buyer ends up with only its FICA page;
+            // the seller collects both parties' pages). Carrying the previous
+            // page keeps each party's contiguous run on that party — the agent
+            // only switches at the party boundary.
+            let running = null;
             for (const pg of this.pages) {
-                const dt = pg.label;
-                if (pg.manual) { sticky[dt] = pg.contactIds.slice(); continue; }
-                const cand = this.allCandidateIds(dt);
-                if (sticky[dt] !== undefined) {
-                    pg.contactIds = sticky[dt].filter(id => cand.includes(id));
-                } else {
-                    pg.contactIds = cand.slice();   // first page of this type → full role-resolved set
-                }
-                sticky[dt] = pg.contactIds.slice();
+                const cand = this.allCandidateIds(pg.label);
+                if (pg.manual) { running = pg.contactIds.slice(); continue; }
+                pg.contactIds = (running !== null)
+                    ? running.filter(id => cand.includes(id))
+                    : cand.slice();   // first page → full role-resolved set
+                running = pg.contactIds.slice();
             }
         },
         isChecked(pg, cid) { return pg.contactIds.includes(cid); },
