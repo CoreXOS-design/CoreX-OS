@@ -577,7 +577,14 @@ class PdfSplitterController extends Controller
             );
         }
 
-        $redirect = redirect()->route('tools.pdf_splitter.index');
+        // Post-link state: the agent has FINISHED this pack — the index hides the
+        // uploader and shows a Finish panel that returns to the property. (The ZIP
+        // path does NOT set this, so it keeps the uploader.)
+        $propLabel = trim((string) ($property->address ?: $property->title ?: ''));
+        $redirect = redirect()->route('tools.pdf_splitter.index')
+            ->with('splitter_linked', true)
+            ->with('splitter_property_url', route('corex.properties.show', $property))
+            ->with('splitter_property_label', $propLabel !== '' ? $propLabel : null);
 
         // Filing summary banner.
         $totalFiled = $filed['property'] + $filed['contact'] + $filed['fallback'];

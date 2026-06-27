@@ -155,7 +155,7 @@
                             @else
                                 — started with {{ $f['slots'] ?? 0 }} document{{ ($f['slots'] ?? 0) === 1 ? '' : 's' }} attached.
                             @endif
-                            <a href="{{ $f['url'] }}" style="text-decoration: underline; font-weight: 600;">Open to finish &rarr;</a>
+                            <a href="{{ $f['url'] }}" target="_blank" rel="noopener" style="text-decoration: underline; font-weight: 600;">Open to finish &rarr;</a>
                         </li>
                     @endforeach
                 </ul>
@@ -177,6 +177,24 @@
             </div>
         @endif
 
+        {{-- AT-105 — post-"Link to CoreX" state: the agent has FINISHED this pack,
+             so the upload form is hidden and a Finish panel closes the loop. The
+             ZIP-download path does NOT set splitter_linked, so it keeps the
+             uploader visible. --}}
+        @if(session('splitter_linked'))
+        <div class="upload-card">
+            <h3>All done with this pack</h3>
+            <p class="subtitle">The documents above have been filed{{ session('splitter_fica_results') ? ' and the FICA verification(s) opened' : '' }}. You can return to the property or split another pack.</p>
+            <div class="flex flex-wrap items-center gap-3" style="margin-top:8px;">
+                @if(session('splitter_property_url'))
+                    <a href="{{ session('splitter_property_url') }}" class="corex-btn-primary text-sm">
+                        Finish &mdash; back to {{ session('splitter_property_label') ?: 'the property' }}
+                    </a>
+                @endif
+                <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-btn-outline text-sm">Split another pack</a>
+            </div>
+        </div>
+        @else
         <div class="upload-card">
             <h3>Upload PDF</h3>
             <p class="subtitle">OCR runs automatically &mdash; you'll review and correct labels before the ZIP is generated.</p>
@@ -218,6 +236,7 @@
                         class="text-sm w-full">Upload &amp; Split</button>
             </form>
         </div>
+        @endif
 
     </div>
 </div>

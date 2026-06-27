@@ -45,10 +45,12 @@ class SplitterDocTypeController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'label'           => 'required|string|max:100',
-            'contact_roles'   => ['nullable', 'array'],
-            'contact_roles.*' => [Rule::in(SplitterDocType::CONTACT_ROLES)],
-            'fica_slot'       => ['nullable', Rule::in(SplitterDocType::FICA_SLOTS)],
+            'label'            => 'required|string|max:100',
+            'contact_roles'    => ['nullable', 'array'],
+            'contact_roles.*'  => [Rule::in(SplitterDocType::CONTACT_ROLES)],
+            'fica_slot'        => ['nullable', Rule::in(SplitterDocType::FICA_SLOTS)],
+            'save_to_property' => 'nullable',
+            'save_to_contact'  => 'nullable',
         ]);
 
         $slug = Str::slug($request->input('label'), '_');
@@ -57,17 +59,34 @@ class SplitterDocTypeController extends Controller
             return back()->withErrors(['label' => "A type with slug '{$slug}' already exists."]);
         }
 
-        $maxSort = SplitterDocType::max('sort_order') ?? 0;
-        $roles   = array_values(array_filter((array) $request->input('contact_roles', []), fn ($r) => in_array($r, SplitterDocType::CONTACT_ROLES, true)));
+        $maxSort      = SplitterDocType::max('sort_order') ?? 0;
+        $saveContact  = filter_var($request->input('save_to_contact'), FILTER_VALIDATE_BOOLEAN);
+        // Routes-To/FICA only mean anything with a Contact destination — drop them
+        // if Contact is off (matches the gated UI).
+        $roles = $saveContact
+            ? array_values(array_filter((array) $request->input('contact_roles', []), fn ($r) => in_array($r, SplitterDocType::CONTACT_ROLES, true)))
+            : [];
+        $ficaSlot = $saveContact ? ($request->input('fica_slot', 'none') ?: 'none') : 'none';
 
-        SplitterDocType::create([
+        $type = SplitterDocType::create([
             'slug'          => $slug,
             'label'         => $request->input('label'),
             'sort_order'    => $maxSort + 1,
             'is_active'     => true,
             'contact_roles' => $roles,
-            'fica_slot'     => $request->input('fica_slot', 'none') ?: 'none',
+            'fica_slot'     => $ficaSlot,
         ]);
+
+        // Persist the per-agency Save-To destination for the new type.
+        $agencyId = $this->currentAgencyId();
+        if ($agencyId) {
+            $this->compliance->setDestination(
+                $agencyId,
+                $type->id,
+                filter_var($request->input('save_to_property'), FILTER_VALIDATE_BOOLEAN),
+                $saveContact,
+            );
+        }
 
         return back()->with('success', 'Document type added.');
     }
