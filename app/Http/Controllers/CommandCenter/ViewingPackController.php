@@ -11,6 +11,7 @@ use App\Models\ViewingPackDocument;
 use App\Models\ViewingPackProperty;
 use App\Services\ViewingPack\ViewingPackAgentPdfService;
 use App\Services\ViewingPack\ViewingPackBuyerPdfService;
+use App\Services\ViewingPack\ViewingPackCalendarService;
 use App\Services\ViewingPack\ViewingPackDocumentService;
 use App\Services\ViewingPack\ViewingPackRedactionService;
 use App\Services\ViewingPack\ViewingPackSelectionService;
@@ -60,6 +61,7 @@ class ViewingPackController extends Controller
         $viewingPack->load([
             'contact',
             'agent',
+            'calendarEvent',
             'viewingPackProperties' => fn ($q) => $q->ordered()->with(['property', 'viewingPackDocuments']),
         ]);
 
@@ -342,6 +344,23 @@ class ViewingPackController extends Controller
         return redirect()
             ->route('corex.viewing-packs.show', $pack)
             ->with('success', 'Viewing Pack started. Add properties to begin.');
+    }
+
+    /**
+     * Create or link the viewing appointment for this pack (Step 8). Reuses the
+     * existing calendar mechanism via ViewingPackCalendarService; populates
+     * viewing_packs.calendar_event_id. Idempotent — re-scheduling updates the
+     * linked event in place.
+     */
+    public function schedule(Request $request, ViewingPack $viewingPack, ViewingPackCalendarService $calendar)
+    {
+        $data = $request->validate([
+            'tour_at' => ['required', 'date'],
+        ]);
+
+        $calendar->scheduleViewing($viewingPack, \Carbon\Carbon::parse($data['tour_at']), $request->user());
+
+        return back()->with('success', 'Viewing scheduled and linked to the calendar.');
     }
 
     /** Edit pack metadata (title / status). Selection edits come in later steps. */

@@ -28,8 +28,13 @@ class ViewingPack extends Model
         'contact_id',
         'agent_id',
         'calendar_event_id',
+        'tour_at',
         'status',
         'title',
+    ];
+
+    protected $casts = [
+        'tour_at' => 'datetime',
     ];
 
     /** Status values — draft while building, ready once finalised for the tour. */
