@@ -573,6 +573,9 @@
                 {{-- AT-76 — Buyer Pipeline lives in Real Estate (was under Dashboard/Command Center). Route unchanged. --}}
                 <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
 
+                {{-- AT-XX — Viewing Packs (buyer-facing property packs). --}}
+                <a href="{{ route('corex.viewing-packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.viewing-packs.*') ? 'active' : '' }}">Viewing Packs</a>
+
                 @permission('access_portal_leads')
                 @if(\Illuminate\Support\Facades\Route::has('corex.portal-leads.index'))
                 <a href="{{ route('corex.portal-leads.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.portal-leads.*') ? 'active' : '' }}">Portal Leads</a>

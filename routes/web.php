@@ -1335,6 +1335,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/user-settings', [CommandCenterUserSettingsController::class, 'update'])->name('command-center.user-settings.update');
     });
 
+    // ── Viewing Packs (AT-XX) — buyer-facing pack CRUD. Tenancy via AgencyScope
+    //    on the model; {viewingPack} 404s across agencies. Archive = soft delete. ──
+    Route::prefix('viewing-packs')->name('corex.viewing-packs.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'index'])->name('index');
+        Route::post('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'store'])->name('store');
+        Route::get('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'show'])->name('show');
+        Route::put('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'update'])->name('update');
+        Route::delete('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'destroy'])->name('destroy');
+        Route::post('/{viewingPack}/restore', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'restore'])->name('restore')->withTrashed();
+    });
+
     // ── Agent Portal ──
     Route::get('/my-portal', [\App\Http\Controllers\Agent\AgentPortalController::class, 'index'])
         ->middleware(['permission:access_my_portal', 'agency.required'])->name('agent.portal');

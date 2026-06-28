@@ -11081,6 +11081,77 @@ CREATE TABLE `users` (
   CONSTRAINT `users_supervised_by_foreign` FOREIGN KEY (`supervised_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `viewing_pack_documents`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `viewing_pack_documents` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `viewing_pack_property_id` bigint unsigned NOT NULL,
+  `document_id` bigint unsigned NOT NULL,
+  `document_type_slug` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `redacted_file_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `included` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `viewing_pack_documents_agency_id_foreign` (`agency_id`),
+  KEY `viewing_pack_documents_document_id_foreign` (`document_id`),
+  KEY `viewing_pack_documents_viewing_pack_property_id_index` (`viewing_pack_property_id`),
+  CONSTRAINT `viewing_pack_documents_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_pack_documents_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `documents` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_pack_documents_viewing_pack_property_id_foreign` FOREIGN KEY (`viewing_pack_property_id`) REFERENCES `viewing_pack_properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `viewing_pack_properties`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `viewing_pack_properties` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `viewing_pack_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `source` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'core_match',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `viewing_pack_properties_agency_id_foreign` (`agency_id`),
+  KEY `viewing_pack_properties_property_id_foreign` (`property_id`),
+  KEY `viewing_pack_properties_viewing_pack_id_sort_order_index` (`viewing_pack_id`,`sort_order`),
+  CONSTRAINT `viewing_pack_properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_pack_properties_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_pack_properties_viewing_pack_id_foreign` FOREIGN KEY (`viewing_pack_id`) REFERENCES `viewing_packs` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `viewing_packs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `viewing_packs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `agent_id` bigint unsigned NOT NULL,
+  `calendar_event_id` bigint unsigned DEFAULT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `viewing_packs_contact_id_foreign` (`contact_id`),
+  KEY `viewing_packs_agent_id_foreign` (`agent_id`),
+  KEY `viewing_packs_calendar_event_id_foreign` (`calendar_event_id`),
+  KEY `viewing_packs_agency_id_contact_id_index` (`agency_id`,`contact_id`),
+  KEY `viewing_packs_agency_id_agent_id_index` (`agency_id`,`agent_id`),
+  CONSTRAINT `viewing_packs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_packs_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_packs_calendar_event_id_foreign` FOREIGN KEY (`calendar_event_id`) REFERENCES `calendar_events` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `viewing_packs_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `web_pack_items`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12215,3 +12286,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (889,'2026_06_27_10
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (890,'2026_06_27_100001_switch_event_due_reminder_to_minutes',178);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (891,'2026_06_27_100002_default_event_due_reminder_to_60_minutes',178);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (892,'2026_06_28_120000_add_buyer_pack_eligible_to_document_types',178);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (893,'2026_06_28_130001_create_viewing_packs_table',179);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (894,'2026_06_28_130002_create_viewing_pack_properties_table',179);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (895,'2026_06_28_130003_create_viewing_pack_documents_table',179);

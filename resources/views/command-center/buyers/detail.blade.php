@@ -108,6 +108,12 @@
             </div>
             <div class="flex items-center gap-2">
                 <button type="button" @click="showViewingPicker = true" class="corex-btn-primary">Schedule Viewing</button>
+                {{-- AT-XX Viewing Pack — entry point. Creates a draft pack for this buyer and opens its workspace. --}}
+                <form method="POST" action="{{ route('corex.viewing-packs.store') }}" class="inline">
+                    @csrf
+                    <input type="hidden" name="contact_id" value="{{ $buyer->id }}">
+                    <button type="submit" class="corex-btn-primary">Build Viewing Pack</button>
+                </form>
                 <a href="{{ route('corex.contacts.show', $buyer) }}" class="corex-btn-outline no-underline">Contact Record</a>
                 @if($buyer->buyer_state !== 'lost')
                 <button type="button" x-data x-on:click="$refs.lostModal.showModal()"
