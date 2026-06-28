@@ -9,6 +9,7 @@ use App\Models\Property;
 use App\Models\ViewingPack;
 use App\Models\ViewingPackDocument;
 use App\Models\ViewingPackProperty;
+use App\Services\ViewingPack\ViewingPackAgentPdfService;
 use App\Services\ViewingPack\ViewingPackBuyerPdfService;
 use App\Services\ViewingPack\ViewingPackDocumentService;
 use App\Services\ViewingPack\ViewingPackRedactionService;
@@ -251,6 +252,16 @@ class ViewingPackController extends Controller
     public function downloadBuyerPack(ViewingPack $viewingPack, ViewingPackBuyerPdfService $buyerPdf)
     {
         return $buyerPdf->download($viewingPack);
+    }
+
+    /**
+     * Generate + stream the SEPARATE agent sheet (Step 7). A distinct file from
+     * the buyer pack (distinct service, path, route, filename) — never merged
+     * (compliance spine §1). Eyes-only; carries the CONFIDENTIAL band.
+     */
+    public function downloadAgentSheet(ViewingPack $viewingPack, ViewingPackAgentPdfService $agentPdf)
+    {
+        return $agentPdf->download($viewingPack);
     }
 
     /** Membership + tenancy guard shared by the document endpoints. */

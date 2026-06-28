@@ -20,9 +20,13 @@
                 @if(optional($pack->contact))
                     <a href="{{ route('command-center.buyers.show', $pack->contact_id) }}" class="corex-btn-outline" style="color:#fff; border-color: rgba(255,255,255,0.3);">Open buyer</a>
                 @endif
-                {{-- Step 6 — single buyer-facing PDF. (Step 7 will add a separate Agent Sheet button.) --}}
+                {{-- Two SEPARATE files, two SEPARATE buttons (compliance spine §1) — never a combined download. --}}
                 @if($pack->viewingPackProperties->isNotEmpty())
                     <a href="{{ route('corex.viewing-packs.buyer-pack', $pack) }}" class="corex-btn-primary no-underline" target="_blank" rel="noopener">Download Buyer Pack</a>
+                    <a href="{{ route('corex.viewing-packs.agent-sheet', $pack) }}" class="corex-btn-outline no-underline"
+                       target="_blank" rel="noopener"
+                       style="color:#fff; border-color:#b91c1c; background:#b91c1c;"
+                       title="Confidential — agent eyes only. A separate file from the buyer pack; never hand this to the buyer.">Download Agent Sheet 🔒</a>
                 @endif
             </div>
         </div>
