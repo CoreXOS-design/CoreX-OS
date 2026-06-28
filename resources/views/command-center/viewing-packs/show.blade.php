@@ -38,6 +38,41 @@
         </div>
     @endif
 
+    {{-- AT-110 layout — Pack details as a compact horizontal banner (moved out of the
+         right column). Title/Status/Save + Archive are independent of property selection,
+         so they live outside #vp-content (no need to re-render on add/remove). --}}
+    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="flex flex-col lg:flex-row lg:items-end gap-3">
+            <form method="POST" action="{{ route('corex.viewing-packs.update', $pack) }}"
+                  class="flex-1 flex flex-col sm:flex-row sm:items-end gap-3">
+                @csrf
+                @method('PUT')
+                <div class="flex-1 min-w-0">
+                    <label for="vp-title" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title</label>
+                    <input id="vp-title" type="text" name="title" value="{{ old('title', $pack->title) }}"
+                           class="w-full rounded-md px-3 py-1.5 text-sm"
+                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div class="sm:w-44">
+                    <label for="vp-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
+                    <select id="vp-status" name="status" class="w-full rounded-md px-3 py-1.5 text-sm"
+                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        @foreach(\App\Models\ViewingPack::STATUSES as $s)
+                            <option value="{{ $s }}" @selected($pack->status === $s)>{{ ucfirst($s) }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <button type="submit" class="corex-btn-primary flex-shrink-0">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.viewing-packs.destroy', $pack) }}" class="flex-shrink-0"
+                  onsubmit="return confirm('Archive this viewing pack? You can recover it later.');">
+                @csrf
+                @method('DELETE')
+                <button type="submit" class="corex-btn-outline" style="color: var(--ds-crimson); border-color: var(--ds-crimson);">Archive pack</button>
+            </form>
+        </div>
+    </div>
+
     {{-- AT-109 — Selected-properties data (rendered in the sticky right column). --}}
     @php
         $orderedItems = $pack->viewingPackProperties->map(fn ($vpp) => [
@@ -51,10 +86,10 @@
 
     {{-- AT-110 Bug 3 — in-place region. Add/remove/redact swap THIS node's innerHTML
          (vpAction/vpSwapContent) instead of a full reload, so scroll is preserved. --}}
-    <div id="vp-content" class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+    <div id="vp-content" class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
 
-        {{-- LEFT: selection (Core Matches w/ search·filter·sort + ad-hoc search + docs) --}}
-        <div class="lg:col-span-2 space-y-4">
+        {{-- LEFT (60%): property selection — Core Matches (compact) + Add any property --}}
+        <div class="lg:col-span-3 space-y-4">
 
             {{-- Core Matches (canonical engine) — AT-109 search · filter · sort over
                  the buyer's already-loaded canonical match set ($coreMatches). All
@@ -130,20 +165,18 @@
                         @endif
                     </div>
 
-                    <ul class="space-y-2">
+                    {{-- AT-110 layout — COMPACT single-line rows (~60% shorter than the old
+                         two-line row) so far more properties fit per screen. Same data
+                         (address · suburb · price · ref · %); selection/Add logic unchanged.
+                         Address truncates legibly with a full-text tooltip; secondary fields
+                         drop off first on narrow widths. --}}
+                    <ul class="space-y-1">
                         <template x-for="m in filtered()" :key="m.id">
-                            {{-- AT-110 Bug 4 — tightened row: address + suburb·price·ref fill the
-                                 former dead space; score badge + Add stay right, no stretch gap. --}}
-                            <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
-                                <div class="flex-1 min-w-0">
-                                    <div class="text-sm truncate" style="color: var(--text-primary);" :title="m.address" x-text="m.address"></div>
-                                    <div class="text-xs flex items-center gap-1.5 flex-wrap" style="color: var(--text-muted);">
-                                        <span x-show="m.suburb" x-text="m.suburb"></span>
-                                        <span x-show="m.suburb && m.price">·</span>
-                                        <span x-show="m.price" x-text="'R ' + Number(m.price).toLocaleString('en-ZA')"></span>
-                                        <span x-show="m.ref" class="opacity-70" x-text="m.ref"></span>
-                                    </div>
-                                </div>
+                            <li class="flex items-center gap-2 rounded px-2 py-1" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <span class="text-sm truncate min-w-0 flex-1" style="color: var(--text-primary);" :title="m.address" x-text="m.address"></span>
+                                <span class="text-xs flex-shrink-0 truncate max-w-[7rem] hidden md:block" style="color: var(--text-muted);" x-show="m.suburb" x-text="m.suburb"></span>
+                                <span class="text-xs flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);" x-show="m.price" x-text="'R ' + Number(m.price).toLocaleString('en-ZA')"></span>
+                                <span class="text-xs flex-shrink-0 opacity-70 hidden lg:block" style="color: var(--text-muted);" x-show="m.ref" x-text="m.ref"></span>
                                 <span class="ds-badge ds-badge-success flex-shrink-0" title="Canonical match score" x-text="m.score + '%'"></span>
                                 <template x-if="m.added">
                                     <span class="text-xs flex-shrink-0" style="color: var(--text-muted);">Added</span>
@@ -188,7 +221,59 @@
                 <p class="mt-2 text-xs" x-show="searched && !results.length" x-cloak style="color: var(--text-muted);">No properties found.</p>
             </div>
 
-            {{-- Buyer-pack documents — per property, ONLY buyer-pack-eligible attached docs (Step 5a) --}}
+            {{-- Buyer-pack documents moved to the right column (AT-110 layout). --}}
+        </div>
+
+        {{-- RIGHT (40%): sticky rail — Selected properties + Buyer-pack documents +
+             Viewing appointment, all visible alongside the match list (AT-110 layout). --}}
+        <div class="lg:col-span-2 lg:sticky lg:top-4 self-start space-y-4">
+
+            {{-- Selected properties (relocated here so it stays visible while scrolling the match list) --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+                 x-data="viewingPackOrder(@js($orderedItems), '{{ route('corex.viewing-packs.properties.reorder', $pack) }}', '{{ $removeBase }}', '{{ csrf_token() }}')">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
+                    <span class="text-xs" style="color: var(--text-muted);"><span x-text="items.length"></span> selected</span>
+                </div>
+
+                <template x-if="items.length === 0">
+                    <div class="rounded-md py-6 px-4 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
+                        <p class="text-sm font-medium" style="color: var(--text-secondary);">No properties selected yet.</p>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">Add from Core Matches, or search any property.</p>
+                    </div>
+                </template>
+
+                <ol class="space-y-2 max-h-[55vh] overflow-y-auto pr-1" x-show="items.length > 0">
+                    <template x-for="(item, idx) in items" :key="item.id">
+                        <li class="flex items-center gap-2 rounded-md px-2 py-2"
+                            style="background: var(--surface-2); border: 1px solid var(--border);"
+                            draggable="true"
+                            @dragstart="dragStart($event, idx)"
+                            @dragover.prevent="dragOver($event, idx)"
+                            @drop.prevent="drop($event, idx)"
+                            @dragend="dragEnd()"
+                            :style="dragIdx === idx ? 'background: var(--surface-2); border: 1px solid var(--brand-icon); opacity:0.6;' : 'background: var(--surface-2); border: 1px solid var(--border);'">
+                            <span class="cursor-move select-none text-base" title="Drag to reorder" style="color: var(--text-muted);">⠿</span>
+                            <span class="text-sm font-semibold w-5 text-right flex-shrink-0" style="color: var(--text-muted);" x-text="(idx + 1) + '.'"></span>
+                            <span class="flex-1 text-sm truncate" :title="item.label" style="color: var(--text-primary);" x-text="item.label"></span>
+                            <span class="text-xs flex-shrink-0" style="color: var(--text-muted);" x-text="item.docs + ' docs'"></span>
+                            <form method="POST" :action="removeBase + '/' + item.id" class="flex-shrink-0"
+                                  @submit.prevent="confirm('Remove this property from the pack?') && vpAction($el)">
+                                @csrf
+                                <input type="hidden" name="_method" value="DELETE">
+                                <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
+                            </form>
+                        </li>
+                    </template>
+                </ol>
+
+                <p class="mt-3 text-xs" style="color: var(--text-muted);">Drag rows to set the viewing order — this is the page order in both PDFs.</p>
+            </div>
+
+            {{-- Buyer-pack documents (moved here from the left column — AT-110 layout — so it
+                 sits ALONGSIDE the selection, visible while working the match list. Internals
+                 unchanged: per-property eligible docs, Redact/Re-redact, INCLUDED/NEEDS
+                 REDACTION badges, VIEW REDACTED, add/remove via the in-place vpAction). --}}
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                 <h3 class="text-lg font-semibold mb-1" style="color: var(--text-primary);">Buyer-pack documents</h3>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">Only documents whose type is eligible for the buyer pack are shown. Identity / compliance documents never appear here. Documents are optional.</p>
@@ -223,8 +308,8 @@
                                                 $label = ($doc->documentType?->label ?: $doc->documentType?->slug ?: 'Document')
                                                        . ' — ' . ($doc->original_name ?? ('Doc #' . $doc->id));
                                             @endphp
-                                            <li class="flex items-center gap-3 rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border);">
-                                                <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ $label }}</span>
+                                            <li class="flex items-center gap-3 rounded-md px-3 py-1.5 flex-wrap" style="background: var(--surface); border: 1px solid var(--border);">
+                                                <span class="flex-1 min-w-[10rem] text-sm" style="color: var(--text-primary);">{{ $label }}</span>
                                                 @if($isIn)
                                                     @php $vpdRow = $vpdByDoc[$doc->id]; $isRedacted = !empty($vpdRow->redacted_file_path); @endphp
                                                     {{-- AT-110 Bug 1 — HONEST state. "Included" alone is a lie: a doc does
@@ -271,123 +356,43 @@
                     </div>
                 @endif
             </div>
-        </div>
-
-        {{-- RIGHT: sticky column — Selected properties (always visible while picking) + Pack details (AT-109) --}}
-        <div class="lg:col-span-1 lg:sticky lg:top-4 self-start space-y-4">
-
-            {{-- Selected properties (relocated here so it stays visible while scrolling the match list) --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
-                 x-data="viewingPackOrder(@js($orderedItems), '{{ route('corex.viewing-packs.properties.reorder', $pack) }}', '{{ $removeBase }}', '{{ csrf_token() }}')">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
-                    <span class="text-xs" style="color: var(--text-muted);"><span x-text="items.length"></span> selected</span>
-                </div>
-
-                <template x-if="items.length === 0">
-                    <div class="rounded-md py-6 px-4 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
-                        <p class="text-sm font-medium" style="color: var(--text-secondary);">No properties selected yet.</p>
-                        <p class="text-xs mt-1" style="color: var(--text-muted);">Add from Core Matches, or search any property.</p>
-                    </div>
-                </template>
-
-                <ol class="space-y-2 max-h-[55vh] overflow-y-auto pr-1" x-show="items.length > 0">
-                    <template x-for="(item, idx) in items" :key="item.id">
-                        <li class="flex items-center gap-2 rounded-md px-2 py-2"
-                            style="background: var(--surface-2); border: 1px solid var(--border);"
-                            draggable="true"
-                            @dragstart="dragStart($event, idx)"
-                            @dragover.prevent="dragOver($event, idx)"
-                            @drop.prevent="drop($event, idx)"
-                            @dragend="dragEnd()"
-                            :style="dragIdx === idx ? 'background: var(--surface-2); border: 1px solid var(--brand-icon); opacity:0.6;' : 'background: var(--surface-2); border: 1px solid var(--border);'">
-                            <span class="cursor-move select-none text-base" title="Drag to reorder" style="color: var(--text-muted);">⠿</span>
-                            <span class="text-sm font-semibold w-5 text-right flex-shrink-0" style="color: var(--text-muted);" x-text="(idx + 1) + '.'"></span>
-                            <span class="flex-1 text-sm truncate" :title="item.label" style="color: var(--text-primary);" x-text="item.label"></span>
-                            <span class="text-xs flex-shrink-0" style="color: var(--text-muted);" x-text="item.docs + ' docs'"></span>
-                            <form method="POST" :action="removeBase + '/' + item.id" class="flex-shrink-0"
-                                  @submit.prevent="confirm('Remove this property from the pack?') && vpAction($el)">
-                                @csrf
-                                <input type="hidden" name="_method" value="DELETE">
-                                <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
-                            </form>
-                        </li>
-                    </template>
-                </ol>
-
-                <p class="mt-3 text-xs" style="color: var(--text-muted);">Drag rows to set the viewing order — this is the page order in both PDFs.</p>
-            </div>
-
-            {{-- Pack details --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">Pack details</h3>
-            <form method="POST" action="{{ route('corex.viewing-packs.update', $pack) }}" class="space-y-3">
-                @csrf
-                @method('PUT')
-                <div>
-                    <label for="vp-title" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title</label>
-                    <input id="vp-title" type="text" name="title" value="{{ old('title', $pack->title) }}"
-                           class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                </div>
-                <div>
-                    <label for="vp-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-                    <select id="vp-status" name="status" class="w-full rounded-md px-3 py-2 text-sm"
-                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                        @foreach(\App\Models\ViewingPack::STATUSES as $s)
-                            <option value="{{ $s }}" @selected($pack->status === $s)>{{ ucfirst($s) }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <button type="submit" class="corex-btn-primary w-full">Save</button>
-            </form>
-
-            <hr class="my-4" style="border-color: var(--border);">
 
             {{-- Viewing appointment — reuse the SAME calendar prefill handoff as the
                  Schedule Viewing modal, fed with THIS pack's selected properties in
                  sort_order + the buyer as attendee + class=viewing. Drops the agent
                  into the pre-filled Calendar New Event screen (no parallel scheduler). --}}
-            <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Viewing appointment</h3>
-            @php
-                $buyer = $pack->contact;
-                $schedAttendees = $buyer ? [[
-                    'id'    => $buyer->id,
-                    'name'  => trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id),
-                    'type'  => 'contact',
-                    'role'  => 'buyer_contact',
-                    'phone' => $buyer->phone,
-                    'email' => $buyer->email,
-                ]] : [];
-                // Pack's selected properties, in the agent's chosen drag order.
-                $schedProps = $pack->viewingPackProperties
-                    ->map(fn ($vpp) => ['id' => $vpp->property_id, 'address' => optional($vpp->property)->address ?: ''])
-                    ->filter(fn ($p) => $p['id'] !== null)
-                    ->values();
-                $scheduleUrl = $buyer ? route('command-center.calendar', array_filter([
-                    'view'               => 'day',
-                    'prefill_class'      => 'viewing',
-                    'prefill_contact_id' => $buyer->id,
-                    'prefill_attendees'  => json_encode($schedAttendees),
-                    'prefill_properties' => $schedProps->isNotEmpty() ? json_encode($schedProps->all()) : null,
-                ], fn ($v) => $v !== null)) : null;
-            @endphp
-            @if($scheduleUrl && $pack->viewingPackProperties->isNotEmpty())
-                <p class="text-xs mb-2" style="color: var(--text-muted);">Opens the Calendar with the buyer, this pack's {{ $pack->viewingPackProperties->count() }} {{ \Illuminate\Support\Str::plural('property', $pack->viewingPackProperties->count()) }} (in order), and a viewing pre-filled.</p>
-                <a href="{{ $scheduleUrl }}" class="corex-btn-primary w-full no-underline" style="text-align:center;">Schedule Viewing</a>
-            @else
-                <p class="text-xs" style="color: var(--text-muted);">Add at least one property to schedule a viewing.</p>
-            @endif
-
-            <hr class="my-4" style="border-color: var(--border);">
-
-            <form method="POST" action="{{ route('corex.viewing-packs.destroy', $pack) }}"
-                  onsubmit="return confirm('Archive this viewing pack? You can recover it later.');">
-                @csrf
-                @method('DELETE')
-                <button type="submit" class="corex-btn-outline w-full" style="color: var(--ds-crimson); border-color: var(--ds-crimson);">Archive pack</button>
-            </form>
-            </div>{{-- /pack details card --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Viewing appointment</h3>
+                @php
+                    $buyer = $pack->contact;
+                    $schedAttendees = $buyer ? [[
+                        'id'    => $buyer->id,
+                        'name'  => trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id),
+                        'type'  => 'contact',
+                        'role'  => 'buyer_contact',
+                        'phone' => $buyer->phone,
+                        'email' => $buyer->email,
+                    ]] : [];
+                    // Pack's selected properties, in the agent's chosen drag order.
+                    $schedProps = $pack->viewingPackProperties
+                        ->map(fn ($vpp) => ['id' => $vpp->property_id, 'address' => optional($vpp->property)->address ?: ''])
+                        ->filter(fn ($p) => $p['id'] !== null)
+                        ->values();
+                    $scheduleUrl = $buyer ? route('command-center.calendar', array_filter([
+                        'view'               => 'day',
+                        'prefill_class'      => 'viewing',
+                        'prefill_contact_id' => $buyer->id,
+                        'prefill_attendees'  => json_encode($schedAttendees),
+                        'prefill_properties' => $schedProps->isNotEmpty() ? json_encode($schedProps->all()) : null,
+                    ], fn ($v) => $v !== null)) : null;
+                @endphp
+                @if($scheduleUrl && $pack->viewingPackProperties->isNotEmpty())
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">Opens the Calendar with the buyer, this pack's {{ $pack->viewingPackProperties->count() }} {{ \Illuminate\Support\Str::plural('property', $pack->viewingPackProperties->count()) }} (in order), and a viewing pre-filled.</p>
+                    <a href="{{ $scheduleUrl }}" class="corex-btn-primary w-full no-underline" style="text-align:center;">Schedule Viewing</a>
+                @else
+                    <p class="text-xs" style="color: var(--text-muted);">Add at least one property to schedule a viewing.</p>
+                @endif
+            </div>
         </div>{{-- /sticky right column --}}
     </div>{{-- /grid + #vp-content (in-place swap region, AT-110 Bug 3) --}}
 </div>
