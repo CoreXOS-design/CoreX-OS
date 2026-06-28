@@ -267,7 +267,8 @@
                     </template>
                 </ol>
 
-                <p class="mt-3 text-xs" style="color: var(--text-muted);">Drag rows to set the viewing order — this is the page order in both PDFs.</p>
+                <p class="mt-3 text-xs" style="color: var(--text-muted);" x-show="!orderError">Drag rows to set the viewing order — this is the page order in both PDFs.</p>
+                <p class="mt-3 text-xs font-semibold" style="color: var(--ds-crimson);" x-show="orderError" x-cloak x-text="orderError"></p>
             </div>
 
             {{-- Buyer-pack documents (moved here from the left column — AT-110 layout — so it
@@ -679,9 +680,12 @@ function viewingPackOrder(items, reorderUrl, removeBase, csrf) {
         items: items,
         removeBase: removeBase,
         dragIdx: null,
+        orderError: '',
         dragStart(e, idx) {
             this.dragIdx = idx;
             e.dataTransfer.effectAllowed = 'move';
+            // setData is REQUIRED for the drag to start in Firefox/some browsers.
+            try { e.dataTransfer.setData('text/plain', String(idx)); } catch (_) {}
         },
         dragOver(e, idx) {
             if (this.dragIdx === null || this.dragIdx === idx) return;
@@ -689,12 +693,21 @@ function viewingPackOrder(items, reorderUrl, removeBase, csrf) {
             this.items.splice(idx, 0, moved);
             this.dragIdx = idx; // sequence numbers (idx+1) update reactively
         },
-        async drop(e, idx) {
-            if (this.dragIdx === null) return;
+        drop(e, idx) {
+            // Position already updated live in dragOver; persistence happens in dragEnd
+            // (which ALWAYS fires — drop only fires when released over a valid target).
+        },
+        // AT-110 — persist on dragEnd so the order is saved even if the agent releases
+        // off a row (drop wouldn't fire). The buyer/agent PDFs read sort_order at
+        // generation time, so this guarantees the download honours the dragged order.
+        async dragEnd() {
             this.dragIdx = null;
+            await this.persistOrder();
+        },
+        async persistOrder() {
             const order = this.items.map(it => it.id);
             try {
-                await fetch(reorderUrl, {
+                const res = await fetch(reorderUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -702,13 +715,14 @@ function viewingPackOrder(items, reorderUrl, removeBase, csrf) {
                         'X-CSRF-TOKEN': csrf,
                         'X-Requested-With': 'XMLHttpRequest',
                     },
+                    credentials: 'same-origin',
                     body: JSON.stringify({ order }),
                 });
+                this.orderError = res.ok ? '' : 'Could not save the new order (HTTP ' + res.status + ') — drag again.';
             } catch (err) {
-                // Order persists on next successful drop; reload reflects the server truth.
+                this.orderError = 'Could not save the new order — check your connection and drag again.';
             }
         },
-        dragEnd() { this.dragIdx = null; },
     };
 }
 
