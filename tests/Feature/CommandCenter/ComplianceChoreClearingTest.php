@@ -7,7 +7,11 @@ namespace Tests\Feature\CommandCenter;
 use App\Events\Property\PropertyCompliancePassed;
 use App\Listeners\Property\DismissComplianceClearedChores;
 use App\Models\CommandCenter\CommandTask;
+use App\Models\CommandCenter\NotificationDispatchLog;
+use App\Models\CommandCenter\NotificationEventType;
+use App\Models\CommandCenter\UserNotificationPreference;
 use App\Models\Property;
+use App\Models\User;
 use App\Services\CommandCenter\AutoEventService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -100,6 +104,41 @@ final class ComplianceChoreClearingTest extends TestCase
         $this->assertNotSoftDeleted('command_tasks', ['id' => $keep]);
     }
 
+    public function test_property_scan_skips_documents_missing_for_compliant_property(): void
+    {
+        [$agencyId, $branchId, $agentId] = $this->seedBasics();
+        $agent = User::find($agentId);
+        $this->makeDocsMissingType();
+        $this->enablePref($agent, 'property.documents_missing');
+
+        $compliantId    = $this->makeAgedProperty($agencyId, $branchId, $agentId, compliant: true);
+        $nonCompliantId = $this->makeAgedProperty($agencyId, $branchId, $agentId, compliant: false);
+
+        $this->artisan('notifications:scan-properties')->assertSuccessful();
+
+        $typeId = NotificationEventType::where('key', 'property.documents_missing')->value('id');
+
+        $this->assertSame(0, NotificationDispatchLog::where('subject_id', $compliantId)
+            ->where('notification_event_type_id', $typeId)->count(), 'compliant property must not notify');
+        $this->assertGreaterThan(0, NotificationDispatchLog::where('subject_id', $nonCompliantId)
+            ->where('notification_event_type_id', $typeId)->count(), 'non-compliant property should notify');
+    }
+
+    public function test_backfill_marks_compliant_documents_missing_notifications_read(): void
+    {
+        [$agencyId, $branchId, $agentId] = $this->seedBasics();
+        $compliantId    = $this->makeProperty($agencyId, $branchId, $agentId, compliant: true);
+        $nonCompliantId = $this->makeProperty($agencyId, $branchId, $agentId, compliant: false);
+
+        $clearMe = $this->makeDocsMissingNotification($agentId, $compliantId);
+        $keepMe  = $this->makeDocsMissingNotification($agentId, $nonCompliantId);
+
+        $this->artisan('command-center:clear-compliant-chores')->assertSuccessful();
+
+        $this->assertNotNull(DB::table('notifications')->where('id', $clearMe)->value('read_at'), 'compliant notif marked read');
+        $this->assertNull(DB::table('notifications')->where('id', $keepMe)->value('read_at'), 'non-compliant notif left unread');
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:int,2:int} */
@@ -140,5 +179,57 @@ final class ComplianceChoreClearingTest extends TestCase
             'agency_id' => $agencyId, 'branch_id' => $branchId,
             'created_at' => now(), 'updated_at' => now(),
         ]);
+    }
+
+    /** A property old enough to trip the documents-missing age threshold. */
+    private function makeAgedProperty(int $agencyId, int $branchId, int $agentId, bool $compliant): int
+    {
+        $id = $this->makeProperty($agencyId, $branchId, $agentId, $compliant);
+        DB::table('properties')->where('id', $id)->update([
+            'address'    => '12 Test Road',
+            'status'     => 'active',
+            'created_at' => now()->subDays(30),
+        ]);
+
+        return $id;
+    }
+
+    private function makeDocsMissingType(): void
+    {
+        NotificationEventType::create([
+            'key' => 'property.documents_missing', 'pillar' => 'property',
+            'group_label' => 'Documents', 'label' => 'Documents not uploaded after listing',
+            'description' => 'Notify when a newly listed property has no documents on file.',
+            'default_enabled' => true, 'threshold_unit' => 'hours', 'default_threshold' => 24,
+            'threshold_min' => 1, 'threshold_max' => 168,
+            'supports_in_app' => true, 'supports_email' => true, 'supports_push' => true,
+            'is_adapter' => false, 'adapter_column' => null, 'sort_order' => 1,
+        ]);
+    }
+
+    private function enablePref(User $user, string $key): void
+    {
+        $type = NotificationEventType::where('key', $key)->firstOrFail();
+        UserNotificationPreference::updateOrCreate(
+            ['user_id' => $user->id, 'notification_event_type_id' => $type->id],
+            ['enabled' => true, 'threshold' => 1, 'channel_in_app' => true, 'channel_email' => false, 'channel_push' => false]
+        );
+    }
+
+    private function makeDocsMissingNotification(int $userId, int $propertyId): string
+    {
+        $id = (string) Str::uuid();
+        DB::table('notifications')->insert([
+            'id' => $id, 'type' => \App\Notifications\PillarEventNotification::class,
+            'notifiable_type' => 'App\\Models\\User', 'notifiable_id' => $userId,
+            'data' => json_encode([
+                'event_key' => 'property.documents_missing',
+                'subject_type' => 'App\\Models\\Property', 'subject_id' => $propertyId,
+                'title' => 'Test Property — documents missing',
+            ]),
+            'read_at' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return $id;
     }
 }
