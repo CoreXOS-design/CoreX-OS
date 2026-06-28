@@ -20,10 +20,31 @@ class CommandTask extends Model
      * Hide tasks whose linked property has been soft-deleted (see
      * LivePropertyScope). Keeps a gone property's document/attention tasks
      * off Today / Tasks / reminders. Opt out with withoutGlobalScope().
+     *
+     * Also bust the assignee's Today cockpit cache on every write so a
+     * resolved / dismissed / reassigned task drops off Today immediately —
+     * CommandCentreService::assembleForUser caches for 300s, and a stale
+     * cockpit kept resolved items visible even after a hard refresh.
      */
     protected static function booted(): void
     {
         static::addGlobalScope(new LivePropertyScope());
+
+        $bust = fn (self $task) => $task->forgetCockpitCache();
+        static::saved($bust);
+        static::deleted($bust);
+        static::restored($bust);
+    }
+
+    /** Forget the Today cockpit cache for this task's assignee (and prior assignee on reassignment). */
+    public function forgetCockpitCache(): void
+    {
+        foreach (array_unique(array_filter([
+            $this->assigned_to,
+            $this->getOriginal('assigned_to'),
+        ])) as $userId) {
+            \Illuminate\Support\Facades\Cache::forget("command_centre_{$userId}");
+        }
     }
 
     protected $fillable = [

@@ -305,6 +305,17 @@ class AppServiceProvider extends ServiceProvider
             Event::listen($event, [\App\Listeners\Activity\CreditInstantActionListener::class, $method]);
         }
 
+        // Compliance pass clears a property's redundant auto chore tasks
+        // (document-upload + idle-attention). Headline case: P24 go-live
+        // imports are marked compliant on confirm, so the "Upload signed
+        // mandate / owner ID / proof of ownership" tasks AutoEventService
+        // created at property-create are no longer needed. Sync (runs in the
+        // import transaction); failure-isolated inside the listener.
+        Event::listen(
+            \App\Events\Property\PropertyCompliancePassed::class,
+            \App\Listeners\Property\DismissComplianceClearedChores::class,
+        );
+
         // SPINE-3 — model observers that dispatch the missing domain events
         // (ProspectingClaim::created → ClaimCreated; updated released_at
         // NULL→set → ClaimReleased; PropertyMarketingPost::updated

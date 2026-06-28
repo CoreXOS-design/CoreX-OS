@@ -20,6 +20,15 @@ class AutoEventService
             return;
         }
 
+        // A property created already-compliant (e.g. imported stock stamped
+        // compliant up front) doesn't need document-chase tasks. The P24
+        // importer sets compliance AFTER create, so this guard catches the
+        // create-already-compliant path; DismissComplianceClearedChores
+        // handles the create-then-mark-compliant path.
+        if ($property->compliance_snapshot_at !== null) {
+            return;
+        }
+
         $agentId  = $property->agent_id;
         $branchId = $property->branch_id;
         $agencyId = $property->agency_id;
@@ -202,6 +211,11 @@ class AutoEventService
                 $q->whereNull('status')
                   ->orWhereNotIn('status', ['sold', 'withdrawn', 'archived']);
             })
+            // Compliant stock (e.g. P24 go-live imports) is vetted/established
+            // and must not be flagged "needs attention" — that flooded the
+            // cockpit with hundreds of idle prompts for freshly imported,
+            // already-compliant listings.
+            ->whereNull('compliance_snapshot_at')
             ->whereNotNull('agent_id')
             ->where(function ($q) use ($thresholdDays) {
                 $q->where('last_activity_at', '<', now()->subDays($thresholdDays))
