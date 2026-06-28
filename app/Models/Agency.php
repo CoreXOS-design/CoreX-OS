@@ -81,6 +81,8 @@ class Agency extends Model
     protected $fillable = [
         'name',
         'slug',
+        'viewing_pack_redaction_dpi', // AT-107 Step 5b — redaction render DPI (null = default 150)
+        'viewing_pack_default_duration_minutes', // AT-107 Step 8 — default viewing duration (null = 60)
         'trading_name',
         'tagline',
         'address',
@@ -261,6 +263,9 @@ class Agency extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
+        'viewing_pack_redaction_dpi' => 'integer', // AT-107 Step 5b
+        'viewing_pack_default_duration_minutes' => 'integer', // AT-107 Step 8
+
         // Per-agency maintenance mode (AT-93).
         'maintenance_mode' => 'boolean',
         'maintenance_started_at' => 'datetime',

@@ -7,6 +7,7 @@ namespace App\Jobs;
 use App\Models\ContactMatch;
 use App\Services\PropertyMatchScoringService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -39,12 +40,26 @@ use Throwable;
  * continues with the remaining contacts. The finish-audit row records
  * the full error list.
  */
-class RegenerateBuyerMatchesJob implements ShouldQueue
+class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 1;     // no auto-retry; manual re-run on failure
     public int $timeout = 600; // 10 minutes
+
+    /**
+     * AT-108 — coalesce duplicate dispatches. Bulk stock imports fire one
+     * agency-scoped recompute per saved property; ShouldBeUnique collapses them
+     * to a SINGLE pending job per (agency, contact) scope so the import stays
+     * fast and the work is bounded. Lock auto-releases after the job runs or
+     * uniqueFor elapses (safety valve).
+     */
+    public int $uniqueFor = 600;
+
+    public function uniqueId(): string
+    {
+        return 'regen-buyer-matches:' . ($this->agencyId ?? 'all') . ':' . ($this->contactId ?? 'all');
+    }
 
     public function __construct(
         public readonly ?int $agencyId = null,

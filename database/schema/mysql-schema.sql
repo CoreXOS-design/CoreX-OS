@@ -186,6 +186,8 @@ CREATE TABLE `agencies` (
   `pp_webhook_secret` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `pp_last_sync_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `slug` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `viewing_pack_redaction_dpi` smallint unsigned DEFAULT NULL,
+  `viewing_pack_default_duration_minutes` smallint unsigned DEFAULT NULL,
   `sidebar_color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0ea5e9',
   `icon_color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0ea5e9',
   `default_color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0b2a4a',
@@ -481,6 +483,7 @@ CREATE TABLE `agency_dashboard_settings` (
   `task_due_reminders` tinyint(1) NOT NULL DEFAULT '1',
   `task_reminder_hours_before` smallint unsigned NOT NULL DEFAULT '4',
   `event_reminder_hours_before` smallint unsigned NOT NULL DEFAULT '24',
+  `event_reminder_minutes_before` smallint unsigned NOT NULL DEFAULT '60',
   `auto_archive_done_days` smallint unsigned DEFAULT NULL,
   `overdue_daily_digest` tinyint(1) NOT NULL DEFAULT '1',
   `digest_time` time NOT NULL DEFAULT '08:00:00',
@@ -515,6 +518,7 @@ CREATE TABLE `agency_document_type_compliance` (
   `save_to_contact` tinyint(1) DEFAULT NULL,
   `contact_roles` json DEFAULT NULL,
   `fica_slot` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `buyer_pack_eligible` tinyint(1) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -3191,6 +3195,35 @@ CREATE TABLE `contacts` (
   CONSTRAINT `contacts_second_agent_id_foreign` FOREIGN KEY (`second_agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `core_match_misses`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `core_match_misses` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `agent_id` bigint unsigned NOT NULL,
+  `viewing_pack_id` bigint unsigned DEFAULT NULL,
+  `buyer_criteria_snapshot` json DEFAULT NULL,
+  `property_attributes_snapshot` json DEFAULT NULL,
+  `captured_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `core_match_misses_contact_id_foreign` (`contact_id`),
+  KEY `core_match_misses_property_id_foreign` (`property_id`),
+  KEY `core_match_misses_agent_id_foreign` (`agent_id`),
+  KEY `core_match_misses_agency_id_contact_id_index` (`agency_id`,`contact_id`),
+  KEY `core_match_misses_viewing_pack_id_property_id_index` (`viewing_pack_id`,`property_id`),
+  CONSTRAINT `core_match_misses_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `core_match_misses_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `core_match_misses_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `core_match_misses_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `core_match_misses_viewing_pack_id_foreign` FOREIGN KEY (`viewing_pack_id`) REFERENCES `viewing_packs` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `daily_activities`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -4153,6 +4186,7 @@ CREATE TABLE `document_types` (
   `grouping` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'shared',
   `contact_roles` json DEFAULT NULL,
   `fica_slot` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none',
+  `buyer_pack_eligible` tinyint(1) NOT NULL DEFAULT '0',
   `listing_types` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -10821,6 +10855,7 @@ CREATE TABLE `user_dashboard_settings` (
   `task_due_reminders` tinyint(1) NOT NULL DEFAULT '1',
   `task_reminder_hours_before` smallint unsigned NOT NULL DEFAULT '4',
   `event_reminder_hours_before` smallint unsigned NOT NULL DEFAULT '24',
+  `event_reminder_minutes_before` smallint unsigned NOT NULL DEFAULT '60',
   `auto_archive_done_days` smallint unsigned DEFAULT NULL,
   `overdue_daily_digest` tinyint(1) NOT NULL DEFAULT '1',
   `digest_time` time NOT NULL DEFAULT '08:00:00',
@@ -11075,6 +11110,78 @@ CREATE TABLE `users` (
   CONSTRAINT `users_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `users_sponsored_by_user_id_foreign` FOREIGN KEY (`sponsored_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `users_supervised_by_foreign` FOREIGN KEY (`supervised_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `viewing_pack_documents`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `viewing_pack_documents` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `viewing_pack_property_id` bigint unsigned NOT NULL,
+  `document_id` bigint unsigned NOT NULL,
+  `document_type_slug` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `redacted_file_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `included` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `viewing_pack_documents_agency_id_foreign` (`agency_id`),
+  KEY `viewing_pack_documents_document_id_foreign` (`document_id`),
+  KEY `viewing_pack_documents_viewing_pack_property_id_index` (`viewing_pack_property_id`),
+  CONSTRAINT `viewing_pack_documents_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_pack_documents_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `documents` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_pack_documents_viewing_pack_property_id_foreign` FOREIGN KEY (`viewing_pack_property_id`) REFERENCES `viewing_pack_properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `viewing_pack_properties`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `viewing_pack_properties` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `viewing_pack_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `source` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'core_match',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `viewing_pack_properties_agency_id_foreign` (`agency_id`),
+  KEY `viewing_pack_properties_property_id_foreign` (`property_id`),
+  KEY `viewing_pack_properties_viewing_pack_id_sort_order_index` (`viewing_pack_id`,`sort_order`),
+  CONSTRAINT `viewing_pack_properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_pack_properties_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_pack_properties_viewing_pack_id_foreign` FOREIGN KEY (`viewing_pack_id`) REFERENCES `viewing_packs` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `viewing_packs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `viewing_packs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `agent_id` bigint unsigned NOT NULL,
+  `calendar_event_id` bigint unsigned DEFAULT NULL,
+  `tour_at` datetime DEFAULT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `viewing_packs_contact_id_foreign` (`contact_id`),
+  KEY `viewing_packs_agent_id_foreign` (`agent_id`),
+  KEY `viewing_packs_calendar_event_id_foreign` (`calendar_event_id`),
+  KEY `viewing_packs_agency_id_contact_id_index` (`agency_id`,`contact_id`),
+  KEY `viewing_packs_agency_id_agent_id_index` (`agency_id`,`agent_id`),
+  CONSTRAINT `viewing_packs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_packs_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_packs_calendar_event_id_foreign` FOREIGN KEY (`calendar_event_id`) REFERENCES `calendar_events` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `viewing_packs_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `web_pack_items`;
@@ -12207,3 +12314,13 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (884,'2026_06_26_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (885,'2026_06_26_140000_add_verified_at_softdeletes_to_p24_provinces_cities',176);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (886,'2026_06_26_220000_add_p24_image_signature_to_properties',176);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (888,'2026_06_27_120000_add_contact_role_and_fica_slot_to_document_types',177);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (889,'2026_06_27_100000_add_event_reminder_minutes_to_dashboard_settings',178);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (890,'2026_06_27_100001_switch_event_due_reminder_to_minutes',178);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (891,'2026_06_27_100002_default_event_due_reminder_to_60_minutes',178);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (892,'2026_06_28_120000_add_buyer_pack_eligible_to_document_types',178);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (893,'2026_06_28_130001_create_viewing_packs_table',179);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (894,'2026_06_28_130002_create_viewing_pack_properties_table',179);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (895,'2026_06_28_130003_create_viewing_pack_documents_table',179);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (896,'2026_06_28_140001_create_core_match_misses_table',180);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (897,'2026_07_05_000001_add_viewing_pack_redaction_dpi_to_agencies',181);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (898,'2026_07_05_000002_add_viewing_pack_tour_scheduling',182);

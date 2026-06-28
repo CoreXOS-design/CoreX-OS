@@ -120,7 +120,10 @@
         $activeGroup = 'rentals';
     } elseif (request()->routeIs('compliance.*')) {
         $activeGroup = 'compliance';
-    } elseif (request()->routeIs('command-center.*')) {
+    } elseif (request()->routeIs('command-center.*') && !request()->routeIs('command-center.buyers.*')) {
+        // AT-108 — Buyer Pipeline (command-center.buyers.*) lives in REAL ESTATE
+        // (AT-76 move), so it must NOT resolve to the Dashboard group. Excluded
+        // here and added to the real-estate matcher below.
         $activeGroup = 'command-center';
     } elseif (request()->routeIs('corex.dashboard', 'corex.dashboard.oversight')) {
         // Today / Oversight live in the Command Center submenu but are also
@@ -155,7 +158,9 @@
         'corex.portal-leads.*',
         'presentations.*',
         'corex.presentations.*',
-        'commercial-evaluations.*'
+        'commercial-evaluations.*',
+        'command-center.buyers.*',   // AT-76 — Buyer Pipeline lives in Real Estate
+        'corex.viewing-packs.*'      // AT-107 — Viewing Packs live in Real Estate
     )) {
         $activeGroup = 'real-estate';
     } elseif (request()->routeIs('payroll.leave.*')) {
@@ -572,6 +577,9 @@
 
                 {{-- AT-76 — Buyer Pipeline lives in Real Estate (was under Dashboard/Command Center). Route unchanged. --}}
                 <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
+
+                {{-- AT-XX — Viewing Packs (buyer-facing property packs). --}}
+                <a href="{{ route('corex.viewing-packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.viewing-packs.*') ? 'active' : '' }}">Viewing Packs</a>
 
                 @permission('access_portal_leads')
                 @if(\Illuminate\Support\Facades\Route::has('corex.portal-leads.index'))

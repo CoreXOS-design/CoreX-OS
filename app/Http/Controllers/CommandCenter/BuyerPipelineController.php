@@ -76,6 +76,7 @@ class BuyerPipelineController extends Controller
                 'view' => 'list',
                 'buyers' => $buyers,
                 'counts' => $this->stateCounts($user, $pipelineScope),
+                'coreMatchCounts' => $this->coreMatchCounts($buyers->pluck('id')),
                 'pipelineScope' => $pipelineScope,
                 'canSeeBranch' => (bool) $user->branch_id,
                 'contextListing' => $contextListing,
@@ -103,10 +104,36 @@ class BuyerPipelineController extends Controller
             'columns' => $columns,
             'counts' => $this->stateCounts($user, $pipelineScope),
             'riskScores' => $riskScores,
+            'coreMatchCounts' => $this->coreMatchCounts($allBuyers->pluck('id')),
             'pipelineScope' => $pipelineScope,
             'canSeeBranch' => (bool) $user->branch_id,
             'contextListing' => $contextListing,
         ]);
+    }
+
+    /**
+     * AT-108 — canonical Core Match COUNT per buyer for the board, from the
+     * now-canonical property_buyer_matches cache. ONE batched grouped query for
+     * all buyers on the board (no engine call per card, no N+1). The cache only
+     * holds VISIBLE canonical matches (recomputeForBuyer), so a plain
+     * COUNT(score >= MIN_SCORE_TO_DISPLAY) reconciles to the live Core Matches
+     * count. contact_id is already access-scoped by the pipeline query.
+     *
+     * @return \Illuminate\Support\Collection<int,int>  contact_id => count
+     */
+    private function coreMatchCounts($contactIds): \Illuminate\Support\Collection
+    {
+        $ids = collect($contactIds)->filter()->values();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return DB::table('property_buyer_matches')
+            ->whereIn('contact_id', $ids)
+            ->where('score', '>=', \App\Services\Matching\MatchingService::MIN_SCORE_TO_DISPLAY)
+            ->groupBy('contact_id')
+            ->selectRaw('contact_id, COUNT(*) as c')
+            ->pluck('c', 'contact_id');
     }
 
     public function updateState(Request $request, Contact $contact)
