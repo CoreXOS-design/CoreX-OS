@@ -1344,6 +1344,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'update'])->name('update');
         Route::delete('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'destroy'])->name('destroy');
         Route::post('/{viewingPack}/restore', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'restore'])->name('restore')->withTrashed();
+        // Step 6 — the single buyer-facing PDF (cover + per-property + comparison).
+        Route::get('/{viewingPack}/buyer-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadBuyerPack'])->name('buyer-pack');
 
         // Step 3 — property selection (Core Match + ad-hoc) + ad-hoc typeahead.
         Route::post('/{viewingPack}/properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addProperty'])->name('properties.add');

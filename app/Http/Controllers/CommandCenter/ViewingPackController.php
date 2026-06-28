@@ -9,6 +9,7 @@ use App\Models\Property;
 use App\Models\ViewingPack;
 use App\Models\ViewingPackDocument;
 use App\Models\ViewingPackProperty;
+use App\Services\ViewingPack\ViewingPackBuyerPdfService;
 use App\Services\ViewingPack\ViewingPackDocumentService;
 use App\Services\ViewingPack\ViewingPackRedactionService;
 use App\Services\ViewingPack\ViewingPackSelectionService;
@@ -240,6 +241,16 @@ class ViewingPackController extends Controller
         abort_unless($path && Storage::disk('local')->exists($path), 404);
 
         return response()->file(Storage::disk('local')->path($path));
+    }
+
+    /**
+     * Generate + stream the single buyer-facing PDF (Step 6). Tenancy is
+     * enforced by AgencyScope on the {viewingPack} binding. This is ONE file;
+     * the agent sheet (Step 7) is a separate download.
+     */
+    public function downloadBuyerPack(ViewingPack $viewingPack, ViewingPackBuyerPdfService $buyerPdf)
+    {
+        return $buyerPdf->download($viewingPack);
     }
 
     /** Membership + tenancy guard shared by the document endpoints. */
