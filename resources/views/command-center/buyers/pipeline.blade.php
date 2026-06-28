@@ -126,7 +126,8 @@
                                 @endunless
                                 <div class="flex items-center justify-between text-[10px] mt-1" style="color: var(--text-muted);">
                                     <span>{{ $buyer->last_activity_at ? $buyer->last_activity_at->diffForHumans() : 'No activity' }}</span>
-                                    <span>{{ $buyer->buyerPropertyViews()->count() }} properties</span>
+                                    {{-- AT-108 — canonical Core Match count (same number as Core Matches surface + detail). NOT viewings. --}}
+                                    <span>{{ $coreMatchCounts->get($buyer->id, 0) }} matches</span>
                                 </div>
                             </a>
                             <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
@@ -151,7 +152,7 @@
                         <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">State</th>
                         <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">Agent</th>
                         <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">Last Activity</th>
-                        <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">Properties</th>
+                        <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">Core Matches</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -183,7 +184,7 @@
                             </td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $buyer->createdBy?->name ?? '—' }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ number_format($buyer->buyerPropertyViews()->count()) }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ number_format($coreMatchCounts->get($buyer->id, 0)) }}</td>
                         </tr>
                     @empty
                         <tr><td colspan="5" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No buyers found.</td></tr>

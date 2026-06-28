@@ -8,6 +8,7 @@ use App\Models\CoreMatchMiss;
 use App\Models\Property;
 use App\Models\ViewingPack;
 use App\Models\ViewingPackProperty;
+use App\Services\Matching\BuyerCoreMatchService;
 use App\Services\Matching\ClientMatchResolver;
 use App\Services\Matching\MatchingService;
 use Illuminate\Support\Collection;
@@ -27,58 +28,33 @@ use Illuminate\Support\Facades\DB;
  */
 class ViewingPackSelectionService
 {
-    /** The buyer's active, countable wishlists — the canonical match basis. */
+    /**
+     * The buyer's active, countable wishlists — the canonical match basis.
+     * Delegates to the shared BuyerCoreMatchService (AT-108 — one canonical source).
+     */
     public function activeCountableMatches(Contact $buyer): Collection
     {
-        return $buyer->matches()
-            ->active()
-            ->get()
-            ->filter(fn (ContactMatch $m) => $m->isCountable())
-            ->values();
+        return app(BuyerCoreMatchService::class)->activeCountableMatches($buyer);
     }
 
     /**
-     * The buyer's current Core Matches via the canonical engine, deduped across
-     * the buyer's wishlists (best match_score wins), best-first. Each Property
-     * carries the engine-stamped match_score / match_tier.
+     * The buyer's current Core Matches via the canonical engine (delegated to the
+     * shared BuyerCoreMatchService). Deduped, visible-only, best-first.
      *
      * @return Collection<int, Property>
      */
     public function coreMatchesFor(Contact $buyer): Collection
     {
-        $resolver = app(ClientMatchResolver::class);
-
-        $byId = [];
-        foreach ($this->activeCountableMatches($buyer) as $match) {
-            foreach ($resolver->resolve($match, false) as $property) {
-                $current = $byId[$property->id] ?? null;
-                if (! $current || (int) ($property->match_score ?? 0) > (int) ($current->match_score ?? 0)) {
-                    $byId[$property->id] = $property;
-                }
-            }
-        }
-
-        return collect(array_values($byId))
-            ->sortByDesc(fn (Property $p) => (int) ($p->match_score ?? 0))
-            ->values();
+        return app(BuyerCoreMatchService::class)->coreMatchesFor($buyer);
     }
 
     /**
-     * Is this property a current Core Match for this buyer? True iff ANY active
-     * countable wishlist scores it ≥ MIN_SCORE_TO_DISPLAY via the canonical
-     * scorer. Buyer with no countable wishlist → false (→ ad-hoc → miss).
+     * Is this property a current Core Match for this buyer? Delegates to the
+     * shared canonical service.
      */
     public function isCoreMatch(Contact $buyer, Property $property): bool
     {
-        $matching = app(MatchingService::class);
-
-        foreach ($this->activeCountableMatches($buyer) as $match) {
-            if ($matching->score($property, $match) >= MatchingService::MIN_SCORE_TO_DISPLAY) {
-                return true;
-            }
-        }
-
-        return false;
+        return app(BuyerCoreMatchService::class)->isCoreMatch($buyer, $property);
     }
 
     /**

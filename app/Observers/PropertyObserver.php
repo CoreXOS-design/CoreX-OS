@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Jobs\MatchPropertyJob;
+use App\Jobs\RegenerateBuyerMatchesJob;
 use App\Jobs\SubmitListingToProperty24;
 use App\Models\Property;
 use App\Models\User;
@@ -215,6 +216,12 @@ class PropertyObserver
      */
     public function saved(Property $property): void
     {
+        // AT-108 — stock changed → buyers' canonical Core Match counts may shift.
+        // Queue an ASYNC, COALESCED recompute (Freshness Option B). Never sync —
+        // bulk imports must stay fast; ShouldBeUnique + delay collapse a burst into
+        // one per-agency recompute. Overnight `matches:recompute` is the backstop.
+        $this->queueBuyerMatchRecompute($property);
+
         // Update last_activity_at for Command Center health tracking
         try {
             if ($property->wasRecentlyCreated === false) {
@@ -445,8 +452,37 @@ class PropertyObserver
      * Always tell the website to remove it if it was ever published.
      * Also withdraw the listing from P24.
      */
+    /**
+     * AT-108 (Freshness Option B) — queue an async, coalesced recompute of the
+     * agency's buyers' canonical Core Match cache after a stock change. Reuses
+     * the existing RegenerateBuyerMatchesJob (no parallel job); ShouldBeUnique
+     * collapses a burst (bulk import) to one per-agency job; the 60s delay lets
+     * an import settle before the (single) recompute runs. truncate:false because
+     * recomputeForBuyer self-corrects each buyer's rows. Bounded staleness window
+     * ≈ delay + queue latency; the overnight `matches:recompute` guarantees
+     * exactness daily. Never throws into the save path.
+     */
+    private function queueBuyerMatchRecompute(Property $property): void
+    {
+        if (empty($property->agency_id)) {
+            return;
+        }
+        try {
+            RegenerateBuyerMatchesJob::dispatch(
+                agencyId: (int) $property->agency_id,
+                contactId: null,
+                truncate: false,
+            )->delay(now()->addSeconds(60));
+        } catch (\Throwable $e) {
+            Log::warning("Buyer-match recompute dispatch failed for property #{$property->id}: {$e->getMessage()}");
+        }
+    }
+
     public function deleted(Property $property): void
     {
+        // AT-108 — archived stock no longer matches; recompute affected buyers (async, coalesced).
+        $this->queueBuyerMatchRecompute($property);
+
         try {
             app(\App\Services\Audit\PropertyAuditService::class)->log(
                 $property, 'property', 'property_archived',

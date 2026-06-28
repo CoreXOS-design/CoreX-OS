@@ -388,55 +388,79 @@ class PropertyMatchScoringService
             return 0;
         }
 
+        // AT-108 — CANONICAL stock cache. Score via the canonical engine
+        // (MatchingService::propertiesForMatch — the SAME engine the Core Matches
+        // surface uses), NOT the legacy Engine-B calculateScore. A property is
+        // cached iff it is a VISIBLE canonical match (score >= MIN_SCORE_TO_DISPLAY,
+        // not in that wishlist's hidden_property_ids) in >= ONE active+countable
+        // wishlist; best score across wishlists wins. The agency-wide,
+        // status-filtered, visible universe matches propertiesForMatch exactly, so
+        // COUNT(property_buyer_matches WHERE score >= MIN_SCORE_TO_DISPLAY) for a
+        // buyer EQUALS the live Core Matches count. Finishes the stock-side
+        // matcher-unification (the TODO at the top of this file).
         $matches = ContactMatch::withoutGlobalScopes()
             ->where('contact_id', $contactId)
             ->whereNull('deleted_at')
             ->where('status', ContactMatch::STATUS_ACTIVE)
             ->with('contact')
-            ->get();
-        if ($matches->isEmpty()) {
-            return 0;
+            ->get()
+            ->filter(fn (ContactMatch $m) => $m->isCountable())
+            ->values();
+
+        $matcher = $this->matcher();
+        $best = []; // property_id => ['score' => int, 'tier' => ?string]
+        foreach ($matches as $m) {
+            // agent_id => null = agency-wide stock; include_hidden => false = visible only.
+            foreach ($matcher->propertiesForMatch($m, ['agent_id' => null, 'include_hidden' => false]) as $p) {
+                $score = (int) ($p->match_score ?? 0);
+                if ($score < MatchingService::MIN_SCORE_TO_DISPLAY) {
+                    continue; // belt-and-braces; propertiesForMatch already floors here
+                }
+                if (!isset($best[$p->id]) || $score > $best[$p->id]['score']) {
+                    $best[$p->id] = ['score' => $score, 'tier' => MatchingService::tierFor($score)];
+                }
+            }
         }
 
-        $properties = Property::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->whereNull('deleted_at')
-            ->whereNotNull('published_at')
-            ->get();
-
-        $rows  = [];
-        $now   = now();
-        foreach ($properties as $property) {
-            $best = $this->bestResultAcross($matches, $property);
-            if (!$best || $best['score'] < self::MIN_SCORE_TO_CACHE) {
-                continue;
-            }
+        $now  = now();
+        $rows = [];
+        foreach ($best as $propertyId => $b) {
             $rows[] = [
-                'property_id'      => $property->id,
+                'property_id'      => $propertyId,
                 'contact_id'       => $contactId,
                 'agency_id'        => $contact->agency_id,
-                'score'            => $best['score'],
-                'tier'             => $best['tier'],
-                'breakdown'        => json_encode($best['breakdown']),
-                'missing_features' => json_encode($best['missing_features']),
+                'score'            => $b['score'],
+                'tier'             => $b['tier'],
+                'breakdown'        => json_encode(['engine' => 'canonical']),
+                'missing_features' => json_encode([]),
                 'computed_at'      => $now,
             ];
         }
 
-        if (empty($rows)) {
-            return 0;
-        }
+        // Single source of truth: this buyer's cache rows must EXACTLY mirror the
+        // current canonical match set. Drop stale rows (a property that no longer
+        // matches, or all rows when the buyer has no countable wishlist) so the
+        // count can never drift above the live truth. Raw DB::table upsert because
+        // property_buyer_matches has only computed_at (no created/updated_at).
+        DB::transaction(function () use ($contactId, $contact, $rows) {
+            $keepIds = array_column($rows, 'property_id');
+            $stale = DB::table('property_buyer_matches')
+                ->where('contact_id', $contactId)
+                ->where('agency_id', $contact->agency_id);
+            if (!empty($keepIds)) {
+                $stale->whereNotIn('property_id', $keepIds);
+            }
+            $stale->delete();
 
-        // Raw DB::table upsert: property_buyer_matches has no created_at/updated_at
-        // columns (only computed_at), so the Eloquent model's auto-timestamp logic
-        // would add invalid columns to the SQL. Reads still use PropertyBuyerMatch
-        // (and its BelongsToAgency scope) on the consumer side.
-        $this->chunkedUpsert(
-            'property_buyer_matches',
-            $rows,
-            ['property_id', 'contact_id'],
-            ['agency_id', 'score', 'tier', 'breakdown', 'missing_features', 'computed_at']
-        );
+            if (!empty($rows)) {
+                $this->chunkedUpsert(
+                    'property_buyer_matches',
+                    $rows,
+                    ['property_id', 'contact_id'],
+                    ['agency_id', 'score', 'tier', 'breakdown', 'missing_features', 'computed_at']
+                );
+            }
+        });
 
         return count($rows);
     }
@@ -586,24 +610,9 @@ class PropertyMatchScoringService
      |  Helpers
      * ========================================================= */
 
-    /**
-     * Iterate the supplied ContactMatches for a single target, return the
-     * highest-scoring result (or null if none cross the cache threshold here
-     * — the caller filters on MIN_SCORE_TO_CACHE).
-     *
-     * @param  iterable<ContactMatch>  $matches
-     */
-    private function bestResultAcross(iterable $matches, Property $target): ?array
-    {
-        $best = null;
-        foreach ($matches as $m) {
-            $result = $this->calculateScore($m, $target);
-            if ($best === null || $result['score'] > $best['score']) {
-                $best = $result;
-            }
-        }
-        return $best;
-    }
+    // AT-108 — bestResultAcross() (legacy Engine-B stock scorer) removed: the
+    // stock cache (recomputeForBuyer) now scores via the canonical engine. The
+    // public calculateScore() remains for scoreProspectingCapture().
 
     /**
      * AT-75 — best CANONICAL score across a buyer's wishlists for one listing.

@@ -155,43 +155,33 @@ class BuyerIntelligenceService
         ];
     }
 
+    /**
+     * AT-108 — CANONICAL. The buyer-detail "matched properties" list, the
+     * lost-risk "no matches" factor, and the retention-playbook "send matches"
+     * action all flow through here; all now read the ONE canonical engine via
+     * BuyerCoreMatchService (MatchingService / ClientMatchResolver) — the same
+     * source as the Core Matches surface and the pipeline, so the numbers match
+     * exactly. The legacy hardcoded-75 heuristic (computeMatchScore) is gone.
+     * Visible-only; NOT filtered by already-viewed (the canonical count never
+     * excludes viewings — that would diverge from the surface's count).
+     */
     public function getMatchedProperties(int $contactId, int $limit = 10): Collection
     {
         $contact = Contact::withoutGlobalScopes()->find($contactId);
         if (!$contact) return collect();
 
-        // Read criteria from the contact's primary ContactMatch (spec D1).
-        $match = \App\Models\ContactMatch::withoutGlobalScopes()
-            ->where('contact_id', $contactId)
-            ->whereNull('deleted_at')
-            ->where('status', \App\Models\ContactMatch::STATUS_ACTIVE)
-            ->primary()
-            ->first();
-
-        $viewed = BuyerPropertyView::where('contact_id', $contactId)->pluck('property_id')->toArray();
-
-        $query = Property::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->whereNull('deleted_at')
-            ->whereNotNull('published_at')
-            ->whereNotIn('id', $viewed);
-
-        if ($match) {
-            if ($match->price_min) $query->where('price', '>=', $match->price_min * 0.85);
-            if ($match->price_max) $query->where('price', '<=', $match->price_max * 1.15);
-            $areas = $match->suburbs ?? [];
-            if (!empty($areas)) $query->whereIn('suburb', $areas);
-        }
-
-        return $query->limit($limit)->get(['id', 'title', 'price', 'suburb', 'published_at'])
-            ->map(fn($p) => [
-                'id' => $p->id,
-                'address' => $p->title,
-                'price' => $p->price,
-                'suburb' => $p->suburb,
-                'match_score' => $this->computeMatchScore($p, $match),
+        return app(\App\Services\Matching\BuyerCoreMatchService::class)
+            ->coreMatchesFor($contact)
+            ->take($limit)
+            ->map(fn (Property $p) => [
+                'id'             => $p->id,
+                'address'        => $p->address ?: $p->title,
+                'price'          => $p->price,
+                'suburb'         => $p->suburb,
+                'match_score'    => (int) ($p->match_score ?? 0),
                 'days_on_market' => $p->published_at ? (int) $p->published_at->diffInDays(now()) : null,
-            ]);
+            ])
+            ->values();
     }
 
     public function getLostRiskScore(int $contactId): array
@@ -290,14 +280,6 @@ class BuyerIntelligenceService
      * Authoritative scoring lives in PropertyMatchScoringService — this is
      * a tab-display heuristic.
      */
-    private function computeMatchScore($property, ?\App\Models\ContactMatch $match): int
-    {
-        if (!$match) return 75;
-        $score = 100;
-        if ($match->price_max && $property->price > $match->price_max) $score -= 20;
-        if ($match->price_min && $property->price < $match->price_min) $score -= 10;
-        $areas = $match->suburbs ?? [];
-        if (!empty($areas) && !in_array($property->suburb, $areas, true)) $score -= 15;
-        return max(50, $score);
-    }
+    // AT-108 — computeMatchScore() (hardcoded 75/50 heuristic) REMOVED. Match
+    // scoring is canonical-only now (MatchingService via BuyerCoreMatchService).
 }
