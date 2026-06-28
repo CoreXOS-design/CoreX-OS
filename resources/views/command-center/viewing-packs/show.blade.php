@@ -255,28 +255,40 @@
 
             <hr class="my-4" style="border-color: var(--border);">
 
-            {{-- Step 8 — viewing appointment (calendar tie-in) --}}
+            {{-- Viewing appointment — reuse the SAME calendar prefill handoff as the
+                 Schedule Viewing modal, fed with THIS pack's selected properties in
+                 sort_order + the buyer as attendee + class=viewing. Drops the agent
+                 into the pre-filled Calendar New Event screen (no parallel scheduler). --}}
             <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Viewing appointment</h3>
-            @if($pack->calendarEvent)
-                <div class="rounded-md px-3 py-2 mb-3 text-xs" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
-                    Linked to calendar event #{{ $pack->calendarEvent->id }} —
-                    {{ optional($pack->calendarEvent->event_date)->format('D j M Y, H:i') ?? '—' }}
-                    @if(\Illuminate\Support\Facades\Route::has('command-center.calendar.show'))
-                        · <a href="{{ route('command-center.calendar.show', $pack->calendarEvent->id) }}" class="no-underline" style="color: var(--brand-icon);">Open in calendar</a>
-                    @endif
-                </div>
+            @php
+                $buyer = $pack->contact;
+                $schedAttendees = $buyer ? [[
+                    'id'    => $buyer->id,
+                    'name'  => trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id),
+                    'type'  => 'contact',
+                    'role'  => 'buyer_contact',
+                    'phone' => $buyer->phone,
+                    'email' => $buyer->email,
+                ]] : [];
+                // Pack's selected properties, in the agent's chosen drag order.
+                $schedProps = $pack->viewingPackProperties
+                    ->map(fn ($vpp) => ['id' => $vpp->property_id, 'address' => optional($vpp->property)->address ?: ''])
+                    ->filter(fn ($p) => $p['id'] !== null)
+                    ->values();
+                $scheduleUrl = $buyer ? route('command-center.calendar', array_filter([
+                    'view'               => 'day',
+                    'prefill_class'      => 'viewing',
+                    'prefill_contact_id' => $buyer->id,
+                    'prefill_attendees'  => json_encode($schedAttendees),
+                    'prefill_properties' => $schedProps->isNotEmpty() ? json_encode($schedProps->all()) : null,
+                ], fn ($v) => $v !== null)) : null;
+            @endphp
+            @if($scheduleUrl && $pack->viewingPackProperties->isNotEmpty())
+                <p class="text-xs mb-2" style="color: var(--text-muted);">Opens the Calendar with the buyer, this pack's {{ $pack->viewingPackProperties->count() }} {{ \Illuminate\Support\Str::plural('property', $pack->viewingPackProperties->count()) }} (in order), and a viewing pre-filled.</p>
+                <a href="{{ $scheduleUrl }}" class="corex-btn-primary w-full no-underline" style="text-align:center;">Schedule Viewing</a>
+            @else
+                <p class="text-xs" style="color: var(--text-muted);">Add at least one property to schedule a viewing.</p>
             @endif
-            <form method="POST" action="{{ route('corex.viewing-packs.schedule', $pack) }}" class="space-y-2">
-                @csrf
-                <div>
-                    <label for="vp-tour" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Tour date &amp; time</label>
-                    <input id="vp-tour" type="datetime-local" name="tour_at" required
-                           value="{{ old('tour_at', optional($pack->tour_at)->format('Y-m-d\TH:i')) }}"
-                           class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                </div>
-                <button type="submit" class="corex-btn-outline w-full">{{ $pack->calendarEvent ? 'Update viewing appointment' : 'Schedule viewing & link calendar' }}</button>
-            </form>
 
             <hr class="my-4" style="border-color: var(--border);">
 

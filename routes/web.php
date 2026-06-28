@@ -1344,8 +1344,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'update'])->name('update');
         Route::delete('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'destroy'])->name('destroy');
         Route::post('/{viewingPack}/restore', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'restore'])->name('restore')->withTrashed();
-        // Step 8 — create/link the viewing appointment (calendar tie-in).
-        Route::post('/{viewingPack}/schedule', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'schedule'])->name('schedule');
+        // AT-XX — scheduling reuses the calendar prefill handoff (link built in
+        // show.blade), not a pack-side scheduler. The old POST schedule route +
+        // ViewingPackCalendarService were removed (no parallel scheduling logic).
         // Step 6 — the single buyer-facing PDF (cover + per-property + comparison).
         Route::get('/{viewingPack}/buyer-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadBuyerPack'])->name('buyer-pack');
         // Step 7 — the SEPARATE agent sheet PDF (eyes-only; never merged with the buyer pack).
