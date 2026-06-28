@@ -10,9 +10,12 @@ use App\Models\ViewingPack;
 use App\Models\ViewingPackDocument;
 use App\Models\ViewingPackProperty;
 use App\Services\ViewingPack\ViewingPackDocumentService;
+use App\Services\ViewingPack\ViewingPackRedactionService;
 use App\Services\ViewingPack\ViewingPackSelectionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 /**
@@ -183,6 +186,67 @@ class ViewingPackController extends Controller
         $docs->removeDocument($viewingPackDocument);
 
         return back()->with('success', 'Document removed from the buyer pack.');
+    }
+
+    /**
+     * Rasterized source pages (base64 PNG + raster dims) for the on-screen
+     * redaction tool (Step 5b). Authenticated + agency-scoped; nothing written
+     * to disk — the unredacted preview only lives in this response.
+     */
+    public function redactionData(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument, ViewingPackRedactionService $redaction)
+    {
+        $this->guardDocumentRow($viewingPack, $viewingPackProperty, $viewingPackDocument);
+
+        try {
+            return response()->json($redaction->pagePreviews($viewingPackDocument));
+        } catch (\Throwable $e) {
+            Log::error('ViewingPack redaction preview failed', ['vpd' => $viewingPackDocument->id, 'error' => $e->getMessage()]);
+
+            return response()->json(['error' => 'This document could not be opened for redaction.'], 422);
+        }
+    }
+
+    /**
+     * Burn the agent's boxes and (re)generate the flattened image-only artifact.
+     * Boxes are raster-pixel coords per page: { "0": [{x,y,w,h}, …], … }.
+     * On failure, nothing is written and a clear message is returned.
+     */
+    public function redactDocument(Request $request, ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument, ViewingPackRedactionService $redaction)
+    {
+        $this->guardDocumentRow($viewingPack, $viewingPackProperty, $viewingPackDocument);
+
+        $request->validate([
+            'boxes'   => ['nullable', 'array'],
+            'boxes.*' => ['nullable', 'array'],
+        ]);
+
+        try {
+            $redaction->redact($viewingPackDocument, (array) $request->input('boxes', []));
+        } catch (\Throwable $e) {
+            Log::error('ViewingPack redaction failed', ['vpd' => $viewingPackDocument->id, 'error' => $e->getMessage()]);
+
+            return back()->withErrors(['redaction' => 'Could not redact this document: ' . $e->getMessage()]);
+        }
+
+        return back()->with('success', 'Document redacted — a flattened copy was added to the buyer pack.');
+    }
+
+    /** Stream the flattened redacted artifact (authenticated + agency-scoped). */
+    public function redactedFile(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument)
+    {
+        $this->guardDocumentRow($viewingPack, $viewingPackProperty, $viewingPackDocument);
+
+        $path = $viewingPackDocument->redacted_file_path;
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+
+        return response()->file(Storage::disk('local')->path($path));
+    }
+
+    /** Membership + tenancy guard shared by the document endpoints. */
+    private function guardDocumentRow(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument): void
+    {
+        abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
+        abort_unless((int) $viewingPackDocument->viewing_pack_property_id === (int) $viewingPackProperty->id, 404);
     }
 
     /** Scoped property typeahead for ad-hoc selection (agency-bounded). */

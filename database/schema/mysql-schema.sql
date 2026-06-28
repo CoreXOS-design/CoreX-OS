@@ -186,6 +186,7 @@ CREATE TABLE `agencies` (
   `pp_webhook_secret` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `pp_last_sync_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `slug` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `viewing_pack_redaction_dpi` smallint unsigned DEFAULT NULL,
   `sidebar_color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0ea5e9',
   `icon_color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0ea5e9',
   `default_color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0b2a4a',
@@ -12319,3 +12320,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (893,'2026_06_28_13
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (894,'2026_06_28_130002_create_viewing_pack_properties_table',179);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (895,'2026_06_28_130003_create_viewing_pack_documents_table',179);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (896,'2026_06_28_140001_create_core_match_misses_table',180);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (897,'2026_07_05_000001_add_viewing_pack_redaction_dpi_to_agencies',181);

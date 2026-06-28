@@ -184,8 +184,21 @@
                                             <li class="flex items-center gap-3 rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border);">
                                                 <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ $label }}</span>
                                                 @if($isIn)
+                                                    @php $vpdRow = $vpdByDoc[$doc->id]; $isRedacted = !empty($vpdRow->redacted_file_path); @endphp
                                                     <span class="ds-badge ds-badge-success" title="Included in the buyer pack">Included</span>
-                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.remove', [$pack, $vpp, $vpdByDoc[$doc->id]]) }}">
+                                                    @if($isRedacted)
+                                                        <a href="{{ route('corex.viewing-packs.properties.documents.redacted-file', [$pack, $vpp, $vpdRow]) }}" target="_blank" rel="noopener"
+                                                           class="ds-badge ds-badge-default no-underline" title="View the flattened, redacted copy">Redacted ✓</a>
+                                                    @endif
+                                                    <button type="button"
+                                                            class="text-xs font-semibold"
+                                                            style="color: var(--brand-icon);"
+                                                            @click="$dispatch('open-redactor', {
+                                                                dataUrl: '{{ route('corex.viewing-packs.properties.documents.redaction-data', [$pack, $vpp, $vpdRow]) }}',
+                                                                postUrl: '{{ route('corex.viewing-packs.properties.documents.redact', [$pack, $vpp, $vpdRow]) }}',
+                                                                label: @js($label)
+                                                            })">{{ $isRedacted ? 'Re-redact' : 'Redact' }}</button>
+                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.remove', [$pack, $vpp, $vpdRow]) }}">
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
@@ -244,7 +257,160 @@
     </div>
 </div>
 
+{{-- Redaction modal (Step 5b) — draw black boxes; output is a flattened image-only PDF --}}
+<div x-data="redactionTool('{{ csrf_token() }}')"
+     x-on:open-redactor.window="open($event.detail)"
+     x-show="isOpen" x-cloak
+     class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto"
+     style="background: rgba(0,0,0,0.6); padding: 24px;">
+    <div class="w-full max-w-4xl rounded-md" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="close()">
+        <div class="flex items-center justify-between px-5 py-3" style="border-bottom: 1px solid var(--border);">
+            <div>
+                <h3 class="text-base font-bold" style="color: var(--text-primary);">Redact document</h3>
+                <p class="text-xs" style="color: var(--text-muted);" x-text="label"></p>
+            </div>
+            <button type="button" @click="close()" class="corex-btn-outline">Close</button>
+        </div>
+
+        <div class="px-5 py-4">
+            <p class="text-xs mb-3" style="color: var(--text-muted);">
+                Drag to draw a black box over anything that must not reach the buyer (e.g. an account number).
+                On apply, every page is flattened to a raster image — the hidden text is destroyed, not covered.
+            </p>
+
+            <template x-if="loading">
+                <p class="text-sm" style="color: var(--text-secondary);">Loading document…</p>
+            </template>
+            <template x-if="loadError">
+                <p class="text-sm" style="color: var(--ds-crimson);" x-text="loadError"></p>
+            </template>
+
+            <div class="space-y-4" x-show="!loading && !loadError">
+                <template x-for="page in pages" :key="page.index">
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-semibold" style="color: var(--text-muted);">Page <span x-text="page.index + 1"></span></span>
+                            <button type="button" class="text-xs" style="color: var(--ds-crimson);" @click="clearPage(page.index)">Clear boxes</button>
+                        </div>
+                        <div class="relative inline-block select-none" style="max-width:100%;"
+                             :data-page="page.index"
+                             @mousedown.prevent="startDraw($event, page.index)"
+                             @mousemove.prevent="moveDraw($event, page.index)"
+                             @mouseup.prevent="endDraw($event, page.index)"
+                             @mouseleave="endDraw($event, page.index)">
+                            <img :src="page.data_uri" class="vp-redact-page-img block" :data-page="page.index"
+                                 style="max-width:100%; height:auto; border:1px solid var(--border);" draggable="false">
+                            {{-- drawn boxes (display coords) --}}
+                            <template x-for="(box, bi) in (displayBoxes[page.index] || [])" :key="bi">
+                                <div class="absolute" style="background: #000; opacity:0.85;"
+                                     :style="`left:${box.x}px; top:${box.y}px; width:${box.w}px; height:${box.h}px;`"></div>
+                            </template>
+                            {{-- live drag rectangle --}}
+                            <div class="absolute" x-show="drag.active && drag.page === page.index"
+                                 style="background: rgba(0,0,0,0.5); border:1px dashed #fff;"
+                                 :style="`left:${drag.x}px; top:${drag.y}px; width:${drag.w}px; height:${drag.h}px;`"></div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 px-5 py-3" style="border-top: 1px solid var(--border);">
+            <form method="POST" :action="postUrl" @submit="prepareSubmit($event)">
+                @csrf
+                {{-- boxes are injected as boxes[<page>][<i>][x|y|w|h] hidden inputs by prepareSubmit() --}}
+                <div x-ref="boxesFields"></div>
+                <button type="submit" class="corex-btn-primary" x-show="!loading && !loadError">Apply redaction</button>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
+function redactionTool(csrf) {
+    return {
+        isOpen: false,
+        loading: false,
+        loadError: '',
+        label: '',
+        dataUrl: '',
+        postUrl: '',
+        pages: [],
+        displayBoxes: {}, // pageIndex -> [{x,y,w,h} display px]
+        drag: { active: false, page: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 },
+
+        async open(detail) {
+            this.dataUrl = detail.dataUrl;
+            this.postUrl = detail.postUrl;
+            this.label = detail.label || '';
+            this.pages = [];
+            this.displayBoxes = {};
+            this.loadError = '';
+            this.isOpen = true;
+            this.loading = true;
+            try {
+                const res = await fetch(this.dataUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!res.ok) { this.loadError = 'This document could not be opened for redaction.'; this.loading = false; return; }
+                const data = await res.json();
+                this.pages = data.pages || [];
+            } catch (e) {
+                this.loadError = 'This document could not be opened for redaction.';
+            }
+            this.loading = false;
+        },
+        close() { this.isOpen = false; },
+        clearPage(p) { this.displayBoxes[p] = []; },
+
+        startDraw(e, page) {
+            const r = e.currentTarget.getBoundingClientRect();
+            this.drag = { active: true, page, startX: e.clientX - r.left, startY: e.clientY - r.top, x: e.clientX - r.left, y: e.clientY - r.top, w: 0, h: 0 };
+        },
+        moveDraw(e, page) {
+            if (!this.drag.active || this.drag.page !== page) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            const cx = e.clientX - r.left, cy = e.clientY - r.top;
+            this.drag.x = Math.min(cx, this.drag.startX);
+            this.drag.y = Math.min(cy, this.drag.startY);
+            this.drag.w = Math.abs(cx - this.drag.startX);
+            this.drag.h = Math.abs(cy - this.drag.startY);
+        },
+        endDraw(e, page) {
+            if (!this.drag.active || this.drag.page !== page) return;
+            if (this.drag.w > 3 && this.drag.h > 3) {
+                if (!this.displayBoxes[page]) this.displayBoxes[page] = [];
+                this.displayBoxes[page].push({ x: this.drag.x, y: this.drag.y, w: this.drag.w, h: this.drag.h });
+            }
+            this.drag = { active: false, page: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 };
+        },
+
+        // Convert display boxes → RASTER px (page.width / img.clientWidth) and
+        // emit boxes[page][i][x|y|w|h] hidden inputs the controller validates.
+        prepareSubmit(e) {
+            const container = this.$refs.boxesFields;
+            container.innerHTML = '';
+            for (const page of this.pages) {
+                const boxes = this.displayBoxes[page.index] || [];
+                if (!boxes.length) continue;
+                const img = document.querySelector('img.vp-redact-page-img[data-page="' + page.index + '"]');
+                if (!img) continue;
+                const scaleX = page.width / img.clientWidth;
+                const scaleY = page.height / img.clientHeight;
+                boxes.forEach((b, i) => {
+                    const map = { x: b.x * scaleX, y: b.y * scaleY, w: b.w * scaleX, h: b.h * scaleY };
+                    for (const k of ['x', 'y', 'w', 'h']) {
+                        const inp = document.createElement('input');
+                        inp.type = 'hidden';
+                        inp.name = `boxes[${page.index}][${i}][${k}]`;
+                        inp.value = Math.round(map[k]);
+                        container.appendChild(inp);
+                    }
+                });
+            }
+            // form submits normally (CSRF + boxes[] fields)
+        },
+    };
+}
+
 function viewingPackOrder(items, reorderUrl, removeBase, csrf) {
     return {
         items: items,

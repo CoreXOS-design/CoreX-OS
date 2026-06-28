@@ -1354,6 +1354,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Step 5a — per-property buyer-pack document selection (eligible types only).
         Route::post('/{viewingPack}/properties/{viewingPackProperty}/documents', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addDocument'])->name('properties.documents.add');
         Route::delete('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'removeDocument'])->name('properties.documents.remove');
+        // Step 5b — on-screen redaction → flattened image-only artifact.
+        Route::get('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}/redaction-data', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'redactionData'])->name('properties.documents.redaction-data');
+        Route::post('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}/redact', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'redactDocument'])->name('properties.documents.redact');
+        Route::get('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}/redacted-file', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'redactedFile'])->name('properties.documents.redacted-file');
     });
 
     // ── Agent Portal ──
