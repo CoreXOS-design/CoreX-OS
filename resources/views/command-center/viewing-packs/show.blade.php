@@ -38,66 +38,46 @@
         </div>
     @endif
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    {{-- AT-109 — Selected-properties data (rendered in the sticky right column). --}}
+    @php
+        $orderedItems = $pack->viewingPackProperties->map(fn ($vpp) => [
+            'id'     => $vpp->id,
+            'label'  => optional($vpp->property)->address ?: ('Property #' . $vpp->property_id),
+            'source' => str_replace('_', ' ', $vpp->source),
+            'docs'   => $vpp->viewingPackDocuments->count(),
+        ])->values();
+        $removeBase = url('corex/viewing-packs/' . $pack->id . '/properties');
+    @endphp
 
-        {{-- LEFT: selection (selected list + Core Matches + ad-hoc search) --}}
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+
+        {{-- LEFT: selection (Core Matches w/ search·filter·sort + ad-hoc search + docs) --}}
         <div class="lg:col-span-2 space-y-4">
 
-            {{-- Selected properties — drag to set the viewing order (manual; no auto-routing) --}}
+            {{-- Core Matches (canonical engine) — AT-109 search · filter · sort over
+                 the buyer's already-loaded canonical match set ($coreMatches). All
+                 client-side (the set is small); selection/Add logic is unchanged. --}}
             @php
-                $orderedItems = $pack->viewingPackProperties->map(fn ($vpp) => [
-                    'id'     => $vpp->id,
-                    'label'  => optional($vpp->property)->address ?: ('Property #' . $vpp->property_id),
-                    'source' => str_replace('_', ' ', $vpp->source),
-                    'docs'   => $vpp->viewingPackDocuments->count(),
+                $cmData = $coreMatches->map(fn ($cm) => [
+                    'id'      => $cm->id,
+                    'address' => $cm->address ?: ('Property #' . $cm->id),
+                    'suburb'  => (string) ($cm->suburb ?? ''),
+                    'price'   => (int) ($cm->price ?? 0),
+                    'score'   => (int) ($cm->match_score ?? 0),
+                    'ref'     => (string) ($cm->external_id ?: ('REF ' . $cm->id)),
+                    'added'   => in_array($cm->id, $selectedIds),
                 ])->values();
-                $removeBase = url('corex/viewing-packs/' . $pack->id . '/properties');
+                $cmSuburbs   = $coreMatches->pluck('suburb')->filter()->unique()->sort()->values();
+                $cmScoreFloor = (int) \App\Services\Matching\MatchingService::MIN_SCORE_TO_DISPLAY;
+                $cmMinPrice  = (int) ($coreMatches->min('price') ?? 0);
+                $cmMaxPrice  = (int) ($coreMatches->max('price') ?? 0);
             @endphp
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
-                 x-data="viewingPackOrder(@js($orderedItems), '{{ route('corex.viewing-packs.properties.reorder', $pack) }}', '{{ $removeBase }}', '{{ csrf_token() }}')">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
-                    <span class="text-xs" style="color: var(--text-muted);"><span x-text="items.length"></span> selected</span>
+                 x-data="coreMatchesUx(@js($cmData), {{ $cmScoreFloor }})">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Core Matches</h3>
+                    <span class="text-xs" style="color: var(--text-muted);">showing <span x-text="filtered().length"></span> of {{ $coreMatches->count() }}</span>
                 </div>
-
-                <template x-if="items.length === 0">
-                    <div class="rounded-md py-8 px-6 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
-                        <p class="text-sm font-medium" style="color: var(--text-secondary);">No properties selected yet.</p>
-                        <p class="text-xs mt-1" style="color: var(--text-muted);">Add from Core Matches below, or search any property.</p>
-                    </div>
-                </template>
-
-                <ol class="space-y-2" x-show="items.length > 0">
-                    <template x-for="(item, idx) in items" :key="item.id">
-                        <li class="flex items-center gap-3 rounded-md px-3 py-2"
-                            style="background: var(--surface-2); border: 1px solid var(--border);"
-                            draggable="true"
-                            @dragstart="dragStart($event, idx)"
-                            @dragover.prevent="dragOver($event, idx)"
-                            @drop.prevent="drop($event, idx)"
-                            @dragend="dragEnd()"
-                            :style="dragIdx === idx ? 'background: var(--surface-2); border: 1px solid var(--brand-icon); opacity:0.6;' : 'background: var(--surface-2); border: 1px solid var(--border);'">
-                            <span class="cursor-move select-none text-base" title="Drag to reorder" style="color: var(--text-muted);">⠿</span>
-                            <span class="text-sm font-semibold w-5 text-right" style="color: var(--text-muted);" x-text="(idx + 1) + '.'"></span>
-                            <span class="flex-1 text-sm" style="color: var(--text-primary);" x-text="item.label"></span>
-                            <span class="ds-badge ds-badge-default" title="How this property entered the pack" x-text="item.source"></span>
-                            <span class="text-xs" style="color: var(--text-muted);" x-text="item.docs + ' docs'"></span>
-                            <form method="POST" :action="removeBase + '/' + item.id"
-                                  @submit="return confirm('Remove this property from the pack?');">
-                                @csrf
-                                <input type="hidden" name="_method" value="DELETE">
-                                <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
-                            </form>
-                        </li>
-                    </template>
-                </ol>
-
-                <p class="mt-3 text-xs" style="color: var(--text-muted);">Drag rows to set the viewing order. This sequence becomes the page order in both PDFs. Document selection and the PDFs arrive in the next steps.</p>
-            </div>
-
-            {{-- Core Matches (canonical engine) --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <h3 class="text-lg font-semibold mb-1" style="color: var(--text-primary);">Core Matches</h3>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">The buyer's matched properties, scored by the canonical match engine.</p>
 
                 @if($coreMatches->isEmpty())
@@ -106,26 +86,69 @@
                         <p class="text-xs mt-1" style="color: var(--text-muted);">Use the search below to add properties ad-hoc.</p>
                     </div>
                 @else
+                    {{-- Toolbar: search · suburb filter · price band · match% · sort · reset --}}
+                    <div class="rounded-md p-3 mb-3 space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <input type="text" x-model="q" placeholder="Search address, suburb or ref…"
+                                   class="flex-1 min-w-[160px] rounded-md px-3 py-1.5 text-sm"
+                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            <select x-model="sortBy" class="rounded-md px-2 py-1.5 text-sm"
+                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                <option value="score">Sort: Match % (high→low)</option>
+                                <option value="price_asc">Sort: Price (low→high)</option>
+                                <option value="price_desc">Sort: Price (high→low)</option>
+                                <option value="suburb">Sort: Suburb (A–Z)</option>
+                                <option value="address">Sort: Address (A–Z)</option>
+                            </select>
+                            <button type="button" @click="reset()" class="text-xs font-semibold px-2 py-1.5" style="color: var(--ds-crimson);">Reset</button>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs" style="color: var(--text-muted);">Price R</span>
+                            <input type="number" x-model="priceMin" placeholder="{{ number_format($cmMinPrice) }}" min="0"
+                                   class="w-28 rounded-md px-2 py-1 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            <span class="text-xs" style="color: var(--text-muted);">to R</span>
+                            <input type="number" x-model="priceMax" placeholder="{{ number_format($cmMaxPrice) }}" min="0"
+                                   class="w-28 rounded-md px-2 py-1 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            <span class="text-xs ml-2" style="color: var(--text-muted);">Match ≥</span>
+                            <input type="number" x-model.number="minScore" min="0" max="100" step="5"
+                                   class="w-16 rounded-md px-2 py-1 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            <span class="text-xs" style="color: var(--text-muted);">%</span>
+                        </div>
+                        @if($cmSuburbs->isNotEmpty())
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="text-xs mr-1" style="color: var(--text-muted);">Suburb:</span>
+                                @foreach($cmSuburbs as $sub)
+                                    <button type="button" @click="toggleSuburb(@js($sub))"
+                                            class="text-xs px-2 py-0.5 rounded-md"
+                                            :style="selSuburbs.includes(@js($sub))
+                                                ? 'background: var(--brand-icon); color:#fff; border:1px solid var(--brand-icon);'
+                                                : 'background: var(--surface); color: var(--text-secondary); border:1px solid var(--border);'">{{ $sub }}</button>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+
                     <ul class="space-y-2">
-                        @foreach($coreMatches as $cm)
-                            @php $alreadyIn = in_array($cm->id, $selectedIds); @endphp
+                        <template x-for="m in filtered()" :key="m.id">
                             <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
-                                <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ $cm->address ?: ('Property #' . $cm->id) }}{{ $cm->suburb ? ' — ' . $cm->suburb : '' }}</span>
-                                @if(!is_null($cm->match_score))
-                                    <span class="ds-badge ds-badge-success" title="Canonical match score">{{ (int) $cm->match_score }}%</span>
-                                @endif
-                                @if($alreadyIn)
+                                <span class="flex-1 text-sm" style="color: var(--text-primary);">
+                                    <span x-text="m.address"></span><template x-if="m.suburb"><span style="color: var(--text-muted);"> — <span x-text="m.suburb"></span></span></template>
+                                </span>
+                                <span class="ds-badge ds-badge-success" title="Canonical match score" x-text="m.score + '%'"></span>
+                                <template x-if="m.added">
                                     <span class="text-xs" style="color: var(--text-muted);">Added</span>
-                                @else
+                                </template>
+                                <template x-if="!m.added">
                                     <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}">
                                         @csrf
-                                        <input type="hidden" name="property_id" value="{{ $cm->id }}">
+                                        <input type="hidden" name="property_id" :value="m.id">
                                         <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
                                     </form>
-                                @endif
+                                </template>
                             </li>
-                        @endforeach
+                        </template>
                     </ul>
+                    <p class="mt-2 text-xs" x-show="filtered().length === 0" x-cloak style="color: var(--text-muted);">No matches fit these filters. <button type="button" @click="reset()" class="font-semibold" style="color: var(--brand-icon);">Reset</button></p>
                 @endif
             </div>
 
@@ -229,9 +252,54 @@
             </div>
         </div>
 
-        {{-- RIGHT: pack settings (title + status) --}}
-        <div class="lg:col-span-1 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">Pack details</h3>
+        {{-- RIGHT: sticky column — Selected properties (always visible while picking) + Pack details (AT-109) --}}
+        <div class="lg:col-span-1 lg:sticky lg:top-4 self-start space-y-4">
+
+            {{-- Selected properties (relocated here so it stays visible while scrolling the match list) --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+                 x-data="viewingPackOrder(@js($orderedItems), '{{ route('corex.viewing-packs.properties.reorder', $pack) }}', '{{ $removeBase }}', '{{ csrf_token() }}')">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
+                    <span class="text-xs" style="color: var(--text-muted);"><span x-text="items.length"></span> selected</span>
+                </div>
+
+                <template x-if="items.length === 0">
+                    <div class="rounded-md py-6 px-4 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
+                        <p class="text-sm font-medium" style="color: var(--text-secondary);">No properties selected yet.</p>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">Add from Core Matches, or search any property.</p>
+                    </div>
+                </template>
+
+                <ol class="space-y-2 max-h-[55vh] overflow-y-auto pr-1" x-show="items.length > 0">
+                    <template x-for="(item, idx) in items" :key="item.id">
+                        <li class="flex items-center gap-2 rounded-md px-2 py-2"
+                            style="background: var(--surface-2); border: 1px solid var(--border);"
+                            draggable="true"
+                            @dragstart="dragStart($event, idx)"
+                            @dragover.prevent="dragOver($event, idx)"
+                            @drop.prevent="drop($event, idx)"
+                            @dragend="dragEnd()"
+                            :style="dragIdx === idx ? 'background: var(--surface-2); border: 1px solid var(--brand-icon); opacity:0.6;' : 'background: var(--surface-2); border: 1px solid var(--border);'">
+                            <span class="cursor-move select-none text-base" title="Drag to reorder" style="color: var(--text-muted);">⠿</span>
+                            <span class="text-sm font-semibold w-5 text-right flex-shrink-0" style="color: var(--text-muted);" x-text="(idx + 1) + '.'"></span>
+                            <span class="flex-1 text-sm truncate" :title="item.label" style="color: var(--text-primary);" x-text="item.label"></span>
+                            <span class="text-xs flex-shrink-0" style="color: var(--text-muted);" x-text="item.docs + ' docs'"></span>
+                            <form method="POST" :action="removeBase + '/' + item.id" class="flex-shrink-0"
+                                  @submit="return confirm('Remove this property from the pack?');">
+                                @csrf
+                                <input type="hidden" name="_method" value="DELETE">
+                                <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
+                            </form>
+                        </li>
+                    </template>
+                </ol>
+
+                <p class="mt-3 text-xs" style="color: var(--text-muted);">Drag rows to set the viewing order — this is the page order in both PDFs.</p>
+            </div>
+
+            {{-- Pack details --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">Pack details</h3>
             <form method="POST" action="{{ route('corex.viewing-packs.update', $pack) }}" class="space-y-3">
                 @csrf
                 @method('PUT')
@@ -298,8 +366,9 @@
                 @method('DELETE')
                 <button type="submit" class="corex-btn-outline w-full" style="color: var(--ds-crimson); border-color: var(--ds-crimson);">Archive pack</button>
             </form>
-        </div>
-    </div>
+            </div>{{-- /pack details card --}}
+        </div>{{-- /sticky right column --}}
+    </div>{{-- /grid --}}
 </div>
 
 {{-- Redaction modal (Step 5b) — draw black boxes; output is a flattened image-only PDF --}}
@@ -452,6 +521,54 @@ function redactionTool(csrf) {
                 });
             }
             // form submits normally (CSRF + boxes[] fields)
+        },
+    };
+}
+
+// AT-109 — client-side search/filter/sort over the buyer's already-loaded
+// canonical Core Match set. No server round-trips (small set); selection state
+// (m.added) is server-rendered per row, so it survives filtering/sorting.
+function coreMatchesUx(matches, scoreFloor) {
+    return {
+        matches: matches,
+        scoreFloor: scoreFloor,
+        q: '',
+        selSuburbs: [],
+        priceMin: '',
+        priceMax: '',
+        minScore: scoreFloor,
+        sortBy: 'score',
+        toggleSuburb(s) {
+            const i = this.selSuburbs.indexOf(s);
+            if (i === -1) this.selSuburbs.push(s); else this.selSuburbs.splice(i, 1);
+        },
+        reset() {
+            this.q = ''; this.selSuburbs = []; this.priceMin = ''; this.priceMax = '';
+            this.minScore = this.scoreFloor; this.sortBy = 'score';
+        },
+        filtered() {
+            const q = this.q.trim().toLowerCase();
+            const min = this.priceMin === '' ? null : Number(this.priceMin);
+            const max = this.priceMax === '' ? null : Number(this.priceMax);
+            const floor = Number(this.minScore) || 0;
+            let out = this.matches.filter(m => {
+                if (q && !((m.address + ' ' + m.suburb + ' ' + m.ref).toLowerCase().includes(q))) return false;
+                if (this.selSuburbs.length && !this.selSuburbs.includes(m.suburb)) return false;
+                if (min !== null && m.price < min) return false;
+                if (max !== null && m.price > max) return false;
+                if (m.score < floor) return false;
+                return true;
+            });
+            const by = this.sortBy;
+            out.sort((a, b) => {
+                if (by === 'score') return b.score - a.score;
+                if (by === 'price_asc') return a.price - b.price;
+                if (by === 'price_desc') return b.price - a.price;
+                if (by === 'suburb') return (a.suburb || '').localeCompare(b.suburb || '') || a.address.localeCompare(b.address);
+                if (by === 'address') return a.address.localeCompare(b.address);
+                return 0;
+            });
+            return out;
         },
     };
 }
