@@ -408,10 +408,17 @@
         </div>
 
         <div class="px-5 py-4">
-            <p class="text-xs mb-3" style="color: var(--text-muted);">
-                Drag to draw a black box over anything that must not reach the buyer (e.g. an account number).
-                On apply, every page is flattened to a raster image — the hidden text is destroyed, not covered.
-            </p>
+            <div class="flex items-center justify-between mb-3 gap-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Drag on the document to draw a black box over anything that must not reach the buyer
+                    (e.g. an account number). On apply, every page is flattened to a raster image — the
+                    hidden text is destroyed, not covered.
+                </p>
+                <span class="text-xs font-semibold flex-shrink-0" style="color: var(--text-secondary);"
+                      x-show="!loading && !loadError" x-cloak>
+                    <span x-text="boxCount()"></span> box<span x-show="boxCount() !== 1">es</span> drawn
+                </span>
+            </div>
 
             <template x-if="loading">
                 <p class="text-sm" style="color: var(--text-secondary);">Loading document…</p>
@@ -427,23 +434,31 @@
                             <span class="text-xs font-semibold" style="color: var(--text-muted);">Page <span x-text="page.index + 1"></span></span>
                             <button type="button" class="text-xs" style="color: var(--ds-crimson);" @click="clearPage(page.index)">Clear boxes</button>
                         </div>
-                        <div class="relative inline-block select-none" style="max-width:100%;"
-                             :data-page="page.index"
-                             @mousedown.prevent="startDraw($event, page.index)"
-                             @mousemove.prevent="moveDraw($event, page.index)"
-                             @mouseup.prevent="endDraw($event, page.index)"
-                             @mouseleave="endDraw($event, page.index)">
+                        {{-- AT-110 — draw surface. The IMG is inert; a dedicated transparent
+                             overlay (inset-0) captures Pointer Events with setPointerCapture so a
+                             press-drag-release tracks even if the cursor leaves the element. Box +
+                             live-rect divs are pointer-events:none so they never steal the drag. --}}
+                        <div class="relative inline-block select-none" style="max-width:100%;">
                             <img :src="page.data_uri" class="vp-redact-page-img block" :data-page="page.index"
-                                 style="max-width:100%; height:auto; border:1px solid var(--border);" draggable="false">
-                            {{-- drawn boxes (display coords) --}}
-                            <template x-for="(box, bi) in (displayBoxes[page.index] || [])" :key="bi">
-                                <div class="absolute" style="background: #000; opacity:0.85;"
-                                     :style="`left:${box.x}px; top:${box.y}px; width:${box.w}px; height:${box.h}px;`"></div>
-                            </template>
-                            {{-- live drag rectangle --}}
-                            <div class="absolute" x-show="drag.active && drag.page === page.index"
-                                 style="background: rgba(0,0,0,0.5); border:1px dashed #fff;"
-                                 :style="`left:${drag.x}px; top:${drag.y}px; width:${drag.w}px; height:${drag.h}px;`"></div>
+                                 style="max-width:100%; height:auto; border:1px solid var(--border);"
+                                 draggable="false" @dragstart.prevent>
+                            <div class="absolute inset-0" style="cursor:crosshair; touch-action:none;"
+                                 :data-page="page.index"
+                                 @pointerdown.prevent="startDraw($event, page.index)"
+                                 @pointermove.prevent="moveDraw($event, page.index)"
+                                 @pointerup.prevent="endDraw($event, page.index)"
+                                 @pointercancel.prevent="endDraw($event, page.index)"
+                                 @dragstart.prevent>
+                                {{-- committed boxes for this page (display coords) --}}
+                                <template x-for="(box, bi) in boxesFor(page.index)" :key="bi">
+                                    <div class="absolute" style="background: #000; opacity:0.85; pointer-events:none;"
+                                         :style="`left:${box.x}px; top:${box.y}px; width:${box.w}px; height:${box.h}px;`"></div>
+                                </template>
+                                {{-- live drag rectangle --}}
+                                <div class="absolute" x-show="drag.active && drag.page === page.index"
+                                     style="background: rgba(0,0,0,0.5); border:1px dashed #fff; pointer-events:none;"
+                                     :style="`left:${drag.x}px; top:${drag.y}px; width:${drag.w}px; height:${drag.h}px;`"></div>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -479,7 +494,7 @@ function redactionTool(csrf) {
         dataUrl: '',
         postUrl: '',
         pages: [],
-        displayBoxes: {}, // pageIndex -> [{x,y,w,h} display px]
+        boxes: [],        // FLAT, top-level reactive array: [{page, x, y, w, h} display px]
         drag: { active: false, page: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 },
 
         // AT-110 Bug 2 — renamed from open() so the handler can never resolve to the
@@ -490,7 +505,7 @@ function redactionTool(csrf) {
             this.postUrl = detail.postUrl;
             this.label = detail.label || '';
             this.pages = [];
-            this.displayBoxes = {};
+            this.boxes = [];
             this.loadError = '';
             this.applyError = '';
             this.isOpen = true;
@@ -513,10 +528,9 @@ function redactionTool(csrf) {
             this.loading = false;
         },
         close() { this.isOpen = false; },
-        clearPage(p) { this.displayBoxes[p] = []; },
-        boxCount() {
-            return Object.values(this.displayBoxes).reduce((n, arr) => n + ((arr && arr.length) || 0), 0);
-        },
+        boxesFor(p) { return this.boxes.filter(b => b.page === p); },
+        clearPage(p) { this.boxes = this.boxes.filter(b => b.page !== p); },
+        boxCount() { return this.boxes.length; },
 
         // AT-110 Bug 2/3 — apply via fetch (no full reload): burn boxes server-side, then
         // swap #vp-content so the doc's state badge flips to "Included ✓" in place. Any
@@ -550,9 +564,14 @@ function redactionTool(csrf) {
             }
         },
 
+        // Pointer Events + setPointerCapture: once the press starts, EVERY move/up is
+        // routed back to this overlay even if the cursor leaves it — so a fast or
+        // straying drag still commits. coords are relative to the overlay (== image box).
         startDraw(e, page) {
+            try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
             const r = e.currentTarget.getBoundingClientRect();
-            this.drag = { active: true, page, startX: e.clientX - r.left, startY: e.clientY - r.top, x: e.clientX - r.left, y: e.clientY - r.top, w: 0, h: 0 };
+            const x = e.clientX - r.left, y = e.clientY - r.top;
+            this.drag = { active: true, page, startX: x, startY: y, x, y, w: 0, h: 0 };
         },
         moveDraw(e, page) {
             if (!this.drag.active || this.drag.page !== page) return;
@@ -565,23 +584,25 @@ function redactionTool(csrf) {
         },
         endDraw(e, page) {
             if (!this.drag.active || this.drag.page !== page) return;
+            try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
             if (this.drag.w > 3 && this.drag.h > 3) {
-                if (!this.displayBoxes[page]) this.displayBoxes[page] = [];
-                this.displayBoxes[page].push({ x: this.drag.x, y: this.drag.y, w: this.drag.w, h: this.drag.h });
+                // push onto the FLAT top-level array — rock-solid Alpine reactivity, the
+                // box x-for re-renders immediately (no fragile dynamic-key object).
+                this.boxes.push({ page, x: this.drag.x, y: this.drag.y, w: this.drag.w, h: this.drag.h });
             }
             this.drag = { active: false, page: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 };
         },
 
         // Convert display boxes → RASTER px (page.width / img.clientWidth) and
         // emit boxes[page][i][x|y|w|h] hidden inputs the controller validates.
-        prepareSubmit(e) {
+        prepareSubmit() {
             const container = this.$refs.boxesFields;
             container.innerHTML = '';
             for (const page of this.pages) {
-                const boxes = this.displayBoxes[page.index] || [];
+                const boxes = this.boxesFor(page.index);
                 if (!boxes.length) continue;
                 const img = document.querySelector('img.vp-redact-page-img[data-page="' + page.index + '"]');
-                if (!img) continue;
+                if (!img || !img.clientWidth) continue;
                 const scaleX = page.width / img.clientWidth;
                 const scaleY = page.height / img.clientHeight;
                 boxes.forEach((b, i) => {
@@ -595,7 +616,6 @@ function redactionTool(csrf) {
                     }
                 });
             }
-            // form submits normally (CSRF + boxes[] fields)
         },
     };
 }
