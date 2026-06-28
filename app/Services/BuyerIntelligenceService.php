@@ -165,14 +165,21 @@ class BuyerIntelligenceService
      * Visible-only; NOT filtered by already-viewed (the canonical count never
      * excludes viewings — that would diverge from the surface's count).
      */
-    public function getMatchedProperties(int $contactId, int $limit = 10): Collection
+    public function getMatchedProperties(int $contactId, ?int $limit = null): Collection
     {
+        // $limit = null → the FULL canonical match set (the detail page + Schedule
+        // Viewing modal must show ALL of the buyer's matches, not a slice — they
+        // reconcile to the Core Matches surface count). Callers that genuinely
+        // want a few (lost-risk, retention playbook) pass an explicit limit.
         $contact = Contact::withoutGlobalScopes()->find($contactId);
         if (!$contact) return collect();
 
-        return app(\App\Services\Matching\BuyerCoreMatchService::class)
-            ->coreMatchesFor($contact)
-            ->take($limit)
+        $matches = app(\App\Services\Matching\BuyerCoreMatchService::class)->coreMatchesFor($contact);
+        if ($limit !== null) {
+            $matches = $matches->take($limit);
+        }
+
+        return $matches
             ->map(fn (Property $p) => [
                 'id'             => $p->id,
                 'address'        => $p->address ?: $p->title,
