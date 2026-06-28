@@ -145,6 +145,67 @@
                 </ul>
                 <p class="mt-2 text-xs" x-show="searched && !results.length" x-cloak style="color: var(--text-muted);">No properties found.</p>
             </div>
+
+            {{-- Buyer-pack documents — per property, ONLY buyer-pack-eligible attached docs (Step 5a) --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-lg font-semibold mb-1" style="color: var(--text-primary);">Buyer-pack documents</h3>
+                <p class="text-xs mb-3" style="color: var(--text-muted);">Only documents whose type is eligible for the buyer pack are shown. Identity / compliance documents never appear here. Documents are optional.</p>
+
+                @if($docPanel->isEmpty())
+                    <div class="rounded-md py-6 px-6 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
+                        <p class="text-sm" style="color: var(--text-secondary);">Add properties first — document selection appears per property.</p>
+                    </div>
+                @else
+                    <div class="space-y-4">
+                        @foreach($docPanel as $entry)
+                            @php
+                                $vpp       = $entry['vpp'];
+                                $eligible  = $entry['eligible'];
+                                $selDocIds = $entry['selectedIds'];
+                                $vpdByDoc  = $vpp->viewingPackDocuments->keyBy('document_id');
+                                $addr      = optional($vpp->property)->address ?: ('Property #' . $vpp->property_id);
+                            @endphp
+                            <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="text-sm font-semibold" style="color: var(--text-muted);">{{ $vpp->sort_order }}.</span>
+                                    <span class="text-sm font-medium" style="color: var(--text-primary);">{{ $addr }}</span>
+                                </div>
+
+                                @if($eligible->isEmpty())
+                                    <p class="text-xs" style="color: var(--text-muted);">No buyer-eligible documents attached to this property or the buyer.</p>
+                                @else
+                                    <ul class="space-y-1.5">
+                                        @foreach($eligible as $doc)
+                                            @php
+                                                $isIn  = in_array($doc->id, $selDocIds);
+                                                $label = ($doc->documentType?->label ?: $doc->documentType?->slug ?: 'Document')
+                                                       . ' — ' . ($doc->original_name ?? ('Doc #' . $doc->id));
+                                            @endphp
+                                            <li class="flex items-center gap-3 rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border);">
+                                                <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ $label }}</span>
+                                                @if($isIn)
+                                                    <span class="ds-badge ds-badge-success" title="Included in the buyer pack">Included</span>
+                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.remove', [$pack, $vpp, $vpdByDoc[$doc->id]]) }}">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
+                                                    </form>
+                                                @else
+                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.add', [$pack, $vpp]) }}">
+                                                        @csrf
+                                                        <input type="hidden" name="document_id" value="{{ $doc->id }}">
+                                                        <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
+                                                    </form>
+                                                @endif
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
         </div>
 
         {{-- RIGHT: pack settings (title + status) --}}

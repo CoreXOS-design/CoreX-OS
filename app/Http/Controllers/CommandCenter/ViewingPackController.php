@@ -4,9 +4,12 @@ namespace App\Http\Controllers\CommandCenter;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\Document;
 use App\Models\Property;
 use App\Models\ViewingPack;
+use App\Models\ViewingPackDocument;
 use App\Models\ViewingPackProperty;
+use App\Services\ViewingPack\ViewingPackDocumentService;
 use App\Services\ViewingPack\ViewingPackSelectionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -46,8 +49,8 @@ class ViewingPackController extends Controller
         ]);
     }
 
-    /** The pack workspace — Core Matches + ad-hoc search + selected list. */
-    public function show(ViewingPack $viewingPack, ViewingPackSelectionService $selection)
+    /** The pack workspace — Core Matches + ad-hoc search + selected list + docs. */
+    public function show(ViewingPack $viewingPack, ViewingPackSelectionService $selection, ViewingPackDocumentService $docs)
     {
         $viewingPack->load([
             'contact',
@@ -60,10 +63,19 @@ class ViewingPackController extends Controller
         $coreMatches = $buyer ? $selection->coreMatchesFor($buyer) : collect();
         $selectedIds = $viewingPack->viewingPackProperties->pluck('property_id')->all();
 
+        // Step 5a — per selected property: buyer-pack-ELIGIBLE attached documents
+        // (resolver-filtered) + the ids currently ticked into the pack.
+        $docPanel = $viewingPack->viewingPackProperties->map(fn (ViewingPackProperty $vpp) => [
+            'vpp'         => $vpp,
+            'eligible'    => $docs->eligibleDocumentsFor($vpp),
+            'selectedIds' => $docs->selectedDocumentIds($vpp),
+        ]);
+
         return view('command-center.viewing-packs.show', [
             'pack'        => $viewingPack,
             'coreMatches' => $coreMatches,
             'selectedIds' => $selectedIds,
+            'docPanel'    => $docPanel,
         ]);
     }
 
@@ -140,6 +152,37 @@ class ViewingPackController extends Controller
         });
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Tick an eligible document into the buyer pack for one pack property
+     * (Step 5a). The service rejects any document that isn't in the property's
+     * buyer-pack-eligible set (attachment + eligibility + agency all enforced
+     * there), so a forged/foreign/ineligible id 404s.
+     */
+    public function addDocument(Request $request, ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocumentService $docs)
+    {
+        abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
+
+        $data = $request->validate([
+            'document_id' => ['required', 'integer', Rule::exists('documents', 'id')],
+        ]);
+
+        $document = Document::findOrFail($data['document_id']);
+        $docs->includeDocument($viewingPackProperty, $document);
+
+        return back()->with('success', 'Document added to the buyer pack.');
+    }
+
+    /** Untick a document (soft-remove the row; no hard delete). */
+    public function removeDocument(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument, ViewingPackDocumentService $docs)
+    {
+        abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
+        abort_unless((int) $viewingPackDocument->viewing_pack_property_id === (int) $viewingPackProperty->id, 404);
+
+        $docs->removeDocument($viewingPackDocument);
+
+        return back()->with('success', 'Document removed from the buyer pack.');
     }
 
     /** Scoped property typeahead for ad-hoc selection (agency-bounded). */
