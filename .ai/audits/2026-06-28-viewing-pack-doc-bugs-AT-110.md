@@ -279,3 +279,41 @@ layer. Two genuinely fragile constructs in the original draw tool:
   `{ok}` → `redacted_file_path` set → buyer pack embeds the redacted page (5pp) → `pdftotext` = 0
   recoverable chars under the burned box.
 - `view:clear`/`view:cache` compile clean.
+
+---
+
+## FOLLOW-UP 2 — (A) staging directory-write failure + (B) drawn box not visible — 2026-06-28
+
+### Issue A (BLOCKING) — "Unable to create a directory at …/storage/app/private/viewing-packs/7/redacted"
+**Cause (server, self-inflicted — NOT a code bug):** the redaction service writes via
+`Storage::disk('local')->put($rel,…)` (Laravel 'local' root = `storage/app/private`), which creates
+the directory recursively — correct, and proven working. The failure was that **my own CLI
+verification runs (Tinker runs as root) had created `storage/app/private/viewing-packs/7` and
+`…/7/redacted` owned by `root:root` mode `700`**, so the `www-data` php-fpm process could not
+create/write under them. (Legit web-generated buyer-packs under `viewing-packs/2,3` were correctly
+`www-data`-owned; only my leftover `7/…` dirs were root-owned. No DB row referenced any redacted
+file.)
+
+**Fix (server):** `sudo chown -R www-data:www-data storage/app/private/viewing-packs` on staging.
+No code change needed — the code already uses the Storage facade with recursive creation.
+**Proven as the web user:** `sudo -u www-data … redact` → HTTP 200 `{ok}` → artifact written
+`owner=www-data` → `pdftotext` 0 → buyer pack 14pp (real pack #3, redacted doc embedded).
+**Live implication:** none expected — live web/worker run as the correct user and nobody runs
+root CLI disk-writes there; if a redaction ever errors with the same message on live, the one-time
+fix is the identical `chown -R www-data:www-data storage/app/private/viewing-packs`.
+**Recurrence prevention:** CLI verification on staging/live must not be run as root against disk, or
+must clean up created directories (not just files). Going forward, redaction verification uses
+`sudo -u www-data` so artifacts are created as the web user.
+
+### Issue B — drawn box registered (Apply had a box) but was not visible
+**Cause:** the committed-box and live-rect divs combined a **static `style`** (the black fill /
+dashed border) with a **string `:style`** (geometry). Alpine's string `:style` binding can overwrite
+the element's style attribute, dropping the fill — so a box had geometry but no visible fill, and the
+live-drag rectangle gave no feedback while dragging. (The draw itself worked — that's why Apply
+carried a box.)
+**Fix:** both divs now use Alpine's **object `:style`** form (guaranteed to merge, fill always
+applies), the committed box gets a high-contrast **red outline** so even a small box is unmistakable,
+and the live-drag rectangle is guaranteed visible while dragging. The "N boxes drawn" counter remains
+as confirmation that draws register.
+**Proof:** `tests/js/redaction-draw-sim.mjs` still PASS (handler logic unchanged); view compiles;
+end-to-end redact→embed→flatten proven above.

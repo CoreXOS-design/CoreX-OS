@@ -449,15 +449,16 @@
                                  @pointerup.prevent="endDraw($event, page.index)"
                                  @pointercancel.prevent="endDraw($event, page.index)"
                                  @dragstart.prevent>
-                                {{-- committed boxes for this page (display coords) --}}
+                                {{-- committed boxes for this page (display coords). OBJECT :style so
+                                     the black fill is guaranteed to apply — a string :style can
+                                     overwrite the static style attribute, leaving an invisible box.
+                                     Red outline makes even a small box unmistakable. --}}
                                 <template x-for="(box, bi) in boxesFor(page.index)" :key="bi">
-                                    <div class="absolute" style="background: #000; opacity:0.85; pointer-events:none;"
-                                         :style="`left:${box.x}px; top:${box.y}px; width:${box.w}px; height:${box.h}px;`"></div>
+                                    <div :style="{ position:'absolute', left:box.x+'px', top:box.y+'px', width:box.w+'px', height:box.h+'px', background:'#000', opacity:'0.85', outline:'2px solid #ef4444', pointerEvents:'none' }"></div>
                                 </template>
-                                {{-- live drag rectangle --}}
-                                <div class="absolute" x-show="drag.active && drag.page === page.index"
-                                     style="background: rgba(0,0,0,0.5); border:1px dashed #fff; pointer-events:none;"
-                                     :style="`left:${drag.x}px; top:${drag.y}px; width:${drag.w}px; height:${drag.h}px;`"></div>
+                                {{-- live drag rectangle — visible feedback WHILE dragging --}}
+                                <div x-show="drag.active && drag.page === page.index"
+                                     :style="{ position:'absolute', left:drag.x+'px', top:drag.y+'px', width:drag.w+'px', height:drag.h+'px', background:'rgba(0,0,0,0.45)', border:'2px dashed #fff', pointerEvents:'none' }"></div>
                             </div>
                         </div>
                     </div>
