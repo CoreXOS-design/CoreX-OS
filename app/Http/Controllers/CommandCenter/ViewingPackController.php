@@ -11,7 +11,6 @@ use App\Models\ViewingPackDocument;
 use App\Models\ViewingPackProperty;
 use App\Services\ViewingPack\ViewingPackAgentPdfService;
 use App\Services\ViewingPack\ViewingPackBuyerPdfService;
-use App\Services\ViewingPack\ViewingPackCalendarService;
 use App\Services\ViewingPack\ViewingPackDocumentService;
 use App\Services\ViewingPack\ViewingPackRedactionService;
 use App\Services\ViewingPack\ViewingPackSelectionService;
@@ -61,7 +60,6 @@ class ViewingPackController extends Controller
         $viewingPack->load([
             'contact',
             'agent',
-            'calendarEvent',
             'viewingPackProperties' => fn ($q) => $q->ordered()->with(['property', 'viewingPackDocuments']),
         ]);
 
@@ -346,22 +344,12 @@ class ViewingPackController extends Controller
             ->with('success', 'Viewing Pack started. Add properties to begin.');
     }
 
-    /**
-     * Create or link the viewing appointment for this pack (Step 8). Reuses the
-     * existing calendar mechanism via ViewingPackCalendarService; populates
-     * viewing_packs.calendar_event_id. Idempotent — re-scheduling updates the
-     * linked event in place.
-     */
-    public function schedule(Request $request, ViewingPack $viewingPack, ViewingPackCalendarService $calendar)
-    {
-        $data = $request->validate([
-            'tour_at' => ['required', 'date'],
-        ]);
-
-        $calendar->scheduleViewing($viewingPack, \Carbon\Carbon::parse($data['tour_at']), $request->user());
-
-        return back()->with('success', 'Viewing scheduled and linked to the calendar.');
-    }
+    // AT-XX — the pack's separate scheduler (schedule() + ViewingPackCalendarService)
+    // was removed. Scheduling now reuses the SAME calendar prefill handoff as the
+    // Schedule Viewing modal: the pack view links straight to
+    // command-center.calendar?prefill_class=viewing&prefill_contact_id&prefill_attendees&prefill_properties
+    // (built server-side in show.blade from the pack's ordered properties + buyer).
+    // No parallel scheduling logic remains.
 
     /** Edit pack metadata (title / status). Selection edits come in later steps. */
     public function update(Request $request, ViewingPack $viewingPack)
