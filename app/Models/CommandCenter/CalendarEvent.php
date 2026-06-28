@@ -7,6 +7,7 @@ use App\Models\Concerns\BelongsToBranch;
 use App\Models\Contact;
 use App\Models\DealV2\DealV2;
 use App\Models\Property;
+use App\Models\Scopes\LivePropertyScope;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,6 +19,16 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class CalendarEvent extends Model
 {
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
+
+    /**
+     * Hide events whose linked property has been soft-deleted (see
+     * LivePropertyScope). Keeps a gone property's viewings/attention events
+     * off Today / Calendar / reminders. Opt out with withoutGlobalScope().
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new LivePropertyScope());
+    }
 
     protected $fillable = [
         'user_id', 'created_by_id', 'event_type', 'category', 'title', 'description',

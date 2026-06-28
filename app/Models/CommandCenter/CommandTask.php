@@ -4,6 +4,7 @@ namespace App\Models\CommandCenter;
 
 use App\Models\Contact;
 use App\Models\Property;
+use App\Models\Scopes\LivePropertyScope;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,6 +15,16 @@ use App\Models\Concerns\BelongsToAgency;
 class CommandTask extends Model
 {
     use BelongsToAgency, SoftDeletes;
+
+    /**
+     * Hide tasks whose linked property has been soft-deleted (see
+     * LivePropertyScope). Keeps a gone property's document/attention tasks
+     * off Today / Tasks / reminders. Opt out with withoutGlobalScope().
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new LivePropertyScope());
+    }
 
     protected $fillable = [
         'title', 'description', 'task_type', 'status', 'priority', 'send_reminder',
