@@ -246,3 +246,36 @@ harness was used for runtime proof; the committed feature test is the CI/dev-env
 - NOTE: the JS modal-open/drawing interaction is inherently browser-only; it is hardened +
   instrumented, and the server contract it depends on is locked by the new feature test. Johan to
   re-confirm the on-screen draw on staging.
+
+---
+
+## FOLLOW-UP — drag-to-draw produced no box (modal opened, preview rendered) — 2026-06-28
+
+After the `open()` fix, the modal opened and the preview rendered, but press-drag-release drew no
+box (no error). The draw logic was imperatively correct, so the failure was at the DOM/reactivity
+layer. Two genuinely fragile constructs in the original draw tool:
+
+1. **`displayBoxes[pageIndex]` — a brand-new integer key added to a reactive plain object.** This is
+   the fragile Alpine-reactivity case: the committed-box `x-for` did not reliably re-render when a
+   new page key appeared, so a drawn box never became visible.
+2. **Plain mouse events with NO pointer capture** — `mouseup`/`mousemove` were lost the moment the
+   cursor left the `inline-block` element mid-drag, so a fast or straying drag committed nothing.
+
+### Fix (draw tool rebuilt, `show.blade.php` only — no server change)
+- **Flat top-level reactive array** `boxes: [{page,x,y,w,h}]` (rock-solid Alpine reactivity) with
+  `boxesFor(p)` / `clearPage(p)` / `boxCount()` derived from it.
+- **Pointer Events + `setPointerCapture`** on a **dedicated transparent overlay** (`inset-0`,
+  `touch-action:none`, `cursor:crosshair`) over an inert image; box + live-rect divs are
+  `pointer-events:none` so they never steal the drag; `@dragstart.prevent` + `draggable="false"`
+  kill native image drag.
+- **Instrumentation:** a live "N boxes drawn" counter gives the agent immediate feedback that draws
+  register.
+
+### Proof
+- `tests/js/redaction-draw-sim.mjs` (committed) extracts the ACTUAL handler bodies from the live
+  blade and simulates pointerdown→move→up: asserts one box is added (`{page:0,x:100,y:100,w:300,
+  h:100}`) and `prepareSubmit()` maps it to raster `{x:155,y:155,w:465,h:155}`. All PASS.
+- End-to-end (rolled-back tx, real PDF) feeding those exact simulated raster coords: redact 200
+  `{ok}` → `redacted_file_path` set → buyer pack embeds the redacted page (5pp) → `pdftotext` = 0
+  recoverable chars under the burned box.
+- `view:clear`/`view:cache` compile clean.
