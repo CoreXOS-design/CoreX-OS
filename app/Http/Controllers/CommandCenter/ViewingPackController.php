@@ -4,7 +4,10 @@ namespace App\Http\Controllers\CommandCenter;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\Property;
 use App\Models\ViewingPack;
+use App\Models\ViewingPackProperty;
+use App\Services\ViewingPack\ViewingPackSelectionService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -42,8 +45,8 @@ class ViewingPackController extends Controller
         ]);
     }
 
-    /** The pack workspace — skeleton for now (selection arrives in Step 3). */
-    public function show(ViewingPack $viewingPack)
+    /** The pack workspace — Core Matches + ad-hoc search + selected list. */
+    public function show(ViewingPack $viewingPack, ViewingPackSelectionService $selection)
     {
         $viewingPack->load([
             'contact',
@@ -51,9 +54,90 @@ class ViewingPackController extends Controller
             'viewingPackProperties' => fn ($q) => $q->ordered()->with(['property', 'viewingPackDocuments']),
         ]);
 
+        $buyer = $viewingPack->contact;
+        // Canonical engine only — Core Matches via MatchingService/ClientMatchResolver.
+        $coreMatches = $buyer ? $selection->coreMatchesFor($buyer) : collect();
+        $selectedIds = $viewingPack->viewingPackProperties->pluck('property_id')->all();
+
         return view('command-center.viewing-packs.show', [
-            'pack' => $viewingPack,
+            'pack'        => $viewingPack,
+            'coreMatches' => $coreMatches,
+            'selectedIds' => $selectedIds,
         ]);
+    }
+
+    /**
+     * Add a property to the pack. Source (core_match | ad_hoc) is computed
+     * canonically by the service; a genuine non-match silently captures a
+     * core_match_miss. The property is resolved through AgencyScope and double-
+     * checked against the pack's agency — never cross-agency.
+     */
+    public function addProperty(Request $request, ViewingPack $viewingPack, ViewingPackSelectionService $selection)
+    {
+        $data = $request->validate([
+            'property_id' => ['required', 'integer', Rule::exists('properties', 'id')],
+        ]);
+
+        $property = Property::findOrFail($data['property_id']);
+        abort_unless((int) $property->agency_id === (int) $viewingPack->agency_id, 404);
+
+        $selection->addProperty($viewingPack, $property, $request->user()->id);
+
+        return back()->with('success', 'Property added to the pack.');
+    }
+
+    /** Remove a selected property (soft delete; children cascade per Step 2). */
+    public function removeProperty(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackSelectionService $selection)
+    {
+        abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
+
+        $selection->removeProperty($viewingPackProperty);
+
+        return back()->with('success', 'Property removed from the pack.');
+    }
+
+    /** Scoped property typeahead for ad-hoc selection (agency-bounded). */
+    public function searchProperties(Request $request, ViewingPack $viewingPack)
+    {
+        $q = trim((string) $request->input('q', ''));
+        if (strlen($q) < 2) {
+            return response()->json([]);
+        }
+
+        $cols  = ['address', 'street_number', 'street_name', 'suburb', 'city', 'complex_name', 'unit_number', 'property_number'];
+        $terms = preg_split('/\s+/', $q, -1, PREG_SPLIT_NO_EMPTY);
+
+        // Property carries AgencyScope, so this is already bounded to the user's
+        // agency — the same agency-wide stock a buyer pack draws from.
+        $rows = Property::query()
+            ->where(function ($outer) use ($terms, $cols) {
+                foreach ($terms as $term) {
+                    $outer->where(function ($w) use ($term, $cols) {
+                        foreach ($cols as $c) {
+                            $w->orWhere($c, 'like', "%{$term}%");
+                        }
+                    });
+                }
+            })
+            ->limit(12)
+            ->get(['id', 'address', 'street_number', 'street_name', 'suburb', 'city', 'property_number', 'price']);
+
+        return response()->json($rows->map(function (Property $p) {
+            $addr = trim((string) $p->address);
+            if ($addr === '') {
+                $addr = trim(implode(' ', array_filter([$p->street_number, $p->street_name])));
+            }
+            if ($addr === '') {
+                $addr = '(no address)';
+            }
+
+            return [
+                'id'    => $p->id,
+                'label' => trim($addr . ($p->suburb ? ' — ' . $p->suburb : '')),
+                'ref'   => $p->property_number,
+                'price' => $p->price,
+            ];
+        }));
     }
 
     /**

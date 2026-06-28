@@ -1344,6 +1344,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'update'])->name('update');
         Route::delete('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'destroy'])->name('destroy');
         Route::post('/{viewingPack}/restore', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'restore'])->name('restore')->withTrashed();
+
+        // Step 3 — property selection (Core Match + ad-hoc) + ad-hoc typeahead.
+        Route::post('/{viewingPack}/properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addProperty'])->name('properties.add');
+        Route::delete('/{viewingPack}/properties/{viewingPackProperty}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'removeProperty'])->name('properties.remove');
+        Route::get('/{viewingPack}/search-properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'searchProperties'])->name('properties.search');
     });
 
     // ── Agent Portal ──

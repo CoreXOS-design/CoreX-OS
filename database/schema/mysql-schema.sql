@@ -3193,6 +3193,35 @@ CREATE TABLE `contacts` (
   CONSTRAINT `contacts_second_agent_id_foreign` FOREIGN KEY (`second_agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `core_match_misses`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `core_match_misses` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `agent_id` bigint unsigned NOT NULL,
+  `viewing_pack_id` bigint unsigned DEFAULT NULL,
+  `buyer_criteria_snapshot` json DEFAULT NULL,
+  `property_attributes_snapshot` json DEFAULT NULL,
+  `captured_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `core_match_misses_contact_id_foreign` (`contact_id`),
+  KEY `core_match_misses_property_id_foreign` (`property_id`),
+  KEY `core_match_misses_agent_id_foreign` (`agent_id`),
+  KEY `core_match_misses_agency_id_contact_id_index` (`agency_id`,`contact_id`),
+  KEY `core_match_misses_viewing_pack_id_property_id_index` (`viewing_pack_id`,`property_id`),
+  CONSTRAINT `core_match_misses_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `core_match_misses_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `core_match_misses_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `core_match_misses_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `core_match_misses_viewing_pack_id_foreign` FOREIGN KEY (`viewing_pack_id`) REFERENCES `viewing_packs` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `daily_activities`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12289,3 +12318,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (892,'2026_06_28_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (893,'2026_06_28_130001_create_viewing_packs_table',179);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (894,'2026_06_28_130002_create_viewing_pack_properties_table',179);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (895,'2026_06_28_130003_create_viewing_pack_documents_table',179);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (896,'2026_06_28_140001_create_core_match_misses_table',180);

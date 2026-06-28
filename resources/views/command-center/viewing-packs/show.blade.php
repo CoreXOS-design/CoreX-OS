@@ -32,33 +32,98 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        {{-- LEFT: selected properties (skeleton — Step 3 fills this in) --}}
-        <div class="lg:col-span-2 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
-                <span class="text-xs" style="color: var(--text-muted);">{{ $pack->viewingPackProperties->count() }} selected</span>
+        {{-- LEFT: selection (selected list + Core Matches + ad-hoc search) --}}
+        <div class="lg:col-span-2 space-y-4">
+
+            {{-- Selected properties --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
+                    <span class="text-xs" style="color: var(--text-muted);">{{ $pack->viewingPackProperties->count() }} selected</span>
+                </div>
+
+                @if($pack->viewingPackProperties->isEmpty())
+                    <div class="rounded-md py-8 px-6 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
+                        <p class="text-sm font-medium" style="color: var(--text-secondary);">No properties selected yet.</p>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">Add from Core Matches below, or search any property.</p>
+                    </div>
+                @else
+                    <ol class="space-y-2">
+                        @foreach($pack->viewingPackProperties as $vpp)
+                            <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <span class="text-sm font-semibold" style="color: var(--text-muted);">{{ $vpp->sort_order }}.</span>
+                                <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ optional($vpp->property)->address ?? ('Property #' . $vpp->property_id) }}</span>
+                                <span class="ds-badge ds-badge-default" title="How this property entered the pack">{{ str_replace('_', ' ', $vpp->source) }}</span>
+                                <form method="POST" action="{{ route('corex.viewing-packs.properties.remove', [$pack, $vpp]) }}"
+                                      onsubmit="return confirm('Remove this property from the pack?');">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
+                                </form>
+                            </li>
+                        @endforeach
+                    </ol>
+                @endif
+                <p class="mt-3 text-xs" style="color: var(--text-muted);">Drag-to-order, document selection and the PDFs arrive in the next steps.</p>
             </div>
 
-            @if($pack->viewingPackProperties->isEmpty())
-                <div class="rounded-md py-10 px-6 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
-                    <p class="text-sm font-medium" style="color: var(--text-secondary);">No properties selected yet.</p>
-                    <p class="text-xs mt-1" style="color: var(--text-muted);">Property selection (Core Matches + ad-hoc search) arrives in the next step.</p>
-                </div>
-            @else
-                <ol class="space-y-2">
-                    @foreach($pack->viewingPackProperties as $vpp)
-                        <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
-                            <span class="text-sm font-semibold" style="color: var(--text-muted);">{{ $vpp->sort_order }}.</span>
-                            <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ optional($vpp->property)->address ?? ('Property #' . $vpp->property_id) }}</span>
-                            <span class="ds-badge ds-badge-default">{{ str_replace('_', ' ', $vpp->source) }}</span>
-                            <span class="text-xs" style="color: var(--text-muted);">{{ $vpp->viewingPackDocuments->count() }} docs</span>
-                        </li>
-                    @endforeach
-                </ol>
-            @endif
+            {{-- Core Matches (canonical engine) --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-lg font-semibold mb-1" style="color: var(--text-primary);">Core Matches</h3>
+                <p class="text-xs mb-3" style="color: var(--text-muted);">The buyer's matched properties, scored by the canonical match engine.</p>
 
-            <div class="mt-4 rounded-md px-3 py-2 text-xs" style="background: var(--surface-2); color: var(--text-muted);">
-                Coming next: drag-to-order, document selection (buyer-pack-eligible only), redaction, and the buyer pack + agent sheet PDFs.
+                @if($coreMatches->isEmpty())
+                    <div class="rounded-md py-6 px-6 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
+                        <p class="text-sm" style="color: var(--text-secondary);">No Core Matches for this buyer.</p>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">Use the search below to add properties ad-hoc.</p>
+                    </div>
+                @else
+                    <ul class="space-y-2">
+                        @foreach($coreMatches as $cm)
+                            @php $alreadyIn = in_array($cm->id, $selectedIds); @endphp
+                            <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ $cm->address ?: ('Property #' . $cm->id) }}{{ $cm->suburb ? ' — ' . $cm->suburb : '' }}</span>
+                                @if(!is_null($cm->match_score))
+                                    <span class="ds-badge ds-badge-success" title="Canonical match score">{{ (int) $cm->match_score }}%</span>
+                                @endif
+                                @if($alreadyIn)
+                                    <span class="text-xs" style="color: var(--text-muted);">Added</span>
+                                @else
+                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}">
+                                        @csrf
+                                        <input type="hidden" name="property_id" value="{{ $cm->id }}">
+                                        <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
+                                    </form>
+                                @endif
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </div>
+
+            {{-- Ad-hoc search --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+                 x-data="adhocPropertySearch('{{ route('corex.viewing-packs.properties.search', $pack) }}')">
+                <h3 class="text-lg font-semibold mb-1" style="color: var(--text-primary);">Add any property</h3>
+                <p class="text-xs mb-3" style="color: var(--text-muted);">Search by address, suburb or reference. Properties that aren't a Core Match are still added — the system notes the miss silently.</p>
+
+                <input type="text" x-model="q" @input.debounce.300ms="search()" placeholder="Start typing an address, suburb or ref…"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+
+                <ul class="mt-2 space-y-2" x-show="results.length" x-cloak>
+                    <template x-for="r in results" :key="r.id">
+                        <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <span class="flex-1 text-sm" style="color: var(--text-primary);" x-text="r.label"></span>
+                            <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}">
+                                @csrf
+                                <input type="hidden" name="property_id" :value="r.id">
+                                <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
+                            </form>
+                        </li>
+                    </template>
+                </ul>
+                <p class="mt-2 text-xs" x-show="searched && !results.length" x-cloak style="color: var(--text-muted);">No properties found.</p>
             </div>
         </div>
 
@@ -97,4 +162,27 @@
         </div>
     </div>
 </div>
+
+<script>
+function adhocPropertySearch(searchUrl) {
+    return {
+        q: '',
+        results: [],
+        searched: false,
+        async search() {
+            const term = this.q.trim();
+            if (term.length < 2) { this.results = []; this.searched = false; return; }
+            try {
+                const res = await fetch(searchUrl + '?q=' + encodeURIComponent(term), {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                this.results = res.ok ? await res.json() : [];
+            } catch (e) {
+                this.results = [];
+            }
+            this.searched = true;
+        },
+    };
+}
+</script>
 @endsection
