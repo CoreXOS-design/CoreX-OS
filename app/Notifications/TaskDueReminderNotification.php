@@ -4,7 +4,6 @@ namespace App\Notifications;
 
 use App\Models\CommandCenter\CommandTask;
 use Illuminate\Bus\Queueable;
-use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 class TaskDueReminderNotification extends Notification
@@ -17,30 +16,11 @@ class TaskDueReminderNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        $channels = ['database'];
-
-        $settings = \App\Models\CommandCenter\UserDashboardSetting::getEffective($notifiable);
-        if ($settings->notify_email) {
-            $channels[] = 'mail';
-        }
-
-        return $channels;
-    }
-
-    public function toMail(object $notifiable): MailMessage
-    {
-        $dueLabel = $this->task->due_date?->format('d M Y H:i') ?? 'soon';
-
-        return (new MailMessage)
-            ->subject("Task Due Reminder: {$this->task->title}")
-            ->greeting("Hi {$notifiable->name},")
-            ->line("You have a task due **{$dueLabel}**:")
-            ->line("**{$this->task->title}**")
-            ->when($this->task->property, function ($msg) {
-                return $msg->line("Property: {$this->task->property->buildDisplayAddress()}");
-            })
-            ->action('View Dashboard', url('/corex'))
-            ->line('Please complete this task before the deadline.');
+        // In-app only. Email is intentionally NOT sent per task — a user with
+        // many tasks due in one reminder run would otherwise receive one email
+        // per task (inbox flood). Email is delivered as a single aggregated
+        // digest from ProcessReminders via App\Mail\CommandCenter\TaskDueDigest.
+        return ['database'];
     }
 
     public function toArray(object $notifiable): array

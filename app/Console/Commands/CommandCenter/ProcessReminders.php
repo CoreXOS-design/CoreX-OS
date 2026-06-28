@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands\CommandCenter;
 
+use App\Mail\CommandCenter\TaskDueDigest;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CommandTask;
 use App\Models\CommandCenter\UserDashboardSetting;
@@ -12,6 +13,7 @@ use App\Services\CommandCenter\NotificationPreferenceService;
 use App\Services\Push\PushNotificationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class ProcessReminders extends Command
 {
@@ -55,6 +57,9 @@ class ProcessReminders extends Command
                         ->get();
 
                     foreach ($tasks as $task) {
+                        // Per-task in-app notification only (database channel).
+                        // Email is aggregated below into a single digest so a
+                        // user with many due tasks gets one email, not one each.
                         $user->notify(new TaskDueReminderNotification($task));
 
                         // Mark as reminded so we don't send again
@@ -63,6 +68,17 @@ class ProcessReminders extends Command
                         $task->update(['metadata' => $meta]);
 
                         $tasksSent++;
+                    }
+
+                    // One aggregated email per user per run, replacing the old
+                    // one-email-per-task flood. Only when the user opted into
+                    // email and at least one task crossed the reminder window.
+                    if ($tasks->isNotEmpty() && $settings->notify_email && $user->email) {
+                        try {
+                            Mail::to($user->email)->send(new TaskDueDigest($user, $tasks));
+                        } catch (\Throwable $e) {
+                            Log::warning("Task digest email failed for user #{$user->id}: {$e->getMessage()}");
+                        }
                     }
                 } catch (\Throwable $e) {
                     Log::warning("Task reminder failed for user #{$user->id}: {$e->getMessage()}");
