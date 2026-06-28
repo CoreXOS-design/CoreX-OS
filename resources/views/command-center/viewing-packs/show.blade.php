@@ -49,7 +49,9 @@
         $removeBase = url('corex/viewing-packs/' . $pack->id . '/properties');
     @endphp
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+    {{-- AT-110 Bug 3 — in-place region. Add/remove/redact swap THIS node's innerHTML
+         (vpAction/vpSwapContent) instead of a full reload, so scroll is preserved. --}}
+    <div id="vp-content" class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
 
         {{-- LEFT: selection (Core Matches w/ search·filter·sort + ad-hoc search + docs) --}}
         <div class="lg:col-span-2 space-y-4">
@@ -130,16 +132,25 @@
 
                     <ul class="space-y-2">
                         <template x-for="m in filtered()" :key="m.id">
+                            {{-- AT-110 Bug 4 — tightened row: address + suburb·price·ref fill the
+                                 former dead space; score badge + Add stay right, no stretch gap. --}}
                             <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
-                                <span class="flex-1 text-sm" style="color: var(--text-primary);">
-                                    <span x-text="m.address"></span><template x-if="m.suburb"><span style="color: var(--text-muted);"> — <span x-text="m.suburb"></span></span></template>
-                                </span>
-                                <span class="ds-badge ds-badge-success" title="Canonical match score" x-text="m.score + '%'"></span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm truncate" style="color: var(--text-primary);" :title="m.address" x-text="m.address"></div>
+                                    <div class="text-xs flex items-center gap-1.5 flex-wrap" style="color: var(--text-muted);">
+                                        <span x-show="m.suburb" x-text="m.suburb"></span>
+                                        <span x-show="m.suburb && m.price">·</span>
+                                        <span x-show="m.price" x-text="'R ' + Number(m.price).toLocaleString('en-ZA')"></span>
+                                        <span x-show="m.ref" class="opacity-70" x-text="m.ref"></span>
+                                    </div>
+                                </div>
+                                <span class="ds-badge ds-badge-success flex-shrink-0" title="Canonical match score" x-text="m.score + '%'"></span>
                                 <template x-if="m.added">
-                                    <span class="text-xs" style="color: var(--text-muted);">Added</span>
+                                    <span class="text-xs flex-shrink-0" style="color: var(--text-muted);">Added</span>
                                 </template>
                                 <template x-if="!m.added">
-                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}">
+                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}"
+                                          class="flex-shrink-0" @submit.prevent="vpAction($el)">
                                         @csrf
                                         <input type="hidden" name="property_id" :value="m.id">
                                         <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
@@ -166,7 +177,7 @@
                     <template x-for="r in results" :key="r.id">
                         <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
                             <span class="flex-1 text-sm" style="color: var(--text-primary);" x-text="r.label"></span>
-                            <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}">
+                            <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}" @submit.prevent="vpAction($el)">
                                 @csrf
                                 <input type="hidden" name="property_id" :value="r.id">
                                 <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
@@ -216,10 +227,18 @@
                                                 <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ $label }}</span>
                                                 @if($isIn)
                                                     @php $vpdRow = $vpdByDoc[$doc->id]; $isRedacted = !empty($vpdRow->redacted_file_path); @endphp
-                                                    <span class="ds-badge ds-badge-success" title="Included in the buyer pack">Included</span>
+                                                    {{-- AT-110 Bug 1 — HONEST state. "Included" alone is a lie: a doc does
+                                                         NOT appear in the buyer pack until it is redacted (the PDF service
+                                                         skips any included doc with a NULL redacted artifact). So: green
+                                                         "Included ✓" only once redacted; amber "needs redaction" otherwise. --}}
                                                     @if($isRedacted)
+                                                        <span class="ds-badge ds-badge-success" title="Redacted and included — this document WILL appear in the buyer pack">Included ✓</span>
                                                         <a href="{{ route('corex.viewing-packs.properties.documents.redacted-file', [$pack, $vpp, $vpdRow]) }}" target="_blank" rel="noopener"
-                                                           class="ds-badge ds-badge-default no-underline" title="View the flattened, redacted copy">Redacted ✓</a>
+                                                           class="ds-badge ds-badge-default no-underline" title="View the flattened, redacted copy">View redacted</a>
+                                                    @else
+                                                        <span class="ds-badge"
+                                                              style="background: color-mix(in srgb, #f59e0b 15%, transparent); color: #b45309; border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);"
+                                                              title="This document will NOT appear in the buyer pack until you redact it. Click Redact.">Needs redaction</span>
                                                     @endif
                                                     <button type="button"
                                                             class="text-xs font-semibold"
@@ -229,13 +248,15 @@
                                                                 postUrl: '{{ route('corex.viewing-packs.properties.documents.redact', [$pack, $vpp, $vpdRow]) }}',
                                                                 label: @js($label)
                                                             })">{{ $isRedacted ? 'Re-redact' : 'Redact' }}</button>
-                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.remove', [$pack, $vpp, $vpdRow]) }}">
+                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.remove', [$pack, $vpp, $vpdRow]) }}"
+                                                          @submit.prevent="vpAction($el)">
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
                                                     </form>
                                                 @else
-                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.add', [$pack, $vpp]) }}">
+                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.add', [$pack, $vpp]) }}"
+                                                          @submit.prevent="vpAction($el)">
                                                         @csrf
                                                         <input type="hidden" name="document_id" value="{{ $doc->id }}">
                                                         <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
@@ -285,7 +306,7 @@
                             <span class="flex-1 text-sm truncate" :title="item.label" style="color: var(--text-primary);" x-text="item.label"></span>
                             <span class="text-xs flex-shrink-0" style="color: var(--text-muted);" x-text="item.docs + ' docs'"></span>
                             <form method="POST" :action="removeBase + '/' + item.id" class="flex-shrink-0"
-                                  @submit="return confirm('Remove this property from the pack?');">
+                                  @submit.prevent="confirm('Remove this property from the pack?') && vpAction($el)">
                                 @csrf
                                 <input type="hidden" name="_method" value="DELETE">
                                 <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
@@ -368,12 +389,12 @@
             </form>
             </div>{{-- /pack details card --}}
         </div>{{-- /sticky right column --}}
-    </div>{{-- /grid --}}
+    </div>{{-- /grid + #vp-content (in-place swap region, AT-110 Bug 3) --}}
 </div>
 
 {{-- Redaction modal (Step 5b) — draw black boxes; output is a flattened image-only PDF --}}
 <div x-data="redactionTool('{{ csrf_token() }}')"
-     x-on:open-redactor.window="open($event.detail)"
+     x-on:open-redactor.window="openRedactor($event.detail)"
      x-show="isOpen" x-cloak
      class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto"
      style="background: rgba(0,0,0,0.6); padding: 24px;">
@@ -429,12 +450,18 @@
             </div>
         </div>
 
-        <div class="flex items-center justify-end gap-2 px-5 py-3" style="border-top: 1px solid var(--border);">
-            <form method="POST" :action="postUrl" @submit="prepareSubmit($event)">
+        <div class="flex items-center justify-between gap-3 px-5 py-3" style="border-top: 1px solid var(--border);">
+            {{-- AT-110 Bug 2 — visible error surface: the tool NEVER fails silently. --}}
+            <p class="text-xs flex-1" style="color: var(--ds-crimson);" x-show="applyError" x-cloak x-text="applyError"></p>
+            <p class="text-xs flex-1" style="color: var(--text-muted);" x-show="!applyError && !loadError && boxCount() === 0" x-cloak>
+                Draw at least one box, or apply to flatten the page (this still destroys the text layer).
+            </p>
+            <form method="POST" :action="postUrl" @submit.prevent="applyRedaction($event)" class="flex-shrink-0">
                 @csrf
                 {{-- boxes are injected as boxes[<page>][<i>][x|y|w|h] hidden inputs by prepareSubmit() --}}
                 <div x-ref="boxesFields"></div>
-                <button type="submit" class="corex-btn-primary" x-show="!loading && !loadError">Apply redaction</button>
+                <button type="submit" class="corex-btn-primary" x-show="!loading && !loadError"
+                        :disabled="applying" x-text="applying ? 'Applying…' : 'Apply redaction'"></button>
             </form>
         </div>
     </div>
@@ -446,6 +473,8 @@ function redactionTool(csrf) {
         isOpen: false,
         loading: false,
         loadError: '',
+        applyError: '',
+        applying: false,
         label: '',
         dataUrl: '',
         postUrl: '',
@@ -453,27 +482,73 @@ function redactionTool(csrf) {
         displayBoxes: {}, // pageIndex -> [{x,y,w,h} display px]
         drag: { active: false, page: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 },
 
-        async open(detail) {
+        // AT-110 Bug 2 — renamed from open() so the handler can never resolve to the
+        // global window.open(). Surfaces the REAL failure to the agent (status + server
+        // message) instead of a single dead generic string.
+        async openRedactor(detail) {
             this.dataUrl = detail.dataUrl;
             this.postUrl = detail.postUrl;
             this.label = detail.label || '';
             this.pages = [];
             this.displayBoxes = {};
             this.loadError = '';
+            this.applyError = '';
             this.isOpen = true;
             this.loading = true;
             try {
-                const res = await fetch(this.dataUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
-                if (!res.ok) { this.loadError = 'This document could not be opened for redaction.'; this.loading = false; return; }
+                const res = await fetch(this.dataUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+                if (!res.ok) {
+                    let msg = '';
+                    try { msg = (await res.json()).error || ''; } catch (_) {}
+                    this.loadError = msg || ('This document could not be opened for redaction (HTTP ' + res.status + ').');
+                    this.loading = false;
+                    return;
+                }
                 const data = await res.json();
                 this.pages = data.pages || [];
+                if (!this.pages.length) { this.loadError = 'The document opened but produced no pages to redact.'; }
             } catch (e) {
-                this.loadError = 'This document could not be opened for redaction.';
+                this.loadError = 'This document could not be opened for redaction: ' + (e && e.message ? e.message : 'network error') + '.';
             }
             this.loading = false;
         },
         close() { this.isOpen = false; },
         clearPage(p) { this.displayBoxes[p] = []; },
+        boxCount() {
+            return Object.values(this.displayBoxes).reduce((n, arr) => n + ((arr && arr.length) || 0), 0);
+        },
+
+        // AT-110 Bug 2/3 — apply via fetch (no full reload): burn boxes server-side, then
+        // swap #vp-content so the doc's state badge flips to "Included ✓" in place. Any
+        // failure is shown inline, never swallowed.
+        async applyRedaction(e) {
+            if (this.applying) return;
+            this.applyError = '';
+            this.applying = true;
+            try {
+                this.prepareSubmit();
+                const form = e.target;
+                const res = await fetch(this.postUrl, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                if (!res.ok) {
+                    let msg = '';
+                    try { msg = (await res.json()).error || ''; } catch (_) {}
+                    this.applyError = msg || ('Redaction failed (HTTP ' + res.status + ').');
+                    this.applying = false;
+                    return;
+                }
+                this.applying = false;
+                this.close();
+                await vpSwapContent();
+            } catch (err) {
+                this.applyError = 'Redaction failed: ' + (err && err.message ? err.message : 'network error') + '.';
+                this.applying = false;
+            }
+        },
 
         startDraw(e, page) {
             const r = e.currentTarget.getBoundingClientRect();
@@ -630,6 +705,39 @@ function adhocPropertySearch(searchUrl) {
             this.searched = true;
         },
     };
+}
+
+// AT-110 Bug 3 — in-place add/remove/redact. Re-render the server's truth into
+// #vp-content (no full navigation), so scroll position is preserved and Alpine's
+// MutationObserver re-initialises the swapped subtree automatically.
+async function vpSwapContent() {
+    const res = await fetch(window.location.href, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' },
+        credentials: 'same-origin',
+    });
+    const html = await res.text();
+    const fresh = new DOMParser().parseFromString(html, 'text/html').querySelector('#vp-content');
+    const cur = document.querySelector('#vp-content');
+    if (fresh && cur) { cur.innerHTML = fresh.innerHTML; }
+}
+
+// Submit a form (add/remove property or document) without reloading the page.
+// On any non-OK response or network failure, fall back to a normal full submit so
+// the action ALWAYS happens — the in-place path is an enhancement, never a trap.
+async function vpAction(form) {
+    try {
+        const res = await fetch(form.action, {
+            method: 'POST',                       // _method spoofing carried in FormData for DELETE
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' },
+            credentials: 'same-origin',
+            redirect: 'follow',
+        });
+        if (!res.ok) { form.submit(); return; }
+        await vpSwapContent();
+    } catch (e) {
+        form.submit();
+    }
 }
 </script>
 @endsection
