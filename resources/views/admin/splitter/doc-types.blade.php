@@ -125,6 +125,16 @@
                             @endforeach
                         </select>
                     </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Viewing Pack</label>
+                        <label class="flex items-center gap-1.5 text-sm cursor-pointer" style="color: var(--text-secondary);"
+                               title="When eligible, this document type can be selected into a buyer's Viewing Pack. Leave off for identity / compliance documents.">
+                            <input type="checkbox" name="buyer_pack_eligible" value="1" {{ old('buyer_pack_eligible') ? 'checked' : '' }}
+                                   class="rounded w-4 h-4" style="accent-color: var(--brand-icon);">
+                            Buyer-pack eligible (default)
+                        </label>
+                        <p class="mt-1 text-xs" style="color: var(--text-muted);">Sets the catalogue default. Each agency can override it per type below.</p>
+                    </div>
                     <button type="submit" class="corex-btn-primary w-full">Add Type</button>
                 </form>
             </div>
@@ -198,6 +208,12 @@
                                         <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-32" style="color: var(--text-muted);">
                                             <span class="cursor-help" title="When ticked, a property cannot be marketed until at least one document of this type is on its Drive. Applies to this agency only. Photos and listing details are always required.">Compliance required &#9432;</span>
                                         </th>
+                                        <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-28" style="color: var(--text-muted);">
+                                            <span class="cursor-help" title="Catalogue default: when ticked, this document type can be selected into a buyer's Viewing Pack across all agencies, unless an agency overrides it.">Buyer Pack (default) &#9432;</span>
+                                        </th>
+                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-36" style="color: var(--text-muted);">
+                                            <span class="cursor-help" title="This agency's override of the buyer-pack default. 'Inherit' uses the catalogue default; 'Eligible' / 'Not eligible' force this agency's own choice.">Buyer Pack (this agency) &#9432;</span>
+                                        </th>
                                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-20" style="color: var(--text-muted);">Actions</th>
                                     </tr>
                                 </thead>
@@ -207,6 +223,11 @@
                                         $assigned = $t->listing_types ?? [];
                                         $dest  = $destinationMap[$t->id] ?? ['property' => true, 'contact' => false];
                                         $route = $routingMap[$t->id] ?? ['contact_roles' => [], 'fica_slot' => 'none'];
+                                        // Viewing Pack — per-agency override: present in the map only
+                                        // when set (true/false); absent => inherit the catalogue default.
+                                        $eligOverride = array_key_exists($t->id, $eligibilityMap ?? [])
+                                            ? ($eligibilityMap[$t->id] ? 'yes' : 'no')
+                                            : 'inherit';
                                     @endphp
                                     {{-- AT-105 — Routes-To/FICA are gated on the Contact destination (meaningless
                                          without it). Greyed via pointer-events (NOT `disabled`) so saved roles still
@@ -319,6 +340,24 @@
                                                    {{ ($complianceMap[$t->id] ?? false) ? 'checked' : '' }}
                                                    class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--ds-green);"
                                                    title="Require a {{ $t->label }} on the property Drive before it can be marketed (this agency only).">
+                                        </td>
+                                        <td class="px-4 py-3 text-center">
+                                            {{-- Viewing Pack catalogue default (global) — checkbox. --}}
+                                            <input type="checkbox" name="types[{{ $i }}][buyer_pack_eligible]" value="1"
+                                                   {{ $t->buyer_pack_eligible ? 'checked' : '' }}
+                                                   class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--brand-icon);"
+                                                   title="Catalogue default: allow a {{ $t->label }} to be selected into a buyer's Viewing Pack (all agencies, unless overridden below).">
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            {{-- Viewing Pack per-agency override — tri-state. --}}
+                                            <select name="types[{{ $i }}][buyer_pack_eligible_override]"
+                                                    class="w-full rounded-md px-2 py-1 text-sm"
+                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                                    title="Override the catalogue default for this agency only.">
+                                                <option value="inherit" @selected($eligOverride === 'inherit')>Inherit (default)</option>
+                                                <option value="yes" @selected($eligOverride === 'yes')>Eligible</option>
+                                                <option value="no" @selected($eligOverride === 'no')>Not eligible</option>
+                                            </select>
                                         </td>
                                         <td class="px-4 py-3 text-right">
                                             <button type="button" onclick="deleteDocType('{{ route('admin.splitter.doc-types.destroy', $t) }}', '{{ addslashes($t->label) }}')"

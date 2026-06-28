@@ -39,7 +39,12 @@ class SplitterDocTypeController extends Controller
         // keyed by document_type_id (override merged over catalogue default).
         $routingMap = $agencyId ? $this->compliance->routingMapFor($agencyId) : [];
 
-        return view('admin.splitter.doc-types', compact('types', 'context', 'complianceMap', 'destinationMap', 'routingMap'));
+        // Viewing Pack (AT-XX) — per-agency buyer-pack eligibility OVERRIDE map,
+        // keyed by document_type_id. Value: null=inherit, true/false=override.
+        // The catalogue default is read straight off each $type model.
+        $eligibilityMap = $agencyId ? $this->compliance->eligibilityOverrideMapFor($agencyId) : [];
+
+        return view('admin.splitter.doc-types', compact('types', 'context', 'complianceMap', 'destinationMap', 'routingMap', 'eligibilityMap'));
     }
 
     public function store(Request $request)
@@ -48,9 +53,10 @@ class SplitterDocTypeController extends Controller
             'label'            => 'required|string|max:100',
             'contact_roles'    => ['nullable', 'array'],
             'contact_roles.*'  => [Rule::in(SplitterDocType::CONTACT_ROLES)],
-            'fica_slot'        => ['nullable', Rule::in(SplitterDocType::FICA_SLOTS)],
-            'save_to_property' => 'nullable',
-            'save_to_contact'  => 'nullable',
+            'fica_slot'           => ['nullable', Rule::in(SplitterDocType::FICA_SLOTS)],
+            'save_to_property'    => 'nullable',
+            'save_to_contact'     => 'nullable',
+            'buyer_pack_eligible' => 'nullable',
         ]);
 
         $slug = Str::slug($request->input('label'), '_');
@@ -69,12 +75,15 @@ class SplitterDocTypeController extends Controller
         $ficaSlot = $saveContact ? ($request->input('fica_slot', 'none') ?: 'none') : 'none';
 
         $type = SplitterDocType::create([
-            'slug'          => $slug,
-            'label'         => $request->input('label'),
-            'sort_order'    => $maxSort + 1,
-            'is_active'     => true,
-            'contact_roles' => $roles,
-            'fica_slot'     => $ficaSlot,
+            'slug'                => $slug,
+            'label'               => $request->input('label'),
+            'sort_order'          => $maxSort + 1,
+            'is_active'           => true,
+            'contact_roles'       => $roles,
+            'fica_slot'           => $ficaSlot,
+            // Viewing Pack — catalogue default for the new type (per-agency
+            // override starts as inherit; no override row needed at creation).
+            'buyer_pack_eligible' => filter_var($request->input('buyer_pack_eligible'), FILTER_VALIDATE_BOOLEAN),
         ]);
 
         // Persist the per-agency Save-To destination for the new type.
@@ -132,6 +141,10 @@ class SplitterDocTypeController extends Controller
             'types.*.contact_roles'       => ['nullable', 'array'],
             'types.*.contact_roles.*'     => [Rule::in(SplitterDocType::CONTACT_ROLES)],
             'types.*.fica_slot'           => ['nullable', Rule::in(SplitterDocType::FICA_SLOTS)],
+            // Viewing Pack — catalogue default (checkbox) + per-agency override
+            // tri-state (inherit | yes | no).
+            'types.*.buyer_pack_eligible'          => 'nullable',
+            'types.*.buyer_pack_eligible_override' => ['nullable', Rule::in(['inherit', 'yes', 'no'])],
         ]);
 
         // Per-agency compliance flag target. An unchecked checkbox is simply
@@ -149,6 +162,9 @@ class SplitterDocTypeController extends Controller
                 'sort_order'    => $data['sort_order'],
                 'is_active'     => filter_var($data['is_active'], FILTER_VALIDATE_BOOLEAN),
                 'listing_types' => !empty($listingTypes) ? $listingTypes : null,
+                // Viewing Pack — catalogue default. Unchecked box is absent from
+                // the payload, so set explicitly true/false every save.
+                'buyer_pack_eligible' => filter_var($data['buyer_pack_eligible'] ?? false, FILTER_VALIDATE_BOOLEAN),
             ]);
 
             if ($agencyId) {
@@ -169,6 +185,17 @@ class SplitterDocTypeController extends Controller
                 $ficaSlot = $data['fica_slot'] ?? 'none';
                 $ficaSlot = in_array($ficaSlot, SplitterDocType::FICA_SLOTS, true) ? $ficaSlot : 'none';
                 $this->compliance->setRoleConfig($agencyId, (int) $data['id'], $roles, $ficaSlot);
+
+                // Viewing Pack — per-agency buyer-pack eligibility override.
+                // tri-state select: inherit → null (clear override), yes → true,
+                // no → false. Always present in the payload (a <select>).
+                $overrideChoice = $data['buyer_pack_eligible_override'] ?? 'inherit';
+                $override = match ($overrideChoice) {
+                    'yes'   => true,
+                    'no'    => false,
+                    default => null, // inherit
+                };
+                $this->compliance->setBuyerPackEligibility($agencyId, (int) $data['id'], $override);
             }
         }
 

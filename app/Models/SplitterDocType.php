@@ -12,7 +12,7 @@ class SplitterDocType extends Model
 
     protected $table = 'document_types';
 
-    protected $fillable = ['slug', 'label', 'sort_order', 'is_active', 'listing_types', 'contact_roles', 'fica_slot'];
+    protected $fillable = ['slug', 'label', 'sort_order', 'is_active', 'listing_types', 'contact_roles', 'fica_slot', 'buyer_pack_eligible'];
 
     /**
      * AT-105 enh — allowed values, shared by validation + UI.
@@ -22,10 +22,11 @@ class SplitterDocType extends Model
     public const FICA_SLOTS    = ['id', 'por', 'fica_form', 'none'];
 
     protected $casts = [
-        'sort_order'    => 'integer',
-        'is_active'     => 'boolean',
-        'listing_types' => 'array',
-        'contact_roles' => 'array',
+        'sort_order'          => 'integer',
+        'is_active'           => 'boolean',
+        'listing_types'       => 'array',
+        'contact_roles'       => 'array',
+        'buyer_pack_eligible' => 'boolean',
     ];
 
     public function scopeActive($query)

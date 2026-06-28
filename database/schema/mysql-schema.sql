@@ -481,6 +481,7 @@ CREATE TABLE `agency_dashboard_settings` (
   `task_due_reminders` tinyint(1) NOT NULL DEFAULT '1',
   `task_reminder_hours_before` smallint unsigned NOT NULL DEFAULT '4',
   `event_reminder_hours_before` smallint unsigned NOT NULL DEFAULT '24',
+  `event_reminder_minutes_before` smallint unsigned NOT NULL DEFAULT '60',
   `auto_archive_done_days` smallint unsigned DEFAULT NULL,
   `overdue_daily_digest` tinyint(1) NOT NULL DEFAULT '1',
   `digest_time` time NOT NULL DEFAULT '08:00:00',
@@ -515,6 +516,7 @@ CREATE TABLE `agency_document_type_compliance` (
   `save_to_contact` tinyint(1) DEFAULT NULL,
   `contact_roles` json DEFAULT NULL,
   `fica_slot` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `buyer_pack_eligible` tinyint(1) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -4153,6 +4155,7 @@ CREATE TABLE `document_types` (
   `grouping` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'shared',
   `contact_roles` json DEFAULT NULL,
   `fica_slot` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none',
+  `buyer_pack_eligible` tinyint(1) NOT NULL DEFAULT '0',
   `listing_types` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -10821,6 +10824,7 @@ CREATE TABLE `user_dashboard_settings` (
   `task_due_reminders` tinyint(1) NOT NULL DEFAULT '1',
   `task_reminder_hours_before` smallint unsigned NOT NULL DEFAULT '4',
   `event_reminder_hours_before` smallint unsigned NOT NULL DEFAULT '24',
+  `event_reminder_minutes_before` smallint unsigned NOT NULL DEFAULT '60',
   `auto_archive_done_days` smallint unsigned DEFAULT NULL,
   `overdue_daily_digest` tinyint(1) NOT NULL DEFAULT '1',
   `digest_time` time NOT NULL DEFAULT '08:00:00',
@@ -12207,3 +12211,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (884,'2026_06_26_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (885,'2026_06_26_140000_add_verified_at_softdeletes_to_p24_provinces_cities',176);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (886,'2026_06_26_220000_add_p24_image_signature_to_properties',176);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (888,'2026_06_27_120000_add_contact_role_and_fica_slot_to_document_types',177);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (889,'2026_06_27_100000_add_event_reminder_minutes_to_dashboard_settings',178);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (890,'2026_06_27_100001_switch_event_due_reminder_to_minutes',178);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (891,'2026_06_27_100002_default_event_due_reminder_to_60_minutes',178);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (892,'2026_06_28_120000_add_buyer_pack_eligible_to_document_types',178);

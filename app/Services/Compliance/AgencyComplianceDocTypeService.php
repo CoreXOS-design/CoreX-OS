@@ -357,6 +357,91 @@ class AgencyComplianceDocTypeService
         );
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Viewing Pack (AT-XX) — per-agency BUYER-PACK eligibility.
+    // Same two-layer pattern as Save-To / routing: the catalogue
+    // (`document_types.buyer_pack_eligible`) carries the default;
+    // `agency_document_type_compliance.buyer_pack_eligible` carries a NULLABLE
+    // override (NULL = inherit the catalogue default). Resolution =
+    // override-over-default. Writes go through raw DB::table() (audit finding #3).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Resolve one type's effective eligibility: agency override (if set) over
+     * the catalogue default. NULL override = inherit the catalogue.
+     */
+    private function resolveEligibility(?int $override, $catalogueDefault): bool
+    {
+        return $override !== null ? (bool) $override : (bool) $catalogueDefault;
+    }
+
+    /**
+     * Effective buyer-pack eligibility for ONE document type by slug.
+     * Unknown slug → false (safe default: never buyer-eligible unless known).
+     */
+    public function isBuyerPackEligible(int $agencyId, string $slug): bool
+    {
+        $type = DB::table('document_types')
+            ->where('slug', $slug)
+            ->whereNull('deleted_at')
+            ->first(['id', 'buyer_pack_eligible']);
+
+        if (! $type) {
+            return false;
+        }
+
+        $row = DB::table('agency_document_type_compliance')
+            ->where('agency_id', $agencyId)
+            ->where('document_type_id', $type->id)
+            ->whereNull('deleted_at')
+            ->first(['buyer_pack_eligible']);
+
+        return $this->resolveEligibility(
+            $row->buyer_pack_eligible ?? null,
+            $type->buyer_pack_eligible,
+        );
+    }
+
+    /**
+     * Raw per-agency override map for the Settings screen, keyed by
+     * document_type_id. Value is the STORED override only:
+     *   null  → no override (inherit the catalogue default)
+     *   true  → agency forces eligible
+     *   false → agency forces ineligible
+     * (The catalogue default itself is read straight off the type model.)
+     *
+     * @return array<int, bool|null>
+     */
+    public function eligibilityOverrideMapFor(int $agencyId): array
+    {
+        return DB::table('agency_document_type_compliance')
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->whereNotNull('buyer_pack_eligible')
+            ->pluck('buyer_pack_eligible', 'document_type_id')
+            ->map(fn ($v) => (bool) $v)
+            ->toArray();
+    }
+
+    /**
+     * Persist (or clear) this agency's buyer-pack eligibility override for one
+     * type. $eligible === null clears the override → the type inherits the
+     * catalogue default again. Stored alongside the other flags on the same
+     * pivot row; updateOrInsert restores a soft-deleted row and never re-seeds.
+     */
+    public function setBuyerPackEligibility(int $agencyId, int $documentTypeId, ?bool $eligible): void
+    {
+        DB::table('agency_document_type_compliance')->updateOrInsert(
+            ['agency_id' => $agencyId, 'document_type_id' => $documentTypeId],
+            [
+                'buyer_pack_eligible' => $eligible === null ? null : ($eligible ? 1 : 0),
+                'deleted_at'          => null,
+                'updated_at'          => now(),
+                'created_at'          => DB::raw('COALESCE(created_at, NOW())'),
+            ],
+        );
+    }
+
     /**
      * Seed default required types for an agency that has NEVER been
      * initialised (no rows at all, including soft-deleted). Idempotent and

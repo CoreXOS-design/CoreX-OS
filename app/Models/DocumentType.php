@@ -11,12 +11,14 @@ class DocumentType extends Model
 
     protected $table = 'document_types';
 
-    protected $fillable = ['slug', 'label', 'sort_order', 'is_active', 'grouping', 'listing_types'];
+    protected $fillable = ['slug', 'label', 'sort_order', 'is_active', 'grouping', 'listing_types', 'contact_roles', 'fica_slot', 'buyer_pack_eligible'];
 
     protected $casts = [
-        'sort_order'    => 'integer',
-        'is_active'     => 'boolean',
-        'listing_types' => 'array',
+        'sort_order'          => 'integer',
+        'is_active'           => 'boolean',
+        'listing_types'       => 'array',
+        'contact_roles'       => 'array',
+        'buyer_pack_eligible' => 'boolean',
     ];
 
     /**
