@@ -9,7 +9,10 @@
     // null-id rows, and derive the pre-selected ids FROM this same list so
     // pickerProperties and pickerSelected can never diverge (the divergence
     // that dropped prefill_properties from the Schedule-Viewing handoff).
-    $viewingPickerProps = $matched->take(6)->map(fn ($mp) => [
+    // The Schedule Viewing modal shows ALL of the buyer's canonical matches
+    // (no 6-cap) — $matched is the full canonical set; "Select all" + scroll
+    // handle long lists.
+    $viewingPickerProps = $matched->map(fn ($mp) => [
         'id'          => data_get($mp, 'id'),
         'address'     => data_get($mp, 'address'),
         'suburb'      => data_get($mp, 'suburb'),
