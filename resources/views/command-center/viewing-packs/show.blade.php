@@ -35,36 +35,56 @@
         {{-- LEFT: selection (selected list + Core Matches + ad-hoc search) --}}
         <div class="lg:col-span-2 space-y-4">
 
-            {{-- Selected properties --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            {{-- Selected properties — drag to set the viewing order (manual; no auto-routing) --}}
+            @php
+                $orderedItems = $pack->viewingPackProperties->map(fn ($vpp) => [
+                    'id'     => $vpp->id,
+                    'label'  => optional($vpp->property)->address ?: ('Property #' . $vpp->property_id),
+                    'source' => str_replace('_', ' ', $vpp->source),
+                    'docs'   => $vpp->viewingPackDocuments->count(),
+                ])->values();
+                $removeBase = url('corex/viewing-packs/' . $pack->id . '/properties');
+            @endphp
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+                 x-data="viewingPackOrder(@js($orderedItems), '{{ route('corex.viewing-packs.properties.reorder', $pack) }}', '{{ $removeBase }}', '{{ csrf_token() }}')">
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
-                    <span class="text-xs" style="color: var(--text-muted);">{{ $pack->viewingPackProperties->count() }} selected</span>
+                    <span class="text-xs" style="color: var(--text-muted);"><span x-text="items.length"></span> selected</span>
                 </div>
 
-                @if($pack->viewingPackProperties->isEmpty())
+                <template x-if="items.length === 0">
                     <div class="rounded-md py-8 px-6 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
                         <p class="text-sm font-medium" style="color: var(--text-secondary);">No properties selected yet.</p>
                         <p class="text-xs mt-1" style="color: var(--text-muted);">Add from Core Matches below, or search any property.</p>
                     </div>
-                @else
-                    <ol class="space-y-2">
-                        @foreach($pack->viewingPackProperties as $vpp)
-                            <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
-                                <span class="text-sm font-semibold" style="color: var(--text-muted);">{{ $vpp->sort_order }}.</span>
-                                <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ optional($vpp->property)->address ?? ('Property #' . $vpp->property_id) }}</span>
-                                <span class="ds-badge ds-badge-default" title="How this property entered the pack">{{ str_replace('_', ' ', $vpp->source) }}</span>
-                                <form method="POST" action="{{ route('corex.viewing-packs.properties.remove', [$pack, $vpp]) }}"
-                                      onsubmit="return confirm('Remove this property from the pack?');">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
-                                </form>
-                            </li>
-                        @endforeach
-                    </ol>
-                @endif
-                <p class="mt-3 text-xs" style="color: var(--text-muted);">Drag-to-order, document selection and the PDFs arrive in the next steps.</p>
+                </template>
+
+                <ol class="space-y-2" x-show="items.length > 0">
+                    <template x-for="(item, idx) in items" :key="item.id">
+                        <li class="flex items-center gap-3 rounded-md px-3 py-2"
+                            style="background: var(--surface-2); border: 1px solid var(--border);"
+                            draggable="true"
+                            @dragstart="dragStart($event, idx)"
+                            @dragover.prevent="dragOver($event, idx)"
+                            @drop.prevent="drop($event, idx)"
+                            @dragend="dragEnd()"
+                            :style="dragIdx === idx ? 'background: var(--surface-2); border: 1px solid var(--brand-icon); opacity:0.6;' : 'background: var(--surface-2); border: 1px solid var(--border);'">
+                            <span class="cursor-move select-none text-base" title="Drag to reorder" style="color: var(--text-muted);">⠿</span>
+                            <span class="text-sm font-semibold w-5 text-right" style="color: var(--text-muted);" x-text="(idx + 1) + '.'"></span>
+                            <span class="flex-1 text-sm" style="color: var(--text-primary);" x-text="item.label"></span>
+                            <span class="ds-badge ds-badge-default" title="How this property entered the pack" x-text="item.source"></span>
+                            <span class="text-xs" style="color: var(--text-muted);" x-text="item.docs + ' docs'"></span>
+                            <form method="POST" :action="removeBase + '/' + item.id"
+                                  @submit="return confirm('Remove this property from the pack?');">
+                                @csrf
+                                <input type="hidden" name="_method" value="DELETE">
+                                <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
+                            </form>
+                        </li>
+                    </template>
+                </ol>
+
+                <p class="mt-3 text-xs" style="color: var(--text-muted);">Drag rows to set the viewing order. This sequence becomes the page order in both PDFs. Document selection and the PDFs arrive in the next steps.</p>
             </div>
 
             {{-- Core Matches (canonical engine) --}}
@@ -164,6 +184,44 @@
 </div>
 
 <script>
+function viewingPackOrder(items, reorderUrl, removeBase, csrf) {
+    return {
+        items: items,
+        removeBase: removeBase,
+        dragIdx: null,
+        dragStart(e, idx) {
+            this.dragIdx = idx;
+            e.dataTransfer.effectAllowed = 'move';
+        },
+        dragOver(e, idx) {
+            if (this.dragIdx === null || this.dragIdx === idx) return;
+            const moved = this.items.splice(this.dragIdx, 1)[0];
+            this.items.splice(idx, 0, moved);
+            this.dragIdx = idx; // sequence numbers (idx+1) update reactively
+        },
+        async drop(e, idx) {
+            if (this.dragIdx === null) return;
+            this.dragIdx = null;
+            const order = this.items.map(it => it.id);
+            try {
+                await fetch(reorderUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': csrf,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify({ order }),
+                });
+            } catch (err) {
+                // Order persists on next successful drop; reload reflects the server truth.
+            }
+        },
+        dragEnd() { this.dragIdx = null; },
+    };
+}
+
 function adhocPropertySearch(searchUrl) {
     return {
         q: '',

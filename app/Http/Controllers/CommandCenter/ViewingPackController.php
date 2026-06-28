@@ -9,6 +9,7 @@ use App\Models\ViewingPack;
 use App\Models\ViewingPackProperty;
 use App\Services\ViewingPack\ViewingPackSelectionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -94,6 +95,51 @@ class ViewingPackController extends Controller
         $selection->removeProperty($viewingPackProperty);
 
         return back()->with('success', 'Property removed from the pack.');
+    }
+
+    /**
+     * Persist the agent's manual drag order (spec §4 — no auto-routing). The
+     * submitted `order` is the full list of this pack's property-row ids in the
+     * new sequence; we rewrite sort_order as a COMPACT 1..N over exactly the
+     * rows that belong to this pack, in one transaction, so a prior removal
+     * leaves no gap and a foreign id can never touch another pack/agency.
+     */
+    public function reorderProperties(Request $request, ViewingPack $viewingPack)
+    {
+        $data = $request->validate([
+            'order'   => ['required', 'array'],
+            'order.*' => ['integer'],
+        ]);
+
+        DB::transaction(function () use ($data, $viewingPack) {
+            // Current pack rows in their existing order (scoped to this pack +
+            // agency). This is the authoritative membership set — a stray/foreign
+            // id in the payload is filtered out, never written.
+            $currentIds = $viewingPack->viewingPackProperties()->ordered()->pluck('id')->all();
+
+            $submitted = array_values(array_filter(
+                array_map('intval', $data['order']),
+                fn ($id) => in_array($id, $currentIds, true),
+            ));
+
+            // Any pack rows the payload omitted keep their relative order at the
+            // end — so the write is always a COHERENT FULL sequence, never partial.
+            $remaining  = array_values(array_diff($currentIds, $submitted));
+            $finalOrder = array_merge($submitted, $remaining);
+
+            // Compact 1..N. Increment per row regardless of whether the value
+            // actually changed (MySQL reports 0 affected for a no-op update —
+            // gating on affected-count would collide positions).
+            $position = 1;
+            foreach ($finalOrder as $rowId) {
+                $viewingPack->viewingPackProperties()
+                    ->whereKey($rowId)
+                    ->update(['sort_order' => $position]);
+                $position++;
+            }
+        });
+
+        return response()->json(['ok' => true]);
     }
 
     /** Scoped property typeahead for ad-hoc selection (agency-bounded). */

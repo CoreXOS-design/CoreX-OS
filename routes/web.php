@@ -1349,6 +1349,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{viewingPack}/properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addProperty'])->name('properties.add');
         Route::delete('/{viewingPack}/properties/{viewingPackProperty}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'removeProperty'])->name('properties.remove');
         Route::get('/{viewingPack}/search-properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'searchProperties'])->name('properties.search');
+        // Step 4 — manual drag order (no auto-routing). Body: { order: [rowId, …] }.
+        Route::post('/{viewingPack}/properties/reorder', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'reorderProperties'])->name('properties.reorder');
     });
 
     // ── Agent Portal ──
