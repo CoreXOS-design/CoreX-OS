@@ -840,7 +840,11 @@ class Property extends Model
         return [
             'p24' => $this->buildP24Url(),
             'pp'  => $this->buildPpUrl(),
-            'hfc' => $this->isOnHfcWebsite() ? $this->buildHfcUrl() : null,
+            // The company-website URL is the same canonical public_url the
+            // "View on website" button uses — single source of truth. The live
+            // site resolves a listing by the trailing CoreX id under
+            // /property/{slug}-{id}; the old /listing/{ref}/… pattern 404s.
+            'hfc' => $this->isOnHfcWebsite() ? $this->public_url : null,
         ];
     }
 
@@ -855,27 +859,6 @@ class Property extends Model
     public function isOnHfcWebsite(): bool
     {
         return $this->status === 'active' && (int) $this->agency_id === 1;
-    }
-
-    /**
-     * Compose the canonical hfcoastal.co.za listing URL. Pattern (live):
-     *   https://www.hfcoastal.co.za/listing/{listing_id}/{type}-{transaction}-in-{suburb}-{city}-{province}
-     *
-     * `listing_id` falls back to the CoreX property id when the HFC website
-     * hasn't written back its own ref yet — same placeholder approach as
-     * isOnHfcWebsite() above.
-     */
-    public function buildHfcUrl(): string
-    {
-        $listingId   = $this->hfc_website_ref ?? $this->id;
-        $type        = \Illuminate\Support\Str::slug($this->property_type ?? 'property');
-        $transaction = $this->listing_type === 'rental' ? 'to-let' : 'for-sale';
-        $suburb      = \Illuminate\Support\Str::slug($this->suburb ?? '');
-        $city        = \Illuminate\Support\Str::slug($this->city ?? $this->town ?? '');
-        $province    = \Illuminate\Support\Str::slug($this->province ?? 'kwazulu-natal');
-
-        $slug = "{$type}-{$transaction}-in-{$suburb}-{$city}-{$province}";
-        return "https://www.hfcoastal.co.za/listing/{$listingId}/{$slug}";
     }
 
     /**

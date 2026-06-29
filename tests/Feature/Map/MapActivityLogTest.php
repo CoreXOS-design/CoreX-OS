@@ -709,9 +709,11 @@ final class MapActivityLogTest extends TestCase
 
     // ── A.2.3 Item 4 — Portal strip + listing_opened activity ─────────────
 
-    /** M40 — Property::publicListingUrls() populates hfc slot when active. */
+    /** M40 — Property::publicListingUrls() populates hfc slot when active.
+     *        The hfc slot IS the canonical public_url (single source of truth). */
     public function test_m40_public_listing_urls_includes_hfc_when_eligible(): void
     {
+        config()->set('integrations.public_website_url', 'https://www.hfcoastal.co.za');
         $p = new \App\Models\Property();
         $p->setRawAttributes([
             'id'        => 999,
@@ -726,17 +728,23 @@ final class MapActivityLogTest extends TestCase
         ]);
         $urls = $p->publicListingUrls();
         $this->assertNotNull($urls['hfc']);
-        $this->assertStringContainsString('hfcoastal.co.za/listing/999/', $urls['hfc']);
+        // /property/{slug}-{id}, resolved by the trailing CoreX id — NOT the
+        // retired /listing/{ref}/… pattern, which 404s on the live site.
+        $this->assertStringContainsString('hfcoastal.co.za/property/999', $urls['hfc']);
+        $this->assertSame($p->public_url, $urls['hfc']);
     }
 
-    /** M41 — buildHfcUrl matches the canonical pattern. */
-    public function test_m41_build_hfc_url_matches_canonical_pattern(): void
+    /** M41 — the hfc slot resolves to the canonical public_url pattern:
+     *        {base}/property/{slug}-{id}. */
+    public function test_m41_hfc_slot_matches_canonical_public_url_pattern(): void
     {
+        config()->set('integrations.public_website_url', 'https://www.hfcoastal.co.za');
         $p = new \App\Models\Property();
         $p->setRawAttributes([
             'id'            => 1569172,
             'agency_id'     => 1,
             'status'        => 'active',
+            'title'         => 'Apartment for sale in Uvongo Beach',
             'property_type' => 'apartment',
             'listing_type'  => 'sale',
             'suburb'        => 'Uvongo Beach',
@@ -745,8 +753,8 @@ final class MapActivityLogTest extends TestCase
             'province'      => 'KwaZulu-Natal',
         ]);
         $this->assertSame(
-            'https://www.hfcoastal.co.za/listing/1569172/apartment-for-sale-in-uvongo-beach-margate-kwazulu-natal',
-            $p->buildHfcUrl(),
+            'https://www.hfcoastal.co.za/property/apartment-for-sale-in-uvongo-beach-1569172',
+            $p->publicListingUrls()['hfc'],
         );
     }
 
