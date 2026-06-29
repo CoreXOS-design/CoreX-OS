@@ -18,7 +18,8 @@ class PpSmokeTest extends Command
             : null;
         $client->forAgency($agency);
         $cfg = PrivatePropertyConfig::for($agency);
-        $this->info('Connecting to Private Property sandbox...');
+        $env = $cfg['sandbox'] ? 'sandbox' : 'production';
+        $this->info("Connecting to Private Property ({$env})...");
         $this->info('WSDL: ' . $cfg['wsdl']);
         $this->info('Branch GUID: ' . $cfg['branch_guid']);
         $this->newLine();
@@ -37,7 +38,7 @@ class PpSmokeTest extends Command
         $this->line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         $this->newLine();
-        $this->info('Private Property sandbox connection confirmed.');
+        $this->info("Private Property {$env} connection confirmed.");
 
         return self::SUCCESS;
     }

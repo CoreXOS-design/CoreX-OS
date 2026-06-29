@@ -66,10 +66,18 @@ PP_IMAGE_BASE_URL=https://corex.hfcoastal.co.za
 PP_USERNAME=<production username from PP>
 PP_PASSWORD=<production password from PP>
 PP_BRANCH_GUID=<production branch GUID from PP — may be the same>
-PP_WSDL=https://services.pp.co.za/AgentImport/AgentImport.asmx?WSDL
+PP_WSDL=https://services.privateproperty.co.za/AgentImport/AgentImport.asmx?WSDL
 PP_SANDBOX=false
 PP_IMAGE_BASE_URL=https://corex.hfcoastal.co.za
 ```
+
+> **Production WSDL host — verified 2026-06-29.** The production feed host is
+> `services.privateproperty.co.za` (Azure SA, 102.133.146.73). The previously
+> documented `services.pp.co.za` is **NXDOMAIN** — it does not exist and was a
+> never-tested guess based on the sandbox naming convention
+> (`services.sandbox.pp.co.za`). Confirmed live with the CoreX production feed
+> account (`GetBranchDetails` → AgentId 10489, branch "Home Finders Coastal",
+> `Active: true`). The sandbox host remains `services.sandbox.pp.co.za`.
 
 **Note:** `PP_IMAGE_BASE_URL` must point to a publicly accessible domain on port 80 or 443. PP's servers fetch images from this URL. `localhost` or custom ports (e.g. `:8084`) will NOT work.
 
@@ -207,7 +215,7 @@ Add this line if not already present:
    ```
    PP_USERNAME=<production>
    PP_PASSWORD=<production>
-   PP_WSDL=https://services.pp.co.za/AgentImport/AgentImport.asmx?WSDL
+   PP_WSDL=https://services.privateproperty.co.za/AgentImport/AgentImport.asmx?WSDL
    PP_SANDBOX=false
    ```
 3. `php artisan config:cache`
