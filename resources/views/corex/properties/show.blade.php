@@ -5269,7 +5269,9 @@
                     $recentViewings = $intel->getRecentViewings($property->id);
                 @endphp
                 @if($recentViewings->isNotEmpty())
-                    <div id="recent-viewings-feedback" class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border); scroll-margin-top: 5rem;">
+                    <div id="recent-viewings-feedback" class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border); scroll-margin-top: 5rem;"
+                         x-data="{ feedbackDone: [] }"
+                         x-on:corex:feedback-saved.window="if (!feedbackDone.includes($event.detail.eventId)) feedbackDone.push($event.detail.eventId)">
                         <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Recent Viewings & Feedback</h3>
                         <div class="space-y-3">
                             @foreach($recentViewings as $rv)
@@ -5308,13 +5310,31 @@
                                             </div>
                                         @endforeach
                                     @else
-                                        <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
+                                        {{-- AT-114 — capture feedback in place (past events only); flips to a chip on save. --}}
+                                        <template x-if="feedbackDone.includes({{ $rv['event_id'] }})">
+                                            <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">Feedback captured</span>
+                                        </template>
+                                        <template x-if="!feedbackDone.includes({{ $rv['event_id'] }})">
+                                            <div class="mt-1 flex items-center gap-2">
+                                                <span class="text-[10px] inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
+                                                @if(\Carbon\Carbon::parse($rv['event_date'])->lt(now()))
+                                                    <button type="button"
+                                                            @click="window.dispatchEvent(new CustomEvent('corex:open-event-feedback', { detail: { eventId: {{ $rv['event_id'] }} } }))"
+                                                            class="text-[10px] font-semibold no-underline hover:underline" style="color:var(--brand-icon, #00d4aa);">
+                                                        Provide feedback
+                                                    </button>
+                                                @endif
+                                            </div>
+                                        </template>
                                     @endif
                                 </div>
                             @endforeach
                         </div>
                     </div>
                 @endif
+
+                {{-- AT-114 — reusable feedback modal, summoned by the "Provide feedback" triggers above. --}}
+                @include('command-center.calendar._event-feedback-modal')
 
                 {{-- Section: Seller Live Links (auto-created, no generate button) --}}
                 <div x-show="!sellerPreview">
