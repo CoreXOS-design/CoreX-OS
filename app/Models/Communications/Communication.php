@@ -25,7 +25,7 @@ class Communication extends Model
         'from_identifier', 'participant_identifiers', 'occurred_at', 'captured_at',
         'provisional_at', 'subject', 'body_text', 'body_preview', 'raw_path',
         'has_attachments', 'content_hash', 'text_hash', 'source_ref',
-        'purged_at', 'purged_reason',
+        'owner_user_id', 'purged_at', 'purged_reason',
     ];
 
     protected $casts = [
@@ -47,6 +47,16 @@ class Communication extends Model
     public function links(): HasMany
     {
         return $this->hasMany(CommunicationLink::class);
+    }
+
+    /**
+     * AT-122 — the agent whose mailbox/device this message was ingested through
+     * (provenance). Nullable. The future AT-118 gate keys per-agent visibility
+     * off this; nothing reads it yet.
+     */
+    public function owner(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'owner_user_id');
     }
 
     // ── Scopes ──

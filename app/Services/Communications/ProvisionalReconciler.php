@@ -109,6 +109,8 @@ class ProvisionalReconciler
             'text_hash'               => $promote['text_hash'] ?? $hit->text_hash,
             'has_attachments'         => (bool) ($promote['has_attachments'] ?? $hit->has_attachments),
             'source_ref'              => $promote['source_ref'] ?? $hit->source_ref,
+            // AT-122 — carry owning-agent provenance onto the promoted row too.
+            'owner_user_id'           => $promote['owner_user_id'] ?? $hit->owner_user_id,
             'provisional_at'          => null,
         ]);
         $hit->save();
