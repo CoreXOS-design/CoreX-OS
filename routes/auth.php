@@ -26,7 +26,10 @@ Route::get('account-setup/{user}', [AccountSetupController::class, 'show'])
 Route::post('account-setup/{user}', [AccountSetupController::class, 'store'])
     ->name('account.setup.store');
 
-Route::middleware('guest')->group(function () {
+// `auth.nocache` forces no-store cache headers on these pages so the browser
+// never restores a stale login/register/reset form from bfcache with a dead
+// CSRF token — the root cause of intermittent 419 "Page Expired" on sign-in.
+Route::middleware(['guest', 'auth.nocache'])->group(function () {
     Route::get('register', [RegisteredUserController::class, 'create'])
         ->name('register');
 

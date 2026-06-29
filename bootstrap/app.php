@@ -38,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->alias([
+            'auth.nocache' => \App\Http\Middleware\PreventAuthPageCaching::class,
             'tv' => \App\Http\Middleware\TvTokenMiddleware::class,
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
             'branch_manager' => \App\Http\Middleware\BranchManagerMiddleware::class,
@@ -100,6 +101,17 @@ return Application::configure(basePath: dirname(__DIR__))
                     'ok'    => false,
                     'error' => 'Your session expired — please sign in and continue.',
                 ], 419);
+            }
+            // A token mismatch from a guest — almost always a stale/bfcached
+            // login form whose CSRF token no longer matches the session —
+            // self-heals by bouncing back to a freshly-rendered login page.
+            // Sending a logged-out visitor to /dashboard would only re-bounce
+            // them here anyway; this lands them on a live form in one hop with
+            // a visible notice (login view renders session('status')).
+            if (! $request->user()) {
+                return redirect()
+                    ->route('login')
+                    ->with('status', 'Your session refreshed — please sign in again.');
             }
             return redirect()
                 ->route('dashboard')
