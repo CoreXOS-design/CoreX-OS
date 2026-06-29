@@ -6326,6 +6326,46 @@ CREATE TABLE `onboarding_checklists` (
   CONSTRAINT `onboarding_checklists_completed_by_foreign` FOREIGN KEY (`completed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `outreach_queue`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `outreach_queue` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned DEFAULT NULL,
+  `agent_id` bigint unsigned NOT NULL,
+  `template_id` bigint unsigned DEFAULT NULL,
+  `seller_outreach_send_id` bigint unsigned DEFAULT NULL,
+  `channel` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'whatsapp',
+  `source` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body_snapshot` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `due_at` datetime NOT NULL,
+  `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `claimed_at` datetime DEFAULT NULL,
+  `surfaced_at` datetime DEFAULT NULL,
+  `sent_at` datetime DEFAULT NULL,
+  `dropped_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `outreach_queue_agency_id_foreign` (`agency_id`),
+  KEY `outreach_queue_contact_id_foreign` (`contact_id`),
+  KEY `outreach_queue_property_id_foreign` (`property_id`),
+  KEY `outreach_queue_template_id_foreign` (`template_id`),
+  KEY `outreach_queue_seller_outreach_send_id_foreign` (`seller_outreach_send_id`),
+  KEY `outreach_queue_status_due_at_index` (`status`,`due_at`),
+  KEY `outreach_queue_agent_id_status_index` (`agent_id`,`status`),
+  KEY `outreach_queue_due_at_index` (`due_at`),
+  CONSTRAINT `outreach_queue_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `outreach_queue_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `outreach_queue_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `outreach_queue_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `outreach_queue_seller_outreach_send_id_foreign` FOREIGN KEY (`seller_outreach_send_id`) REFERENCES `seller_outreach_sends` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `outreach_queue_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `seller_outreach_templates` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `oversight_nudges`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12326,3 +12366,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (896,'2026_06_28_14
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (897,'2026_07_05_000001_add_viewing_pack_redaction_dpi_to_agencies',181);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (898,'2026_07_05_000002_add_viewing_pack_tour_scheduling',182);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (899,'2026_07_06_000003_add_outreach_send_window_to_agencies_table',183);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (901,'2026_07_07_000001_create_outreach_queue_table',184);

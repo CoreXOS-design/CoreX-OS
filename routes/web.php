@@ -2026,6 +2026,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->group(function () {
             Route::get('/compose',     [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'show'])->name('show');
             Route::post('/send',       [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'submit'])->name('submit');
+            // AT-117 §4 — add the prepared pitch to the deferred outreach queue (due-time, in-window).
+            Route::post('/queue',      [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'queue'])->name('queue');
             Route::get('/sent/{send}', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'sent'])->name('sent');
 
             // Timeline (Prompt 07) — agent-side view of every send + click + opt-out
@@ -2486,6 +2488,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('corex.outreach-canvassing.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\OutreachCanvassingController::class, 'index'])->name('index');
+        });
+
+    // AT-117 §6 — Outreach Queue (work-the-list). The agent works their surfaced
+    // rows; "Open WhatsApp" reuses the seller-outreach deep-link + send pipeline.
+    // Gated on outreach.compose (an agent who composes works the queue).
+    Route::prefix('real-estate/outreach-queue')
+        ->middleware(['permission:outreach.compose', 'agency.required'])
+        ->name('corex.outreach-queue.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'index'])->name('index');
+            // AT-117 §7 — canonical client enqueue (MIC / map surfaces capture body here).
+            Route::post('/enqueue', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'enqueue'])->name('enqueue');
+            Route::post('/{outreachQueue}/open',   [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'open'])->name('open');
+            Route::post('/{outreachQueue}/cancel', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'cancel'])->name('cancel');
         });
 
     // Contacts

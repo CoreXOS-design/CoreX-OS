@@ -554,6 +554,13 @@ document.addEventListener('DOMContentLoaded', function () {
     // actions stay available (prepare now, send when the window opens).
     const OUTREACH_SEND_ALLOWED  = @json($outreachWindow['allowed'] ?? true);
     const OUTREACH_WINDOW_MESSAGE = @json($outreachWindow['message'] ?? '');
+    // AT-117 §7 — SA phone normaliser for WhatsApp deep-links: strip to digits,
+    // convert a leading 0 to the 27 country code (matches every other WA path).
+    function normalizeWaPhone(raw) {
+        let d = String(raw || '').replace(/\D/g, '');
+        if (d.startsWith('0')) d = '27' + d.slice(1);
+        return d;
+    }
     // Phase A.3.2 — saved-search CRUD endpoints.
     const SAVED_SEARCH_INDEX_URL  = @json(route('corex.map.saved-searches.index'));
     const SAVED_SEARCH_STORE_URL  = @json(route('corex.map.saved-searches.store'));
@@ -1879,7 +1886,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 // detail to copy the contact details manually.
                 const phone = record.owner_phone || null;
                 const waText = encodeURIComponent('Hi — I noticed your unit at ' + (record.title || 'your building') + ' and wondered if you have a moment to chat.');
-                const waUrl  = phone ? 'https://wa.me/' + phone.replace(/\D/g, '') + '?text=' + waText : null;
+                // AT-117 §7 — normalise SA leading-0 → 27 (matches every other WA path;
+                // the bare digits-only strip here was undialable for local numbers).
+                const waUrl  = phone ? 'https://wa.me/' + normalizeWaPhone(phone) + '?text=' + waText : null;
                 return [{
                     key:       'contact_owner_launched',
                     label:     'Contact owner →',

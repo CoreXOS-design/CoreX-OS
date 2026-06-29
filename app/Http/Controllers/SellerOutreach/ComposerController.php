@@ -5,13 +5,18 @@ declare(strict_types=1);
 namespace App\Http\Controllers\SellerOutreach;
 
 use App\Http\Controllers\Controller;
+use App\Models\Agency;
 use App\Models\Contact;
+use App\Models\Outreach\OutreachQueue;
 use App\Models\Property;
 use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Models\SellerOutreach\SellerOutreachTemplate;
 use App\Services\Map\MapProspectStatusService;
+use App\Services\Outreach\OutreachWindowService;
+use App\Services\SellerOutreach\MarketingConsentService;
 use App\Services\SellerOutreach\SellerOutreachComposerService;
 use App\Services\SellerOutreach\SellerOutreachSenderService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 /**
@@ -293,6 +298,89 @@ final class ComposerController extends Controller
         return redirect()
             ->route('seller-outreach.composer.sent', ['contact' => $contact->id, 'send' => $send->id])
             ->with('client_url', $clientUrl);
+    }
+
+    /**
+     * AT-117 §4 — add the prepared pitch to the deferred outreach queue instead of
+     * sending now. Reuses the SAME render the send path uses (composeContext →
+     * renderedBody); opt-out/tracking tokens are left literal so they resolve fresh
+     * at dispatch (§4b), never frozen at queue time. due_at is constrained to the
+     * agency send-window SERVER-SIDE; consent is checked at queue time (canMarketTo)
+     * and re-checked at surface by the §5 sweep.
+     */
+    public function queue(Request $request, Contact $contact, \App\Services\Outreach\OutreachQueueService $queueService)
+    {
+        $agencyId = $this->ensureAgencyContext($request, $contact);
+
+        $validated = $request->validate([
+            'property_id' => 'nullable|integer',
+            'channel'     => 'required|in:whatsapp,email',
+            'template_id' => 'nullable|integer',
+            'subject'     => 'nullable|string|max:255',
+            'body'        => 'required|string',
+            'due_at'      => 'required|date',
+        ]);
+
+        // Property resolution — identical guard to submit().
+        $property = null;
+        if (!empty($validated['property_id'])) {
+            $property = Property::withoutGlobalScopes()
+                ->where('id', $validated['property_id'])
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->firstOrFail();
+        } elseif (!$contact->hasStructuredAddress()) {
+            return $this->queueError($request, 'Cannot queue: this contact has no linked property and no captured address to pitch.');
+        }
+
+        $templateId = !empty($validated['template_id']) ? (int) $validated['template_id'] : null;
+
+        // SAME render the send path uses — no parallel rendering. renderedBody keeps
+        // {opt_out_link}/{tracking_link} literal → resolved fresh at dispatch (§4b).
+        $context = $this->composer->composeContext(
+            agencyId:        $agencyId,
+            contact:         $contact,
+            property:        $property,
+            channel:         $validated['channel'],
+            templateId:      $templateId,
+            agent:           $request->user(),
+            bodyOverride:    $validated['body'],
+            subjectOverride: $validated['subject'] ?? null,
+        );
+
+        // Reachability (no phone / no email / missing tracking link) — same hard
+        // block as send-now: don't queue something that can never be dispatched.
+        if (!empty($context->validationIssues)) {
+            return $this->queueError($request, 'Cannot queue: ' . implode(' ', $context->validationIssues));
+        }
+
+        $agency = Agency::find($agencyId);
+        try {
+            $dueAt = Carbon::parse($validated['due_at'], $agency?->outreachTimezone() ?? config('app.timezone'));
+        } catch (\Throwable $e) {
+            return $this->queueError($request, 'Could not read the chosen due time — pick it again.');
+        }
+
+        // Canonical enqueue (consent + window + create) — shared with MIC/map (§7).
+        $res = $queueService->enqueue(
+            $agency, $contact, $request->user(), $validated['channel'],
+            OutreachQueue::SOURCE_CONTACT, $context->renderedBody, $dueAt, $property
+        );
+        if (!$res['ok']) {
+            return $this->queueError($request, $res['message'], $res['extra'] ?? []);
+        }
+
+        return $request->wantsJson()
+            ? response()->json(['queued' => true, 'queue_id' => $res['row']->id, 'due_at' => $dueAt->toIso8601String(), 'message' => $res['message']])
+            : redirect()->route('seller-outreach.composer.show', ['contact' => $contact->id])->with('success', $res['message']);
+    }
+
+    /** Uniform queue-error response (JSON 422 for the Alpine flow, flash for non-JSON). */
+    private function queueError(Request $request, string $msg, array $extra = [])
+    {
+        return $request->wantsJson()
+            ? response()->json(array_merge(['queued' => false, 'message' => $msg], $extra), 422)
+            : back()->with('error', $msg);
     }
 
     public function sent(Request $request, Contact $contact, int $send)
