@@ -54,7 +54,7 @@ class NewPortalLeadAgentNotification extends Notification
 
         return $mail
             ->line('They have been added to your buyer pipeline with a wishlist derived from the property they enquired on.')
-            ->action('Open the lead', url('/portal-leads/' . $this->lead->id))
+            ->action('Open the lead', route('corex.portal-leads.index', ['highlight' => $this->lead->id]))
             ->line('Reach out while the enquiry is hot.');
     }
 
@@ -65,7 +65,7 @@ class NewPortalLeadAgentNotification extends Notification
             'title'          => 'New ' . $this->lead->portalLabel() . ' lead',
             'body'           => trim(($this->lead->name ?: 'A buyer')
                 . ($this->lead->listing_portal_ref ? ' — ' . $this->lead->listing_portal_ref : '')),
-            'action_url'     => '/portal-leads/' . $this->lead->id,
+            'action_url'     => route('corex.portal-leads.index', ['highlight' => $this->lead->id]),
             'icon'           => 'inbox',
             'portal_lead_id' => $this->lead->id,
             'portal'         => $this->lead->portal,
