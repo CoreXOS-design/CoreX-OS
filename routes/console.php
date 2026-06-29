@@ -185,6 +185,10 @@ Schedule::command('buyers:recompute-states')->dailyAt('04:00')->onOneServer()->w
 // ── Seller Outreach (AT-81) — lapse silent PENDING contacts to no_response ──
 Schedule::command('outreach:recompute-no-response')->dailyAt('04:15')->onOneServer()->withoutOverlapping();
 
+// ── Outreach Queue (AT-117 §5) — surface due rows (claim → re-check canMarketTo →
+// surface/drop) + expire stale surfaced rows. Every minute, single-runner. ──
+Schedule::command('outreach:surface-due')->everyMinute()->onOneServer()->withoutOverlapping();
+
 // ── Property Intelligence (M5) ──
 Schedule::command('properties:generate-recommendations')->weeklyOn(1, '05:00')->onOneServer()->withoutOverlapping();
 
