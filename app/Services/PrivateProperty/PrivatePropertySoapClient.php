@@ -120,12 +120,22 @@ class PrivatePropertySoapClient
                     'attempt' => $attempt,
                 ]);
 
-                return ['error' => true, 'message' => $e->getMessage()];
+                // Surface a clean, human message to callers/UI; keep the raw
+                // .NET fault in logs (above) and under 'raw' for debugging.
+                return [
+                    'error'   => true,
+                    'message' => PpFaultTranslator::friendly($e->getMessage()),
+                    'raw'     => $e->getMessage(),
+                ];
             }
         }
 
         // Should never reach here, but just in case
-        return ['error' => true, 'message' => $lastError?->getMessage() ?? 'Unknown error'];
+        return [
+            'error'   => true,
+            'message' => PpFaultTranslator::friendly($lastError?->getMessage()),
+            'raw'     => $lastError?->getMessage() ?? 'Unknown error',
+        ];
     }
 
     /**

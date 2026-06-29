@@ -28,8 +28,16 @@
         </div>
         @endif
         @if($errors->any())
+        {{-- List EVERY error, not just the first. A save bounces back here; if
+             we only show one, the agent can't tell why "nothing saved" (e.g. a
+             location + a beds/baths problem at once). --}}
         <div class="flex-1 rounded-md border px-4 py-2 text-sm" style="background:color-mix(in srgb, #dc2626 10%, transparent); border-color:color-mix(in srgb, #dc2626 30%, transparent); color:#dc2626;">
-            {{ $errors->first() }}
+            <p class="font-semibold mb-1">Couldn't save — please fix:</p>
+            <ul class="list-disc list-inside space-y-0.5">
+                @foreach($errors->all() as $error)
+                <li>{{ $error }}</li>
+                @endforeach
+            </ul>
         </div>
         @endif
     </div>
