@@ -256,6 +256,69 @@ class MarketingConsentService
             ->exists();
     }
 
+    // ── Consolidated marketability gate (AT-117 §4b) ─────────────────────
+    //
+    // ONE canonical "may I send a marketing message to this contact on this
+    // channel right now?" predicate. It does NOT introduce new consent rules —
+    // it composes the EXISTING scattered checks into one entry point so the
+    // outreach queue (and, going forward, every surface) asks the same question
+    // the same way, at dispatch AND at surface.
+    //
+    // The consent core reproduces the Seller-Outreach composer's gate EXACTLY:
+    //   composer blocks iff (messaging_opt_out_at !== null) || isContactSuppressed
+    //                        || isOutreachPending
+    // Here, isContactSuppressed() + communicationStatus()!=opted_in +
+    // isOutreachPending() are the same set, because communicationStatus() returns
+    // opted_in IFF messaging_opt_out_at === null (so "status != opted_in" ⟺
+    // "messaging_opt_out_at !== null"), and the transaction_only carve-out keeps
+    // its today-behaviour: marketing stays blocked (only transactional comms
+    // continue during a live sale). canSendVia($channel) then adds the per-channel
+    // opt-out layer the queue needs (whatsapp vs email).
+
+    /**
+     * True only if a marketing message may be sent to $contact on $channel now.
+     */
+    public function canMarketTo(Contact $contact, string $channel): bool
+    {
+        return $this->marketingBlockReason($contact, $channel) === null;
+    }
+
+    /**
+     * The reason marketing is blocked, or null if marketable. Lets a caller log
+     * WHY a queued row was dropped. Reasons:
+     *   suppressed | <communicationStatus> (marketing_opted_out / all_blocked /
+     *   transaction_only) | pending | channel_opted_out.
+     */
+    public function marketingBlockReason(Contact $contact, string $channel): ?string
+    {
+        // 1. Identifier-level suppression (survives re-import; the opt-out triplet
+        //    + all-blocked latch all funnel here via the suppression list).
+        if ($this->isContactSuppressed($contact)) {
+            return 'suppressed';
+        }
+
+        // 2. Master three-state gate. Anything other than opted_in blocks MARKETING
+        //    — including transaction_only (its carve-out permits transactional comms
+        //    only, never marketing), exactly as today.
+        $status = $contact->communicationStatus();
+        if ($status !== Contact::COMM_OPTED_IN) {
+            return $status;
+        }
+
+        // 3. AT-81 — a consent request awaiting a reply blocks a re-send (matches
+        //    the composer's pendingBlocks).
+        if ($contact->isOutreachPending()) {
+            return 'pending';
+        }
+
+        // 4. Per-channel reachability + per-channel opt-out (whatsapp/email/sms/call).
+        if (!$contact->canSendVia($channel)) {
+            return 'channel_opted_out';
+        }
+
+        return null;
+    }
+
     // ── Internals ────────────────────────────────────────────────────────
 
     private function writeSuppression(
