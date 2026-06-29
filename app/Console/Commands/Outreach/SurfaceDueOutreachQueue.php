@@ -7,7 +7,6 @@ use App\Models\Outreach\OutreachQueue;
 use App\Models\Scopes\AgencyScope;
 use App\Services\SellerOutreach\MarketingConsentService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -34,82 +33,47 @@ use Illuminate\Support\Facades\Log;
  */
 class SurfaceDueOutreachQueue extends Command
 {
-    protected $signature = 'outreach:surface-due {--limit=500}';
-    protected $description = 'Surface due outreach-queue rows (claim, re-check consent, surface/drop) + expire stale surfaced rows';
+    protected $signature = 'outreach:surface-due {--limit=1000}';
+    protected $description = 'Outreach queue maintenance: drop READY rows whose contact opted out / went away, and expire stale READY rows';
 
     public function handle(MarketingConsentService $consent): int
     {
         $now = now();
-        $surfaced = 0;
         $dropped = 0;
 
-        $due = OutreachQueue::withoutGlobalScope(AgencyScope::class)
-            ->due($now)                 // status = pending AND due_at <= now
-            ->whereNull('claimed_at')
-            ->orderBy('due_at')
+        // (a) CONSENT RE-VALIDATION on READY rows — drop anyone who opted out (or
+        // whose contact was archived) since queueing, so the agent never opens a
+        // now-blocked row. Dispatch re-checks consent too (the hard gate); this just
+        // keeps the visible list honest. Light: one canMarketTo per ready row.
+        OutreachQueue::withoutGlobalScope(AgencyScope::class)
+            ->where('status', OutreachQueue::STATUS_READY)
+            ->with('contact')
             ->limit((int) $this->option('limit'))
-            ->get();
-
-        foreach ($due as $row) {
-            try {
-                DB::transaction(function () use ($row, $consent, $now, &$surfaced, &$dropped) {
-                    // ATOMIC CLAIM — only one sweep wins this row. The conditional
-                    // UPDATE row-locks; a concurrent sweep's UPDATE blocks then sees
-                    // claimed_at set and affects 0 rows.
-                    $claimed = OutreachQueue::withoutGlobalScope(AgencyScope::class)
-                        ->whereKey($row->id)
-                        ->whereNull('claimed_at')
-                        ->where('status', OutreachQueue::STATUS_PENDING)
-                        ->update(['claimed_at' => $now]);
-
-                    if ($claimed !== 1) {
-                        return; // lost the race / already handled
-                    }
-
-                    $fresh = OutreachQueue::withoutGlobalScope(AgencyScope::class)->find($row->id);
-                    if (!$fresh) {
-                        return;
-                    }
-
-                    // Contact archived/gone → drop gracefully, never crash.
-                    $contact = $fresh->contact; // BelongsTo excludes soft-deleted
+            ->get()
+            ->each(function (OutreachQueue $row) use ($consent, &$dropped) {
+                try {
+                    $contact = $row->contact; // BelongsTo excludes soft-deleted
+                    $reason = null;
                     if (!$contact) {
-                        $fresh->forceFill([
-                            'status'         => OutreachQueue::STATUS_DROPPED,
-                            'dropped_reason' => 'contact_unavailable',
-                        ])->save();
-                        $dropped++;
-                        return;
+                        $reason = 'contact_unavailable';
+                    } elseif (!$consent->canMarketTo($contact, $row->channel)) {
+                        $reason = $consent->marketingBlockReason($contact, $row->channel) ?? 'not_marketable';
                     }
-
-                    // §4b — THE consent gate, re-evaluated at surface.
-                    if ($consent->canMarketTo($contact, $fresh->channel)) {
-                        $fresh->forceFill([
-                            'status'      => OutreachQueue::STATUS_SURFACED,
-                            'surfaced_at' => $now,
-                        ])->save();
-                        $surfaced++;
-                    } else {
-                        $fresh->forceFill([
-                            'status'         => OutreachQueue::STATUS_DROPPED,
-                            'dropped_reason' => $consent->marketingBlockReason($contact, $fresh->channel) ?? 'not_marketable',
-                        ])->save();
+                    if ($reason !== null) {
+                        $row->forceFill(['status' => OutreachQueue::STATUS_DROPPED, 'dropped_reason' => $reason])->save();
                         $dropped++;
                     }
-                });
-            } catch (\Throwable $e) {
-                // The per-row transaction rolled back (claim reverted) → retried next
-                // sweep. Log and continue; one bad row never aborts the whole sweep.
-                Log::warning('outreach:surface-due row failed', ['queue_id' => $row->id, 'error' => $e->getMessage()]);
-            }
-        }
+                } catch (\Throwable $e) {
+                    Log::warning('outreach queue consent re-check failed', ['queue_id' => $row->id, 'error' => $e->getMessage()]);
+                }
+            });
 
-        // §8 — expire surfaced-but-never-sent rows past their AGENCY's expiry cutoff
-        // (agency-configurable: outreach_queue_expiry_hours; NULL = end of the
-        // surfaced day). Per-agency because the cutoff is agency-specific.
+        // (b) EXPIRE READY-but-unsent rows past their AGENCY's expiry cutoff
+        // (agency-configurable outreach_queue_expiry_hours; NULL = end of the day the
+        // row was prepared). created_at = prepared time (no surfacing now). Per agency.
         $expired = 0;
         $agencyIds = OutreachQueue::withoutGlobalScope(AgencyScope::class)
-            ->where('status', OutreachQueue::STATUS_SURFACED)
+            ->where('status', OutreachQueue::STATUS_READY)
             ->distinct()
             ->pluck('agency_id');
         foreach ($agencyIds as $aid) {
@@ -119,12 +83,12 @@ class SurfaceDueOutreachQueue extends Command
             }
             $expired += OutreachQueue::withoutGlobalScope(AgencyScope::class)
                 ->where('agency_id', $aid)
-                ->where('status', OutreachQueue::STATUS_SURFACED)
-                ->where('surfaced_at', '<', $agency->outreachQueueExpiryCutoff($now))
+                ->where('status', OutreachQueue::STATUS_READY)
+                ->where('created_at', '<', $agency->outreachQueueExpiryCutoff($now))
                 ->update(['status' => OutreachQueue::STATUS_EXPIRED]);
         }
 
-        $this->info("Outreach sweep: surfaced={$surfaced} dropped={$dropped} expired={$expired} (due candidates={$due->count()}).");
+        $this->info("Outreach queue maintenance: dropped={$dropped} expired={$expired}.");
 
         return self::SUCCESS;
     }

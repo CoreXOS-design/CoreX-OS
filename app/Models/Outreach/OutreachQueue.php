@@ -29,8 +29,9 @@ class OutreachQueue extends Model
 
     protected $table = 'outreach_queue';
 
-    public const STATUS_PENDING   = 'pending';
-    public const STATUS_SURFACED  = 'surfaced';
+    // AT-117 (simplified): no due-time/surfacing — a queued row is immediately
+    // READY to send; the ONLY send gate is the agency send-window at dispatch.
+    public const STATUS_READY     = 'ready';
     public const STATUS_SENT      = 'sent';
     public const STATUS_DROPPED   = 'dropped';
     public const STATUS_EXPIRED   = 'expired';
@@ -67,7 +68,7 @@ class OutreachQueue extends Model
 
     protected $attributes = [
         'channel' => 'whatsapp',
-        'status'  => self::STATUS_PENDING,
+        'status'  => self::STATUS_READY, // created prepared-and-ready (no time-gated pending)
     ];
 
     // ── Relations ────────────────────────────────────────────────────────
@@ -96,18 +97,12 @@ class OutreachQueue extends Model
         return $this->belongsTo(SellerOutreachSend::class, 'seller_outreach_send_id');
     }
 
-    // ── Scopes (for the sweep + UI in later steps) ───────────────────────
+    // ── Scopes ───────────────────────────────────────────────────────────
 
-    /** Pending rows whose due_at has arrived — the sweep's claim set. */
-    public function scopeDue(Builder $query, ?\Carbon\Carbon $at = null): Builder
+    /** Prepared-and-ready rows (the work-list). */
+    public function scopeReady(Builder $query): Builder
     {
-        return $query->where('status', self::STATUS_PENDING)
-            ->where('due_at', '<=', $at ?? now());
-    }
-
-    public function scopeSurfaced(Builder $query): Builder
-    {
-        return $query->where('status', self::STATUS_SURFACED);
+        return $query->where('status', self::STATUS_READY);
     }
 
     public function scopeForAgent(Builder $query, int $agentId): Builder
