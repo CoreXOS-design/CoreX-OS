@@ -97,7 +97,7 @@
     @endif {{-- addressOnly picker branch --}}
 
     {{-- Channel toggle --}}
-    <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+    <div data-tour="oc-channel" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
         <button type="button" @click="switchChannel('whatsapp')"
                 class="px-4 py-2 text-sm font-semibold"
                 style="background: {{ $channel === 'whatsapp' ? '#00d4aa' : 'var(--surface)' }};
@@ -176,7 +176,7 @@
                 Edits are reflected exactly in the recorded send.
             </span>
         </div>
-        <textarea x-model="body" rows="14"
+        <textarea x-model="body" rows="14" data-tour="oc-body"
                   class="w-full px-3 py-2 text-sm rounded"
                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, monospace;"></textarea>
     </div>
@@ -223,7 +223,7 @@
 
     {{-- Send button --}}
     <div class="flex items-center gap-3 pt-2">
-        <button type="button" @click="submit()"
+        <button type="button" data-tour="oc-send" @click="submit()"
                 :disabled="sending || {{ $context->isSendable() ? 'false' : 'true' }}"
                 class="px-6 py-2.5 text-sm font-semibold rounded"
                 style="background: {{ $context->isSendable() ? '#00d4aa' : 'var(--surface-2)' }};
@@ -243,7 +243,7 @@
     {{-- AT-117 — Add to the outreach queue (ready immediately). Available any time,
          including outside the send-window (prepare now); sending from the queue is
          gated by the send-window. The send-now button above is window-disabled. --}}
-    <div class="pt-3 mt-3" style="border-top: 1px solid var(--border);">
+    <div class="pt-3 mt-3" data-tour="oc-queue" style="border-top: 1px solid var(--border);">
         <button type="button" @click="addToQueue()" :disabled="queuing"
                 class="px-5 py-2 text-sm font-semibold rounded"
                 style="background: var(--surface); border: 1px solid #00d4aa; color: var(--text-primary);">

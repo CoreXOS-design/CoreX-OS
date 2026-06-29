@@ -14,12 +14,15 @@
      x-data="outreachQueuePage({ csrf: @js(csrf_token()), sendAllowed: {{ $sendAllowed ? 'true' : 'false' }} })">
 
     {{-- Header --}}
-    <div>
-        <h1 class="text-xl font-semibold" style="color: var(--text-primary);">Outreach Queue</h1>
-        <p class="text-xs mt-1" style="color: var(--text-muted);">
-            Messages you prepared earlier, surfaced at their due time. Open each one — it pre-fills WhatsApp;
-            you tap Send in WhatsApp to deliver it. "Sent" records the dispatch (CoreX opens the chat; you send it).
-        </p>
+    <div data-tour="oq-intro" class="flex items-start justify-between gap-3">
+        <div>
+            <h1 class="text-xl font-semibold" style="color: var(--text-primary);">Outreach Queue</h1>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">
+                Messages you prepared earlier — ready to send now. Open each one: it pre-fills WhatsApp and
+                you tap Send in WhatsApp to deliver it. "Sent" records the dispatch (CoreX opens the chat; you send it).
+            </p>
+        </div>
+        @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
     </div>
 
     {{-- Send-window closed banner --}}
@@ -32,8 +35,8 @@
         </div>
     @endunless
 
-    {{-- SURFACED — the work-list --}}
-    <section>
+    {{-- The work-list --}}
+    <section data-tour="oq-ready">
         <h2 class="text-xs font-bold uppercase tracking-widest mb-3" style="color: var(--text-muted);">
             Ready to send ({{ $ready->count() }})
         </h2>
@@ -73,7 +76,7 @@
                              the server enforces this too. --}}
                         @if($row->agent_id === ($currentUserId ?? null))
                             @if($sendAllowed)
-                                <button type="button" @click="open({{ $row->id }}, '{{ route('corex.outreach-queue.open', $row) }}')"
+                                <button type="button" data-tour="oq-open" @click="open({{ $row->id }}, '{{ route('corex.outreach-queue.open', $row) }}')"
                                         :disabled="busy === {{ $row->id }}"
                                         class="px-4 py-2 text-sm font-semibold rounded-sm"
                                         style="background: #00d4aa; color: #003a2f;">

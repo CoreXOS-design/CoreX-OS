@@ -31,6 +31,8 @@
                     Every claim is sourced live; every send is recorded for PPRA compliance.
                 </p>
             </div>
+            {{-- AT-121 — guided-tour "?" launcher (navy header → default variant). --}}
+            @include('layouts.partials.tour-header-launcher')
         </div>
     </div>
 
@@ -84,7 +86,7 @@
                     'addressOnly'        => $addressOnly ?? false,
                 ])
             </div>
-            <div class="lg:col-span-2">
+            <div class="lg:col-span-2" data-tour="oc-facts">
                 @include('seller-outreach._compose-facts', ['context' => $context])
             </div>
         </div>
