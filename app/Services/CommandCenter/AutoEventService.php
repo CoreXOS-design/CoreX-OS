@@ -20,6 +20,16 @@ class AutoEventService
             return;
         }
 
+        // Bulk-imported stock opts out of new-listing automation. Imported
+        // inventory is not a freshly captured mandate to chase to compliance,
+        // so it must not spawn document-chase chore tasks (the build-up that
+        // OOM'd the Tasks board on staging). The importer sets this flag on the
+        // model before save; genuine new mandates leave it false. See
+        // Property::$skipNewListingAutomation.
+        if ($property->skipNewListingAutomation) {
+            return;
+        }
+
         // A property created already-compliant (e.g. imported stock stamped
         // compliant up front) doesn't need document-chase tasks. The P24
         // importer sets compliance AFTER create, so this guard catches the

@@ -139,6 +139,59 @@ final class ComplianceChoreClearingTest extends TestCase
         $this->assertNull(DB::table('notifications')->where('id', $keepMe)->value('read_at'), 'non-compliant notif left unread');
     }
 
+    public function test_imported_stock_skips_auto_chore_tasks_on_create(): void
+    {
+        [$agencyId, $branchId, $agentId] = $this->seedBasics();
+        // Non-compliant at create (the leak case): without the flag this would
+        // spawn the document-chase chore tasks that accumulated to 18k on staging.
+        $propId   = $this->makeProperty($agencyId, $branchId, $agentId, compliant: false);
+        $property = Property::withoutGlobalScopes()->findOrFail($propId);
+        $property->skipNewListingAutomation = true;
+
+        (new AutoEventService())->onPropertyCreated($property);
+
+        $this->assertSame(0, CommandTask::withoutGlobalScopes()->where('property_id', $propId)->count(),
+            'imported stock (skipNewListingAutomation) must not generate chore tasks');
+    }
+
+    public function test_normal_capture_still_generates_chore_tasks(): void
+    {
+        // Regression guard: the flag must not suppress genuine new mandates.
+        [$agencyId, $branchId, $agentId] = $this->seedBasics();
+        $property = Property::withoutGlobalScopes()
+            ->findOrFail($this->makeProperty($agencyId, $branchId, $agentId, compliant: false));
+
+        (new AutoEventService())->onPropertyCreated($property); // flag defaults false
+
+        $this->assertGreaterThan(0, CommandTask::withoutGlobalScopes()->where('property_id', $property->id)->count(),
+            'genuine new (non-imported, non-compliant) stock must still get its chase tasks');
+    }
+
+    public function test_clear_command_clears_imported_and_orphaned_chores_but_keeps_genuine(): void
+    {
+        [$agencyId, $branchId, $agentId] = $this->seedBasics();
+
+        // (b) imported P24 stock, NOT compliant → cleared.
+        $importedId = $this->makeProperty($agencyId, $branchId, $agentId, compliant: false);
+        DB::table('properties')->where('id', $importedId)->update(['p24_listing_number' => '109876543']);
+        $importedChore = $this->makeTask($agencyId, $branchId, $agentId, $importedId, 'document_upload', 'automation_rule', 'todo');
+
+        // genuine non-imported, non-compliant stock → KEPT (active mandate still chased).
+        $genuineId    = $this->makeProperty($agencyId, $branchId, $agentId, compliant: false);
+        $genuineChore = $this->makeTask($agencyId, $branchId, $agentId, $genuineId, 'document_upload', 'automation_rule', 'todo');
+
+        // (c) orphaned: property soft-deleted → cleared.
+        $orphanPropId = $this->makeProperty($agencyId, $branchId, $agentId, compliant: false);
+        $orphanChore  = $this->makeTask($agencyId, $branchId, $agentId, $orphanPropId, 'document_upload', 'automation_rule', 'todo');
+        DB::table('properties')->where('id', $orphanPropId)->update(['deleted_at' => now()]);
+
+        $this->artisan('command-center:clear-compliant-chores')->assertSuccessful();
+
+        $this->assertSoftDeleted('command_tasks', ['id' => $importedChore]);
+        $this->assertSoftDeleted('command_tasks', ['id' => $orphanChore]);
+        $this->assertNotSoftDeleted('command_tasks', ['id' => $genuineChore]);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:int,2:int} */

@@ -152,6 +152,13 @@ Schedule::command('command-center:flag-idle')->dailyAt('07:00')->withoutOverlapp
 // Auto-archive completed tasks per user setting — runs daily at 03:00
 Schedule::command('command-center:archive-done-tasks')->dailyAt('03:00')->withoutOverlapping();
 
+// Self-healing backstop: soft-delete redundant auto chore tasks on compliant /
+// imported / orphaned stock so they can never accumulate into the Tasks-board
+// backlog that OOM'd the page on staging. Prevention is at the source
+// (Property::$skipNewListingAutomation + DismissComplianceClearedChores); this
+// sweep catches anything that slips through. Runs daily at 03:15.
+Schedule::command('command-center:clear-compliant-chores')->dailyAt('03:15')->withoutOverlapping();
+
 // Manager Oversight digest — runs hourly
 Schedule::job(new \App\Jobs\OversightDigestJob())->hourly()->withoutOverlapping();
 

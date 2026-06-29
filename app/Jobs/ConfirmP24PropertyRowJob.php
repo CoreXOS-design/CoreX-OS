@@ -108,7 +108,14 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                     $existing->fill($attrs)->save();
                     $property = $existing;
                 } else {
-                    $property = Property::create($attrs);
+                    // Imported stock is existing inventory, not a freshly
+                    // captured mandate — suppress the new-listing document-chase
+                    // chore tasks AutoEventService would otherwise generate
+                    // (the leak that grew an 18k-task backlog and OOM'd the
+                    // Tasks page). The created() observer reads this flag.
+                    $property = new Property($attrs);
+                    $property->skipNewListingAutomation = true;
+                    $property->save();
                 }
 
                 // Go-live migration: agency on-boarding imports their existing
