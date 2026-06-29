@@ -468,6 +468,13 @@ return [
         ['key' => 'outreach_templates.manage',    'label' => 'Manage Outreach Templates',   'section' => 'outreach', 'type' => 'action', 'module' => 'outreach', 'sort_order' => 2],
         // AT-91 — WhatsApp Outreach Summary board (agents × outreach states). Oversight surface.
         ['key' => 'outreach.summary.view',        'label' => 'View WhatsApp Outreach Summary', 'section' => 'outreach', 'type' => 'access', 'module' => 'outreach', 'sort_order' => 3],
+        // AT-120 — Outreach Queue. `.view` is the SCOPED access key (own/branch/all via
+        // scope_defaults + Role Manager) — same mechanism as deals.view / calendar.view.
+        // dispatch/cancel are boolean action capabilities (enforced act-own server-side:
+        // sending opens the agent's OWN WhatsApp, so you never dispatch another's number).
+        ['key' => 'outreach_queue.view',          'label' => 'View Outreach Queue',         'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_queue', 'sort_order' => 4],
+        ['key' => 'outreach_queue.dispatch',      'label' => 'Send from Outreach Queue',    'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_queue', 'sort_order' => 5],
+        ['key' => 'outreach_queue.cancel',        'label' => 'Remove Outreach Queue items', 'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_queue', 'sort_order' => 6],
 
         // ── Payroll ──
         ['key' => 'manage_payroll',        'label' => 'Manage Payroll (employees, types)', 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 120],
@@ -652,6 +659,9 @@ return [
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
                 // Seller Outreach
                 'outreach.compose', 'outreach.summary.view',
+                // AT-120 — Outreach Queue: .view scope (branch_manager→branch, agent→own via
+                // scope_defaults); dispatch/cancel act-own. Admin/owner get these via '*'.
+                'outreach_queue.view', 'outreach_queue.dispatch', 'outreach_queue.cancel',
                 // MIC (Phase A2) — branch_manager (= spec "manager"): all
                 // EXCEPT regenerate_brief and view_ai_costs (admin+ only).
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
@@ -723,6 +733,9 @@ return [
                 // Seller Outreach — composer only; template management is admin.
                 // Summary board: agent sees their OWN row (ContactScope-enforced).
                 'outreach.compose', 'outreach.summary.view',
+                // AT-120 — Outreach Queue: .view scope (branch_manager→branch, agent→own via
+                // scope_defaults); dispatch/cancel act-own. Admin/owner get these via '*'.
+                'outreach_queue.view', 'outreach_queue.dispatch', 'outreach_queue.cancel',
                 // MIC (Phase A2) — agent gets edit_address + upload_reports
                 // ONLY (per matrix §12.3). No merge, team, brief regen, or
                 // AI cost visibility for agents.

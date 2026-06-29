@@ -3,6 +3,7 @@
 namespace App\Models\Outreach;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\Contact;
 use App\Models\Property;
 use App\Models\SellerOutreach\SellerOutreachSend;
@@ -25,6 +26,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class OutreachQueue extends Model
 {
     use BelongsToAgency;
+    use BelongsToBranch; // AT-120 — branch tier (auto-stamp branch_id + BranchScope)
     use SoftDeletes;
 
     protected $table = 'outreach_queue';
@@ -43,6 +45,7 @@ class OutreachQueue extends Model
 
     protected $fillable = [
         'agency_id',
+        'branch_id',
         'contact_id',
         'property_id',
         'agent_id',
@@ -108,5 +111,23 @@ class OutreachQueue extends Model
     public function scopeForAgent(Builder $query, int $agentId): Builder
     {
         return $query->where('agent_id', $agentId);
+    }
+
+    /**
+     * AT-120 — canonical own/branch/all visibility (mirrors CalendarEvent::scopeVisibleTo).
+     * The "owner" of a queue row is its preparing agent (agent_id). BranchScope already
+     * isolates by branch automatically when Split Branches is on; this adds the
+     * own-narrowing (agent) and the explicit branch tier, and 'none' for no access.
+     */
+    public function scopeVisibleTo(Builder $query, User $user, ?string $scope): Builder
+    {
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->where('branch_id', $user->effectiveBranchId())
+                : $query->where('agent_id', $user->id),
+            'none'   => $query->whereRaw('1 = 0'),
+            default  => $query->where('agent_id', $user->id), // 'own' or null
+        };
     }
 }
