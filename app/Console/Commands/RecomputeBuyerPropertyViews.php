@@ -24,7 +24,7 @@ class RecomputeBuyerPropertyViews extends Command
         }
 
         $pairs = $query
-            ->selectRaw('contact_id, property_id, MAX(captured_at) as last_at, COUNT(DISTINCT calendar_event_id) as view_cnt')
+            ->selectRaw('contact_id, property_id, MAX(agency_id) as agency_id, MAX(captured_at) as last_at, COUNT(DISTINCT calendar_event_id) as view_cnt')
             ->groupBy('contact_id', 'property_id')
             ->get();
 
@@ -40,6 +40,10 @@ class RecomputeBuyerPropertyViews extends Command
             BuyerPropertyView::updateOrCreate(
                 ['contact_id' => $pair->contact_id, 'property_id' => $pair->property_id],
                 [
+                    // Explicit: this command runs from CLI (no Auth), so on a
+                    // multi-agency DB BelongsToAgency cannot auto-stamp — derive
+                    // the tenant from the source feedback rows.
+                    'agency_id' => $pair->agency_id,
                     'last_viewed_at' => $pair->last_at,
                     'view_count' => $pair->view_cnt,
                     'most_recent_feedback_id' => $latestFeedback,
