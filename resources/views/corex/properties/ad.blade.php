@@ -73,6 +73,9 @@
         .plat-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55); transition: all 0.12s; white-space: nowrap; }
         .plat-btn:hover { border-color: rgba(255,255,255,0.25); color: #fff; }
         .plat-btn.active { background: #00b4d8; border-color: #00b4d8; color: #fff; }
+        .agent-pill { display:inline-flex; align-items:center; padding:5px 11px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:none; background:transparent; color:rgba(255,255,255,0.55); font-family:inherit; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:all 0.12s; }
+        .agent-pill:hover { color:#fff; background:rgba(255,255,255,0.06); }
+        .agent-pill.active { background:#00b4d8; color:#fff; }
         .custom-tpl-card { cursor:pointer; border-radius:12px; border:1.5px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03); overflow:hidden; transition:all 0.18s; display:flex; align-items:center; gap:12px; padding:12px 16px; }
         .custom-tpl-card:hover { border-color:rgba(0,180,216,0.55); background:rgba(255,255,255,0.07); }
         .custom-tpl-thumb { width:100px; height:52px; background:#071325; border-radius:6px; overflow:hidden; position:relative; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; color:rgba(255,255,255,0.45); }
@@ -82,7 +85,7 @@
         .ad-placeholder { width: 100%; height: 100%; background: linear-gradient(135deg, #0b2a4a 0%, #143d6e 100%); }
     </style>
 </head>
-<body x-data="adApp({{ Js::from($savedTemplates) }}, {{ Js::from($propertyData) }})">
+<body x-data="adApp({{ Js::from($savedTemplates) }}, {{ Js::from($propertyData) }}, {{ Js::from(['listing' => $listingAgentCard, 'co' => $coAgentCard]) }})">
 
 {{-- ═══ STEP 1 — TEMPLATE PICKER ═══ --}}
 <div x-show="step === 'pick'" style="min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:40px 32px;">
@@ -134,14 +137,25 @@
                     A full A4 property data sheet — photos, price, features, rates &amp; levy, the full description, your agent
                     card and a scan-to-view QR code. Rendered as a true print-ready PDF, not a social graphic.
                 </p>
-                <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;">
-                    <a href="{{ route('corex.properties.brochure', ['property' => $property, 'dl' => 1]) }}"
+                {{-- Co-listing choice for the brochure footer — only when co-listed. --}}
+                <template x-if="hasCoAgent">
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap;">
+                        <span style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.35);">Agent</span>
+                        <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:9px;padding:3px 4px;">
+                            <button class="agent-pill" :class="{active: agentMode==='listing'}" @click="setMode('listing')" x-text="firstName(listingAgent)" title="Listing agent only"></button>
+                            <button class="agent-pill" :class="{active: agentMode==='co'}" @click="setMode('co')" x-text="firstName(coAgent)" title="Co-listing agent only"></button>
+                            <button class="agent-pill" :class="{active: agentMode==='both'}" @click="setMode('both')" title="Both agents (co-listed)">Both</button>
+                        </div>
+                    </div>
+                </template>
+                <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+                    <a :href="brochureUrl(true)"
                        style="display:inline-flex;align-items:center;gap:7px;padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;background:#e63946;color:#fff;text-decoration:none;transition:opacity 0.12s;"
                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                         <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                         Download PDF
                     </a>
-                    <a href="{{ route('corex.properties.brochure', $property) }}" target="_blank" rel="noopener"
+                    <a :href="brochureUrl(false)" target="_blank" rel="noopener"
                        style="display:inline-flex;align-items:center;gap:7px;padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;background:rgba(255,255,255,0.06);color:#fff;border:1.5px solid rgba(255,255,255,0.12);text-decoration:none;transition:all 0.12s;"
                        onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.12)'">
                         <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
@@ -240,6 +254,18 @@
         <span x-text="templateLabel" style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.08em;background:rgba(255,255,255,0.06);padding:4px 9px;border-radius:6px;"></span>
         <div style="width:1px;height:18px;background:rgba(255,255,255,0.1);"></div>
 
+        {{-- Co-listing agent choice — ONLY shown when the listing has a co-agent.
+             Picks who appears on the ad: listing agent, co-agent, or both. --}}
+        <template x-if="hasCoAgent">
+            <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:9px;padding:3px 4px;">
+                <svg style="width:13px;height:13px;color:rgba(255,255,255,0.4);flex-shrink:0;margin:0 2px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-3.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-1.34"/></svg>
+                <button class="agent-pill" :class="{active: agentMode==='listing'}" @click="setMode('listing')" x-text="firstName(listingAgent)" title="Listing agent only"></button>
+                <button class="agent-pill" :class="{active: agentMode==='co'}" @click="setMode('co')" x-text="firstName(coAgent)" title="Co-listing agent only"></button>
+                <button class="agent-pill" :class="{active: agentMode==='both'}" @click="setMode('both')" title="Both agents (co-listed)">Both</button>
+            </div>
+        </template>
+        <template x-if="hasCoAgent"><div style="width:1px;height:18px;background:rgba(255,255,255,0.1);"></div></template>
+
         <button class="plat-btn" :class="{active: platform==='facebook'}"  @click="platform='facebook'; onGenerate()">
             <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
             Facebook <span style="opacity:.6;font-size:10px;">1200×628</span>
@@ -303,7 +329,8 @@ const PREBUILT_SEARCH = @json(collect($prebuilt)->map(fn($t) => strtolower($t['n
 const IMAGE_FIELDS = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agency_logo'];
 const NON_TEXT_FIELDS = [...IMAGE_FIELDS, 'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape'];
 
-function adApp(savedTemplates, propertyData) {
+function adApp(savedTemplates, propertyData, agentCfg) {
+    agentCfg = agentCfg || { listing: null, co: null };
     const platforms = {
         facebook:  { w:1200, h:628,  baseFontPx:16, label:'Facebook'  },
         instagram: { w:1080, h:1080, baseFontPx:28, label:'Instagram' },
@@ -325,6 +352,13 @@ function adApp(savedTemplates, propertyData) {
         savedTemplates: savedTemplates || [],
         propertyData: propertyData || {},
         _customLayout: null,
+
+        // ── Co-listing agent choice (ad-manager.md §"Agent identity") ──
+        // Only meaningful when the listing has a co-agent; otherwise the ad just
+        // shows the listing agent. Modes: 'listing' | 'co' | 'both'.
+        listingAgent: agentCfg.listing || {},
+        coAgent:      agentCfg.co || null,
+        agentMode:    'listing',
 
         init() {
             const fit = () => this.fitThumbs();
@@ -379,14 +413,83 @@ function adApp(savedTemplates, propertyData) {
         get previewW() { return Math.round(this.cfg.w * this.scale); },
         get previewH() { return Math.round(this.cfg.h * this.scale); },
 
-        selectTemplate(t) { this.template = t; this._customLayout = null; this.step = 'generate'; },
+        selectTemplate(t) { this.template = t; this._customLayout = null; this.step = 'generate'; this.$nextTick(() => this.applyAgent()); },
         selectCustomTemplate(tpl) {
             this.template = 'custom';
             this._customLayout = tpl.layout_json;
             this.step = 'generate';
-            this.$nextTick(() => this.renderCustomTemplate());
+            this.$nextTick(() => this.applyAgent());
         },
-        onGenerate() { if (this.template === 'custom') this.$nextTick(() => this.renderCustomTemplate()); },
+        onGenerate() { this.$nextTick(() => this.applyAgent()); },
+
+        // ── Co-listing agent choice ──────────────────────────────────────────
+        get hasCoAgent() { return !!(this.coAgent && this.coAgent.id); },
+        firstName(card) { return ((card && card.name) || '').trim().split(/\s+/)[0] || 'Agent'; },
+        setMode(m) { this.agentMode = m; this.applyAgent(); },
+
+        // Resolve the two display slots for the current mode.
+        //   listing → slot1 = listing agent, no slot2
+        //   co      → slot1 = co-agent,      no slot2
+        //   both    → slot1 = listing agent, slot2 = co-agent (two SPLIT blocks)
+        agentSlots() {
+            const L = this.listingAgent || {}, C = this.coAgent || {};
+            const showBoth = this.agentMode === 'both' && this.hasCoAgent;
+            const primary  = (this.agentMode === 'co' && this.hasCoAgent) ? C : L;
+            return { primary, secondary: showBoth ? C : null, showBoth };
+        },
+
+        // Re-point every agent-bound node. Pre-built templates are server-rendered
+        // Blade: slot-1 nodes tagged js-ad-{name,email,desig,initial}, slot-2 nodes
+        // js-ad-{…}-2 inside a js-ad-agent2 wrapper that we show only in "both".
+        // Custom templates read propertyData (agent_* + agent_2_*), so we update it
+        // and re-render. html2canvas captures the live DOM → PNG reflects it.
+        applyAgent() {
+            const { primary, secondary, showBoth } = this.agentSlots();
+            const canvas = document.getElementById('ad-canvas');
+            if (canvas) {
+                const set = (sel, val) => canvas.querySelectorAll(sel).forEach(n => n.textContent = val);
+                set('.js-ad-name', (primary.name || '').toUpperCase());
+                set('.js-ad-email', primary.email || '');
+                set('.js-ad-desig', primary.designation || '');
+                set('.js-ad-initial', primary.initial || '');
+                if (secondary) {
+                    set('.js-ad-name-2', (secondary.name || '').toUpperCase());
+                    set('.js-ad-email-2', secondary.email || '');
+                    set('.js-ad-desig-2', secondary.designation || '');
+                    set('.js-ad-initial-2', secondary.initial || '');
+                }
+                // Show / hide the second agent block (each wrapper carries its own
+                // shown-display via data-disp so each template's layout is preserved).
+                canvas.querySelectorAll('.js-ad-agent2').forEach(el => {
+                    el.style.display = showBoth ? (el.dataset.disp || 'flex') : 'none';
+                });
+            }
+            // Keep propertyData (custom-template source) in lock-step — slot 1 + slot 2.
+            this.propertyData.agent_name        = (primary.name || '').toUpperCase();
+            this.propertyData.agent_email       = primary.email || '';
+            this.propertyData.agent_designation = primary.designation || '';
+            this.propertyData.agent_phone       = primary.phone || '';
+            this.propertyData.agent_avatar      = primary.avatar || null;
+            const s = secondary || {};
+            this.propertyData.agent_2_name        = (s.name || '').toUpperCase();
+            this.propertyData.agent_2_email       = s.email || '';
+            this.propertyData.agent_2_designation = s.designation || '';
+            this.propertyData.agent_2_phone       = s.phone || '';
+            this.propertyData.agent_2_avatar      = s.avatar || null;
+            this.propertyData.agent_2_initial     = s.initial || '';
+            if (this.template === 'custom' && this._customLayout) this.renderCustomTemplate();
+        },
+
+        // Brochure PDF URL carrying the co-listing choice (?co=1 = both agents,
+        // ?ad_agent=<co id> = co-agent only). Server validates / falls back.
+        brochureUrl(dl) {
+            const base = '{{ route('corex.properties.brochure', $property) }}';
+            const parts = [];
+            if (dl) parts.push('dl=1');
+            if (this.agentMode === 'both' && this.hasCoAgent) parts.push('co=1');
+            else if (this.agentMode === 'co' && this.hasCoAgent) parts.push('ad_agent=' + this.coAgent.id);
+            return parts.length ? base + '?' + parts.join('&') : base;
+        },
 
         isImageField(f) { return IMAGE_FIELDS.includes(f); },
         isTextField(f)  { return !NON_TEXT_FIELDS.includes(f); },
@@ -418,6 +521,9 @@ function adApp(savedTemplates, propertyData) {
                         img.src = src;
                         img.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
                         div.appendChild(img);
+                    } else if (String(field).startsWith('agent_2')) {
+                        // Co-agent absent (single-agent listing) → leave the slot empty,
+                        // never a placeholder box on a real ad.
                     } else {
                         div.style.background = 'linear-gradient(135deg,#0b2a4a,#143d6e)';
                         Object.assign(div.style, { display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.2)', fontSize:'11px' });
@@ -464,7 +570,7 @@ function adApp(savedTemplates, propertyData) {
                     if (field === 'custom_text' || field === 'badge') {
                         value = el.text || el.label;
                     } else {
-                        value = (prop[field] !== undefined && prop[field] !== null && prop[field] !== '') ? prop[field] : (el.preview || el.label);
+                        value = (prop[field] !== undefined && prop[field] !== null && prop[field] !== '') ? prop[field] : (String(field).startsWith('agent_2') ? '' : (el.preview || el.label));
                     }
                     Object.assign(div.style, { display:'flex', alignItems:'center', overflow:'hidden', fontFamily:"'Figtree',Arial,sans-serif" });
                     div.style.fontSize = (el.fontSize || 18) + 'px';

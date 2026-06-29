@@ -1615,12 +1615,27 @@ class PropertyController extends Controller
 
         $canManageTemplates = $user->hasPermission('access_properties');
 
+        // ── Co-listing agent option (ad-manager.md §"Agent identity") ──────────
+        // The ad shows the listing agent. ONLY when the listing is co-listed
+        // (pp_second_agent_id) does the generator offer a choice: listing agent,
+        // co-agent, or both. There is no general agent picker — a property's ad
+        // shows the people who actually work it. The swap is client-side (prebuilt
+        // templates are server-rendered with the listing agent; JS re-points the
+        // agent text nodes when the user changes the choice).
+        $listingAgentCard = Property::agentAdCard($property->agent);
+        $coAgentCard = ($property->pp_second_agent_id && (int) $property->pp_second_agent_id !== (int) $property->agent_id && $property->secondAgent)
+            ? Property::agentAdCard($property->secondAgent)
+            : null;
+
         // Printable Brochure (always-first / always-A4 template) — preview data
         // for its picker card. embed:false → plain image URLs (fast browser load);
         // the real A4 PDF (embed:true) is produced by the brochure() route.
         $brochureData = app(\App\Services\Properties\PropertyBrochureService::class)->data($property, embed: false);
 
-        return view('corex.properties.ad', compact('property', 'savedTemplates', 'canManageTemplates', 'brochureData'));
+        return view('corex.properties.ad', compact(
+            'property', 'savedTemplates', 'canManageTemplates', 'brochureData',
+            'listingAgentCard', 'coAgentCard',
+        ));
     }
 
     /**
@@ -1632,7 +1647,19 @@ class PropertyController extends Controller
     {
         $this->authorizeProperty($property);
 
-        $pdf = $service->pdf($property);
+        // Agent identity (ad-manager.md §"Agent identity"): ?ad_agent points the
+        // footer at another in-scope agent; ?co=1 co-brands with the co-listing
+        // agent. AgencyScope on User::find keeps the override inside the agency;
+        // an out-of-agency or unknown id silently falls back to the listing agent.
+        $primary = null;
+        if ($id = (int) request('ad_agent')) {
+            $primary = User::find($id);
+        }
+        $secondary = request()->boolean('co') && $property->pp_second_agent_id
+            ? User::find((int) $property->pp_second_agent_id)
+            : null;
+
+        $pdf = $service->pdf($property, $primary, $secondary);
 
         // ?dl=1 forces a download; default opens inline so the picker card can
         // preview it in a new tab.

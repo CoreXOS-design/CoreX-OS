@@ -41,15 +41,25 @@ class PropertyBrochureService
      *
      * @param  bool  $embed  true → images become base64 data-URIs (PDF);
      *                       false → plain URLs (browser thumbnail).
+     * @param  \App\Models\User|null  $primary    Override for whose details head the
+     *                                             footer (defaults to the listing agent).
+     * @param  \App\Models\User|null  $secondary  Co-listing agent to render alongside
+     *                                             (a second agent block). Null → single.
      * @return array<string,mixed>
      */
-    public function data(Property $property, bool $embed = false): array
+    public function data(Property $property, bool $embed = false, ?\App\Models\User $primary = null, ?\App\Models\User $secondary = null): array
     {
         $property->loadMissing(['agent', 'branch', 'agency']);
 
-        $agent  = $property->agent;
+        // Agent identity (ad-manager.md §"Agent identity"): the brochure defaults to
+        // the listing agent, but the Ad Manager may point it at another in-scope
+        // agent and/or co-brand with the co-listing agent.
+        $agent  = $primary ?: $property->agent;
         $agency = $property->agency;
         $branch = $property->branch;
+        if ($secondary && (int) $secondary->id === (int) ($agent?->id ?? 0)) {
+            $secondary = null; // never render the same person twice
+        }
 
         // ── Images: 2 hero photos (40% / 60%) + a 5-photo thumbnail strip ──
         // For the PDF we fetch each unique source ONCE — no double network/IO.
@@ -81,7 +91,8 @@ class PropertyBrochureService
         $logoSrc = $this->logoSrc($logoCandidates, $embed);
 
         // ── Agent photo (circular) ──
-        $agentPhoto = $agent ? $this->imageSrc($agent->profilePhotoUrl(), $embed, self::PHOTO_W) : null;
+        $agentPhoto  = $agent ? $this->imageSrc($agent->profilePhotoUrl(), $embed, self::PHOTO_W) : null;
+        $agent2Photo = $secondary ? $this->imageSrc($secondary->profilePhotoUrl(), $embed, self::PHOTO_W) : null;
 
         // ── Spaces / counts ──
         $beds    = (int) ($property->beds ?? 0);
@@ -137,6 +148,13 @@ class PropertyBrochureService
             'agentPhone'  => $agent ? ($agent->cell ?: $agent->phone ?: '') : '',
             'agentEmail'  => $agent?->email ?: '',
             'agentPhoto'  => $agentPhoto,
+
+            // Co-listing agent (null/empty keys when single-agent → partial hides it).
+            'agent2Name'  => $secondary?->name ?: '',
+            'agent2Phone' => $secondary ? ($secondary->cell ?: $secondary->phone ?: '') : '',
+            'agent2Email' => $secondary?->email ?: '',
+            'agent2Photo' => $agent2Photo,
+
             'agencyName'  => $agency?->name ?: 'CoreX',
             'qr'          => $qrSrc,
         ];
@@ -145,9 +163,9 @@ class PropertyBrochureService
     /**
      * Render the brochure to a downloadable A4 PDF.
      */
-    public function pdf(Property $property)
+    public function pdf(Property $property, ?\App\Models\User $primary = null, ?\App\Models\User $secondary = null)
     {
-        $data = $this->data($property, embed: true);
+        $data = $this->data($property, embed: true, primary: $primary, secondary: $secondary);
 
         $pdf = Pdf::loadView('corex.properties.brochure-pdf', ['b' => $data])
             ->setPaper('a4', 'portrait');
