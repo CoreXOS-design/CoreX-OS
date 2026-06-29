@@ -290,6 +290,32 @@ class Contact extends Model
         return $this->hasMany(ContactMatch::class)->latest();
     }
 
+    // ── AT-125 — multiple phones / emails per contact ──
+    // contacts.phone/email remain the synced-primary MIRROR (kept correct by
+    // ContactIdentifierService via the ContactPhone/ContactEmail observers).
+
+    public function phones(): HasMany
+    {
+        return $this->hasMany(ContactPhone::class);
+    }
+
+    public function emails(): HasMany
+    {
+        return $this->hasMany(ContactEmail::class);
+    }
+
+    /** The single primary phone (the one mirrored into contacts.phone), if any. */
+    public function primaryPhone(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ContactPhone::class)->where('is_primary', true);
+    }
+
+    /** The single primary email (the one mirrored into contacts.email), if any. */
+    public function primaryEmail(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ContactEmail::class)->where('is_primary', true);
+    }
+
     /**
      * AT-74 — does this buyer have at least one COUNTABLE wishlist (AT-71
      * isCountable())? A pipeline buyer with zero countable wishlists (criteria
