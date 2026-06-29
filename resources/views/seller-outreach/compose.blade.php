@@ -14,6 +14,9 @@
          csrfToken: @js(csrf_token()),
          windowAllowed: @js($outreachWindow['allowed'] ?? true),
          windowMessage: @js($outreachWindow['message'] ?? ''),
+         queueUrl: @js(route('seller-outreach.composer.queue', $contact)),
+         nextWindowIso: @js($outreachWindow['next_opens_at'] ?? null),
+         contactUrl: @js(route('corex.contacts.show', $contact)),
      })">
 
     {{-- Header --}}
@@ -94,6 +97,10 @@ function composerState(init) {
     return {
         ...init,
         sending: false,
+        // AT-117 §4 — add-to-queue (deferred send) state.
+        queuing: false,
+        dueChoice: 'next_window',   // next_window | tomorrow_8 | custom
+        customDueAt: '',
         // BUG-1 fix — read-only preview only. The per-send links (opt-out / opt-in /
         // tracking) get their real URLs minted at send time, so show a friendly
         // stand-in here instead of raw {tokens}. The editable body keeps the literal
@@ -172,6 +179,54 @@ function composerState(init) {
                 alert('Network error — try again.');
             } finally {
                 this.sending = false;
+            }
+        },
+
+        // AT-117 §4 — resolve the picker choice to a due-time string and POST to the
+        // queue endpoint. Custom/tomorrow times are sent as a naive local string the
+        // server interprets in the agency timezone; the server validates window
+        // membership (defense in depth — the picker is convenience only).
+        resolveDueAt() {
+            if (this.dueChoice === 'next_window') return this.nextWindowIso;
+            if (this.dueChoice === 'tomorrow_8') {
+                const d = new Date();
+                d.setDate(d.getDate() + 1);
+                const p = n => String(n).padStart(2, '0');
+                return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T08:00`;
+            }
+            return this.customDueAt || null;
+        },
+
+        async addToQueue() {
+            if (this.queuing) return;
+            const dueAt = this.resolveDueAt();
+            if (!dueAt) { alert('Pick a due time first.'); return; }
+            this.queuing = true;
+            try {
+                const res = await fetch(this.queueUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRF-TOKEN': this.csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    body: new URLSearchParams({
+                        property_id: this.propertyId || '',
+                        channel: this.channel,
+                        template_id: this.templateId || '',
+                        subject: this.subject || '',
+                        body: this.body || '',
+                        due_at: dueAt,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) { alert(data.message || 'Could not queue.'); return; }
+                alert(data.message || 'Queued.');
+                window.location.href = this.contactUrl;
+            } catch (e) {
+                alert('Network error — try again.');
+            } finally {
+                this.queuing = false;
             }
         },
     };
