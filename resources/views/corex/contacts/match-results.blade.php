@@ -31,6 +31,40 @@
              window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank');
              this.showWaModal = false;
          },
+         // AT-117 §7 — add this composed message to the deferred outreach queue.
+         queueUrl: @js(route('corex.outreach-queue.enqueue')),
+         nextWindowIso: @js($outreachWindow['next_opens_at'] ?? null),
+         queueContactId: {{ (int) $contact->id }},
+         queueCsrf: @js(csrf_token()),
+         dueChoice: 'next_window',
+         customDueAt: '',
+         queuing: false,
+         resolveDueAt() {
+             if (this.dueChoice === 'next_window') return this.nextWindowIso;
+             if (this.dueChoice === 'tomorrow_8') {
+                 const d = new Date(); d.setDate(d.getDate() + 1);
+                 const p = n => String(n).padStart(2, '0');
+                 return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T08:00`;
+             }
+             return this.customDueAt || null;
+         },
+         async addToQueue() {
+             if (this.queuing) return;
+             const dueAt = this.resolveDueAt();
+             if (!dueAt) { alert('Pick a due time first.'); return; }
+             this.queuing = true;
+             try {
+                 const res = await fetch(this.queueUrl, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': this.queueCsrf, 'Accept': 'application/json' },
+                     body: new URLSearchParams({ contact_id: this.queueContactId, channel: 'whatsapp', source: 'mic', body: this.waMessage, due_at: dueAt }),
+                 });
+                 const data = await res.json();
+                 if (!res.ok || !data.ok) { alert(data.message || 'Could not queue.'); return; }
+                 alert(data.message || 'Queued.');
+                 this.showWaModal = false;
+             } catch (e) { alert('Network error — try again.'); } finally { this.queuing = false; }
+         },
          hideModal: { open: false, reason: '', title: '', form: null },
          openHideModal(form, title) {
              this.hideModal.form = form;
@@ -465,6 +499,29 @@
                           class="w-full rounded-md px-3 py-2 text-sm"
                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
                 <p class="text-xs" style="color: var(--text-muted);">The client's personalised link is already included in the message.</p>
+            </div>
+
+            {{-- AT-117 §7 — schedule for later (deferred queue). Available even when
+                 the window is closed; only "Open in WhatsApp" is window-disabled. --}}
+            <div class="px-6 pb-4 mt-2 pt-3" style="border-top: 1px solid var(--border);">
+                <div class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Or schedule for later</div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <select x-model="dueChoice" class="rounded-sm px-3 py-2 text-sm"
+                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <option value="next_window">Next window open</option>
+                        <option value="tomorrow_8">Tomorrow 08:00</option>
+                        <option value="custom">Custom…</option>
+                    </select>
+                    <input type="datetime-local" x-model="customDueAt" x-show="dueChoice === 'custom'" x-cloak
+                           class="rounded-sm px-3 py-2 text-sm"
+                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <button type="button" @click="addToQueue()" :disabled="queuing"
+                            class="px-4 py-2 text-sm font-semibold rounded-sm"
+                            style="background: var(--surface); border: 1px solid #00d4aa; color: var(--text-primary);">
+                        <span x-show="!queuing">Add to queue</span>
+                        <span x-show="queuing" x-cloak>Queuing…</span>
+                    </button>
+                </div>
             </div>
 
             {{-- Footer --}}
