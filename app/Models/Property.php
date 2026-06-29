@@ -923,8 +923,18 @@ class Property extends Model
     }
 
     /**
-     * Private Property search-by-ref fallback. PP doesn't return a direct
-     * listing URL from syndication, so we hop through their search page.
+     * Compose the public Private Property listing URL. Pattern (live):
+     *   https://www.privateproperty.co.za/{section}/{province}/{city}/{suburb}/{ref}
+     *
+     * PP doesn't return a listing URL from syndication, but it resolves a
+     * listing purely by the trailing reference — the slug segments are
+     * decorative SEO and PP redirects to the canonical URL regardless
+     * (verified: a deliberately wrong province/city/suburb still served the
+     * right listing). The old `/search?q=<ref>` hop now 404s ("This space is
+     * no longer occupied"), so we build the SEO path and let the ref resolve.
+     * We omit PP's region tier (kzn-south-coast) — we don't store PP's region
+     * taxonomy and PP backfills it on redirect.
+     *
      * Returns null unless the listing is activated.
      */
     private function buildPpUrl(): ?string
@@ -932,7 +942,19 @@ class Property extends Model
         if (empty($this->pp_ref) || $this->pp_syndication_status !== 'active') {
             return null;
         }
-        return 'https://www.privateproperty.co.za/search?q=' . urlencode((string) $this->pp_ref);
+        $slugify = static function (?string $s): string {
+            $s = strtolower(preg_replace('/[^a-z0-9]+/i', '-', (string) ($s ?? '')) ?? '');
+            return trim($s, '-') ?: 'property';
+        };
+        $section = $this->listing_type === 'rental' ? 'to-rent' : 'for-sale';
+        return sprintf(
+            'https://www.privateproperty.co.za/%s/%s/%s/%s/%s',
+            $section,
+            $slugify($this->province),
+            $slugify($this->city ?? $this->town),
+            $slugify($this->suburb),
+            rawurlencode((string) $this->pp_ref),
+        );
     }
 
     /**
