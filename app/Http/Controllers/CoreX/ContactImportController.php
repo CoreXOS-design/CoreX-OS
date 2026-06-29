@@ -227,30 +227,36 @@ class ContactImportController extends Controller
                 }
 
                 $phone = trim($mapped['phone'] ?? '');
+                $phoneSecondary = trim($mapped['phone_secondary'] ?? '');
                 $email = trim($mapped['email'] ?? '');
 
-                // If no phone but phone_secondary exists, use that
-                if ($phone === '' && !empty($mapped['phone_secondary'])) {
-                    $phone = trim($mapped['phone_secondary']);
+                // AT-125 — keep the secondary number as a SEPARATE identifier
+                // instead of merging it into the single column (it becomes a real
+                // secondary child row below). With no primary but a secondary,
+                // promote the secondary to primary.
+                if ($phone === '' && $phoneSecondary !== '') {
+                    $phone = $phoneSecondary;
+                    $phoneSecondary = '';
                 }
 
-                // Phone is required in the DB — skip rows with no phone at all
-                if ($phone === '') {
+                // A contact needs at least one identifier (phone OR email) — AT-125
+                // allows email-only contacts.
+                if ($phone === '' && $email === '') {
                     $skipped++;
                     continue;
                 }
 
-                // Duplicate check by phone or email. Bypass ContactScope (the
-                // role-based 'own'/'branch' read filter) so dedupe sees EVERY
-                // contact in the agency — otherwise an 'own'-scope importer can't
-                // see colleagues' contacts and creates agency-wide duplicates.
-                // AgencyScope still bounds this to the current agency.
-                $dup = Contact::withoutGlobalScope(ContactScope::class)
-                    ->where(function ($q) use ($phone, $email) {
-                        $q->where('phone', $phone);
-                        if ($email !== '') $q->orWhere('email', $email);
-                    })
-                    ->exists();
+                // Duplicate check across ALL of every contact's identifiers (child
+                // tables + mirror), matching the form's authoritative store() check
+                // (AT-125). Agency-scoped; sees agency-wide dupes regardless of the
+                // importer's own role data-scope.
+                $dup = app(\App\Services\ContactDuplicateService::class)
+                    ->findDuplicatesForIdentifiers(
+                        array_values(array_filter([$phone, $phoneSecondary])),
+                        array_values(array_filter([$email])),
+                        trim($mapped['id_number'] ?? '') ?: null,
+                        (int) $importAgencyId
+                    )->isNotEmpty();
 
                 if ($dup) {
                     $skipped++;
@@ -301,6 +307,14 @@ class ContactImportController extends Controller
                     'email_count'        => max(0, (int) ($mapped['_emails_count'] ?? 0)),
                     'whatsapp_count'     => max(0, (int) ($mapped['_whatsapp'] ?? 0)),
                 ]);
+
+                // AT-125 — the primary phone/email become child rows via the
+                // Contact `saved` reverse-sync; persist the SECONDARY number as a
+                // real second identifier (no longer merged/lost). Observer keeps
+                // the primary intact.
+                if ($phoneSecondary !== '') {
+                    $contact->phones()->create(['phone' => $phoneSecondary]);
+                }
 
                 // Create a note in the Notes tab if there's additional info
                 if ($notes !== '') {

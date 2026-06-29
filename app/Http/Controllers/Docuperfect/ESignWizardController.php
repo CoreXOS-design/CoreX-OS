@@ -791,10 +791,14 @@ class ESignWizardController extends Controller
                 $email = trim($r['email'] ?? '');
                 $idNumber = trim($r['id_number'] ?? '');
 
-                // Check for existing contact by email or id_number (prevent duplicates)
+                // Check for existing contact by email or id_number (prevent duplicates).
+                // AT-125 — resolve the email against ALL of a contact's emails
+                // (child tables), not just the mirror, so a signer using a
+                // secondary address still links to the existing contact.
                 $existing = null;
                 if ($email !== '') {
-                    $existing = Contact::where('email', $email)->first();
+                    $existing = app(\App\Services\Communications\ContactIdentifierResolver::class)
+                        ->resolve($email, (int) auth()->user()->effectiveAgencyId());
                 }
                 if (!$existing && $idNumber !== '') {
                     $existing = Contact::where('id_number', $idNumber)->first();

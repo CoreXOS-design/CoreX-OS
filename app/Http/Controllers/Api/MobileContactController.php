@@ -98,33 +98,91 @@ class MobileContactController extends Controller
 
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
+            // AT-125 — single phone/email kept for back-compat; the app may post
+            // the multi-identifier phones[]/emails[] arrays instead.
             'last_name'       => 'required|string|max:100',
-            'phone'           => 'required|string|max:30',
+            'phone'           => 'nullable|string|max:30',
             'email'           => 'nullable|email|max:150',
+            'phones'              => 'nullable|array',
+            'phones.*.value'      => 'nullable|string|max:30',
+            'phones.*.label'      => 'nullable|string|max:60',
+            'phones.*.is_primary' => 'nullable|boolean',
+            'emails'              => 'nullable|array',
+            'emails.*.value'      => 'nullable|email|max:150',
+            'emails.*.label'      => 'nullable|string|max:60',
+            'emails.*.is_primary' => 'nullable|boolean',
             'id_number'       => 'nullable|string|max:20',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'notes'           => 'nullable|string|max:1000',
         ]);
 
-        // Duplicate check (mirrors web ContactController)
-        $duplicate = Contact::where('phone', $data['phone'])
-            ->when(!empty($data['email']), fn ($q) => $q->orWhere('email', $data['email']))
-            ->first();
+        $phones = $this->identifierList($request->input('phones', []), $data['phone'] ?? null);
+        $emails = $this->identifierList($request->input('emails', []), $data['email'] ?? null);
+        if ($phones === [] && $emails === []) {
+            return response()->json(['message' => 'A contact needs at least one phone number or email address.'], 422);
+        }
+
+        // Duplicate check across ALL identifiers (child tables + mirror), AT-125.
+        $duplicate = app(\App\Services\ContactDuplicateService::class)
+            ->findDuplicatesForIdentifiers(
+                array_column($phones, 'value'),
+                array_column($emails, 'value'),
+                $data['id_number'] ?? null,
+                (int) $user->agency_id
+            )->first();
 
         if ($duplicate) {
             return response()->json([
-                'message' => 'Duplicate contact (phone or email already exists).',
+                'message' => 'Duplicate contact (an identifier already exists).',
                 'duplicate_id' => $duplicate->id,
             ], 422);
         }
 
+        unset($data['phone'], $data['email'], $data['phones'], $data['emails']);
         $data['created_by_user_id'] = $user->id;
         $data['agency_id']          = $user->agency_id;
         $data['branch_id']          = $user->effectiveBranchId();
 
-        $contact = Contact::create($data);
+        $contact = \DB::transaction(function () use ($data, $phones, $emails) {
+            $contact = Contact::create($data);
+            app(\App\Services\Contacts\ContactIdentifierService::class)->syncIdentifiers($contact, $phones, $emails);
+            return $contact;
+        });
 
         return response()->json(['contact' => $this->shape($contact->fresh(['type']), full: true)], 201);
+    }
+
+    /**
+     * AT-125 — normalise an incoming phones/emails payload (array of
+     * {value,label,is_primary} or plain strings) into a clean list, falling back
+     * to a single legacy value. Guarantees one primary when any rows exist.
+     *
+     * @return array<int,array{value:string,label:?string,is_primary:bool}>
+     */
+    private function identifierList($input, ?string $single): array
+    {
+        $out = [];
+        if (is_array($input)) {
+            foreach ($input as $row) {
+                $value = is_array($row) ? trim((string) ($row['value'] ?? '')) : trim((string) $row);
+                if ($value === '') {
+                    continue;
+                }
+                $label = is_array($row) ? trim((string) ($row['label'] ?? '')) : '';
+                $out[] = [
+                    'value'      => $value,
+                    'label'      => $label !== '' ? $label : null,
+                    'is_primary' => is_array($row) && filter_var($row['is_primary'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                ];
+            }
+        }
+        if ($out === [] && !empty($single)) {
+            $out[] = ['value' => trim((string) $single), 'label' => null, 'is_primary' => true];
+        }
+        if ($out !== [] && !collect($out)->contains(fn ($r) => $r['is_primary'])) {
+            $out[0]['is_primary'] = true;
+        }
+        return $out;
     }
 
     // PUT /api/mobile/contacts/{contact}  — limited fields only
@@ -135,12 +193,35 @@ class MobileContactController extends Controller
         $data = $request->validate([
             'first_name' => 'sometimes|required|string|max:100',
             'last_name'  => 'sometimes|required|string|max:100',
-            'phone'      => 'sometimes|required|string|max:30',
+            'phone'      => 'sometimes|nullable|string|max:30',
             'email'      => 'sometimes|nullable|email|max:150',
+            'phones'              => 'sometimes|array',
+            'phones.*.value'      => 'nullable|string|max:30',
+            'phones.*.label'      => 'nullable|string|max:60',
+            'phones.*.is_primary' => 'nullable|boolean',
+            'emails'              => 'sometimes|array',
+            'emails.*.value'      => 'nullable|email|max:150',
+            'emails.*.label'      => 'nullable|string|max:60',
+            'emails.*.is_primary' => 'nullable|boolean',
             'id_number'  => 'sometimes|nullable|string|max:20',
         ]);
 
-        $contact->update($data);
+        // AT-125 — sync identifiers only when the payload carries them.
+        $hasIdentifierInput = $request->has('phones') || $request->has('emails')
+            || $request->filled('phone') || $request->filled('email');
+        $phones = $this->identifierList($request->input('phones', []), $data['phone'] ?? null);
+        $emails = $this->identifierList($request->input('emails', []), $data['email'] ?? null);
+        if ($hasIdentifierInput && $phones === [] && $emails === []) {
+            return response()->json(['message' => 'A contact needs at least one phone number or email address.'], 422);
+        }
+        unset($data['phone'], $data['email'], $data['phones'], $data['emails']);
+
+        \DB::transaction(function () use ($contact, $data, $hasIdentifierInput, $phones, $emails) {
+            $contact->update($data);
+            if ($hasIdentifierInput) {
+                app(\App\Services\Contacts\ContactIdentifierService::class)->syncIdentifiers($contact, $phones, $emails);
+            }
+        });
 
         return response()->json(['contact' => $this->shape($contact->fresh(['type']), full: true)]);
     }

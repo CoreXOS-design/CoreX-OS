@@ -6,6 +6,7 @@ use App\Models\Contact;
 use App\Models\ContactEmail;
 use App\Models\ContactPhone;
 use App\Models\Scopes\AgencyScope;
+use App\Services\ContactDuplicateService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -50,6 +51,164 @@ class ContactIdentifierService
     {
         $this->setPrimary($email, ContactEmail::class);
         $this->reconcileEmails((int) $email->contact_id);
+    }
+
+    /**
+     * Canonical multi-identifier write for the form / API.
+     *
+     * Upserts the contact's phones + emails from structured input, soft-deletes
+     * the ones the user removed, dedupes within the contact (by normalised key),
+     * and sets exactly one primary per kind (explicitly marked, else the first).
+     * The step-1 observers + reconcile keep contacts.phone/email mirroring the
+     * primary throughout. Transaction-safe; no hard deletes.
+     *
+     * @param array<int,array{value?:string,label?:?string,is_primary?:bool}> $phones
+     * @param array<int,array{value?:string,label?:?string,is_primary?:bool}> $emails
+     */
+    public function syncIdentifiers(Contact $contact, array $phones, array $emails): void
+    {
+        DB::transaction(function () use ($contact, $phones, $emails) {
+            $this->syncKind($contact, ContactPhone::class, 'phone', $phones,
+                fn (string $v) => app(ContactDuplicateService::class)->normalizePhone($v),
+                fn (ContactPhone $r) => $this->setPrimaryPhone($r),
+                fn () => $this->reconcilePhones($contact->id));
+
+            $this->syncKind($contact, ContactEmail::class, 'email', $emails,
+                fn (string $v) => strtolower(trim($v)),
+                fn (ContactEmail $r) => $this->setPrimaryEmail($r),
+                fn () => $this->reconcileEmails($contact->id));
+        });
+    }
+
+    /**
+     * Reverse mirror-sync: ensure a contact carrying a legacy single
+     * contacts.phone/email (written by any single-field path — importers, the
+     * mobile API, the e-sign signer create, the form before it sends arrays) has
+     * a matching PRIMARY child row, so the child tables are the COMPLETE source
+     * of truth for the resolvers (AT-125 step 2). Idempotent — a no-op when an
+     * active child row for the value already exists. Driven by the Contact
+     * `saved` observer, so it covers EVERY writer with no per-writer change.
+     */
+    public function ensureMirrorHasChildRows(Contact $contact): void
+    {
+        $phone = trim((string) ($contact->phone ?? ''));
+        if ($phone !== '') {
+            $norm = app(ContactDuplicateService::class)->normalizePhone($phone);
+            $exists = ContactPhone::withoutGlobalScope(AgencyScope::class)
+                ->where('contact_id', $contact->id)
+                ->when($norm !== null, fn ($q) => $q->where('phone_normalised', $norm), fn ($q) => $q->where('phone', $phone))
+                ->exists();
+            if (! $exists) {
+                ContactPhone::create([
+                    'agency_id' => $contact->agency_id,
+                    'contact_id' => $contact->id,
+                    'phone' => $phone,
+                ]);
+            }
+        }
+
+        $email = trim((string) ($contact->email ?? ''));
+        if ($email !== '') {
+            $exists = ContactEmail::withoutGlobalScope(AgencyScope::class)
+                ->where('contact_id', $contact->id)
+                ->where('email_normalised', strtolower($email))
+                ->exists();
+            if (! $exists) {
+                ContactEmail::create([
+                    'agency_id' => $contact->agency_id,
+                    'contact_id' => $contact->id,
+                    'email' => $email,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * @param class-string $modelClass
+     * @param array<int,array{value?:string,label?:?string,is_primary?:bool}> $items
+     */
+    private function syncKind(
+        Contact $contact,
+        string $modelClass,
+        string $rawCol,
+        array $items,
+        callable $normalise,
+        callable $setPrimary,
+        callable $reconcile
+    ): void {
+        $normCol = $rawCol . '_normalised';
+
+        // Normalise + dedupe the incoming set within this contact (first wins,
+        // but an is_primary flag on any duplicate is carried up).
+        $incoming = [];
+        foreach ($items as $item) {
+            $raw = trim((string) ($item['value'] ?? ''));
+            if ($raw === '') {
+                continue;
+            }
+            $norm = $normalise($raw);
+            $key = $norm ?? mb_strtolower($raw);
+            if (isset($incoming[$key])) {
+                if (! empty($item['is_primary'])) {
+                    $incoming[$key]['is_primary'] = true;
+                }
+                continue;
+            }
+            $label = trim((string) ($item['label'] ?? ''));
+            $incoming[$key] = [
+                'value' => $raw,
+                'label' => $label !== '' ? $label : null,
+                'is_primary' => ! empty($item['is_primary']),
+            ];
+        }
+
+        $existing = $modelClass::withoutGlobalScope(AgencyScope::class)
+            ->where('contact_id', $contact->id)
+            ->get();
+        $existingByKey = $existing->keyBy(fn ($r) => $r->{$normCol} ?? mb_strtolower((string) $r->{$rawCol}));
+
+        // Soft-delete identifiers the user removed.
+        foreach ($existing as $row) {
+            $key = $row->{$normCol} ?? mb_strtolower((string) $row->{$rawCol});
+            if (! isset($incoming[$key])) {
+                $row->delete();
+            }
+        }
+
+        // Upsert the incoming set.
+        $rows = [];
+        foreach ($incoming as $key => $inc) {
+            $row = $existingByKey->get($key);
+            if ($row) {
+                $row->{$rawCol} = $inc['value']; // re-set raw → mutator recomputes the normalised key
+                $row->label = $inc['label'];
+                $row->save();
+            } else {
+                $row = $modelClass::create([
+                    'agency_id' => $contact->agency_id,
+                    'contact_id' => $contact->id,
+                    $rawCol => $inc['value'],
+                    'label' => $inc['label'],
+                    'is_primary' => false,
+                ]);
+            }
+            $rows[] = ['row' => $row, 'is_primary' => $inc['is_primary']];
+        }
+
+        if ($rows === []) {
+            $reconcile(); // none of this kind → mirror nulls
+            return;
+        }
+
+        $primary = null;
+        foreach ($rows as $r) {
+            if ($r['is_primary']) {
+                $primary = $r['row'];
+                break;
+            }
+        }
+        $primary ??= $rows[0]['row'];
+        $setPrimary($primary);
     }
 
     /**
