@@ -3,6 +3,8 @@
 namespace App\Services\Communications;
 
 use App\Models\Contact;
+use App\Models\ContactEmail;
+use App\Models\ContactPhone;
 use App\Services\ContactDuplicateService;
 
 /**
@@ -39,9 +41,26 @@ class ContactIdentifierResolver
     private function resolveEmail(string $email, int $agencyId): ?Contact
     {
         $normalized = strtolower(trim($email));
+        if ($normalized === '') {
+            return null;
+        }
 
+        // AT-125 — match ANY of the contact's emails (child table), so a message
+        // to/from a SECONDARY address resolves (previously discarded). The mirror
+        // column is kept as a fallback for contacts not yet carrying child rows
+        // (created via the single-field form/importers until step 3). Lowest id
+        // wins when several contacts share the address (preserves prior `first()`).
         return $this->baseQuery($agencyId)
-            ->whereRaw('LOWER(TRIM(email)) = ?', [$normalized])
+            ->where(function ($q) use ($normalized, $agencyId) {
+                $q->whereRaw('LOWER(TRIM(email)) = ?', [$normalized])
+                  ->orWhereIn('id', ContactEmail::query()
+                      ->withoutGlobalScopes()
+                      ->whereNull('deleted_at')
+                      ->where('agency_id', $agencyId)
+                      ->where('email_normalised', $normalized)
+                      ->select('contact_id'));
+            })
+            ->orderBy('id')
             ->first();
     }
 
@@ -52,10 +71,20 @@ class ContactIdentifierResolver
             return null;
         }
 
-        // Mirrors ContactDuplicateService::normalizeDbExpression('phone').
+        // AT-125 — match ANY of the contact's phones (child table); mirror column
+        // kept as a fallback (same as resolveEmail). normalizeDbExpression('phone')
+        // mirrors ContactDuplicateService.
         return $this->baseQuery($agencyId)
-            ->whereNotNull('phone')
-            ->whereRaw("RIGHT(REGEXP_REPLACE(phone, '[^0-9]', ''), 9) = ?", [$normalized])
+            ->where(function ($q) use ($normalized, $agencyId) {
+                $q->whereRaw("RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', ''), 9) = ?", [$normalized])
+                  ->orWhereIn('id', ContactPhone::query()
+                      ->withoutGlobalScopes()
+                      ->whereNull('deleted_at')
+                      ->where('agency_id', $agencyId)
+                      ->where('phone_normalised', $normalized)
+                      ->select('contact_id'));
+            })
+            ->orderBy('id')
             ->first();
     }
 

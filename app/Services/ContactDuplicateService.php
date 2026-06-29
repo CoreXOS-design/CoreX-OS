@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\AgencyContactSettings;
 use App\Models\Contact;
+use App\Models\ContactEmail;
+use App\Models\ContactPhone;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +41,7 @@ class ContactDuplicateService
             ->whereNull('deleted_at')
             ->whereNull('purged_at');
 
-        $query->where(function ($q) use ($data, $matchFields) {
+        $query->where(function ($q) use ($data, $matchFields, $agencyId) {
             foreach ($matchFields as $field) {
                 $value = $data[$field] ?? null;
                 if (empty($value)) {
@@ -49,11 +51,33 @@ class ContactDuplicateService
                 if ($normalized === null) {
                     continue;
                 }
-                // Match against normalized form of the DB value
+                // Mirror column — back-compat for contacts that don't yet carry
+                // child identifier rows (created via the still-single-field form
+                // /importers until AT-125 step 3). Keeps "more matches, never fewer".
                 $q->orWhereRaw(
                     $this->normalizeDbExpression($field) . ' = ?',
                     [$normalized]
                 );
+
+                // AT-125 — also match ANY of the contact's identifiers (the child
+                // tables), so a contact with several phones/emails is found by any
+                // of them, not just the primary mirror. Same normalised keys as
+                // step 1; indexed (agency_id, *_normalised) subquery; agency-scoped.
+                if ($field === 'phone') {
+                    $q->orWhereIn('id', ContactPhone::query()
+                        ->withoutGlobalScopes()
+                        ->whereNull('deleted_at')
+                        ->where('agency_id', $agencyId)
+                        ->where('phone_normalised', $normalized)
+                        ->select('contact_id'));
+                } elseif ($field === 'email') {
+                    $q->orWhereIn('id', ContactEmail::query()
+                        ->withoutGlobalScopes()
+                        ->whereNull('deleted_at')
+                        ->where('agency_id', $agencyId)
+                        ->where('email_normalised', $normalized)
+                        ->select('contact_id'));
+                }
             }
         });
 
