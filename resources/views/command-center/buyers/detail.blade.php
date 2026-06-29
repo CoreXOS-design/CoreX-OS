@@ -268,68 +268,10 @@
         {{-- Viewing Packs (AT-110 discoverability) — find/open/edit packs built for this buyer. --}}
         @include('command-center.viewing-packs._packs-section', ['contact' => $buyer])
 
-        {{-- Upcoming Viewings --}}
-        <div>
-            <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Upcoming Viewings ({{ number_format($upcomingViewings->count()) }})</h3>
-            @forelse($upcomingViewings as $pv)
-                <div class="rounded-md p-4 mb-2" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0 flex-1">
-                            <a href="{{ route('corex.properties.show', $pv['property_id']) }}" target="_blank"
-                               class="text-sm font-semibold truncate block no-underline hover:underline" style="color: var(--text-primary);">{{ $pv['address'] }}</a>
-                            <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">{{ $pv['suburb'] }} · R {{ number_format($pv['price'] ?? 0) }}</div>
-                        </div>
-                        <div class="text-right flex-shrink-0">
-                            <div class="text-[10px]" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($pv['event_date'])->format('D, j M Y') }}</div>
-                            <div class="text-[10px]" style="color: var(--text-muted);">Agent: {{ $pv['agent_name'] ?? '—' }}</div>
-                            <span class="ds-badge ds-badge-info mt-0.5">Scheduled</span>
-                        </div>
-                    </div>
-                </div>
-            @empty
-                <p class="text-xs py-3" style="color: var(--text-muted);">None</p>
-            @endforelse
-        </div>
-
-        {{-- Past Viewings --}}
-        <div>
-            <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Past Viewings ({{ number_format($pastViewings->count()) }})</h3>
-            @forelse($pastViewings as $pv)
-                <div class="rounded-md p-4 mb-2" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0 flex-1">
-                            <a href="{{ route('corex.properties.show', $pv['property_id']) }}" target="_blank"
-                               class="text-sm font-semibold truncate block no-underline hover:underline" style="color: var(--text-primary);">{{ $pv['address'] }}</a>
-                            <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">{{ $pv['suburb'] }} · R {{ number_format($pv['price'] ?? 0) }}</div>
-                        </div>
-                        <div class="text-right flex-shrink-0">
-                            <div class="text-[10px]" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($pv['event_date'])->format('D, j M Y') }}</div>
-                            <div class="text-[10px]" style="color: var(--text-muted);">Agent: {{ $pv['agent_name'] ?? '—' }}</div>
-                        </div>
-                    </div>
-                    @if($pv['feedback'] ?? null)
-                        <div class="mt-2 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
-                            @if($pv['feedback']['outcome_label'] ?? null)
-                                <span class="ds-badge ds-badge-success">{{ $pv['feedback']['outcome_label'] }}</span>
-                            @endif
-                            @if($pv['feedback']['seller_notes'] ?? null)
-                                <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $pv['feedback']['seller_notes'] }}</p>
-                            @endif
-                            @if($pv['feedback']['internal_notes'] ?? null)
-                                <p class="text-[11px] mt-1" style="color: var(--text-muted);"><span class="font-medium">Internal:</span> {{ $pv['feedback']['internal_notes'] }}</p>
-                            @endif
-                            <div class="text-[10px] mt-1" style="color: var(--text-muted);">Captured {{ \Carbon\Carbon::parse($pv['feedback']['captured_at'])->diffForHumans() }}</div>
-                        </div>
-                    @else
-                        <div class="mt-2">
-                            <span class="ds-badge ds-badge-default">No feedback</span>
-                        </div>
-                    @endif
-                </div>
-            @empty
-                <p class="text-xs py-3" style="color: var(--text-muted);">None</p>
-            @endforelse
-        </div>
+        {{-- ALL linked appointments (property optional) + provide-feedback-from-here (AT-114).
+             Shared partial — identical to the contact record. The Overview tab stats above still
+             read $propertiesViewed (property-viewings only) for its viewing counts. --}}
+        @include('command-center.calendar._linked-events', ['contact' => $buyer])
 
     </div>
 
