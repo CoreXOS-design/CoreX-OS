@@ -21,7 +21,10 @@ return [
     //   {public_website_url}/property/{slug}-{id}
     // The website resolves a property by the trailing id, so the slug is purely
     // cosmetic/SEO — see Property::getPublicUrlAttribute().
-    'public_website_url'   => env('PUBLIC_WEBSITE_URL', 'http://91.99.130.85:1050'),
+    // Default is the live production domain (verified: it serves the
+    // /property/{slug}-{id} path). Override with PUBLIC_WEBSITE_URL to point at
+    // a local/staging custom-website dev server (e.g. http://91.99.130.85:1050).
+    'public_website_url'   => env('PUBLIC_WEBSITE_URL', 'https://www.hfcoastal.co.za'),
 
     /*
     |--------------------------------------------------------------------------
