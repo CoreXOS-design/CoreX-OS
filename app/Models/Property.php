@@ -1140,6 +1140,29 @@ class Property extends Model
      *
      * @return array<string,mixed>
      */
+    /**
+     * One selectable "ad agent" as the client-side selector consumes it.
+     * Used by the Ad Manager generator to let the user swap whose details
+     * appear on an ad (the listing agent, the co-listing agent, "me", or any
+     * agent in the user's data scope) — see ad-manager.md §"Agent identity".
+     * Keys mirror the agent_* keys of adData() so the JS swap stays in lock-step.
+     */
+    public static function agentAdCard(?User $agent): array
+    {
+        $name = (string) ($agent?->name ?? '');
+
+        return [
+            'id'          => (int) ($agent?->id ?? 0),
+            'name'        => $name,
+            'email'       => (string) ($agent?->email ?? ''),
+            // Mobile lives in `cell` (landline `phone` fallback) — same rule as adData().
+            'phone'       => (string) ($agent?->cell ?: $agent?->phone ?: ''),
+            'designation' => (string) ($agent?->designation ?: 'Property Practitioner'),
+            'initial'     => strtoupper(mb_substr($name !== '' ? $name : 'A', 0, 1)),
+            'avatar'      => $agent?->profilePhotoUrl(),
+        ];
+    }
+
     public function adTemplateVars(): array
     {
         $d = $this->adData();
@@ -1162,6 +1185,11 @@ class Property extends Model
             'agentName'   => $d['agent_name'],
             'agentEmail'  => $d['agent_email'],
             'agentDesig'  => $d['agent_designation'],
+            // Agent 2 (co-listing) — empty unless co-listed. Drives the dual-agent split.
+            'agent2Name'    => $d['agent_2_name'],
+            'agent2Email'   => $d['agent_2_email'],
+            'agent2Desig'   => $d['agent_2_designation'],
+            'agent2Initial' => $d['agent_2_initial'],
             'agencyName'  => strtoupper((string) $d['agency_name']),
             'website'     => strtoupper((string) $d['website']),
             'logoUrl'     => $d['logo'],
@@ -1235,6 +1263,11 @@ class Property extends Model
         $img  = fn (int $i) => self::publicImageUrl($imgs[$i] ?? null);
 
         $agent   = $this->agent;
+        // Co-listing agent (pp_second_agent_id) — drives the dual-agent ad layouts
+        // and the builder's Agent 2 fields. Null/empty keys when single-agent.
+        $agent2  = ($this->pp_second_agent_id && (int) $this->pp_second_agent_id !== (int) $this->agent_id)
+            ? $this->secondAgent
+            : null;
         $branch  = $this->branch;
         $agency  = $this->agency;
 
@@ -1286,6 +1319,16 @@ class Property extends Model
             // User has no `avatar_url` column — the photo URL comes from
             // profilePhotoUrl() (user_documents → legacy agent_photo_path).
             'agent_avatar'      => $agent?->profilePhotoUrl(),
+
+            // Agent 2 — the co-listing agent (empty when the listing is single-agent).
+            // Powers the dual-agent prebuilt layouts + the builder's Agent 2 fields.
+            'agent_2_name'        => strtoupper((string) ($agent2?->name ?? '')),
+            'agent_2_email'       => $agent2?->email ?? '',
+            'agent_2_phone'       => $agent2 ? ($agent2->cell ?: $agent2->phone ?: '') : '',
+            'agent_2_designation' => $agent2 ? ($agent2->designation ?: 'Property Practitioner') : '',
+            'agent_2_avatar'      => $agent2?->profilePhotoUrl(),
+            'agent_2_initial'     => $agent2 ? strtoupper(mb_substr((string) $agent2->name, 0, 1)) : '',
+
             'agency_name'       => $agency?->name ?? '',
             'website'           => $agency?->website_url ?: '',
             'logo'              => $logoUrl,
