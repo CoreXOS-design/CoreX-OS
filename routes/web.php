@@ -2498,6 +2498,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('corex.outreach-queue.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'index'])->name('index');
+            // AT-117 §7 — canonical client enqueue (MIC / map surfaces capture body here).
+            Route::post('/enqueue', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'enqueue'])->name('enqueue');
             Route::post('/{outreachQueue}/open',   [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'open'])->name('open');
             Route::post('/{outreachQueue}/cancel', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'cancel'])->name('cancel');
         });

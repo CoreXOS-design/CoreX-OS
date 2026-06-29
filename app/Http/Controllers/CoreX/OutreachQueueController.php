@@ -4,11 +4,15 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Models\Contact;
 use App\Models\Outreach\OutreachQueue;
+use App\Models\Property;
+use App\Services\Outreach\OutreachQueueService;
 use App\Services\Outreach\OutreachWindowService;
 use App\Services\SellerOutreach\MarketingConsentService;
 use App\Services\SellerOutreach\SellerOutreachComposerService;
 use App\Services\SellerOutreach\SellerOutreachSenderService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 /**
@@ -62,6 +66,55 @@ class OutreachQueueController extends Controller
         return view('corex.outreach-queue.index', compact(
             'surfaced', 'scheduled', 'inactive', 'sendAllowed', 'windowMessage'
         ));
+    }
+
+    /**
+     * AT-117 §7 — canonical client enqueue for surfaces that compose-and-fire in
+     * the browser (MIC Core-Matches share, etc.). They persist no message text, so
+     * the prepared body is captured here as body_snapshot. Consent + window are
+     * enforced by the shared OutreachQueueService. Tenancy via AgencyScope.
+     */
+    public function enqueue(Request $request, OutreachQueueService $queueService)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId();
+
+        $data = $request->validate([
+            'contact_id'  => 'required|integer',
+            'channel'     => 'required|in:whatsapp,email',
+            'source'      => 'required|in:mic,map,contact',
+            'body'        => 'required|string',
+            'due_at'      => 'required|date',
+            'property_id' => 'nullable|integer',
+        ]);
+
+        // AgencyScope isolates Contact/Property to the acting agency — a cross-agency
+        // id resolves to null and is rejected (never leaks).
+        $contact = Contact::find($data['contact_id']);
+        if (!$contact) {
+            return response()->json(['ok' => false, 'message' => 'Contact not found.'], 404);
+        }
+        $property = !empty($data['property_id']) ? Property::find($data['property_id']) : null;
+
+        $agency = Agency::find($agencyId);
+        try {
+            $dueAt = Carbon::parse($data['due_at'], $agency?->outreachTimezone() ?? config('app.timezone'));
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'message' => 'Could not read the chosen due time — pick it again.'], 422);
+        }
+
+        $res = $queueService->enqueue(
+            $agency, $contact, $user, $data['channel'], $data['source'], $data['body'], $dueAt, $property
+        );
+
+        $payload = ['ok' => $res['ok'], 'message' => $res['message']];
+        if ($res['ok']) {
+            $payload['queue_id'] = $res['row']->id;
+            $payload['due_at'] = $dueAt->toIso8601String();
+        } else {
+            $payload += $res['extra'] ?? [];
+        }
+        return response()->json($payload, $res['status']);
     }
 
     /**

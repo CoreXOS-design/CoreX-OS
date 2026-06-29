@@ -308,7 +308,7 @@ final class ComposerController extends Controller
      * agency send-window SERVER-SIDE; consent is checked at queue time (canMarketTo)
      * and re-checked at surface by the §5 sweep.
      */
-    public function queue(Request $request, Contact $contact, OutreachWindowService $window, MarketingConsentService $consent)
+    public function queue(Request $request, Contact $contact, \App\Services\Outreach\OutreachQueueService $queueService)
     {
         $agencyId = $this->ensureAgencyContext($request, $contact);
 
@@ -333,30 +333,10 @@ final class ComposerController extends Controller
             return $this->queueError($request, 'Cannot queue: this contact has no linked property and no captured address to pitch.');
         }
 
-        // Consent AT QUEUE TIME (§4b) — don't even queue an already-blocked contact.
-        if (!$consent->canMarketTo($contact, $validated['channel'])) {
-            $reason = $consent->marketingBlockReason($contact, $validated['channel']);
-            return $this->queueError($request, 'Cannot queue: this contact is not marketable right now (' . $reason . ').');
-        }
-
-        // due_at MUST fall inside the agency send-window (server-side, not just UI).
-        $agency = Agency::find($agencyId);
-        $tz = $agency?->outreachTimezone() ?? config('app.timezone');
-        try {
-            $dueAt = Carbon::parse($validated['due_at'], $tz);
-        } catch (\Throwable $e) {
-            return $this->queueError($request, 'Could not read the chosen due time — pick it again.');
-        }
-        if ($agency && !$window->isSendAllowed($agency, $dueAt->copy())) {
-            $msg = 'That time is outside the outreach send-window. ' . $window->blockedMessage($agency, $dueAt->copy());
-            return $this->queueError($request, $msg, [
-                'next_opens_at' => optional($window->nextOpensAt($agency, $dueAt->copy()))->toIso8601String(),
-            ]);
-        }
-
         $templateId = !empty($validated['template_id']) ? (int) $validated['template_id'] : null;
 
-        // SAME render the send path uses — no parallel rendering.
+        // SAME render the send path uses — no parallel rendering. renderedBody keeps
+        // {opt_out_link}/{tracking_link} literal → resolved fresh at dispatch (§4b).
         $context = $this->composer->composeContext(
             agencyId:        $agencyId,
             contact:         $contact,
@@ -374,24 +354,25 @@ final class ComposerController extends Controller
             return $this->queueError($request, 'Cannot queue: ' . implode(' ', $context->validationIssues));
         }
 
-        $row = OutreachQueue::create([
-            'contact_id'    => $contact->id,
-            'property_id'   => $property?->id,
-            'agent_id'      => $request->user()->id,
-            'template_id'   => $templateId,
-            'channel'       => $validated['channel'],
-            'source'        => OutreachQueue::SOURCE_CONTACT,
-            // renderedBody keeps {opt_out_link}/{tracking_link} literal → resolved at dispatch (§4b).
-            'body_snapshot' => $context->renderedBody,
-            'due_at'        => $dueAt,
-            // status defaults to pending, channel default whatsapp — via model $attributes.
-        ]);
+        $agency = Agency::find($agencyId);
+        try {
+            $dueAt = Carbon::parse($validated['due_at'], $agency?->outreachTimezone() ?? config('app.timezone'));
+        } catch (\Throwable $e) {
+            return $this->queueError($request, 'Could not read the chosen due time — pick it again.');
+        }
 
-        $msg = 'Queued — will surface in your outreach queue at ' . $dueAt->format('D j M, H:i') . '.';
+        // Canonical enqueue (consent + window + create) — shared with MIC/map (§7).
+        $res = $queueService->enqueue(
+            $agency, $contact, $request->user(), $validated['channel'],
+            OutreachQueue::SOURCE_CONTACT, $context->renderedBody, $dueAt, $property
+        );
+        if (!$res['ok']) {
+            return $this->queueError($request, $res['message'], $res['extra'] ?? []);
+        }
 
         return $request->wantsJson()
-            ? response()->json(['queued' => true, 'queue_id' => $row->id, 'due_at' => $dueAt->toIso8601String(), 'message' => $msg])
-            : redirect()->route('seller-outreach.composer.show', ['contact' => $contact->id])->with('success', $msg);
+            ? response()->json(['queued' => true, 'queue_id' => $res['row']->id, 'due_at' => $dueAt->toIso8601String(), 'message' => $res['message']])
+            : redirect()->route('seller-outreach.composer.show', ['contact' => $contact->id])->with('success', $res['message']);
     }
 
     /** Uniform queue-error response (JSON 422 for the Alpine flow, flash for non-JSON). */
