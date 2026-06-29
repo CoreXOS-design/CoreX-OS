@@ -221,19 +221,16 @@ final class PublicPresentationController extends Controller
         $agencyId = (int) $link->agency_id;
         $assignedAgent = $this->resolveAssignedAgent($link);
 
-        // 1. Try to match an existing Contact by exact email OR phone.
+        // 1. Try to match an existing Contact by email OR phone. AT-125 — route
+        // through the canonical resolver so a teaser lead matches ANY of a
+        // contact's identifiers (child tables + mirror), agency-scoped.
+        $resolver = app(\App\Services\Communications\ContactIdentifierResolver::class);
         $matchedContact = null;
         if ($email !== '') {
-            $matchedContact = Contact::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->whereRaw('LOWER(email) = ?', [mb_strtolower($email)])
-                ->first();
+            $matchedContact = $resolver->resolve($email, (int) $agencyId);
         }
         if (!$matchedContact && $phone !== '') {
-            $matchedContact = Contact::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->where('phone', $phone)
-                ->first();
+            $matchedContact = $resolver->resolve($phone, (int) $agencyId);
         }
 
         // 2. If same lead has already submitted for THIS link via fingerprint OR

@@ -99,15 +99,15 @@ final class ContactResolverMultiIdentifierTest extends TestCase
         $this->assertNull($this->resolver()->resolve('27600000000', $this->agencyId));
     }
 
-    public function test_mirror_only_contact_still_resolves(): void
+    public function test_single_field_create_resolves(): void
     {
-        // A contact carrying only the legacy mirror column (no child rows yet —
-        // the state of contacts created via the unchanged form until step 3).
+        // A contact created via a single-field path (importer/legacy). As of
+        // step 3 the Contact `saved` reverse-sync gives it primary child rows;
+        // either way the resolver matches it (child tables OR mirror fallback).
         $contact = Contact::create([
-            'agency_id' => $this->agencyId, 'first_name' => 'Mirror', 'last_name' => 'Only',
+            'agency_id' => $this->agencyId, 'first_name' => 'Single', 'last_name' => 'Field',
             'phone' => '0837654321', 'email' => 'mirror@example.com',
         ]);
-        $this->assertSame(0, $contact->emails()->count(), 'no child rows — mirror only');
 
         $this->assertSame($contact->id, $this->resolver()->resolve('mirror@example.com', $this->agencyId)?->id);
         $this->assertSame($contact->id, $this->resolver()->resolve('0837654321', $this->agencyId)?->id);

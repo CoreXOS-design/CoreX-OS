@@ -85,6 +85,57 @@ class ContactDuplicateService
     }
 
     /**
+     * AT-125 — duplicate detection for a MULTI-identifier create/edit: match any
+     * of the incoming phones/emails (or the SA ID number) against ALL of every
+     * contact's identifiers (child tables) OR the mirror columns. Used by the
+     * contact form and importers so a contact is found by any incoming identifier
+     * even if it lives on a secondary row. Agency-scoped; never cross-agency.
+     *
+     * @param array<int,string> $phones raw incoming phone strings
+     * @param array<int,string> $emails raw incoming email strings
+     * @return Collection<Contact>
+     */
+    public function findDuplicatesForIdentifiers(array $phones, array $emails, ?string $idNumber, int $agencyId, ?int $ignoreContactId = null): Collection
+    {
+        $normPhones = collect($phones)->map(fn ($p) => $this->normalizePhone((string) $p))->filter()->unique()->values();
+        $normEmails = collect($emails)->map(fn ($e) => strtolower(trim((string) $e)))->filter(fn ($e) => $e !== '')->unique()->values();
+        $normId = $idNumber ? preg_replace('/[\s\-]/', '', $idNumber) : null;
+
+        if ($normPhones->isEmpty() && $normEmails->isEmpty() && empty($normId)) {
+            return new Collection();
+        }
+
+        $query = Contact::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->whereNull('purged_at');
+
+        if ($ignoreContactId) {
+            $query->where('id', '!=', $ignoreContactId);
+        }
+
+        $query->where(function ($q) use ($normPhones, $normEmails, $normId, $agencyId) {
+            foreach ($normPhones as $norm) {
+                $q->orWhereRaw("RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', ''), 9) = ?", [$norm]);
+                $q->orWhereIn('id', ContactPhone::query()->withoutGlobalScopes()
+                    ->whereNull('deleted_at')->where('agency_id', $agencyId)
+                    ->where('phone_normalised', $norm)->select('contact_id'));
+            }
+            foreach ($normEmails as $norm) {
+                $q->orWhereRaw('LOWER(TRIM(email)) = ?', [$norm]);
+                $q->orWhereIn('id', ContactEmail::query()->withoutGlobalScopes()
+                    ->whereNull('deleted_at')->where('agency_id', $agencyId)
+                    ->where('email_normalised', $norm)->select('contact_id'));
+            }
+            if (! empty($normId)) {
+                $q->orWhereRaw("REPLACE(REPLACE(id_number, ' ', ''), '-', '') = ?", [$normId]);
+            }
+        });
+
+        return $query->with('createdBy')->limit(5)->get();
+    }
+
+    /**
      * Get the configured duplicate mode for an agency.
      */
     public function resolveMode(int $agencyId): string

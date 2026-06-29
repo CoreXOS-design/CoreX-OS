@@ -17,6 +17,20 @@ class ContactObserver
     }
 
     /**
+     * AT-125 reverse mirror-sync — ensure any contact carrying a legacy single
+     * contacts.phone/email (importers, mobile API, e-sign signer, etc.) has a
+     * matching PRIMARY child identifier row, so the child tables are the complete
+     * source of truth for the resolvers. Idempotent (no-op when a row exists).
+     * The explicit multi-identifier form/API path manages child rows directly via
+     * ContactIdentifierService::syncIdentifiers and leaves the mirror empty here,
+     * so this never double-writes. Quiet internal writes → no observer recursion.
+     */
+    public function saved(Contact $contact): void
+    {
+        app(\App\Services\Contacts\ContactIdentifierService::class)->ensureMirrorHasChildRows($contact);
+    }
+
+    /**
      * When a contact is being created:
      *  - ensure branch_id is populated (creator's branch → agency default → lowest branch)
      *  - auto-link to an existing ClientUser if one exists for this email
