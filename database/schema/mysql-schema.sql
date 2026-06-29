@@ -204,6 +204,7 @@ CREATE TABLE `agencies` (
   `privacy_policy_published_at` timestamp NULL DEFAULT NULL,
   `whatsapp_launch_mode_agent` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'whatsapp_web',
   `whatsapp_launch_mode_seller` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'whatsapp_web',
+  `outreach_send_window` json DEFAULT NULL,
   `ai_monthly_budget_zar` decimal(10,2) NOT NULL DEFAULT '1000.00',
   `ai_budget_warning_pct` tinyint unsigned NOT NULL DEFAULT '80',
   `ai_budget_hard_cap_pct` tinyint unsigned NOT NULL DEFAULT '110',
@@ -12324,3 +12325,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (895,'2026_06_28_13
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (896,'2026_06_28_140001_create_core_match_misses_table',180);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (897,'2026_07_05_000001_add_viewing_pack_redaction_dpi_to_agencies',181);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (898,'2026_07_05_000002_add_viewing_pack_tour_scheduling',182);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (899,'2026_07_06_000003_add_outreach_send_window_to_agencies_table',183);

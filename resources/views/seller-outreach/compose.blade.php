@@ -12,6 +12,8 @@
          submitUrl: @js(route('seller-outreach.composer.submit', $contact)),
          sentUrlBase: @js(url('/corex/contacts/' . $contact->id . '/outreach/sent')),
          csrfToken: @js(csrf_token()),
+         windowAllowed: @js($outreachWindow['allowed'] ?? true),
+         windowMessage: @js($outreachWindow['message'] ?? ''),
      })">
 
     {{-- Header --}}
@@ -127,6 +129,12 @@ function composerState(init) {
         },
         async submit() {
             if (this.sending) return;
+            // AT-117 §4a — send-window lock. Client prevent (immediate message);
+            // the server submit endpoint also refuses out-of-window (defense in depth).
+            if (this.windowAllowed === false) {
+                alert(this.windowMessage || 'Outreach sending is closed right now.');
+                return;
+            }
             this.sending = true;
             try {
                 const res = await fetch(this.submitUrl, {

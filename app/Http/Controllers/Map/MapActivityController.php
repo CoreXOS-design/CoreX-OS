@@ -95,6 +95,25 @@ final class MapActivityController extends Controller
             return response()->json(['error' => 'No agency context.'], 403);
         }
 
+        // AT-117 §4a — send-window lock for DIRECT WhatsApp dispatches from the map.
+        // Only contact_owner_launched (scheme-owner wa.me deep link) is a real
+        // dispatch; whatsapp_launched/pitch_launched/prospect_launched NAVIGATE to
+        // the Seller-Outreach composer (prepare), which enforces the window at its
+        // own submit — blocking them here would wrongly prevent preparing in closed
+        // hours. The client also intercepts the wa.me open (the authoritative
+        // prevent, since the deep-link opens client-side).
+        if ($data['action'] === 'contact_owner_launched') {
+            $agency = \App\Models\Agency::find($agencyId);
+            $window = app(\App\Services\Outreach\OutreachWindowService::class);
+            if ($agency && !$window->isSendAllowed($agency)) {
+                return response()->json([
+                    'error'               => 'send_window_blocked',
+                    'send_window_blocked' => true,
+                    'message'             => $window->blockedMessage($agency),
+                ], 422);
+            }
+        }
+
         // Extras carry per-action server-resolved context — e.g. for
         // prospect_launched the match-or-create result (tracked_property_id +
         // redirect_url) so the client can navigate to opportunities.show.

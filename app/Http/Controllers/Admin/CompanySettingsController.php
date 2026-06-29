@@ -106,7 +106,42 @@ class CompanySettingsController extends Controller
             'outreach_live_deal_statuses_present' => ['nullable', 'boolean'],
             'outreach_live_deal_statuses'         => ['nullable', 'array'],
             'outreach_live_deal_statuses.*'       => ['string', 'in:active,completed,cancelled,on_hold'],
+            // AT-117 §4a — agency-configurable outreach send-window.
+            'outreach_send_window_present'   => ['nullable', 'boolean'],
+            'send_window'                    => ['nullable', 'array'],
+            'send_window.*.enabled'          => ['nullable', 'boolean'],
+            'send_window.*.start'            => ['nullable', 'date_format:H:i'],
+            'send_window.*.end'              => ['nullable', 'date_format:H:i'],
+            'send_window_public_holidays_off' => ['nullable', 'boolean'],
         ]);
+
+        // AT-117 §4a — only touch the send-window when this form rendered it (hidden
+        // marker), so the sibling website/branding forms that share update() never
+        // wipe it. Build the JSON from per-day inputs; reject a day whose end is not
+        // after its start (prevent a silently-empty window).
+        if ($request->boolean('outreach_send_window_present')) {
+            $raw = (array) $request->input('send_window', []);
+            $window = [];
+            $badDays = [];
+            foreach (Agency::OUTREACH_SEND_WINDOW_DAYS as $day) {
+                $d = (array) ($raw[$day] ?? []);
+                $enabled = !empty($d['enabled']);
+                $start = $enabled ? ($d['start'] ?: Agency::OUTREACH_SEND_WINDOW_DEFAULT[$day]['start'] ?? '08:00') : null;
+                $end   = $enabled ? ($d['end'] ?: Agency::OUTREACH_SEND_WINDOW_DEFAULT[$day]['end'] ?? '20:00') : null;
+                if ($enabled && $start !== null && $end !== null && strcmp($end, $start) <= 0) {
+                    $badDays[] = ucfirst($day);
+                }
+                $window[$day] = ['enabled' => $enabled, 'start' => $start, 'end' => $end];
+            }
+            if (!empty($badDays)) {
+                return back()
+                    ->withInput()
+                    ->with('error', 'Send-window: closing time must be after opening time for ' . implode(', ', $badDays) . '.');
+            }
+            $window['public_holidays_off'] = $request->boolean('send_window_public_holidays_off');
+            $data['outreach_send_window'] = $window;
+        }
+        unset($data['outreach_send_window_present'], $data['send_window'], $data['send_window_public_holidays_off']);
 
         // AT-50 — only touch the live-status set when the company form actually
         // rendered its checkboxes (a hidden marker). Unchecking all => NULL =>
