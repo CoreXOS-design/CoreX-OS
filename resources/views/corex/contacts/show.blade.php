@@ -1742,6 +1742,9 @@
              ════════════════════════════════════════ --}}
         <div x-show="activeTab === 'viewings'" x-cloak class="p-6 space-y-6" id="tab-viewings">
 
+            {{-- Viewing Packs (AT-110 discoverability) — find/open/edit packs built for this contact. --}}
+            @include('command-center.viewing-packs._packs-section', ['contact' => $contact])
+
             {{-- Buyer perspective --}}
             @if(($buyerUpcoming ?? collect())->isNotEmpty() || ($buyerPast ?? collect())->isNotEmpty())
                 {{-- Upcoming buyer viewings --}}

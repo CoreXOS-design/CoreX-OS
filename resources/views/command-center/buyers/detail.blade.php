@@ -265,6 +265,9 @@
     {{-- Viewings & Feedback Tab --}}
     <div x-show="activeTab === 'properties'" x-cloak class="space-y-6">
 
+        {{-- Viewing Packs (AT-110 discoverability) — find/open/edit packs built for this buyer. --}}
+        @include('command-center.viewing-packs._packs-section', ['contact' => $buyer])
+
         {{-- Upcoming Viewings --}}
         <div>
             <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Upcoming Viewings ({{ number_format($upcomingViewings->count()) }})</h3>
