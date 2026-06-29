@@ -77,17 +77,46 @@
                     </span>
                 </div>
 
+                {{-- AT-125 — list ALL identifiers (primary first, marked); falls back
+                     to the mirror for any contact without child rows. --}}
+                @php
+                    $allPhones = $contact->relationLoaded('phones')
+                        ? $contact->phones->sortByDesc('is_primary')->values() : collect();
+                    $allEmails = $contact->relationLoaded('emails')
+                        ? $contact->emails->sortByDesc('is_primary')->values() : collect();
+                @endphp
                 <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1.5">
-                    <span class="flex items-center gap-1.5 text-sm text-white/60">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
-                        {{ $contact->phone }}
-                    </span>
-                    @if($contact->email)
-                    <span class="flex items-center gap-1.5 text-sm text-white/60">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
-                        <a href="mailto:{{ $contact->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $contact->email }}</a>
-                    </span>
-                    @endif
+                    @forelse($allPhones as $ph)
+                        <span class="flex items-center gap-1.5 text-sm text-white/60">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
+                            <a href="tel:{{ preg_replace('/\s+/', '', $ph->phone) }}" class="no-underline hover:underline" style="color:inherit;">{{ $ph->phone }}</a>
+                            @if($ph->label)<span class="text-[11px] text-white/35">{{ $ph->label }}</span>@endif
+                            @if($ph->is_primary)<span class="text-[10px] uppercase tracking-wide font-semibold" style="color:#00d4aa;">primary</span>@endif
+                        </span>
+                    @empty
+                        @if($contact->phone)
+                        <span class="flex items-center gap-1.5 text-sm text-white/60">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
+                            {{ $contact->phone }}
+                        </span>
+                        @endif
+                    @endforelse
+
+                    @forelse($allEmails as $em)
+                        <span class="flex items-center gap-1.5 text-sm text-white/60">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                            <a href="mailto:{{ $em->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $em->email }}</a>
+                            @if($em->label)<span class="text-[11px] text-white/35">{{ $em->label }}</span>@endif
+                            @if($em->is_primary)<span class="text-[10px] uppercase tracking-wide font-semibold" style="color:#00d4aa;">primary</span>@endif
+                        </span>
+                    @empty
+                        @if($contact->email)
+                        <span class="flex items-center gap-1.5 text-sm text-white/60">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                            <a href="mailto:{{ $contact->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $contact->email }}</a>
+                        </span>
+                        @endif
+                    @endforelse
                 </div>
 
                 {{-- Linked agent + timestamps --}}
