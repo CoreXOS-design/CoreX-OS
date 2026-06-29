@@ -65,6 +65,32 @@ class OutreachQueueService
             return ['ok' => false, 'status' => 422, 'message' => 'Cannot queue: the message is empty.'];
         }
 
+        // §9 — reachability: never queue what can never be dispatched on this channel
+        // (closes the gap for the MIC/map endpoint, which doesn't run the composer's
+        // validationIssues). The composer path also blocks this upstream.
+        $reachable = match ($channel) {
+            'whatsapp' => filled($contact->phone),
+            'email'    => filled($contact->email),
+            default    => true,
+        };
+        if (!$reachable) {
+            $what = $channel === 'whatsapp' ? 'WhatsApp number' : 'email address';
+            return ['ok' => false, 'status' => 422, 'message' => "Cannot queue: this contact has no {$what}."];
+        }
+
+        // §8 — optional per-agent daily cap (volume guard). NULL = no cap.
+        $cap = $agency->outreach_queue_daily_cap_per_agent;
+        if ($cap && $cap > 0) {
+            $startOfDay = Carbon::now($agency->outreachTimezone())->startOfDay();
+            $todayCount = OutreachQueue::where('agency_id', $agency->id)
+                ->where('agent_id', $agent->id)
+                ->where('created_at', '>=', $startOfDay)
+                ->count();
+            if ($todayCount >= $cap) {
+                return ['ok' => false, 'status' => 422, 'message' => "Daily outreach-queue limit reached ({$cap} per agent). Send now, or queue more tomorrow."];
+            }
+        }
+
         $row = OutreachQueue::create([
             'agency_id'     => $agency->id,
             'contact_id'    => $contact->id,

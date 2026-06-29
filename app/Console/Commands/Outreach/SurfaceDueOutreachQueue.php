@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands\Outreach;
 
+use App\Models\Agency;
 use App\Models\Outreach\OutreachQueue;
 use App\Models\Scopes\AgencyScope;
 use App\Services\SellerOutreach\MarketingConsentService;
@@ -103,13 +104,25 @@ class SurfaceDueOutreachQueue extends Command
             }
         }
 
-        // §8 — expire surfaced-but-never-sent rows from a prior day. Default policy
-        // (no agency expiry setting yet — see report): a row surfaced before today's
-        // start that was never sent is stale. Bulk, no per-row work needed.
-        $expired = OutreachQueue::withoutGlobalScope(AgencyScope::class)
+        // §8 — expire surfaced-but-never-sent rows past their AGENCY's expiry cutoff
+        // (agency-configurable: outreach_queue_expiry_hours; NULL = end of the
+        // surfaced day). Per-agency because the cutoff is agency-specific.
+        $expired = 0;
+        $agencyIds = OutreachQueue::withoutGlobalScope(AgencyScope::class)
             ->where('status', OutreachQueue::STATUS_SURFACED)
-            ->where('surfaced_at', '<', $now->copy()->startOfDay())
-            ->update(['status' => OutreachQueue::STATUS_EXPIRED]);
+            ->distinct()
+            ->pluck('agency_id');
+        foreach ($agencyIds as $aid) {
+            $agency = Agency::find($aid);
+            if (!$agency) {
+                continue;
+            }
+            $expired += OutreachQueue::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $aid)
+                ->where('status', OutreachQueue::STATUS_SURFACED)
+                ->where('surfaced_at', '<', $agency->outreachQueueExpiryCutoff($now))
+                ->update(['status' => OutreachQueue::STATUS_EXPIRED]);
+        }
 
         $this->info("Outreach sweep: surfaced={$surfaced} dropped={$dropped} expired={$expired} (due candidates={$due->count()}).");
 

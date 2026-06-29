@@ -138,6 +138,8 @@ class Agency extends Model
         'whatsapp_launch_mode_agent',
         'whatsapp_launch_mode_seller',
         'outreach_send_window', // AT-117 §4a — JSON send-window config
+        'outreach_queue_expiry_hours', // AT-117 §8 — surfaced-row lifetime (null = end of day)
+        'outreach_queue_daily_cap_per_agent', // AT-117 §8 — per-agent daily queue cap (null = none)
         'prospecting_pitch_temp_lock_minutes',
         'is_active',
         'is_demo',
@@ -288,6 +290,8 @@ class Agency extends Model
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
         'outreach_send_window' => 'array', // AT-117 §4a — send-window config (null => defaults)
+        'outreach_queue_expiry_hours' => 'integer', // AT-117 §8
+        'outreach_queue_daily_cap_per_agent' => 'integer', // AT-117 §8
         'viewing_pack_redaction_dpi' => 'integer', // AT-107 Step 5b
         'viewing_pack_default_duration_minutes' => 'integer', // AT-107 Step 8
 
@@ -554,6 +558,22 @@ class Agency extends Model
     public function outreachTimezone(): string
     {
         return config('app.timezone') ?: 'Africa/Johannesburg';
+    }
+
+    /**
+     * AT-117 §8 — the cutoff before which a SURFACED-but-unsent outreach-queue row
+     * is stale (→ expired). With a configured expiry-hours, that's now − N hours;
+     * NULL falls back to the sensible default: the start of today (end of the
+     * surfaced day). Evaluated in the agency timezone. Centralised so the sweep
+     * never hardcodes the policy.
+     */
+    public function outreachQueueExpiryCutoff(?\Carbon\Carbon $now = null): \Carbon\Carbon
+    {
+        $now = $now ? $now->copy()->setTimezone($this->outreachTimezone()) : \Carbon\Carbon::now($this->outreachTimezone());
+        $hours = $this->outreach_queue_expiry_hours;
+        return ($hours && $hours > 0)
+            ? $now->copy()->subHours($hours)
+            : $now->copy()->startOfDay();
     }
 
     public function defaultBranch(): \Illuminate\Database\Eloquent\Relations\BelongsTo

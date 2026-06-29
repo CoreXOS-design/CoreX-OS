@@ -406,6 +406,26 @@
                             Treat public holidays as closed (uses the CoreX public-holiday calendar). <strong>Recommended on.</strong>
                         </span>
                     </label>
+
+                    {{-- AT-117 §8 — queue expiry + per-agent daily cap (both optional). --}}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2" style="border-top:1px dashed var(--border);">
+                        <div>
+                            <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Queue item expiry (hours)</label>
+                            <input type="number" name="outreach_queue_expiry_hours" min="1" max="720"
+                                   value="{{ old('outreach_queue_expiry_hours', $agency->outreach_queue_expiry_hours) }}"
+                                   placeholder="end of the day"
+                                   class="w-full rounded px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <p class="text-[11px] mt-1" style="color:var(--text-muted);">How long a surfaced-but-unsent message stays before it expires. Blank = end of the day it surfaced.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Daily queue cap per agent</label>
+                            <input type="number" name="outreach_queue_daily_cap_per_agent" min="1" max="2000"
+                                   value="{{ old('outreach_queue_daily_cap_per_agent', $agency->outreach_queue_daily_cap_per_agent) }}"
+                                   placeholder="no limit"
+                                   class="w-full rounded px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <p class="text-[11px] mt-1" style="color:var(--text-muted);">Max messages an agent may queue per day. Blank = no limit.</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Company Logo</div>

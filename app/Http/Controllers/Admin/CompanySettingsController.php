@@ -113,6 +113,9 @@ class CompanySettingsController extends Controller
             'send_window.*.start'            => ['nullable', 'date_format:H:i'],
             'send_window.*.end'              => ['nullable', 'date_format:H:i'],
             'send_window_public_holidays_off' => ['nullable', 'boolean'],
+            // AT-117 §8 — optional queue expiry + per-agent daily cap (blank => NULL = default/none).
+            'outreach_queue_expiry_hours'        => ['nullable', 'integer', 'min:1', 'max:720'],
+            'outreach_queue_daily_cap_per_agent' => ['nullable', 'integer', 'min:1', 'max:2000'],
         ]);
 
         // AT-117 §4a — only touch the send-window when this form rendered it (hidden

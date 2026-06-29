@@ -205,6 +205,8 @@ CREATE TABLE `agencies` (
   `whatsapp_launch_mode_agent` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'whatsapp_web',
   `whatsapp_launch_mode_seller` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'whatsapp_web',
   `outreach_send_window` json DEFAULT NULL,
+  `outreach_queue_expiry_hours` smallint unsigned DEFAULT NULL,
+  `outreach_queue_daily_cap_per_agent` smallint unsigned DEFAULT NULL,
   `ai_monthly_budget_zar` decimal(10,2) NOT NULL DEFAULT '1000.00',
   `ai_budget_warning_pct` tinyint unsigned NOT NULL DEFAULT '80',
   `ai_budget_hard_cap_pct` tinyint unsigned NOT NULL DEFAULT '110',
@@ -12367,3 +12369,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (897,'2026_07_05_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (898,'2026_07_05_000002_add_viewing_pack_tour_scheduling',182);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (899,'2026_07_06_000003_add_outreach_send_window_to_agencies_table',183);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (901,'2026_07_07_000001_create_outreach_queue_table',184);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (902,'2026_07_08_000001_add_outreach_queue_settings_to_agencies_table',185);
