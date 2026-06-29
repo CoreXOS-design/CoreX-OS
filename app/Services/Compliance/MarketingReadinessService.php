@@ -522,7 +522,16 @@ class MarketingReadinessService
         $required = [
             'address' => $property->address ?: $property->street_name,
             'suburb' => $property->suburb,
-            'town' => $property->town,
+            // `town` is a 100%-redundant duplicate of `city` (proven across
+            // 4,731 live properties: town === city everywhere it is set) that
+            // the property edit form and every display/syndication surface
+            // populate as `city`, leaving `town` NULL on stock the import path
+            // never touched. The gate must read the column that is actually
+            // maintained, not the duplicate — otherwise a property with a
+            // visible town (in `city`) falsely blocks for "missing town".
+            // Read the maintained source; do NOT backfill `town` (the next
+            // import would re-break it).
+            'town' => $property->town ?: $property->city,
             'province' => $property->province,
             'price' => $property->price,
             'property_type' => $property->property_type,
