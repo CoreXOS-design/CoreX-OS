@@ -2026,6 +2026,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->group(function () {
             Route::get('/compose',     [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'show'])->name('show');
             Route::post('/send',       [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'submit'])->name('submit');
+            // AT-117 §4 — add the prepared pitch to the deferred outreach queue (due-time, in-window).
+            Route::post('/queue',      [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'queue'])->name('queue');
             Route::get('/sent/{send}', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'sent'])->name('sent');
 
             // Timeline (Prompt 07) — agent-side view of every send + click + opt-out
