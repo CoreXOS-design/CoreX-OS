@@ -40,8 +40,14 @@ class ScanPropertyNotifications extends Command
                     $agencyId = $this->agencyIdFor($agent);
                     if (! $agencyId || (int) ($property->agency_id ?? 0) !== $agencyId) continue;
 
-                    // property.documents_missing
-                    $eff = $prefs->effective($agent, 'property.documents_missing');
+                    // property.documents_missing — never for compliant stock.
+                    // P24 go-live imports are marked compliant and legitimately
+                    // carry no uploaded documents; "documents missing" alerts for
+                    // them are pure noise (hundreds per import). Mandate-expiry
+                    // below still fires — a compliant mandate can still expire.
+                    $eff = $property->compliance_snapshot_at === null
+                        ? $prefs->effective($agent, 'property.documents_missing')
+                        : null;
                     if ($eff && $eff['enabled'] && $eff['threshold']) {
                         $ageHours = AgeFormatter::wholeHours($property->created_at);
                         if ($ageHours >= (int) $eff['threshold']) {

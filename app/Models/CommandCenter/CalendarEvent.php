@@ -7,6 +7,7 @@ use App\Models\Concerns\BelongsToBranch;
 use App\Models\Contact;
 use App\Models\DealV2\DealV2;
 use App\Models\Property;
+use App\Models\Scopes\LivePropertyScope;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,6 +19,37 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class CalendarEvent extends Model
 {
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
+
+    /**
+     * Hide events whose linked property has been soft-deleted (see
+     * LivePropertyScope). Keeps a gone property's viewings/attention events
+     * off Today / Calendar / reminders. Opt out with withoutGlobalScope().
+     *
+     * Also bust the owner's Today cockpit cache on every write so a resolved /
+     * dismissed / rescheduled event drops off Today immediately —
+     * CommandCentreService::assembleForUser caches for 300s, and a stale
+     * cockpit kept resolved items visible even after a hard refresh.
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new LivePropertyScope());
+
+        $bust = fn (self $event) => $event->forgetCockpitCache();
+        static::saved($bust);
+        static::deleted($bust);
+        static::restored($bust);
+    }
+
+    /** Forget the Today cockpit cache for this event's owner (and prior owner on reassignment). */
+    public function forgetCockpitCache(): void
+    {
+        foreach (array_unique(array_filter([
+            $this->user_id,
+            $this->getOriginal('user_id'),
+        ])) as $userId) {
+            \Illuminate\Support\Facades\Cache::forget("command_centre_{$userId}");
+        }
+    }
 
     protected $fillable = [
         'user_id', 'created_by_id', 'event_type', 'category', 'title', 'description',
