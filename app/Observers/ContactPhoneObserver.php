@@ -17,6 +17,19 @@ class ContactPhoneObserver
     {
     }
 
+    /**
+     * AT-125 no-backdoor — a phone added to an already-opted-out contact is
+     * suppressed too, so a new number can never reach an opted-out person.
+     */
+    public function created(ContactPhone $phone): void
+    {
+        $contact = \App\Models\Contact::withoutGlobalScopes()->find($phone->contact_id);
+        if ($contact) {
+            app(\App\Services\SellerOutreach\MarketingConsentService::class)
+                ->suppressNewIdentifierIfOptedOut($contact, \App\Models\MarketingSuppression::TYPE_PHONE, $phone->phone_normalised);
+        }
+    }
+
     public function saved(ContactPhone $phone): void
     {
         $this->identifiers->reconcilePhones((int) $phone->contact_id);
