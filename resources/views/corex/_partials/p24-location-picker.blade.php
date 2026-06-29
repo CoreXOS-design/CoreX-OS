@@ -44,10 +44,12 @@
         eventPrefix:         @js($fieldPrefix),
      })" x-init="init()" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
 
-    {{-- Hidden inputs the server reads --}}
-    <input type="hidden" name="{{ $fieldPrefix }}_province_id" :value="provinceId">
-    <input type="hidden" name="{{ $fieldPrefix }}_city_id"     :value="cityId">
-    <input type="hidden" name="{{ $fieldPrefix }}_suburb_id"   :value="suburbId">
+    {{-- Hidden inputs the server reads. Emit '' (not 0) when unlinked so the
+         server's `nullable|exists` rule sees null instead of an id=0 that
+         fails the exists check. --}}
+    <input type="hidden" name="{{ $fieldPrefix }}_province_id" :value="provinceId || ''">
+    <input type="hidden" name="{{ $fieldPrefix }}_city_id"     :value="cityId || ''">
+    <input type="hidden" name="{{ $fieldPrefix }}_suburb_id"   :value="suburbId || ''">
     @if($denormaliseNames)
         <input type="hidden" name="province" :value="provinceName">
         <input type="hidden" name="city"     :value="cityName">
@@ -100,6 +102,12 @@
             </div>
             <div x-show="!loading.{{ $level }} && !invalid.{{ $level }} && queries.{{ $level }} && filtered.{{ $level }}.length === 0 && dropdown.{{ $level }}" x-cloak
                  class="text-[11px] mt-1" style="color:var(--text-muted, #9ca3af);">No matches.</div>
+            {{-- Free-text held but not yet linked to a P24 record. The save still
+                 goes through; this just nudges toward linking for syndication. --}}
+            <div x-show="!loading.{{ $level }} && !invalid.{{ $level }} && !dropdown.{{ $level }} && queries.{{ $level }} && !{{ $level }}Id" x-cloak
+                 class="text-[11px] mt-1" style="color:var(--text-muted, #9ca3af);">
+                Saved as text — pick a suggestion to link it to Property24 for syndication.
+            </div>
         </div>
     @endforeach
 </div>
@@ -108,10 +116,15 @@
 @push('scripts')
 <script>
 function p24LocationCombobox(init) {
-    // Only pre-fill the visible query text if there's a real P24 ID backing
-    // it. Legacy free-text suburbs ("KwaZulu-Natal", "Margate", etc.) that
-    // were never linked to P24 must start blank so the user is forced to
-    // re-pick from the recognised list.
+    // Always pre-fill the visible query text and the denormalised name with
+    // whatever location the record already holds — even legacy free-text
+    // ("KwaZulu Natal", "Margate", etc.) that was never linked to P24. Losing
+    // a valid existing address on edit, or forcing a re-pick before any save
+    // can go through, traps every legacy/imported property (the suburb may not
+    // even exist on P24). The P24 link stays OPTIONAL: when no id backs the
+    // name, the parent form saves the free-text and the server flags
+    // `p24_suburb_mismatch` so syndication is gated, not the save. Picking a
+    // recognised suburb canonicalises the names and links the ids.
     const provinceId = init.initialProvinceId || 0;
     const cityId     = init.initialCityId     || 0;
     const suburbId   = init.initialSuburbId   || 0;
@@ -125,13 +138,13 @@ function p24LocationCombobox(init) {
         provinceId: provinceId,
         cityId:     cityId,
         suburbId:   suburbId,
-        provinceName: provinceId ? (init.initialProvinceName || '') : '',
-        cityName:     cityId     ? (init.initialCityName     || '') : '',
-        suburbName:   suburbId   ? (init.initialSuburbName   || '') : '',
+        provinceName: init.initialProvinceName || '',
+        cityName:     init.initialCityName     || '',
+        suburbName:   init.initialSuburbName   || '',
         queries:    {
-            province: provinceId ? (init.initialProvinceName || '') : '',
-            city:     cityId     ? (init.initialCityName     || '') : '',
-            suburb:   suburbId   ? (init.initialSuburbName   || '') : '',
+            province: init.initialProvinceName || '',
+            city:     init.initialCityName     || '',
+            suburb:   init.initialSuburbName   || '',
         },
         options:    { province: [], city: [], suburb: [] },
         dropdown:   { province: false, city: false, suburb: false },
