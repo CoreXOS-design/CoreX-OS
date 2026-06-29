@@ -528,6 +528,123 @@ class Phase2WebsiteApiTest extends TestCase
         ]);
     }
 
+    public function test_index_pagination_is_stable_and_returns_every_listing(): void
+    {
+        // Reproduces the live bug: a collection where EVERY row has a NULL
+        // published_at (imported/promoted stock never stamps it). Ordering by
+        // that all-NULL column under LIMIT/OFFSET with no unique tiebreaker
+        // duplicated rows across pages and dropped others off every page —
+        // silently hiding live listings. The deterministic order must page
+        // through ALL of them exactly once.
+        $ids = [];
+        for ($i = 0; $i < 35; $i++) {
+            $p = Property::withoutGlobalScope(AgencyScope::class)->create([
+                'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+                'external_id' => (string) Str::uuid(), 'title' => "Listing {$i}", 'suburb' => 'Uvongo',
+                'property_type' => 'house', 'listing_type' => 'sale', 'status' => 'active', 'price' => 1000000 + $i,
+                'published_at' => null, // the crux — no publish timestamp, like real stock.
+            ]);
+            $this->syndicate($p, true);
+            $ids[] = $p->id;
+        }
+
+        $collected = [];
+        for ($page = 1; $page <= 4; $page++) {
+            $resp = $this->withToken($this->token)
+                ->getJson("/api/v1/website/listings?per_page=10&page={$page}")->assertOk();
+            $collected = array_merge($collected, collect($resp->json('data'))->pluck('id')->all());
+            $this->assertSame(35, $resp->json('meta.total'));
+        }
+
+        // No row appears twice, and every syndicated listing is reachable.
+        $this->assertCount(count($collected), array_unique($collected), 'A listing was duplicated across pages.');
+        sort($ids);
+        $got = array_unique($collected);
+        sort($got);
+        $this->assertSame($ids, $got, 'Some syndicated listing was missing from every page.');
+    }
+
+    public function test_status_filter_narrows_the_result_set(): void
+    {
+        $active = $this->makeProperty('Live one', 'active', 1500000);
+        $sold   = $this->makeProperty('Sold one', 'sold', 2500000);
+        $this->syndicate($active, true);
+        $this->syndicate($sold, true);
+
+        // No filter → both (sold is showcased by default, per Johan's call).
+        $all = $this->withToken($this->token)->getJson('/api/v1/website/listings')->assertOk();
+        $this->assertEqualsCanonicalizing(['Live one', 'Sold one'], collect($all->json('data'))->pluck('title')->all());
+
+        // ?status=active → only the active one.
+        $only = $this->withToken($this->token)->getJson('/api/v1/website/listings?status=active')->assertOk();
+        $this->assertSame(['Live one'], collect($only->json('data'))->pluck('title')->all());
+        $this->assertSame(1, $only->json('meta.total'));
+
+        // CSV honours multiple states.
+        $both = $this->withToken($this->token)->getJson('/api/v1/website/listings?status=active,sold')->assertOk();
+        $this->assertSame(2, $both->json('meta.total'));
+    }
+
+    public function test_status_filter_cannot_surface_a_never_public_status(): void
+    {
+        // A status the guard forbids (expired/withdrawn/draft) must not be
+        // reachable even when requested explicitly — the whitelist wins.
+        $expired = $this->makeProperty('Dead mandate', 'expired', 999000);
+        $this->syndicate($expired, true);
+
+        $this->withToken($this->token)->getJson('/api/v1/website/listings?status=expired')
+            ->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_draft_listing_never_appears_even_with_enabled_pivot(): void
+    {
+        // Legacy data: a draft whose website pivot was enabled before the draft
+        // guard existed must be invisible on BOTH index and detail.
+        $draft = $this->makeProperty('Half-built draft', 'draft', 1200000);
+        $this->syndicate($draft, true);
+
+        $this->withToken($this->token)->getJson('/api/v1/website/listings')
+            ->assertOk()->assertJsonCount(0, 'data');
+        $this->withToken($this->token)->getJson("/api/v1/website/listings/{$draft->id}")
+            ->assertStatus(404);
+    }
+
+    public function test_listing_type_filter(): void
+    {
+        $sale   = $this->makeProperty('A sale', 'active', 2000000);
+        $rental = $this->makeProperty('A rental', 'active', 0);
+        $rental->forceFill(['listing_type' => 'rental'])->save();
+        $sale->forceFill(['listing_type' => 'sale'])->save();
+        $this->syndicate($sale, true);
+        $this->syndicate($rental, true);
+
+        $r = $this->withToken($this->token)->getJson('/api/v1/website/listings?listing_type=rental')->assertOk();
+        $this->assertSame(['A rental'], collect($r->json('data'))->pluck('title')->all());
+    }
+
+    public function test_sort_param_changes_the_order(): void
+    {
+        // Three listings created out of id/price order; ?sort must reorder them.
+        $a = $this->makeProperty('Cheapest', 'active', 500000);
+        $b = $this->makeProperty('Dearest', 'active', 9000000);
+        $c = $this->makeProperty('Middle', 'active', 3000000);
+        foreach ([$a, $b, $c] as $p) {
+            $this->syndicate($p, true);
+        }
+
+        $byPriceAsc = collect($this->withToken($this->token)
+            ->getJson('/api/v1/website/listings?sort=price')->json('data'))->pluck('id')->all();
+        $this->assertSame([$a->id, $c->id, $b->id], $byPriceAsc);
+
+        $byPriceDesc = collect($this->withToken($this->token)
+            ->getJson('/api/v1/website/listings?sort=-price')->json('data'))->pluck('id')->all();
+        $this->assertSame([$b->id, $c->id, $a->id], $byPriceDesc);
+
+        $byIdDesc = collect($this->withToken($this->token)
+            ->getJson('/api/v1/website/listings?sort=-id')->json('data'))->pluck('id')->all();
+        $this->assertSame([$c->id, $b->id, $a->id], $byIdDesc);
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private function makeProperty(string $title, string $status, int $price): Property
