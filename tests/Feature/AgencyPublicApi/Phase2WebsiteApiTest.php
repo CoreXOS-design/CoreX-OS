@@ -338,8 +338,9 @@ class Phase2WebsiteApiTest extends TestCase
             ->assertJsonPath('data.costs.levy', 1500)
             ->assertJsonPath('data.costs.special_levy', 200)
             ->assertJsonPath('data.pet_friendly', true)
-            ->assertJsonPath('data.complex_name', 'Sea Breeze')
-            ->assertJsonPath('data.floor_number', 4)
+            // Suburb-level location only — street/complex/unit/floor are NEVER
+            // syndicated (see test_listing_never_exposes_street_address_or_coordinates).
+            ->assertJsonPath('data.suburb', 'Uvongo')
             ->assertJsonPath('data.video.youtube_id', 'abc123')
             ->assertJsonPath('data.video.youtube_url', 'https://www.youtube.com/watch?v=abc123')
             ->assertJsonPath('data.video.virtual_tour_url', 'https://tour.example/1');
@@ -370,6 +371,46 @@ class Phase2WebsiteApiTest extends TestCase
         $this->assertContains('https://img.example/k1.jpg', $data['gallery']['Kitchen']);
         $this->assertCount(1, $data['show_days']);
         $this->assertSame('Open house', $data['show_days'][0]['note']);
+    }
+
+    public function test_listing_never_exposes_street_address_or_coordinates(): void
+    {
+        // Privacy guarantee: the public website payload is suburb-level only.
+        // Even when a property carries a full street address + GPS internally,
+        // NONE of the sub-suburb location fields may cross the public boundary —
+        // this holds for both the pull API and the webhook (same resource).
+        $p = Property::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'external_id' => (string) Str::uuid(), 'title' => 'Located unit', 'status' => 'active',
+            'property_type' => 'house', 'listing_type' => 'sale', 'price' => 2000000,
+            // Full internal location — all of this must be withheld publicly.
+            'address' => '12 Marina Drive, Uvongo', 'street_number' => '12', 'street_name' => 'Marina Drive',
+            'complex_name' => 'Sea Breeze', 'unit_number' => '4B', 'floor_number' => 4, 'stand_number' => '778',
+            'latitude' => -30.84321, 'longitude' => 30.39871,
+            // Only these may surface.
+            'suburb' => 'Uvongo', 'town' => 'Margate', 'city' => 'Ray Nkonyeni', 'province' => 'KwaZulu-Natal',
+            'published_at' => now(),
+        ]);
+        $this->syndicate($p, true);
+
+        $data = $this->withToken($this->token)->getJson("/api/v1/website/listings/{$p->id}")->assertOk()->json('data');
+
+        // Suburb-level location IS present.
+        $this->assertSame('Uvongo', $data['suburb']);
+        $this->assertSame('Margate', $data['town']);
+        $this->assertSame('Ray Nkonyeni', $data['city']);
+        $this->assertSame('KwaZulu-Natal', $data['province']);
+
+        // Everything more granular than suburb is absent from the payload entirely.
+        foreach ([
+            'address', 'street_number', 'street_name', 'complex_name',
+            'unit_number', 'floor_number', 'stand_number', 'latitude', 'longitude',
+        ] as $forbidden) {
+            $this->assertArrayNotHasKey($forbidden, $data, "Public listing leaked '{$forbidden}'.");
+        }
+
+        // And the literal street string never appears anywhere in the JSON body.
+        $this->assertStringNotContainsString('Marina Drive', json_encode($data));
     }
 
     public function test_listing_images_do_not_double_the_storage_prefix(): void
