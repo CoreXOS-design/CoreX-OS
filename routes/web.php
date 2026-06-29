@@ -2490,6 +2490,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\OutreachCanvassingController::class, 'index'])->name('index');
         });
 
+    // AT-117 §6 — Outreach Queue (work-the-list). The agent works their surfaced
+    // rows; "Open WhatsApp" reuses the seller-outreach deep-link + send pipeline.
+    // Gated on outreach.compose (an agent who composes works the queue).
+    Route::prefix('real-estate/outreach-queue')
+        ->middleware(['permission:outreach.compose', 'agency.required'])
+        ->name('corex.outreach-queue.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'index'])->name('index');
+            Route::post('/{outreachQueue}/open',   [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'open'])->name('open');
+            Route::post('/{outreachQueue}/cancel', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'cancel'])->name('cancel');
+        });
+
     // Contacts
     Route::prefix('contacts')->middleware(['permission:access_contacts', 'agency.required'])->name('corex.contacts.')->group(function () {
         Route::get('/',                   [\App\Http\Controllers\CoreX\ContactController::class, 'index'])->name('index');

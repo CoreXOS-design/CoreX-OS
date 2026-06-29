@@ -569,6 +569,13 @@
                 @endif
                 @endpermission
 
+                {{-- AT-117 §6 — Outreach Queue (work-the-list of due-time deferred sends). --}}
+                @permission('outreach.compose')
+                @if(\Illuminate\Support\Facades\Route::has('corex.outreach-queue.index'))
+                <a href="{{ route('corex.outreach-queue.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-queue.*') ? 'active' : '' }}">Outreach Queue</a>
+                @endif
+                @endpermission
+
                 @permission('access_core_matches')
                 @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
                 <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Core Matches</a>
