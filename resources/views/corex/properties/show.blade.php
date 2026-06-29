@@ -28,8 +28,16 @@
         </div>
         @endif
         @if($errors->any())
+        {{-- List EVERY error, not just the first. A save bounces back here; if
+             we only show one, the agent can't tell why "nothing saved" (e.g. a
+             location + a beds/baths problem at once). --}}
         <div class="flex-1 rounded-md border px-4 py-2 text-sm" style="background:color-mix(in srgb, #dc2626 10%, transparent); border-color:color-mix(in srgb, #dc2626 30%, transparent); color:#dc2626;">
-            {{ $errors->first() }}
+            <p class="font-semibold mb-1">Couldn't save — please fix:</p>
+            <ul class="list-disc list-inside space-y-0.5">
+                @foreach($errors->all() as $error)
+                <li>{{ $error }}</li>
+                @endforeach
+            </ul>
         </div>
         @endif
     </div>
@@ -7001,6 +7009,12 @@ function ppSyndication(config) {
         activatedAt: config.activatedAt || '',
         csrfToken: config.csrfToken,
         missingFields: config.missingFields || [],
+        // Public PP listing URL — single source of truth is
+        // Property::publicListingUrls()['pp'] (seeded server-side). Without
+        // this init, this.publicUrl was undefined and ppListingUrl() always
+        // fell through to the dead /search?q= hop. (The P24 panel inits its
+        // own publicUrl; the PP panel was missing it.)
+        publicUrl: config.publicUrl || '',
         loading: false,
         message: '',
         messageType: 'success',
@@ -7055,9 +7069,11 @@ function ppSyndication(config) {
 
         ppListingUrl() {
             // A.2.1 — sourced from Property::publicListingUrls()['pp'] server-side.
-            // Falls through to the legacy search-by-ref pattern if the server
-            // hasn't populated publicUrl (e.g. status not 'active' yet).
-            return this.publicUrl || (this.ppRef ? `https://www.privateproperty.co.za/search?q=${this.ppRef}` : '#');
+            // Never fall back to the legacy /search?q= hop — PP retired it and
+            // it 404s ("This space is no longer occupied"). When there's no
+            // resolvable URL yet (e.g. status 'submitted', not live), the link
+            // is a no-op rather than a dead search.
+            return this.publicUrl || '#';
         },
 
         showMessage(msg, type = 'success') {

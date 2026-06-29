@@ -52,15 +52,22 @@ final class PublicListingUrlTest extends TestCase
         $this->assertStringContainsString('/12345', $u['p24'], 'P24 url ends with the ref');
         $this->assertNull($u['pp']);
 
-        // PP only active.
+        // PP only active. PP resolves by the trailing ref; the slug segments
+        // are SEO. The legacy `/search?q=` hop 404s, so we build the path.
         $ppOnly = new Property();
         $ppOnly->forceFill([
             'p24_ref' => null, 'p24_syndication_status' => null,
-            'pp_ref'  => 'PP-9', 'pp_syndication_status'  => 'active',
+            'pp_ref'  => 'T5535694', 'pp_syndication_status'  => 'active',
+            'suburb'  => 'Manaba Beach', 'city' => 'Margate', 'province' => 'KwaZulu Natal',
+            'listing_type' => 'sale',
         ]);
         $u = $ppOnly->publicListingUrls();
         $this->assertNull($u['p24']);
-        $this->assertSame('https://www.privateproperty.co.za/search?q=PP-9', $u['pp']);
+        $this->assertSame(
+            'https://www.privateproperty.co.za/for-sale/kwazulu-natal/margate/manaba-beach/T5535694',
+            $u['pp'],
+        );
+        $this->assertStringNotContainsString('search?q=', $u['pp'], 'no more 404 search hop');
 
         // Both active — P24 wins on priority.
         $both = new Property();

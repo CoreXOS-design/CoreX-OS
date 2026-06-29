@@ -238,6 +238,14 @@ class PrivatePropertyListingMapper
             $errors[] = 'Street number is required for PP syndication';
         }
 
+        // PP60: a Unit Number identifies a unit within a scheme, so PP requires
+        // the Complex/Scheme name alongside it. Submitting UnitNumber with an
+        // empty ComplexName is rejected by PP with "PP60 - The address details
+        // are insufficient, please add a Scheme/Complex name and resubmit."
+        if (!empty($payload['UnitNumber']) && empty($payload['ComplexName'])) {
+            $errors[] = "PP60: a Complex/Scheme name is required because this listing has a Unit Number ({$payload['UnitNumber']}). Add the complex/scheme name on the property and resubmit.";
+        }
+
         if (($payload['Price'] ?? 0) <= 0) {
             $errors[] = 'Price must be greater than zero';
         }
@@ -317,6 +325,13 @@ class PrivatePropertyListingMapper
         // Town is required for PP geographic hierarchy (suburb → town → province)
         if (empty($property->town) && empty($property->city) && empty($property->pp_suburb_id)) {
             $missing[] = ['field' => 'town', 'label' => 'Town (e.g. "Margate") — required for PP location hierarchy', 'tab' => 'info'];
+        }
+
+        // PP60: a unit number means the property sits within a scheme, so PP
+        // requires the complex/scheme name. Flag it pre-flight so the agent
+        // fixes it before submitting rather than hitting a PP60 rejection.
+        if (!empty($property->unit_number) && empty($property->complex_name)) {
+            $missing[] = ['field' => 'complex_name', 'label' => 'Complex / Scheme name — required because a Unit Number is set (PP60)', 'tab' => 'info'];
         }
 
         // StreetName must not contain listing title keywords

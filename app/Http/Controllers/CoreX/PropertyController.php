@@ -1057,7 +1057,13 @@ class PropertyController extends Controller
         $data['p24_hide_address']      = $request->boolean('p24_hide_address');
 
         $data = $this->processSpacesJson($data);
-        $data = $this->applyP24Location($data);
+        // P24 link is OPTIONAL on edit. A legacy/imported property whose suburb
+        // isn't on Property24 (or simply isn't linked yet) must still be
+        // saveable — forcing a re-pick on every save trapped every such record.
+        // When a suburb IS picked, the chain is still verified + canonicalised;
+        // when it isn't, the free-text location is kept and p24_suburb_mismatch
+        // is flagged so P24 syndication (not the save) is what's gated.
+        $data = $this->applyP24Location($data, false);
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();
