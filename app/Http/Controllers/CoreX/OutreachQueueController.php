@@ -14,6 +14,7 @@ use App\Services\SellerOutreach\SellerOutreachComposerService;
 use App\Services\SellerOutreach\SellerOutreachSenderService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * AT-117 §6 — the Outreach Queue work-the-list screen.
@@ -179,13 +180,18 @@ class OutreachQueueController extends Controller
             return response()->json(['message' => 'Cannot dispatch: ' . implode(' ', $context->validationIssues)], 422);
         }
 
-        $send = $sender->send($context);
-
-        $outreachQueue->forceFill([
-            'status'                  => OutreachQueue::STATUS_SENT,
-            'sent_at'                 => now(),
-            'seller_outreach_send_id' => $send->id,
-        ])->save();
+        // Transaction-safe: the send-record creation and the queue-row flip commit
+        // together, so a mid-dispatch failure can't leave a send with the row still
+        // surfaced (which would let it re-dispatch).
+        $send = DB::transaction(function () use ($sender, $context, $outreachQueue) {
+            $s = $sender->send($context);
+            $outreachQueue->forceFill([
+                'status'                  => OutreachQueue::STATUS_SENT,
+                'sent_at'                 => now(),
+                'seller_outreach_send_id' => $s->id,
+            ])->save();
+            return $s;
+        });
 
         $clientUrl = $outreachQueue->channel === 'whatsapp' ? $sender->whatsappUrl($send) : null;
 
