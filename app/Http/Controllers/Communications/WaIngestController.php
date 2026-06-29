@@ -58,7 +58,9 @@ class WaIngestController extends Controller
             'messages.*.media'         => 'nullable|array',
         ]);
 
-        $stats = ['archived' => 0, 'pending' => 0, 'duplicate' => 0, 'invalid' => 0];
+        // AT-122 — 'dropped' = matched no contact, discarded (never stored).
+        // 'pending' retained at 0 for client back-compat; ingest no longer parks.
+        $stats = ['archived' => 0, 'dropped' => 0, 'pending' => 0, 'duplicate' => 0, 'invalid' => 0];
 
         foreach ($validated['messages'] as $msg) {
             try {

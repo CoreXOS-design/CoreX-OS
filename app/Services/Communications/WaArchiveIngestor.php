@@ -10,6 +10,7 @@ use App\Models\Communications\CommunicationWaDevice;
 use App\Models\Contact;
 use App\Models\Scopes\AgencyScope;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -25,6 +26,7 @@ class WaArchiveIngestor
     public const RESULT_PENDING     = 'pending';
     public const RESULT_DUPLICATE   = 'duplicate';
     public const RESULT_INVALID     = 'invalid';
+    public const RESULT_DROPPED     = 'dropped';
 
     public function __construct(
         private CommunicationStorageService $storage,
@@ -58,6 +60,28 @@ class WaArchiveIngestor
         $counterpartRaw = $direction === Communication::DIRECTION_INBOUND ? ($sender ?: $chatId) : $chatId;
         $counterpartNumber = $this->numberFromJid($counterpartRaw);
 
+        // AT-122 — MATCH-FIRST, store-only-on-match. Resolve the counterpart phone
+        // (0→27 normalisation lives in ContactDuplicateService::normalizePhone via
+        // the resolver) BEFORE anything touches disk or the DB. A WA message that
+        // matches no existing contact is DISCARDED — never written to the archive
+        // AND never parked in communication_pending. No contact, no record.
+        $contact = $counterpartNumber !== '' ? $this->resolver->resolve($counterpartNumber, $agencyId) : null;
+
+        if (! $contact) {
+            Log::info('Communication archive: WA ingestion dropped (not stored)', [
+                'agency_id'   => $agencyId,
+                'device_id'   => $device->id,
+                'channel'     => Communication::CHANNEL_WHATSAPP,
+                'direction'   => $direction,
+                'sender'      => $counterpartNumber,
+                'reason'      => 'no_contact_match',
+                'dropped_at'  => now()->toIso8601String(),
+            ]);
+
+            return self::RESULT_DROPPED;
+        }
+
+        // Matched → now (and only now) persist the raw JSON and build the index row.
         $raw = json_encode($msg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
         $stored = $this->storage->store($agencyId, 'whatsapp', $raw);
 
@@ -86,17 +110,10 @@ class WaArchiveIngestor
             ),
             'has_attachments'        => $hasMedia,
             'source_ref'             => 'wa_device:' . $device->id,
+            // AT-122 — provenance: the agent whose capture device ingested this.
+            // Provenance only — not gated. (Device rows always carry a user_id.)
+            'owner_user_id'          => $device->user_id,
         ];
-
-        $contact = $counterpartNumber !== '' ? $this->resolver->resolve($counterpartNumber, $agencyId) : null;
-
-        if (! $contact) {
-            CommunicationPending::create($common + [
-                'expires_at' => now()->addDays(CommunicationPending::graceDays($device->agency)),
-            ]);
-
-            return self::RESULT_PENDING;
-        }
 
         return DB::transaction(function () use ($contact, $direction, $common, $media, $agencyId, $device) {
             // AT-59: promote a matching provisional outbound row in place rather

@@ -58,30 +58,38 @@ class EmailArchiveIngestor
 
         $attachments = $msg['attachments'] ?? [];
         $counterpart = (string) ($msg['counterpart'] ?? $msg['from'] ?? '');
+
+        // AT-122 — MATCH-FIRST, store-only-on-match. Resolve the counterpart to a
+        // known contact BEFORE anything touches disk or the DB. An email that
+        // matches no existing contact is DISCARDED outright — never written to
+        // the archive AND never parked in communication_pending (the old
+        // store-then-match grace buffer is gone). The known-contact gate is the
+        // import boundary: no contact, no record.
         $contact = $counterpart !== '' ? $this->resolver->resolve($counterpart, $agencyId) : null;
 
-        // Deterministic ingestion filter (AT-43, POPIA minimisation). Runs ONLY
-        // when no contact matched (contact always wins). A never-business sender
-        // (no-reply / bank / service domain) is dropped BEFORE anything is
-        // stored — nothing written to disk or DB; the drop is logged for audit.
         if (! $contact) {
-            $dropReason = $this->ingestFilter->dropReasonForUnknown($counterpart, $mailbox->agency);
-            if ($dropReason !== null) {
-                Log::info('Communication archive: ingestion dropped (not stored)', [
-                    'agency_id'   => $agencyId,
-                    'mailbox_id'  => $mailbox->id,
-                    'channel'     => Communication::CHANNEL_EMAIL,
-                    'direction'   => $direction,
-                    'sender'      => $counterpart,
-                    'reason'      => $dropReason,
-                    'occurred_at' => optional($msg['occurred_at'] ?? null)?->toIso8601String(),
-                    'dropped_at'  => now()->toIso8601String(),
-                ]);
+            // No contact match → discard. The never-business filter (AT-43, POPIA
+            // minimisation) still classifies WHY for the audit line, but under
+            // match-only every unmatched message is dropped regardless — nothing
+            // is written to disk or any table.
+            $dropReason = $this->ingestFilter->dropReasonForUnknown($counterpart, $mailbox->agency)
+                ?? 'no_contact_match';
 
-                return self::RESULT_DROPPED;
-            }
+            Log::info('Communication archive: ingestion dropped (not stored)', [
+                'agency_id'   => $agencyId,
+                'mailbox_id'  => $mailbox->id,
+                'channel'     => Communication::CHANNEL_EMAIL,
+                'direction'   => $direction,
+                'sender'      => $counterpart,
+                'reason'      => $dropReason,
+                'occurred_at' => optional($msg['occurred_at'] ?? null)?->toIso8601String(),
+                'dropped_at'  => now()->toIso8601String(),
+            ]);
+
+            return self::RESULT_DROPPED;
         }
 
+        // Matched → now (and only now) persist the raw .eml and build the index row.
         $stored = $this->storage->store($agencyId, 'email', (string) ($msg['raw'] ?? ''));
 
         $common = [
@@ -106,18 +114,10 @@ class EmailArchiveIngestor
             ),
             'has_attachments'        => count($attachments) > 0,
             'source_ref'             => 'mailbox:' . $mailbox->id,
+            // AT-122 — provenance: the agent whose mailbox ingested this. Nullable
+            // (agency-level mailboxes have no owner). Provenance only — not gated.
+            'owner_user_id'          => $mailbox->user_id,
         ];
-
-        if (! $contact) {
-            // Known-contact gate fails → park in the inbound grace buffer. The
-            // spine pruner attaches retroactively when the contact is loaded,
-            // or prunes on expiry.
-            CommunicationPending::create($common + [
-                'expires_at' => now()->addDays(CommunicationPending::graceDays($mailbox->agency)),
-            ]);
-
-            return self::RESULT_PENDING;
-        }
 
         return DB::transaction(function () use ($contact, $direction, $common, $attachments, $agencyId, $mailbox) {
             // AT-59: an outbound message may already exist as a provisional row
