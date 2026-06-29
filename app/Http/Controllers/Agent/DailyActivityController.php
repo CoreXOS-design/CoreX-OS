@@ -328,6 +328,12 @@ class DailyActivityController extends Controller
             'activity_date' => ['required', 'date'],
             'values' => ['array'],
             'values.*' => ['nullable', 'integer', 'min:0'],
+            // Baseline = the values the form was RENDERED with. The save is
+            // applied as a diff against this baseline (see store loop below),
+            // not as a destructive overwrite of the whole day. Optional so an
+            // older cached form without the field still validates.
+            'baseline' => ['array'],
+            'baseline.*' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $date = $data['activity_date'];
@@ -359,35 +365,94 @@ class DailyActivityController extends Controller
 
         $allowedIds = $definitions->pluck('id')->map(fn($v) => (int)$v)->all();
         $posted = (array)($data['values'] ?? []);
+        $baseline = (array)($data['baseline'] ?? []);
+        $hasBaseline = array_key_exists('baseline', $data);
 
-        // Save entries (0 => delete, >0 => upsert)
+        $manual = \App\Models\DailyActivityEntry::SOURCE_MANUAL;
+
+        // DIFF-BASED SAVE — the form is a snapshot, not the source of truth.
+        //
+        // The page is a plain server form with no autosave and no client
+        // state. The old handler treated every submission as the COMPLETE
+        // truth for the day and hard-deleted any definition posted as 0.
+        // That silently wiped already-saved activities whenever the form was
+        // submitted while showing a stale/blank value — most commonly via the
+        // browser Back button / bfcache, where the cached page re-posts 0 for
+        // cells the user had previously saved. ("Filled it in, it disappears
+        // every time I leave.")
+        //
+        // The fix: only ACT on cells the user actually changed (posted value
+        // differs from the value the form was rendered with). A stale form
+        // re-posts its own baseline unchanged, so untouched cells are skipped
+        // and never wiped. Deletes are additionally scoped to source='manual'
+        // so auto-credited rows (calendar / instant spine) are never touched.
+        //
+        // Legacy fallback: a cached form with no `baseline` field at all can
+        // no longer mass-delete. Without a baseline we cannot distinguish "user
+        // cleared this cell" from "stale 0", so we only ever upsert posted
+        // positives and never delete.
         foreach ($allowedIds as $defId) {
-            $val = (int)($posted[(string)$defId] ?? ($posted[$defId] ?? 0));
-            if ($val <= 0) {
-                \DB::table('daily_activity_entries')
-                    ->where('activity_definition_id', $defId)
-                    ->where('user_id', $user->id)
-                    ->where('activity_date', $date)
-                    ->delete();
-                continue;
+            $new = (int)($posted[(string)$defId] ?? ($posted[$defId] ?? 0));
+
+            if ($hasBaseline) {
+                $old = (int)($baseline[(string)$defId] ?? ($baseline[$defId] ?? 0));
+
+                // Unchanged cell — leave the stored row exactly as it is.
+                if ($new === $old) {
+                    continue;
+                }
+
+                // User explicitly cleared a previously-positive cell.
+                if ($new <= 0) {
+                    \DB::table('daily_activity_entries')
+                        ->where('activity_definition_id', $defId)
+                        ->where('user_id', $user->id)
+                        ->where('activity_date', $date)
+                        ->where('source', $manual)
+                        ->delete();
+                    continue;
+                }
+            } else {
+                // No baseline (old cached form): never delete; skip empty cells.
+                if ($new <= 0) {
+                    continue;
+                }
             }
 
-            \DB::table('daily_activity_entries')->updateOrInsert(
-                [
+            // Upsert the manual cell, scoped to source='manual' so it never
+            // collides with an auto row that shares (def, user, date).
+            $existing = \DB::table('daily_activity_entries')
+                ->where('activity_definition_id', $defId)
+                ->where('user_id', $user->id)
+                ->where('activity_date', $date)
+                ->where('source', $manual)
+                ->first();
+
+            if ($existing) {
+                \DB::table('daily_activity_entries')
+                    ->where('id', $existing->id)
+                    ->update([
+                        'value' => $new,
+                        'period' => $period,
+                        'agency_id' => $agencyId,
+                        'branch_id' => $branchId,
+                        'updated_at' => now(),
+                    ]);
+            } else {
+                \DB::table('daily_activity_entries')->insert([
                     'activity_definition_id' => $defId,
                     'user_id' => $user->id,
                     'activity_date' => $date,
                     'period' => $period,
-                ],
-                [
                     'agency_id' => $agencyId,
                     'branch_id' => $branchId,
-                    'period' => $period,
-                    'value' => $val,
-                    'updated_at' => now(),
+                    'value' => $new,
+                    'source' => $manual,
+                    'point_state' => \App\Models\DailyActivityEntry::STATE_CONFIRMED,
                     'created_at' => now(),
-                ]
-            );
+                    'updated_at' => now(),
+                ]);
+            }
         }
 
         return redirect()->route('agent.daily', ['date' => $date])->with('status', 'Daily activity saved.');

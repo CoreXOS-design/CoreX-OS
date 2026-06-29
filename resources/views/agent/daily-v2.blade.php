@@ -217,6 +217,11 @@
                             <td class="px-4 py-2.5 text-right" style="color: var(--text-secondary);">{{ number_format((int)$def->weight) }}</td>
                             <td class="px-4 py-2.5">
                                 <div class="flex items-center justify-center">
+                                    {{-- Baseline = the value this row was rendered with. The save
+                                         handler applies the form as a diff against this snapshot, so a
+                                         stale/cached form (e.g. browser Back) re-posts its baseline
+                                         unchanged and never wipes already-saved entries. --}}
+                                    <input type="hidden" name="baseline[{{ $def->id }}]" value="{{ $val }}">
                                     @php($mode = (string)($def->scoring_mode ?? 'count'))
                                     @if($mode === 'once')
                                         <input type="hidden" name="values[{{ $def->id }}]" value="0">
