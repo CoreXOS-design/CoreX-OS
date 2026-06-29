@@ -57,25 +57,46 @@ class TaskService
     }
 
     /**
+     * Per-column hydration cap for the kanban board. A board renders one card
+     * per task, so the page must never hydrate an unbounded result set — an
+     * agency with thousands of open document-chase tasks would otherwise blow
+     * PHP's per-request memory_limit before the view renders (root cause of the
+     * /command-center/tasks 500 on staging, 18k todo tasks). The board shows
+     * the highest-priority / soonest-due slice; deeper retrieval is the job of
+     * the List view + filters, not the board.
+     */
+    public const KANBAN_COLUMN_LIMIT = 200;
+
+    /**
      * Get tasks by status (for kanban board).
+     *
+     * Each column is queried and capped at the database level so total
+     * hydration is bounded (≤ ~3×limit + 20 rows) regardless of table size.
      */
     public function getTasksByStatus(User $user): array
     {
-        $tasks = $this->visibleQuery($user)
-            ->whereNotIn('status', [CommandTask::STATUS_DISMISSED])
-            ->with(['property', 'contact', 'assignee'])
-            ->orderByRaw("CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END")
-            ->orderBy('due_date')
-            ->get();
+        $column = function (string $status, bool $recentFirst = false) use ($user) {
+            $query = $this->visibleQuery($user)
+                ->where('status', $status)
+                ->with(['property', 'contact', 'assignee']);
+
+            if ($recentFirst) {
+                // Done column: most-recently-completed first, small fixed cap.
+                return $query->orderByDesc('completed_at')->limit(20)->get();
+            }
+
+            return $query
+                ->orderByRaw("CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END")
+                ->orderBy('due_date')
+                ->limit(self::KANBAN_COLUMN_LIMIT)
+                ->get();
+        };
 
         return [
-            'todo'        => $tasks->where('status', CommandTask::STATUS_TODO)->values(),
-            'in_progress' => $tasks->where('status', CommandTask::STATUS_IN_PROGRESS)->values(),
-            'awaiting'    => $tasks->where('status', CommandTask::STATUS_AWAITING)->values(),
-            'done'        => $tasks->where('status', CommandTask::STATUS_DONE)
-                                   ->sortByDesc('completed_at')
-                                   ->take(20)
-                                   ->values(),
+            'todo'        => $column(CommandTask::STATUS_TODO),
+            'in_progress' => $column(CommandTask::STATUS_IN_PROGRESS),
+            'awaiting'    => $column(CommandTask::STATUS_AWAITING),
+            'done'        => $column(CommandTask::STATUS_DONE, true),
         ];
     }
 
