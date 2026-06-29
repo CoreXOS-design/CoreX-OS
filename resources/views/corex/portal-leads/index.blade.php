@@ -112,6 +112,8 @@
                                   : null);
                     @endphp
                     <tr class="transition-all duration-300"
+                        id="portal-lead-{{ $lead->id }}"
+                        data-portal-lead-row="{{ $lead->id }}"
                         style="border-top: 1px solid var(--border); color: var(--text-primary);">
                         <td class="px-3 py-2 whitespace-nowrap text-xs" style="color: var(--text-secondary);">
                             {{ optional($lead->received_at)->format('Y-m-d H:i') }}
@@ -187,4 +189,25 @@
 
     <div>{{ $leads->links() }}</div>
 </div>
+
+{{-- Deep-link highlight: email "Open the lead" links and the in-app toast both land
+     here with ?highlight={id}. Scroll the row into view and pulse it so the agent
+     sees exactly which enquiry the notification was about. --}}
+@if(request('highlight'))
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var row = document.getElementById('portal-lead-' + @json((string) request('highlight')));
+            if (!row) return;
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var original = row.style.backgroundColor;
+            row.style.transition = 'background-color 600ms ease';
+            row.style.backgroundColor = 'var(--brand-icon, #0ea5e9)';
+            row.style.color = '#fff';
+            setTimeout(function () {
+                row.style.backgroundColor = original;
+                row.style.removeProperty('color');
+            }, 1600);
+        });
+    </script>
+@endif
 @endsection
