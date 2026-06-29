@@ -240,32 +240,18 @@
         </a>
     </div>
 
-    {{-- AT-117 §4 — Add to the deferred outreach queue. Available even outside the
-         send-window (prepare now, surfaces at the due-time); the send-now button
-         above is the only one the window disables. Custom times must fall inside
-         the window — the server validates and rejects otherwise. --}}
+    {{-- AT-117 — Add to the outreach queue (ready immediately). Available any time,
+         including outside the send-window (prepare now); sending from the queue is
+         gated by the send-window. The send-now button above is window-disabled. --}}
     <div class="pt-3 mt-3" style="border-top: 1px solid var(--border);">
-        <div class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Or schedule for later</div>
-        <div class="flex flex-wrap items-center gap-2">
-            <select x-model="dueChoice"
-                    class="rounded px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                <option value="next_window">Next window open</option>
-                <option value="tomorrow_8">Tomorrow 08:00</option>
-                <option value="custom">Custom…</option>
-            </select>
-            <input type="datetime-local" x-model="customDueAt" x-show="dueChoice === 'custom'" x-cloak
-                   class="rounded px-3 py-2 text-sm"
-                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-            <button type="button" @click="addToQueue()" :disabled="queuing"
-                    class="px-5 py-2 text-sm font-semibold rounded"
-                    style="background: var(--surface); border: 1px solid #00d4aa; color: var(--text-primary);">
-                <span x-show="!queuing">Add to queue</span>
-                <span x-show="queuing" x-cloak>Queuing…</span>
-            </button>
-        </div>
+        <button type="button" @click="addToQueue()" :disabled="queuing"
+                class="px-5 py-2 text-sm font-semibold rounded"
+                style="background: var(--surface); border: 1px solid #00d4aa; color: var(--text-primary);">
+            <span x-show="!queuing">Add to queue</span>
+            <span x-show="queuing" x-cloak>Adding…</span>
+        </button>
         <p class="text-[11px] mt-1.5" style="color: var(--text-muted);">
-            Surfaces in your Outreach Queue at the due time — you tap Send by hand then. Custom times must fall inside the send-window.
+            Saves the prepared message to your Outreach Queue — work the list and tap Send during the send-window.
         </p>
     </div>
 

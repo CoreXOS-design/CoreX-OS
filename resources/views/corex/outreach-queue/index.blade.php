@@ -35,10 +35,10 @@
     {{-- SURFACED — the work-list --}}
     <section>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-3" style="color: var(--text-muted);">
-            Ready to send ({{ $surfaced->count() }})
+            Ready to send ({{ $ready->count() }})
         </h2>
 
-        @forelse($surfaced as $row)
+        @forelse($ready as $row)
             <div id="oq-row-{{ $row->id }}" class="rounded-sm p-4 mb-2"
                  style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="flex items-start justify-between gap-4">
@@ -57,10 +57,10 @@
                         @endif
                         <p class="text-xs leading-relaxed" style="color: var(--text-secondary);">{{ Str::limit($row->body_snapshot, 220) }}</p>
                         <div class="text-[10px] mt-1.5" style="color: var(--text-muted);">
-                            Surfaced {{ optional($row->surfaced_at)->format('D j M, H:i') ?? '—' }}
+                            Prepared {{ optional($row->created_at)->format('D j M, H:i') ?? '—' }}
                         </div>
                     </div>
-                    <div class="flex-shrink-0">
+                    <div class="flex-shrink-0 flex flex-col items-end gap-1.5">
                         @if($sendAllowed)
                             <button type="button" @click="open({{ $row->id }}, '{{ route('corex.outreach-queue.open', $row) }}')"
                                     :disabled="busy === {{ $row->id }}"
@@ -75,43 +75,14 @@
                                     style="background: var(--surface-2); color: var(--text-muted);"
                                     title="{{ $windowMessage }}">Sending closed</button>
                         @endif
+                        <button type="button" @click="cancel({{ $row->id }}, '{{ route('corex.outreach-queue.cancel', $row) }}')"
+                                :disabled="busy === {{ $row->id }}"
+                                class="text-[11px] font-medium" style="color: var(--text-muted);">Remove</button>
                     </div>
                 </div>
             </div>
         @empty
-            <p class="text-xs py-3" style="color: var(--text-muted);">Nothing surfaced right now. Scheduled items appear here at their due time.</p>
-        @endforelse
-    </section>
-
-    {{-- SCHEDULED — pending, not yet surfaced --}}
-    <section>
-        <h2 class="text-xs font-bold uppercase tracking-widest mb-3" style="color: var(--text-muted);">
-            Scheduled ({{ $scheduled->count() }})
-        </h2>
-
-        @forelse($scheduled as $row)
-            <div id="oq-row-{{ $row->id }}" class="rounded-sm p-3 mb-2 flex items-start justify-between gap-4"
-                 style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-medium truncate" style="color: var(--text-primary);">
-                            {{ trim(($row->contact->first_name ?? '') . ' ' . ($row->contact->last_name ?? '')) ?: ('Contact #' . $row->contact_id) }}
-                        </span>
-                        <span class="text-[10px] font-semibold px-2 py-0.5 rounded-sm"
-                              style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
-                            {{ $sourceLabels[$row->source] ?? ucfirst($row->source) }}
-                        </span>
-                    </div>
-                    <div class="text-[11px] mt-1" style="color: var(--text-muted);">
-                        Due {{ optional($row->due_at)->format('D j M, H:i') ?? '—' }}@if($propLabel($row->property)) · {{ $propLabel($row->property) }}@endif
-                    </div>
-                </div>
-                <button type="button" @click="cancel({{ $row->id }}, '{{ route('corex.outreach-queue.cancel', $row) }}')"
-                        :disabled="busy === {{ $row->id }}"
-                        class="text-xs font-medium flex-shrink-0" style="color: var(--text-muted);">Cancel</button>
-            </div>
-        @empty
-            <p class="text-xs py-3" style="color: var(--text-muted);">Nothing scheduled. Prepare a message from a contact and choose a due time.</p>
+            <p class="text-xs py-3" style="color: var(--text-muted);">Your queue is empty. Prepare a message from a contact or the Core-Matches share and tap "Add to queue".</p>
         @endforelse
     </section>
 

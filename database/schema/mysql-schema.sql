@@ -6342,7 +6342,7 @@ CREATE TABLE `outreach_queue` (
   `channel` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'whatsapp',
   `source` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
   `body_snapshot` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `due_at` datetime NOT NULL,
+  `due_at` datetime DEFAULT NULL,
   `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `claimed_at` datetime DEFAULT NULL,
   `surfaced_at` datetime DEFAULT NULL,
@@ -12370,3 +12370,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (898,'2026_07_05_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (899,'2026_07_06_000003_add_outreach_send_window_to_agencies_table',183);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (901,'2026_07_07_000001_create_outreach_queue_table',184);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (902,'2026_07_08_000001_add_outreach_queue_settings_to_agencies_table',185);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (903,'2026_07_09_000001_make_outreach_queue_due_at_nullable',186);

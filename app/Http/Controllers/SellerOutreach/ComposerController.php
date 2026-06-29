@@ -318,7 +318,6 @@ final class ComposerController extends Controller
             'template_id' => 'nullable|integer',
             'subject'     => 'nullable|string|max:255',
             'body'        => 'required|string',
-            'due_at'      => 'required|date',
         ]);
 
         // Property resolution — identical guard to submit().
@@ -354,24 +353,17 @@ final class ComposerController extends Controller
             return $this->queueError($request, 'Cannot queue: ' . implode(' ', $context->validationIssues));
         }
 
-        $agency = Agency::find($agencyId);
-        try {
-            $dueAt = Carbon::parse($validated['due_at'], $agency?->outreachTimezone() ?? config('app.timezone'));
-        } catch (\Throwable $e) {
-            return $this->queueError($request, 'Could not read the chosen due time — pick it again.');
-        }
-
-        // Canonical enqueue (consent + window + create) — shared with MIC/map (§7).
+        // Canonical enqueue (consent + reachability + create READY) — shared with MIC.
         $res = $queueService->enqueue(
-            $agency, $contact, $request->user(), $validated['channel'],
-            OutreachQueue::SOURCE_CONTACT, $context->renderedBody, $dueAt, $property
+            Agency::find($agencyId), $contact, $request->user(), $validated['channel'],
+            OutreachQueue::SOURCE_CONTACT, $context->renderedBody, $property
         );
         if (!$res['ok']) {
             return $this->queueError($request, $res['message'], $res['extra'] ?? []);
         }
 
         return $request->wantsJson()
-            ? response()->json(['queued' => true, 'queue_id' => $res['row']->id, 'due_at' => $dueAt->toIso8601String(), 'message' => $res['message']])
+            ? response()->json(['queued' => true, 'queue_id' => $res['row']->id, 'message' => $res['message']])
             : redirect()->route('seller-outreach.composer.show', ['contact' => $contact->id])->with('success', $res['message']);
     }
 

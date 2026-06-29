@@ -11,25 +11,27 @@ use App\Services\SellerOutreach\MarketingConsentService;
 use Carbon\Carbon;
 
 /**
- * AT-117 §7 — the ONE canonical "add to the outreach queue" path. Every source
- * (composer, MIC, map) routes its queue WRITE through here so the consent gate
- * (canMarketTo, §4b), the send-window constraint on due_at (§4a) and the
- * required body capture happen in exactly one place — no parallel write logic.
+ * AT-117 — the ONE canonical "add to the outreach queue" path. Every source
+ * (composer, MIC) routes its queue WRITE through here so the consent gate
+ * (canMarketTo, §4b), reachability, cap and required body capture happen in
+ * exactly one place — no parallel write logic. No due-time: rows are created
+ * READY; the send-window gates DISPATCH only (not enqueue).
  *
  * The body MUST be supplied by the caller and is stored verbatim as
- * body_snapshot: the MIC/map paths persist no message text today (spec §3), so
- * the queue carries the prepared body. Opt-out/tracking tokens are left as the
+ * body_snapshot: the MIC paths persist no message text today (spec §3), so the
+ * queue carries the prepared body. Opt-out/tracking tokens are left as the
  * caller passes them (literal) and resolve fresh at dispatch (§4b).
  */
 class OutreachQueueService
 {
     public function __construct(
-        private OutreachWindowService $window,
         private MarketingConsentService $consent,
     ) {}
 
     /**
-     * Validate (consent + window + non-empty body) and create the queue row.
+     * Validate (consent + reachability + non-empty body + cap) and create a READY
+     * queue row. No due-time: the row is immediately ready; the ONLY send gate is
+     * the agency send-window, enforced at DISPATCH (not here).
      *
      * @return array{ok:bool, status:int, message:string, row?:OutreachQueue, extra?:array}
      */
@@ -40,23 +42,13 @@ class OutreachQueueService
         string $channel,
         string $source,
         string $body,
-        Carbon $dueAt,
         ?Property $property = null
     ): array {
         // Consent at queue time (§4b) — don't even queue an already-blocked contact.
+        // (Re-checked again at dispatch; a later opt-out drops the ready row.)
         if (!$this->consent->canMarketTo($contact, $channel)) {
             $reason = $this->consent->marketingBlockReason($contact, $channel) ?? 'not_marketable';
             return ['ok' => false, 'status' => 422, 'message' => 'Cannot queue: this contact is not marketable right now (' . $reason . ').'];
-        }
-
-        // due_at must fall inside the agency send-window (§4a).
-        if (!$this->window->isSendAllowed($agency, $dueAt->copy())) {
-            return [
-                'ok' => false,
-                'status' => 422,
-                'message' => 'That time is outside the outreach send-window. ' . $this->window->blockedMessage($agency, $dueAt->copy()),
-                'extra' => ['next_opens_at' => optional($this->window->nextOpensAt($agency, $dueAt->copy()))->toIso8601String()],
-            ];
         }
 
         // body_snapshot is REQUIRED — these paths persist nothing else.
@@ -99,15 +91,14 @@ class OutreachQueueService
             'channel'       => $channel,
             'source'        => $source,
             'body_snapshot' => $body,
-            'due_at'        => $dueAt,
-            // status defaults to pending via the model.
+            // status defaults to READY via the model; no due_at (vestigial column).
         ]);
 
         return [
             'ok'      => true,
             'status'  => 200,
             'row'     => $row,
-            'message' => 'Queued — will surface in the outreach queue at ' . $dueAt->format('D j M, H:i') . '.',
+            'message' => 'Added to your outreach queue — ready to send in the send-window.',
         ];
     }
 }

@@ -42,15 +42,10 @@ class OutreachQueueController extends Controller
         $user = $request->user();
         $agency = Agency::find($user->effectiveAgencyId());
 
-        $surfaced = OutreachQueue::forAgent($user->id)->surfaced()
+        // The work-list: every prepared-and-ready message (no time-gating).
+        $ready = OutreachQueue::forAgent($user->id)->ready()
             ->with(['contact', 'property'])
-            ->orderBy('surfaced_at')
-            ->get();
-
-        $scheduled = OutreachQueue::forAgent($user->id)
-            ->where('status', OutreachQueue::STATUS_PENDING)
-            ->with(['contact', 'property'])
-            ->orderBy('due_at')
+            ->latest('created_at')
             ->get();
 
         // Transparency: recently dropped/expired (not actionable) with their reason.
@@ -65,7 +60,7 @@ class OutreachQueueController extends Controller
         $windowMessage = ($agency && !$sendAllowed) ? $window->blockedMessage($agency) : '';
 
         return view('corex.outreach-queue.index', compact(
-            'surfaced', 'scheduled', 'inactive', 'sendAllowed', 'windowMessage'
+            'ready', 'inactive', 'sendAllowed', 'windowMessage'
         ));
     }
 
@@ -85,7 +80,6 @@ class OutreachQueueController extends Controller
             'channel'     => 'required|in:whatsapp,email',
             'source'      => 'required|in:mic,map,contact',
             'body'        => 'required|string',
-            'due_at'      => 'required|date',
             'property_id' => 'nullable|integer',
         ]);
 
@@ -97,23 +91,13 @@ class OutreachQueueController extends Controller
         }
         $property = !empty($data['property_id']) ? Property::find($data['property_id']) : null;
 
-        $agency = Agency::find($agencyId);
-        try {
-            $dueAt = Carbon::parse($data['due_at'], $agency?->outreachTimezone() ?? config('app.timezone'));
-        } catch (\Throwable $e) {
-            return response()->json(['ok' => false, 'message' => 'Could not read the chosen due time — pick it again.'], 422);
-        }
-
         $res = $queueService->enqueue(
-            $agency, $contact, $user, $data['channel'], $data['source'], $data['body'], $dueAt, $property
+            Agency::find($agencyId), $contact, $user, $data['channel'], $data['source'], $data['body'], $property
         );
 
         $payload = ['ok' => $res['ok'], 'message' => $res['message']];
         if ($res['ok']) {
             $payload['queue_id'] = $res['row']->id;
-            $payload['due_at'] = $dueAt->toIso8601String();
-        } else {
-            $payload += $res['extra'] ?? [];
         }
         return response()->json($payload, $res['status']);
     }
@@ -130,7 +114,7 @@ class OutreachQueueController extends Controller
         SellerOutreachComposerService $composer,
         SellerOutreachSenderService $sender
     ) {
-        if ($outreachQueue->status !== OutreachQueue::STATUS_SURFACED) {
+        if ($outreachQueue->status !== OutreachQueue::STATUS_READY) {
             return response()->json(['message' => 'This item is no longer in your active queue.'], 422);
         }
 
@@ -204,15 +188,15 @@ class OutreachQueueController extends Controller
         ]);
     }
 
-    /** Cancel a not-yet-surfaced (pending) row — soft delete, never a hard delete. */
+    /** Remove a ready (prepared, unsent) row — soft delete, never a hard delete. */
     public function cancel(Request $request, OutreachQueue $outreachQueue)
     {
-        if ($outreachQueue->status !== OutreachQueue::STATUS_PENDING) {
-            return response()->json(['message' => 'Only scheduled (not-yet-surfaced) items can be cancelled.'], 422);
+        if ($outreachQueue->status !== OutreachQueue::STATUS_READY) {
+            return response()->json(['message' => 'Only a ready (unsent) item can be removed.'], 422);
         }
         $outreachQueue->forceFill(['status' => OutreachQueue::STATUS_CANCELLED])->save();
         $outreachQueue->delete(); // soft delete (archive) — recoverable
 
-        return response()->json(['ok' => true, 'message' => 'Removed from the schedule.']);
+        return response()->json(['ok' => true, 'message' => 'Removed from the queue.']);
     }
 }
