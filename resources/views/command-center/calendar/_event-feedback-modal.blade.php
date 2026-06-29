@@ -23,9 +23,16 @@
     the host listens for. The host never learns the action's internals; it only
     dispatches and listens.
 
-    Per-property (listing-presentation) feedback is rare on these surfaces and
-    keeps its richer multi-property flow on the calendar; here we fall back to a
-    direct link rather than duplicate that UI.
+    PER-PROPERTY (AT-114 pt2): a viewing can span MULTIPLE properties, and
+    feedback is captured PER PROPERTY (storeFeedback keys each row on
+    calendar_event_id + contact_id + property_id). This modal therefore renders
+    one feedback block PER PROPERTY (mirroring the data granularity of the
+    calendar's own feedback flow) — outcome / concerns / seller-visible notes /
+    internal notes / next action for each property × each linked contact. A
+    property-less event (a meeting) falls back to a single block with no
+    property. The richer listing-presentation (per_property) feedback keeps its
+    dedicated flow on the calendar; here we offer a direct jump rather than
+    duplicate that distinct UI.
 --}}
 @once
 <div x-data="eventFeedbackModal()"
@@ -66,65 +73,82 @@
                     <p class="text-sm" style="color: var(--text-muted);">No contacts are linked to this event, so there is nobody to capture feedback for.</p>
                 </template>
 
-                {{-- Per-contact feedback (viewings) — same fields as the calendar --}}
-                <template x-if="!loading && data.feedback_mode !== 'per_property'">
+                {{-- Per-property feedback (viewings) — one block per property in
+                     the event (or a single property-less block for a meeting),
+                     each capturing the same fields as the calendar modal, for
+                     every linked contact. --}}
+                <template x-if="!loading && data.feedback_mode !== 'per_property' && data.contacts.length > 0">
                     <div class="space-y-4">
-                        <template x-for="contact in data.contacts" :key="contact.id">
+                        <template x-for="block in blocks" :key="block.key">
                             <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                                <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="contact.label"></h3>
+                                {{-- Property heading (omitted for a property-less meeting) --}}
+                                <template x-if="block.property_id !== null">
+                                    <h3 class="text-sm font-semibold mb-3 flex items-center gap-2" style="color: var(--text-primary);">
+                                        <span class="text-[10px] font-bold px-2 py-0.5 rounded" style="background: var(--brand-button); color: #fff;" x-text="block.badge"></span>
+                                        <span x-text="block.address"></span>
+                                    </h3>
+                                </template>
 
-                                {{-- Outcome --}}
-                                <div class="mb-3">
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
-                                    <select x-model="form[contact.id].outcome_id"
-                                            class="w-full rounded-md px-3 py-2 text-sm"
-                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                        <option value="">Select…</option>
-                                        <template x-for="o in data.outcomes" :key="o.id">
-                                            <option :value="o.id" x-text="o.label"></option>
-                                        </template>
-                                    </select>
-                                </div>
+                                {{-- One field-set per linked contact for this property --}}
+                                <template x-for="contact in data.contacts" :key="contact.id">
+                                    <div class="mb-4 last:mb-0">
+                                        <p class="text-xs font-semibold mb-2" style="color: var(--text-secondary);"
+                                           x-text="(block.property_id !== null ? '— ' : '') + contact.label"></p>
 
-                                {{-- Concerns --}}
-                                <div class="mb-3" x-show="data.concerns.length > 0">
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
-                                    <div class="flex flex-wrap gap-2">
-                                        <template x-for="c in data.concerns" :key="c.id">
-                                            <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
-                                                <input type="checkbox" :value="c.id" x-model="form[contact.id].concern_ids" class="rounded">
-                                                <span x-text="c.label"></span>
-                                            </label>
-                                        </template>
+                                        {{-- Outcome --}}
+                                        <div class="mb-3">
+                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
+                                            <select x-model="form[key(contact.id, block.property_id)].outcome_id"
+                                                    class="w-full rounded-md px-3 py-2 text-sm"
+                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                                <option value="">Select…</option>
+                                                <template x-for="o in data.outcomes" :key="o.id">
+                                                    <option :value="o.id" x-text="o.label"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+
+                                        {{-- Concerns --}}
+                                        <div class="mb-3" x-show="data.concerns.length > 0">
+                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
+                                            <div class="flex flex-wrap gap-2">
+                                                <template x-for="c in data.concerns" :key="c.id">
+                                                    <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
+                                                        <input type="checkbox" :value="c.id" x-model="form[key(contact.id, block.property_id)].concern_ids" class="rounded">
+                                                        <span x-text="c.label"></span>
+                                                    </label>
+                                                </template>
+                                            </div>
+                                        </div>
+
+                                        {{-- Seller-visible notes --}}
+                                        <div class="mb-3">
+                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller-visible notes</label>
+                                            <textarea x-model="form[key(contact.id, block.property_id)].seller_visible_notes" rows="2"
+                                                      class="w-full rounded-md px-3 py-2 text-sm"
+                                                      style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                                      placeholder="Shown to seller on live link…"></textarea>
+                                        </div>
+
+                                        {{-- Internal notes --}}
+                                        <div class="mb-3">
+                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
+                                            <textarea x-model="form[key(contact.id, block.property_id)].internal_notes" rows="2"
+                                                      class="w-full rounded-md px-3 py-2 text-sm"
+                                                      style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                                      placeholder="Agent-only notes…"></textarea>
+                                        </div>
+
+                                        {{-- Next action --}}
+                                        <div>
+                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
+                                            <input type="text" x-model="form[key(contact.id, block.property_id)].next_action_notes"
+                                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                                   placeholder="Follow-up action…">
+                                        </div>
                                     </div>
-                                </div>
-
-                                {{-- Seller-visible notes --}}
-                                <div class="mb-3">
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller-visible notes</label>
-                                    <textarea x-model="form[contact.id].seller_visible_notes" rows="2"
-                                              class="w-full rounded-md px-3 py-2 text-sm"
-                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                              placeholder="Shown to seller on live link…"></textarea>
-                                </div>
-
-                                {{-- Internal notes --}}
-                                <div class="mb-3">
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
-                                    <textarea x-model="form[contact.id].internal_notes" rows="2"
-                                              class="w-full rounded-md px-3 py-2 text-sm"
-                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                              placeholder="Agent-only notes…"></textarea>
-                                </div>
-
-                                {{-- Next action --}}
-                                <div>
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
-                                    <input type="text" x-model="form[contact.id].next_action_notes"
-                                           class="w-full rounded-md px-3 py-2 text-sm"
-                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                           placeholder="Follow-up action…">
-                                </div>
+                                </template>
                             </div>
                         </template>
                     </div>
@@ -162,8 +186,17 @@
             error: null,
             eventId: null,
             calendarLink: '#',
-            data: { event: null, feedback_mode: 'per_contact', contacts: [], outcomes: [], concerns: [] },
+            data: { event: null, feedback_mode: 'per_contact', contacts: [], properties: [], outcomes: [], concerns: [] },
+            // One render block per property (or a single property-less block).
+            blocks: [],
             form: {},
+
+            // Stable form key for a (contact, property) pair. property_id may be
+            // null for a property-less meeting — encode it explicitly so the key
+            // is unambiguous and matches storeFeedback's nullable property_id.
+            key(contactId, propertyId) {
+                return contactId + '::' + (propertyId === null ? 'none' : propertyId);
+            },
 
             async open(eventId) {
                 this.eventId = eventId;
@@ -172,7 +205,8 @@
                 this.loading = true;
                 this.isOpen = true;
                 this.calendarLink = '{{ route('command-center.calendar') }}?capture_feedback=' + eventId;
-                this.data = { event: null, feedback_mode: 'per_contact', contacts: [], outcomes: [], concerns: [] };
+                this.data = { event: null, feedback_mode: 'per_contact', contacts: [], properties: [], outcomes: [], concerns: [] };
+                this.blocks = [];
                 this.form = {};
                 try {
                     const r = await fetch(SHOW_URL.replace('__ID__', eventId), {
@@ -195,15 +229,40 @@
                         outcomes: d.outcomes || [],
                         concerns: d.concerns || [],
                     };
-                    (this.data.contacts || []).forEach(c => {
-                        this.form[c.id] = {
-                            outcome_id: c.outcome_id ? String(c.outcome_id) : '',
-                            concern_ids: (c.concerns || []).map(String),
-                            seller_visible_notes: c.seller_notes || '',
-                            internal_notes: c.internal_notes || '',
-                            next_action_notes: c.next_action || '',
-                        };
-                    });
+
+                    if (mode !== 'per_property') {
+                        // Build one block per property; a property-less meeting
+                        // collapses to a single block with property_id = null.
+                        const props = this.data.properties;
+                        this.blocks = props.length
+                            ? props.map((p, i) => ({
+                                key: 'prop:' + p.id,
+                                property_id: p.id,
+                                address: p.address,
+                                badge: 'Property ' + (i + 1) + ' of ' + props.length,
+                            }))
+                            : [{ key: 'none', property_id: null, address: null, badge: null }];
+
+                        // Pre-fill each (contact, property) field-set from any
+                        // existing feedback row for that exact pair.
+                        const existing = {};
+                        (Array.isArray(d.existing_feedback) ? d.existing_feedback : []).forEach(row => {
+                            existing[this.key(row.contact_id, row.property_id ?? null)] = row;
+                        });
+                        this.data.contacts.forEach(c => {
+                            this.blocks.forEach(b => {
+                                const k = this.key(c.id, b.property_id);
+                                const ex = existing[k] || {};
+                                this.form[k] = {
+                                    outcome_id: ex.outcome_id ? String(ex.outcome_id) : '',
+                                    concern_ids: (ex.concern_ids || []).map(String),
+                                    seller_visible_notes: ex.seller_visible_notes || '',
+                                    internal_notes: ex.internal_notes || '',
+                                    next_action_notes: ex.next_action_notes || '',
+                                };
+                            });
+                        });
+                    }
                 } catch (e) {
                     this.error = 'Network error: ' + (e.message || 'request failed');
                 } finally {
@@ -212,20 +271,22 @@
             },
 
             buildPayload() {
-                // Reuse the event's single linked property when present, mirroring
-                // the calendar's per-contact payload (property_id is nullable).
-                const propertyId = (this.data.properties && this.data.properties[0]) ? this.data.properties[0].id : null;
+                // One row per (contact, property) field-set, mirroring the
+                // calendar's per-contact viewing payload (property_id nullable).
                 return {
                     feedback_kind: 'viewing',
-                    feedback: Object.entries(this.form).map(([cid, f]) => ({
-                        contact_id: parseInt(cid),
-                        property_id: propertyId,
-                        outcome_id: f.outcome_id ? parseInt(f.outcome_id) : null,
-                        concern_ids: (f.concern_ids || []).map(Number),
-                        seller_visible_notes: f.seller_visible_notes || null,
-                        internal_notes: f.internal_notes || null,
-                        next_action_notes: f.next_action_notes || null,
-                    })),
+                    feedback: Object.entries(this.form).map(([k, f]) => {
+                        const [cidStr, pidStr] = k.split('::');
+                        return {
+                            contact_id: parseInt(cidStr),
+                            property_id: pidStr === 'none' ? null : parseInt(pidStr),
+                            outcome_id: f.outcome_id ? parseInt(f.outcome_id) : null,
+                            concern_ids: (f.concern_ids || []).map(Number),
+                            seller_visible_notes: f.seller_visible_notes || null,
+                            internal_notes: f.internal_notes || null,
+                            next_action_notes: f.next_action_notes || null,
+                        };
+                    }),
                 };
             },
 

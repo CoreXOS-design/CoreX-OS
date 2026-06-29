@@ -48,19 +48,29 @@
             ->pluck('calendar_event_id')->unique()->flip();
 
         $linkedEvents = $evs->map(function ($ev) use ($agentNames, $fedEventIds) {
-            $prop = $ev->linkedProperties->first();
+            // ALL properties on the event — same `linkedProperties` source the
+            // per-property feedback modal reads (one source of truth for "what
+            // properties are in this viewing"). A multi-property viewing must
+            // not collapse to its first property.
+            $props = $ev->linkedProperties->map(fn ($p) => [
+                'id'      => $p->id,
+                'address' => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
+                'suburb'  => $p->suburb ?? null,
+                'url'     => route('corex.properties.show', $p->id),
+            ])->values();
+            $first = $props->first();
             return [
-                'id'          => $ev->id,
-                'title'       => $ev->title,
-                'event_date'  => $ev->event_date,
-                'type_label'  => $ev->category ?: ucfirst((string) $ev->event_type),
-                'status'      => $ev->status,
-                'agent_name'  => $agentNames->get($ev->user_id, 'Unassigned'),
-                'property_id' => $prop?->id,
-                'property_address' => $prop
-                    ? (method_exists($prop, 'buildDisplayAddress') ? $prop->buildDisplayAddress() : ($prop->title ?? "Property #{$prop->id}"))
-                    : null,
-                'has_feedback' => $fedEventIds->has($ev->id),
+                'id'             => $ev->id,
+                'title'          => $ev->title,
+                'event_date'     => $ev->event_date,
+                'type_label'     => $ev->category ?: ucfirst((string) $ev->event_type),
+                'status'         => $ev->status,
+                'agent_name'     => $agentNames->get($ev->user_id, 'Unassigned'),
+                'properties'     => $props,
+                'property_count' => $props->count(),
+                'property_id'    => $first['id'] ?? null,
+                'property_address' => $first['address'] ?? null,
+                'has_feedback'   => $fedEventIds->has($ev->id),
             ];
         });
     }
@@ -72,8 +82,10 @@
         ->sortByDesc('event_date')->values();
 @endphp
 
-{{-- feedbackDone tracks events whose badge flipped in-place this session. --}}
-<div x-data="{ feedbackDone: [] }"
+{{-- feedbackDone tracks events whose badge flipped in-place this session.
+     propsModal drives the multi-property navigation modal (one viewing → many
+     properties → each opens in a new tab). --}}
+<div x-data="{ feedbackDone: [], propsModal: { open: false, title: '', list: [] } }"
      x-on:corex:feedback-saved.window="if (!feedbackDone.includes($event.detail.eventId)) feedbackDone.push($event.detail.eventId)"
      class="space-y-6">
 
@@ -84,7 +96,14 @@
             <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0 flex-1">
-                        @if($e['property_id'])
+                        @if($e['property_count'] > 1)
+                            {{-- Multi-property viewing → open a chooser modal listing
+                                 ALL linked properties; each opens in a new tab. --}}
+                            <button type="button"
+                                    @click="propsModal = { open: true, title: @js($e['title']), list: @js($e['properties']) }"
+                                    class="text-sm font-semibold truncate block no-underline hover:underline text-left w-full" style="color:var(--text-primary);">{{ $e['title'] }}</button>
+                            <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">{{ $e['property_count'] }} properties — click to choose</div>
+                        @elseif($e['property_id'])
                             <a href="{{ route('corex.properties.show', $e['property_id']) }}" target="_blank"
                                class="text-sm font-semibold truncate block no-underline hover:underline" style="color:var(--text-primary);">{{ $e['title'] }}</a>
                             <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">{{ $e['property_address'] }}</div>
@@ -112,7 +131,14 @@
             <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0 flex-1">
-                        @if($e['property_id'])
+                        @if($e['property_count'] > 1)
+                            {{-- Multi-property viewing → open a chooser modal listing
+                                 ALL linked properties; each opens in a new tab. --}}
+                            <button type="button"
+                                    @click="propsModal = { open: true, title: @js($e['title']), list: @js($e['properties']) }"
+                                    class="text-sm font-semibold truncate block no-underline hover:underline text-left w-full" style="color:var(--text-primary);">{{ $e['title'] }}</button>
+                            <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">{{ $e['property_count'] }} properties — click to choose</div>
+                        @elseif($e['property_id'])
                             <a href="{{ route('corex.properties.show', $e['property_id']) }}" target="_blank"
                                class="text-sm font-semibold truncate block no-underline hover:underline" style="color:var(--text-primary);">{{ $e['title'] }}</a>
                             <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">{{ $e['property_address'] }}</div>
@@ -153,6 +179,38 @@
         @empty
             <p class="text-xs py-3" style="color:var(--text-muted);">None</p>
         @endforelse
+    </div>
+
+    {{-- Multi-property navigation modal — lists every property on a viewing;
+         each row opens that property in a new tab. Single source of truth: the
+         event's `properties` list (same `linkedProperties` the feedback modal
+         reads). --}}
+    <div x-show="propsModal.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50" @click="propsModal.open = false"></div>
+        <div class="relative rounded-md w-full max-w-md max-h-[85vh] overflow-y-auto"
+             style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="flex items-start justify-between gap-3 px-6 py-4 sticky top-0"
+                 style="background: var(--surface); border-bottom: 1px solid var(--border);">
+                <div class="min-w-0">
+                    <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Open a property</h2>
+                    <p class="text-xs mt-0.5 truncate" style="color: var(--text-muted);" x-text="propsModal.title"></p>
+                </div>
+                <button type="button" @click="propsModal.open = false" class="text-xl leading-none px-2" style="color: var(--text-muted);">&times;</button>
+            </div>
+            <div class="px-6 py-4 space-y-2">
+                <template x-for="p in propsModal.list" :key="p.id">
+                    <a :href="p.url" target="_blank"
+                       class="flex items-center justify-between gap-3 rounded-md px-4 py-3 no-underline hover:opacity-90"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <span class="min-w-0">
+                            <span class="text-sm font-medium block truncate" x-text="p.address"></span>
+                            <span class="text-[10px] block truncate" style="color: var(--text-muted);" x-text="p.suburb"></span>
+                        </span>
+                        <span class="text-xs flex-shrink-0" style="color: var(--brand-icon, #00d4aa);">Open ↗</span>
+                    </a>
+                </template>
+            </div>
+        </div>
     </div>
 
     {{-- The reusable feedback modal (rendered @once per page). --}}
