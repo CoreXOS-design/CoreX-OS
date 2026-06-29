@@ -839,6 +839,12 @@ class CalendarController extends Controller
             // contact_id, so there's nothing to fan out to here.
             if ($feedbackKind !== 'listing_presentation') {
             $linkedPropertyIds = $calendarEvent->linkedProperties()->pluck('properties.id')->toArray();
+            // Dedup buyer_property_views writes across the whole save: with
+            // per-property feedback (AT-114 pt2) the payload carries one row per
+            // (contact, property), so without this a single save would increment
+            // each property's view_count once PER row — N× inflation. Each
+            // (contact, property) pair is touched at most once per save.
+            $seenViewPairs = [];
             foreach ($data['feedback'] as $row) {
                 $contactId = $row['contact_id'];
                 $contact = \App\Models\Contact::withoutGlobalScopes()->find($contactId);
@@ -858,11 +864,24 @@ class CalendarController extends Controller
                         'logged_by_user_id' => $user->id,
                     ]);
 
-                    // Sync buyer_property_views for each linked property
-                    foreach ($linkedPropertyIds as $propId) {
+                    // Sync buyer_property_views. Per-property rows record their own
+                    // property; a property-less row (legacy single viewing / meeting)
+                    // falls back to every linked property. This is a RAW upsert
+                    // (atomic COALESCE increment) so it bypasses the model's
+                    // BelongsToAgency auto-stamp — agency_id MUST be set explicitly
+                    // (event's agency = contact's & property's agency) or the INSERT
+                    // 1364s on the NOT-NULL column.
+                    $rowPropertyIds = !empty($row['property_id']) ? [$row['property_id']] : $linkedPropertyIds;
+                    foreach ($rowPropertyIds as $propId) {
+                        $pairKey = $contactId . ':' . $propId;
+                        if (isset($seenViewPairs[$pairKey])) {
+                            continue;
+                        }
+                        $seenViewPairs[$pairKey] = true;
                         DB::table('buyer_property_views')->updateOrInsert(
                             ['contact_id' => $contactId, 'property_id' => $propId],
                             [
+                                'agency_id' => $calendarEvent->agency_id,
                                 'last_viewed_at' => $calendarEvent->event_date,
                                 'view_count' => DB::raw('COALESCE(view_count, 0) + 1'),
                                 'updated_at' => now(),

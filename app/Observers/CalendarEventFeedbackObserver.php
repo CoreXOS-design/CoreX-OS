@@ -78,11 +78,11 @@ class CalendarEventFeedbackObserver
 
         // Refresh buyer_property_views cache for this (contact × property)
         if ($feedback->property_id) {
-            $this->refreshPropertyView($feedback->contact_id, $feedback->property_id, $feedback->id);
+            $this->refreshPropertyView($feedback->contact_id, $feedback->property_id, $feedback->id, $feedback->agency_id);
         }
     }
 
-    private function refreshPropertyView(int $contactId, int $propertyId, int $feedbackId): void
+    private function refreshPropertyView(int $contactId, int $propertyId, int $feedbackId, ?int $agencyId): void
     {
         $viewCount = CalendarEventFeedback::where('contact_id', $contactId)
             ->where('property_id', $propertyId)
@@ -99,6 +99,10 @@ class CalendarEventFeedbackObserver
         BuyerPropertyView::updateOrCreate(
             ['contact_id' => $contactId, 'property_id' => $propertyId],
             [
+                // Explicit so the cache row is correctly tenant-stamped even when
+                // no Auth context exists (console resave, queue) — BelongsToAgency
+                // only auto-stamps for authed/single-agency creates.
+                'agency_id' => $agencyId,
                 'last_viewed_at' => $lastFeedback?->captured_at ?? now(),
                 'view_count' => $viewCount,
                 'most_recent_feedback_id' => $lastFeedback?->id ?? $feedbackId,

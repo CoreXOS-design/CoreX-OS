@@ -1318,6 +1318,7 @@ class DemoDataSeeder extends Seeder
                 DB::table('buyer_property_views')->updateOrInsert(
                     ['contact_id' => $b->id, 'property_id' => $pid],
                     [
+                        'agency_id'      => self::AGENCY_ID,
                         'view_count'     => ($pid % 4) + 1,
                         'last_viewed_at' => now()->subDays(($pid % 14) + 1),
                         'updated_at'     => now(),
@@ -2010,6 +2011,7 @@ class DemoDataSeeder extends Seeder
             DB::table('buyer_property_views')->updateOrInsert(
                 ['contact_id' => $buyer->id, 'property_id' => $pid],
                 [
+                    'agency_id'      => self::AGENCY_ID,
                     'last_viewed_at' => $eventDate,
                     'view_count'     => 1,
                     'updated_at'     => now(),
