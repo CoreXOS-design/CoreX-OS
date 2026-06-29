@@ -673,10 +673,12 @@ class CalendarController extends Controller
 
         // Default: per-contact mode (viewings)
         $contacts = $calendarEvent->linkedContacts;
-        $existing = \App\Models\CommandCenter\CalendarEventFeedback::query()
+        $existingRows = \App\Models\CommandCenter\CalendarEventFeedback::query()
             ->where('calendar_event_id', $calendarEvent->id)
-            ->get()
-            ->keyBy('contact_id');
+            ->get();
+        // Per-contact key (collapses to the last row for a contact) — what the
+        // calendar modal's single-property prefill consumes. Unchanged.
+        $existing = $existingRows->keyBy('contact_id');
 
         return response()->json([
             'event' => [
@@ -700,6 +702,24 @@ class CalendarController extends Controller
                 'id'      => $p->id,
                 'address' => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
             ]),
+            // ADDITIVE (AT-114 pt2): every existing viewing-feedback row keyed by
+            // its true (contact, property) pair, so a surface that renders one
+            // block PER PROPERTY (the reusable from-anywhere modal) can pre-fill
+            // each block independently instead of collapsing to one row per
+            // contact. The calendar modal ignores this field — it steps one
+            // property at a time and prefills from `contacts[].*` above.
+            'existing_feedback' => $existingRows
+                ->filter(fn ($r) => !is_null($r->contact_id))
+                ->map(fn ($r) => [
+                    'contact_id'           => $r->contact_id,
+                    'property_id'          => $r->property_id,
+                    'outcome_id'           => $r->outcome_option_id,
+                    'concern_ids'          => $r->concern_option_ids ?? [],
+                    'seller_visible_notes' => $r->seller_visible_notes,
+                    'internal_notes'       => $r->internal_notes,
+                    'next_action_notes'    => $r->next_action_notes,
+                ])
+                ->values(),
             'is_multi_property' => $properties->count() > 1,
             'outcomes' => $outcomes,
             'concerns' => $concerns,
