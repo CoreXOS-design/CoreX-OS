@@ -1742,67 +1742,11 @@
              ════════════════════════════════════════ --}}
         <div x-show="activeTab === 'viewings'" x-cloak class="p-6 space-y-6" id="tab-viewings">
 
-            {{-- Buyer perspective --}}
-            @if(($buyerUpcoming ?? collect())->isNotEmpty() || ($buyerPast ?? collect())->isNotEmpty())
-                {{-- Upcoming buyer viewings --}}
-                <div>
-                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Upcoming Viewings ({{ ($buyerUpcoming ?? collect())->count() }})</h3>
-                    @forelse($buyerUpcoming ?? [] as $bv)
-                        <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
-                            <div class="flex items-start justify-between gap-3">
-                                <div class="min-w-0 flex-1">
-                                    <a href="{{ route('corex.properties.show', $bv['property_id']) }}" target="_blank"
-                                       class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $bv['address'] }}</a>
-                                </div>
-                                <div class="text-right flex-shrink-0">
-                                    <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($bv['event_date'])->format('D, j M Y') }}</div>
-                                    <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $bv['agent_name'] }}</div>
-                                    <span class="ds-badge ds-badge-info mt-0.5">Scheduled</span>
-                                </div>
-                            </div>
-                        </div>
-                    @empty
-                        <p class="text-xs py-3" style="color:var(--text-muted);">None</p>
-                    @endforelse
-                </div>
+            {{-- Viewing Packs (AT-110 discoverability) — find/open/edit packs built for this contact. --}}
+            @include('command-center.viewing-packs._packs-section', ['contact' => $contact])
 
-                {{-- Past buyer viewings --}}
-                <div>
-                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Past Viewings ({{ ($buyerPast ?? collect())->count() }})</h3>
-                    @forelse($buyerPast ?? [] as $bv)
-                        <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
-                            <div class="flex items-start justify-between gap-3">
-                                <div class="min-w-0 flex-1">
-                                    <a href="{{ route('corex.properties.show', $bv['property_id']) }}" target="_blank"
-                                       class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $bv['address'] }}</a>
-                                </div>
-                                <div class="text-right flex-shrink-0">
-                                    <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($bv['event_date'])->format('D, j M Y') }}</div>
-                                    <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $bv['agent_name'] }}</div>
-                                </div>
-                            </div>
-                            @if($bv['feedback'] ?? null)
-                                <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
-                                    @if($bv['feedback']['outcome_label'] ?? null)
-                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color:var(--ds-green, #059669);">{{ $bv['feedback']['outcome_label'] }}</span>
-                                    @endif
-                                    @if($bv['feedback']['seller_notes'] ?? null)
-                                        <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $bv['feedback']['seller_notes'] }}</p>
-                                    @endif
-                                    @if($bv['feedback']['internal_notes'] ?? null)
-                                        <p class="text-[11px] mt-1" style="color:var(--text-muted);"><span class="font-medium">Internal:</span> {{ $bv['feedback']['internal_notes'] }}</p>
-                                    @endif
-                                    <div class="text-[10px] mt-1" style="color:var(--text-muted);">Captured {{ \Carbon\Carbon::parse($bv['feedback']['captured_at'])->diffForHumans() }}</div>
-                                </div>
-                            @else
-                                <span class="ds-badge ds-badge-default mt-1">No feedback</span>
-                            @endif
-                        </div>
-                    @empty
-                        <p class="text-xs py-3" style="color:var(--text-muted);">None</p>
-                    @endforelse
-                </div>
-            @endif
+            {{-- Buyer perspective — ALL linked appointments (property optional) + provide-feedback-from-here (AT-114). --}}
+            @include('command-center.calendar._linked-events', ['contact' => $contact])
 
             {{-- Seller perspective --}}
             @if(($sellerUpcoming ?? collect())->isNotEmpty() || ($sellerPast ?? collect())->isNotEmpty())

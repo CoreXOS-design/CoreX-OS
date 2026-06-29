@@ -227,7 +227,16 @@ class ViewingPackController extends Controller
         } catch (\Throwable $e) {
             Log::error('ViewingPack redaction failed', ['vpd' => $viewingPackDocument->id, 'error' => $e->getMessage()]);
 
+            // AT-110 Bug 2 — the on-screen tool POSTs via fetch and shows this inline.
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['error' => 'Could not redact this document: ' . $e->getMessage()], 422);
+            }
+
             return back()->withErrors(['redaction' => 'Could not redact this document: ' . $e->getMessage()]);
+        }
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json(['ok' => true, 'redacted_file_path' => $viewingPackDocument->fresh()->redacted_file_path]);
         }
 
         return back()->with('success', 'Document redacted — a flattened copy was added to the buyer pack.');

@@ -38,6 +38,41 @@
         </div>
     @endif
 
+    {{-- AT-110 layout — Pack details as a compact horizontal banner (moved out of the
+         right column). Title/Status/Save + Archive are independent of property selection,
+         so they live outside #vp-content (no need to re-render on add/remove). --}}
+    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="flex flex-col lg:flex-row lg:items-end gap-3">
+            <form method="POST" action="{{ route('corex.viewing-packs.update', $pack) }}"
+                  class="flex-1 flex flex-col sm:flex-row sm:items-end gap-3">
+                @csrf
+                @method('PUT')
+                <div class="flex-1 min-w-0">
+                    <label for="vp-title" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title</label>
+                    <input id="vp-title" type="text" name="title" value="{{ old('title', $pack->title) }}"
+                           class="w-full rounded-md px-3 py-1.5 text-sm"
+                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div class="sm:w-44">
+                    <label for="vp-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
+                    <select id="vp-status" name="status" class="w-full rounded-md px-3 py-1.5 text-sm"
+                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        @foreach(\App\Models\ViewingPack::STATUSES as $s)
+                            <option value="{{ $s }}" @selected($pack->status === $s)>{{ ucfirst($s) }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <button type="submit" class="corex-btn-primary flex-shrink-0">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.viewing-packs.destroy', $pack) }}" class="flex-shrink-0"
+                  onsubmit="return confirm('Archive this viewing pack? You can recover it later.');">
+                @csrf
+                @method('DELETE')
+                <button type="submit" class="corex-btn-outline" style="color: var(--ds-crimson); border-color: var(--ds-crimson);">Archive pack</button>
+            </form>
+        </div>
+    </div>
+
     {{-- AT-109 — Selected-properties data (rendered in the sticky right column). --}}
     @php
         $orderedItems = $pack->viewingPackProperties->map(fn ($vpp) => [
@@ -49,10 +84,12 @@
         $removeBase = url('corex/viewing-packs/' . $pack->id . '/properties');
     @endphp
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+    {{-- AT-110 Bug 3 — in-place region. Add/remove/redact swap THIS node's innerHTML
+         (vpAction/vpSwapContent) instead of a full reload, so scroll is preserved. --}}
+    <div id="vp-content" class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
 
-        {{-- LEFT: selection (Core Matches w/ search·filter·sort + ad-hoc search + docs) --}}
-        <div class="lg:col-span-2 space-y-4">
+        {{-- LEFT (60%): property selection — Core Matches (compact) + Add any property --}}
+        <div class="lg:col-span-3 space-y-4">
 
             {{-- Core Matches (canonical engine) — AT-109 search · filter · sort over
                  the buyer's already-loaded canonical match set ($coreMatches). All
@@ -128,18 +165,25 @@
                         @endif
                     </div>
 
-                    <ul class="space-y-2">
+                    {{-- AT-110 layout — COMPACT single-line rows (~60% shorter than the old
+                         two-line row) so far more properties fit per screen. Same data
+                         (address · suburb · price · ref · %); selection/Add logic unchanged.
+                         Address truncates legibly with a full-text tooltip; secondary fields
+                         drop off first on narrow widths. --}}
+                    <ul class="space-y-1">
                         <template x-for="m in filtered()" :key="m.id">
-                            <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
-                                <span class="flex-1 text-sm" style="color: var(--text-primary);">
-                                    <span x-text="m.address"></span><template x-if="m.suburb"><span style="color: var(--text-muted);"> — <span x-text="m.suburb"></span></span></template>
-                                </span>
-                                <span class="ds-badge ds-badge-success" title="Canonical match score" x-text="m.score + '%'"></span>
+                            <li class="flex items-center gap-2 rounded px-2 py-1" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <span class="text-sm truncate min-w-0 flex-1" style="color: var(--text-primary);" :title="m.address" x-text="m.address"></span>
+                                <span class="text-xs flex-shrink-0 truncate max-w-[7rem] hidden md:block" style="color: var(--text-muted);" x-show="m.suburb" x-text="m.suburb"></span>
+                                <span class="text-xs flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);" x-show="m.price" x-text="'R ' + Number(m.price).toLocaleString('en-ZA')"></span>
+                                <span class="text-xs flex-shrink-0 opacity-70 hidden lg:block" style="color: var(--text-muted);" x-show="m.ref" x-text="m.ref"></span>
+                                <span class="ds-badge ds-badge-success flex-shrink-0" title="Canonical match score" x-text="m.score + '%'"></span>
                                 <template x-if="m.added">
-                                    <span class="text-xs" style="color: var(--text-muted);">Added</span>
+                                    <span class="text-xs flex-shrink-0" style="color: var(--text-muted);">Added</span>
                                 </template>
                                 <template x-if="!m.added">
-                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}">
+                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}"
+                                          class="flex-shrink-0" @submit.prevent="vpAction($el)">
                                         @csrf
                                         <input type="hidden" name="property_id" :value="m.id">
                                         <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
@@ -166,7 +210,7 @@
                     <template x-for="r in results" :key="r.id">
                         <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
                             <span class="flex-1 text-sm" style="color: var(--text-primary);" x-text="r.label"></span>
-                            <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}">
+                            <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}" @submit.prevent="vpAction($el)">
                                 @csrf
                                 <input type="hidden" name="property_id" :value="r.id">
                                 <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
@@ -177,7 +221,60 @@
                 <p class="mt-2 text-xs" x-show="searched && !results.length" x-cloak style="color: var(--text-muted);">No properties found.</p>
             </div>
 
-            {{-- Buyer-pack documents — per property, ONLY buyer-pack-eligible attached docs (Step 5a) --}}
+            {{-- Buyer-pack documents moved to the right column (AT-110 layout). --}}
+        </div>
+
+        {{-- RIGHT (40%): sticky rail — Selected properties + Buyer-pack documents +
+             Viewing appointment, all visible alongside the match list (AT-110 layout). --}}
+        <div class="lg:col-span-2 lg:sticky lg:top-4 self-start space-y-4">
+
+            {{-- Selected properties (relocated here so it stays visible while scrolling the match list) --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+                 x-data="viewingPackOrder(@js($orderedItems), '{{ route('corex.viewing-packs.properties.reorder', $pack) }}', '{{ $removeBase }}', '{{ csrf_token() }}')">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
+                    <span class="text-xs" style="color: var(--text-muted);"><span x-text="items.length"></span> selected</span>
+                </div>
+
+                <template x-if="items.length === 0">
+                    <div class="rounded-md py-6 px-4 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
+                        <p class="text-sm font-medium" style="color: var(--text-secondary);">No properties selected yet.</p>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">Add from Core Matches, or search any property.</p>
+                    </div>
+                </template>
+
+                <ol class="space-y-2 max-h-[55vh] overflow-y-auto pr-1" x-show="items.length > 0">
+                    <template x-for="(item, idx) in items" :key="item.id">
+                        <li class="flex items-center gap-2 rounded-md px-2 py-2"
+                            style="background: var(--surface-2); border: 1px solid var(--border);"
+                            draggable="true"
+                            @dragstart="dragStart($event, idx)"
+                            @dragover.prevent="dragOver($event, idx)"
+                            @drop.prevent="drop($event, idx)"
+                            @dragend="dragEnd()"
+                            :style="dragIdx === idx ? 'background: var(--surface-2); border: 1px solid var(--brand-icon); opacity:0.6;' : 'background: var(--surface-2); border: 1px solid var(--border);'">
+                            <span class="cursor-move select-none text-base" title="Drag to reorder" style="color: var(--text-muted);">⠿</span>
+                            <span class="text-sm font-semibold w-5 text-right flex-shrink-0" style="color: var(--text-muted);" x-text="(idx + 1) + '.'"></span>
+                            <span class="flex-1 text-sm truncate" :title="item.label" style="color: var(--text-primary);" x-text="item.label"></span>
+                            <span class="text-xs flex-shrink-0" style="color: var(--text-muted);" x-text="item.docs + ' docs'"></span>
+                            <form method="POST" :action="removeBase + '/' + item.id" class="flex-shrink-0"
+                                  @submit.prevent="confirm('Remove this property from the pack?') && vpAction($el)">
+                                @csrf
+                                <input type="hidden" name="_method" value="DELETE">
+                                <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
+                            </form>
+                        </li>
+                    </template>
+                </ol>
+
+                <p class="mt-3 text-xs" style="color: var(--text-muted);" x-show="!orderError">Drag rows to set the viewing order — this is the page order in both PDFs.</p>
+                <p class="mt-3 text-xs font-semibold" style="color: var(--ds-crimson);" x-show="orderError" x-cloak x-text="orderError"></p>
+            </div>
+
+            {{-- Buyer-pack documents (moved here from the left column — AT-110 layout — so it
+                 sits ALONGSIDE the selection, visible while working the match list. Internals
+                 unchanged: per-property eligible docs, Redact/Re-redact, INCLUDED/NEEDS
+                 REDACTION badges, VIEW REDACTED, add/remove via the in-place vpAction). --}}
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                 <h3 class="text-lg font-semibold mb-1" style="color: var(--text-primary);">Buyer-pack documents</h3>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">Only documents whose type is eligible for the buyer pack are shown. Identity / compliance documents never appear here. Documents are optional.</p>
@@ -212,14 +309,22 @@
                                                 $label = ($doc->documentType?->label ?: $doc->documentType?->slug ?: 'Document')
                                                        . ' — ' . ($doc->original_name ?? ('Doc #' . $doc->id));
                                             @endphp
-                                            <li class="flex items-center gap-3 rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border);">
-                                                <span class="flex-1 text-sm" style="color: var(--text-primary);">{{ $label }}</span>
+                                            <li class="flex items-center gap-3 rounded-md px-3 py-1.5 flex-wrap" style="background: var(--surface); border: 1px solid var(--border);">
+                                                <span class="flex-1 min-w-[10rem] text-sm" style="color: var(--text-primary);">{{ $label }}</span>
                                                 @if($isIn)
                                                     @php $vpdRow = $vpdByDoc[$doc->id]; $isRedacted = !empty($vpdRow->redacted_file_path); @endphp
-                                                    <span class="ds-badge ds-badge-success" title="Included in the buyer pack">Included</span>
+                                                    {{-- AT-110 Bug 1 — HONEST state. "Included" alone is a lie: a doc does
+                                                         NOT appear in the buyer pack until it is redacted (the PDF service
+                                                         skips any included doc with a NULL redacted artifact). So: green
+                                                         "Included ✓" only once redacted; amber "needs redaction" otherwise. --}}
                                                     @if($isRedacted)
+                                                        <span class="ds-badge ds-badge-success" title="Redacted and included — this document WILL appear in the buyer pack">Included ✓</span>
                                                         <a href="{{ route('corex.viewing-packs.properties.documents.redacted-file', [$pack, $vpp, $vpdRow]) }}" target="_blank" rel="noopener"
-                                                           class="ds-badge ds-badge-default no-underline" title="View the flattened, redacted copy">Redacted ✓</a>
+                                                           class="ds-badge ds-badge-default no-underline" title="View the flattened, redacted copy">View redacted</a>
+                                                    @else
+                                                        <span class="ds-badge"
+                                                              style="background: color-mix(in srgb, #f59e0b 15%, transparent); color: #b45309; border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);"
+                                                              title="This document will NOT appear in the buyer pack until you redact it. Click Redact.">Needs redaction</span>
                                                     @endif
                                                     <button type="button"
                                                             class="text-xs font-semibold"
@@ -229,13 +334,15 @@
                                                                 postUrl: '{{ route('corex.viewing-packs.properties.documents.redact', [$pack, $vpp, $vpdRow]) }}',
                                                                 label: @js($label)
                                                             })">{{ $isRedacted ? 'Re-redact' : 'Redact' }}</button>
-                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.remove', [$pack, $vpp, $vpdRow]) }}">
+                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.remove', [$pack, $vpp, $vpdRow]) }}"
+                                                          @submit.prevent="vpAction($el)">
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
                                                     </form>
                                                 @else
-                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.add', [$pack, $vpp]) }}">
+                                                    <form method="POST" action="{{ route('corex.viewing-packs.properties.documents.add', [$pack, $vpp]) }}"
+                                                          @submit.prevent="vpAction($el)">
                                                         @csrf
                                                         <input type="hidden" name="document_id" value="{{ $doc->id }}">
                                                         <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Add</button>
@@ -250,130 +357,50 @@
                     </div>
                 @endif
             </div>
-        </div>
-
-        {{-- RIGHT: sticky column — Selected properties (always visible while picking) + Pack details (AT-109) --}}
-        <div class="lg:col-span-1 lg:sticky lg:top-4 self-start space-y-4">
-
-            {{-- Selected properties (relocated here so it stays visible while scrolling the match list) --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
-                 x-data="viewingPackOrder(@js($orderedItems), '{{ route('corex.viewing-packs.properties.reorder', $pack) }}', '{{ $removeBase }}', '{{ csrf_token() }}')">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
-                    <span class="text-xs" style="color: var(--text-muted);"><span x-text="items.length"></span> selected</span>
-                </div>
-
-                <template x-if="items.length === 0">
-                    <div class="rounded-md py-6 px-4 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
-                        <p class="text-sm font-medium" style="color: var(--text-secondary);">No properties selected yet.</p>
-                        <p class="text-xs mt-1" style="color: var(--text-muted);">Add from Core Matches, or search any property.</p>
-                    </div>
-                </template>
-
-                <ol class="space-y-2 max-h-[55vh] overflow-y-auto pr-1" x-show="items.length > 0">
-                    <template x-for="(item, idx) in items" :key="item.id">
-                        <li class="flex items-center gap-2 rounded-md px-2 py-2"
-                            style="background: var(--surface-2); border: 1px solid var(--border);"
-                            draggable="true"
-                            @dragstart="dragStart($event, idx)"
-                            @dragover.prevent="dragOver($event, idx)"
-                            @drop.prevent="drop($event, idx)"
-                            @dragend="dragEnd()"
-                            :style="dragIdx === idx ? 'background: var(--surface-2); border: 1px solid var(--brand-icon); opacity:0.6;' : 'background: var(--surface-2); border: 1px solid var(--border);'">
-                            <span class="cursor-move select-none text-base" title="Drag to reorder" style="color: var(--text-muted);">⠿</span>
-                            <span class="text-sm font-semibold w-5 text-right flex-shrink-0" style="color: var(--text-muted);" x-text="(idx + 1) + '.'"></span>
-                            <span class="flex-1 text-sm truncate" :title="item.label" style="color: var(--text-primary);" x-text="item.label"></span>
-                            <span class="text-xs flex-shrink-0" style="color: var(--text-muted);" x-text="item.docs + ' docs'"></span>
-                            <form method="POST" :action="removeBase + '/' + item.id" class="flex-shrink-0"
-                                  @submit="return confirm('Remove this property from the pack?');">
-                                @csrf
-                                <input type="hidden" name="_method" value="DELETE">
-                                <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Remove</button>
-                            </form>
-                        </li>
-                    </template>
-                </ol>
-
-                <p class="mt-3 text-xs" style="color: var(--text-muted);">Drag rows to set the viewing order — this is the page order in both PDFs.</p>
-            </div>
-
-            {{-- Pack details --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">Pack details</h3>
-            <form method="POST" action="{{ route('corex.viewing-packs.update', $pack) }}" class="space-y-3">
-                @csrf
-                @method('PUT')
-                <div>
-                    <label for="vp-title" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title</label>
-                    <input id="vp-title" type="text" name="title" value="{{ old('title', $pack->title) }}"
-                           class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                </div>
-                <div>
-                    <label for="vp-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-                    <select id="vp-status" name="status" class="w-full rounded-md px-3 py-2 text-sm"
-                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                        @foreach(\App\Models\ViewingPack::STATUSES as $s)
-                            <option value="{{ $s }}" @selected($pack->status === $s)>{{ ucfirst($s) }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <button type="submit" class="corex-btn-primary w-full">Save</button>
-            </form>
-
-            <hr class="my-4" style="border-color: var(--border);">
 
             {{-- Viewing appointment — reuse the SAME calendar prefill handoff as the
                  Schedule Viewing modal, fed with THIS pack's selected properties in
                  sort_order + the buyer as attendee + class=viewing. Drops the agent
                  into the pre-filled Calendar New Event screen (no parallel scheduler). --}}
-            <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Viewing appointment</h3>
-            @php
-                $buyer = $pack->contact;
-                $schedAttendees = $buyer ? [[
-                    'id'    => $buyer->id,
-                    'name'  => trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id),
-                    'type'  => 'contact',
-                    'role'  => 'buyer_contact',
-                    'phone' => $buyer->phone,
-                    'email' => $buyer->email,
-                ]] : [];
-                // Pack's selected properties, in the agent's chosen drag order.
-                $schedProps = $pack->viewingPackProperties
-                    ->map(fn ($vpp) => ['id' => $vpp->property_id, 'address' => optional($vpp->property)->address ?: ''])
-                    ->filter(fn ($p) => $p['id'] !== null)
-                    ->values();
-                $scheduleUrl = $buyer ? route('command-center.calendar', array_filter([
-                    'view'               => 'day',
-                    'prefill_class'      => 'viewing',
-                    'prefill_contact_id' => $buyer->id,
-                    'prefill_attendees'  => json_encode($schedAttendees),
-                    'prefill_properties' => $schedProps->isNotEmpty() ? json_encode($schedProps->all()) : null,
-                ], fn ($v) => $v !== null)) : null;
-            @endphp
-            @if($scheduleUrl && $pack->viewingPackProperties->isNotEmpty())
-                <p class="text-xs mb-2" style="color: var(--text-muted);">Opens the Calendar with the buyer, this pack's {{ $pack->viewingPackProperties->count() }} {{ \Illuminate\Support\Str::plural('property', $pack->viewingPackProperties->count()) }} (in order), and a viewing pre-filled.</p>
-                <a href="{{ $scheduleUrl }}" class="corex-btn-primary w-full no-underline" style="text-align:center;">Schedule Viewing</a>
-            @else
-                <p class="text-xs" style="color: var(--text-muted);">Add at least one property to schedule a viewing.</p>
-            @endif
-
-            <hr class="my-4" style="border-color: var(--border);">
-
-            <form method="POST" action="{{ route('corex.viewing-packs.destroy', $pack) }}"
-                  onsubmit="return confirm('Archive this viewing pack? You can recover it later.');">
-                @csrf
-                @method('DELETE')
-                <button type="submit" class="corex-btn-outline w-full" style="color: var(--ds-crimson); border-color: var(--ds-crimson);">Archive pack</button>
-            </form>
-            </div>{{-- /pack details card --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Viewing appointment</h3>
+                @php
+                    $buyer = $pack->contact;
+                    $schedAttendees = $buyer ? [[
+                        'id'    => $buyer->id,
+                        'name'  => trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id),
+                        'type'  => 'contact',
+                        'role'  => 'buyer_contact',
+                        'phone' => $buyer->phone,
+                        'email' => $buyer->email,
+                    ]] : [];
+                    // Pack's selected properties, in the agent's chosen drag order.
+                    $schedProps = $pack->viewingPackProperties
+                        ->map(fn ($vpp) => ['id' => $vpp->property_id, 'address' => optional($vpp->property)->address ?: ''])
+                        ->filter(fn ($p) => $p['id'] !== null)
+                        ->values();
+                    $scheduleUrl = $buyer ? route('command-center.calendar', array_filter([
+                        'view'               => 'day',
+                        'prefill_class'      => 'viewing',
+                        'prefill_contact_id' => $buyer->id,
+                        'prefill_attendees'  => json_encode($schedAttendees),
+                        'prefill_properties' => $schedProps->isNotEmpty() ? json_encode($schedProps->all()) : null,
+                    ], fn ($v) => $v !== null)) : null;
+                @endphp
+                @if($scheduleUrl && $pack->viewingPackProperties->isNotEmpty())
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">Opens the Calendar with the buyer, this pack's {{ $pack->viewingPackProperties->count() }} {{ \Illuminate\Support\Str::plural('property', $pack->viewingPackProperties->count()) }} (in order), and a viewing pre-filled.</p>
+                    <a href="{{ $scheduleUrl }}" class="corex-btn-primary w-full no-underline" style="text-align:center;">Schedule Viewing</a>
+                @else
+                    <p class="text-xs" style="color: var(--text-muted);">Add at least one property to schedule a viewing.</p>
+                @endif
+            </div>
         </div>{{-- /sticky right column --}}
-    </div>{{-- /grid --}}
+    </div>{{-- /grid + #vp-content (in-place swap region, AT-110 Bug 3) --}}
 </div>
 
 {{-- Redaction modal (Step 5b) — draw black boxes; output is a flattened image-only PDF --}}
 <div x-data="redactionTool('{{ csrf_token() }}')"
-     x-on:open-redactor.window="open($event.detail)"
+     x-on:open-redactor.window="openRedactor($event.detail)"
      x-show="isOpen" x-cloak
      class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto"
      style="background: rgba(0,0,0,0.6); padding: 24px;">
@@ -387,10 +414,17 @@
         </div>
 
         <div class="px-5 py-4">
-            <p class="text-xs mb-3" style="color: var(--text-muted);">
-                Drag to draw a black box over anything that must not reach the buyer (e.g. an account number).
-                On apply, every page is flattened to a raster image — the hidden text is destroyed, not covered.
-            </p>
+            <div class="flex items-center justify-between mb-3 gap-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Drag on the document to draw a black box over anything that must not reach the buyer
+                    (e.g. an account number). On apply, every page is flattened to a raster image — the
+                    hidden text is destroyed, not covered.
+                </p>
+                <span class="text-xs font-semibold flex-shrink-0" style="color: var(--text-secondary);"
+                      x-show="!loading && !loadError" x-cloak>
+                    <span x-text="boxCount()"></span> box<span x-show="boxCount() !== 1">es</span> drawn
+                </span>
+            </div>
 
             <template x-if="loading">
                 <p class="text-sm" style="color: var(--text-secondary);">Loading document…</p>
@@ -406,35 +440,50 @@
                             <span class="text-xs font-semibold" style="color: var(--text-muted);">Page <span x-text="page.index + 1"></span></span>
                             <button type="button" class="text-xs" style="color: var(--ds-crimson);" @click="clearPage(page.index)">Clear boxes</button>
                         </div>
-                        <div class="relative inline-block select-none" style="max-width:100%;"
-                             :data-page="page.index"
-                             @mousedown.prevent="startDraw($event, page.index)"
-                             @mousemove.prevent="moveDraw($event, page.index)"
-                             @mouseup.prevent="endDraw($event, page.index)"
-                             @mouseleave="endDraw($event, page.index)">
+                        {{-- AT-110 — draw surface. The IMG is inert; a dedicated transparent
+                             overlay (inset-0) captures Pointer Events with setPointerCapture so a
+                             press-drag-release tracks even if the cursor leaves the element. Box +
+                             live-rect divs are pointer-events:none so they never steal the drag. --}}
+                        <div class="relative inline-block select-none" style="max-width:100%;">
                             <img :src="page.data_uri" class="vp-redact-page-img block" :data-page="page.index"
-                                 style="max-width:100%; height:auto; border:1px solid var(--border);" draggable="false">
-                            {{-- drawn boxes (display coords) --}}
-                            <template x-for="(box, bi) in (displayBoxes[page.index] || [])" :key="bi">
-                                <div class="absolute" style="background: #000; opacity:0.85;"
-                                     :style="`left:${box.x}px; top:${box.y}px; width:${box.w}px; height:${box.h}px;`"></div>
-                            </template>
-                            {{-- live drag rectangle --}}
-                            <div class="absolute" x-show="drag.active && drag.page === page.index"
-                                 style="background: rgba(0,0,0,0.5); border:1px dashed #fff;"
-                                 :style="`left:${drag.x}px; top:${drag.y}px; width:${drag.w}px; height:${drag.h}px;`"></div>
+                                 style="max-width:100%; height:auto; border:1px solid var(--border);"
+                                 draggable="false" @dragstart.prevent>
+                            <div class="absolute inset-0" style="cursor:crosshair; touch-action:none;"
+                                 :data-page="page.index"
+                                 @pointerdown.prevent="startDraw($event, page.index)"
+                                 @pointermove.prevent="moveDraw($event, page.index)"
+                                 @pointerup.prevent="endDraw($event, page.index)"
+                                 @pointercancel.prevent="endDraw($event, page.index)"
+                                 @dragstart.prevent>
+                                {{-- committed boxes for this page (display coords). OBJECT :style so
+                                     the black fill is guaranteed to apply — a string :style can
+                                     overwrite the static style attribute, leaving an invisible box.
+                                     Red outline makes even a small box unmistakable. --}}
+                                <template x-for="(box, bi) in boxesFor(page.index)" :key="bi">
+                                    <div :style="{ position:'absolute', left:box.x+'px', top:box.y+'px', width:box.w+'px', height:box.h+'px', background:'#000', opacity:'0.85', outline:'2px solid #ef4444', pointerEvents:'none' }"></div>
+                                </template>
+                                {{-- live drag rectangle — visible feedback WHILE dragging --}}
+                                <div x-show="drag.active && drag.page === page.index"
+                                     :style="{ position:'absolute', left:drag.x+'px', top:drag.y+'px', width:drag.w+'px', height:drag.h+'px', background:'rgba(0,0,0,0.45)', border:'2px dashed #fff', pointerEvents:'none' }"></div>
+                            </div>
                         </div>
                     </div>
                 </template>
             </div>
         </div>
 
-        <div class="flex items-center justify-end gap-2 px-5 py-3" style="border-top: 1px solid var(--border);">
-            <form method="POST" :action="postUrl" @submit="prepareSubmit($event)">
+        <div class="flex items-center justify-between gap-3 px-5 py-3" style="border-top: 1px solid var(--border);">
+            {{-- AT-110 Bug 2 — visible error surface: the tool NEVER fails silently. --}}
+            <p class="text-xs flex-1" style="color: var(--ds-crimson);" x-show="applyError" x-cloak x-text="applyError"></p>
+            <p class="text-xs flex-1" style="color: var(--text-muted);" x-show="!applyError && !loadError && boxCount() === 0" x-cloak>
+                Draw at least one box, or apply to flatten the page (this still destroys the text layer).
+            </p>
+            <form method="POST" :action="postUrl" @submit.prevent="applyRedaction($event)" class="flex-shrink-0">
                 @csrf
                 {{-- boxes are injected as boxes[<page>][<i>][x|y|w|h] hidden inputs by prepareSubmit() --}}
                 <div x-ref="boxesFields"></div>
-                <button type="submit" class="corex-btn-primary" x-show="!loading && !loadError">Apply redaction</button>
+                <button type="submit" class="corex-btn-primary" x-show="!loading && !loadError"
+                        :disabled="applying" x-text="applying ? 'Applying…' : 'Apply redaction'"></button>
             </form>
         </div>
     </div>
@@ -446,38 +495,90 @@ function redactionTool(csrf) {
         isOpen: false,
         loading: false,
         loadError: '',
+        applyError: '',
+        applying: false,
         label: '',
         dataUrl: '',
         postUrl: '',
         pages: [],
-        displayBoxes: {}, // pageIndex -> [{x,y,w,h} display px]
+        boxes: [],        // FLAT, top-level reactive array: [{page, x, y, w, h} display px]
         drag: { active: false, page: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 },
 
-        async open(detail) {
+        // AT-110 Bug 2 — renamed from open() so the handler can never resolve to the
+        // global window.open(). Surfaces the REAL failure to the agent (status + server
+        // message) instead of a single dead generic string.
+        async openRedactor(detail) {
             this.dataUrl = detail.dataUrl;
             this.postUrl = detail.postUrl;
             this.label = detail.label || '';
             this.pages = [];
-            this.displayBoxes = {};
+            this.boxes = [];
             this.loadError = '';
+            this.applyError = '';
             this.isOpen = true;
             this.loading = true;
             try {
-                const res = await fetch(this.dataUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
-                if (!res.ok) { this.loadError = 'This document could not be opened for redaction.'; this.loading = false; return; }
+                const res = await fetch(this.dataUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+                if (!res.ok) {
+                    let msg = '';
+                    try { msg = (await res.json()).error || ''; } catch (_) {}
+                    this.loadError = msg || ('This document could not be opened for redaction (HTTP ' + res.status + ').');
+                    this.loading = false;
+                    return;
+                }
                 const data = await res.json();
                 this.pages = data.pages || [];
+                if (!this.pages.length) { this.loadError = 'The document opened but produced no pages to redact.'; }
             } catch (e) {
-                this.loadError = 'This document could not be opened for redaction.';
+                this.loadError = 'This document could not be opened for redaction: ' + (e && e.message ? e.message : 'network error') + '.';
             }
             this.loading = false;
         },
         close() { this.isOpen = false; },
-        clearPage(p) { this.displayBoxes[p] = []; },
+        boxesFor(p) { return this.boxes.filter(b => b.page === p); },
+        clearPage(p) { this.boxes = this.boxes.filter(b => b.page !== p); },
+        boxCount() { return this.boxes.length; },
 
+        // AT-110 Bug 2/3 — apply via fetch (no full reload): burn boxes server-side, then
+        // swap #vp-content so the doc's state badge flips to "Included ✓" in place. Any
+        // failure is shown inline, never swallowed.
+        async applyRedaction(e) {
+            if (this.applying) return;
+            this.applyError = '';
+            this.applying = true;
+            try {
+                this.prepareSubmit();
+                const form = e.target;
+                const res = await fetch(this.postUrl, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                if (!res.ok) {
+                    let msg = '';
+                    try { msg = (await res.json()).error || ''; } catch (_) {}
+                    this.applyError = msg || ('Redaction failed (HTTP ' + res.status + ').');
+                    this.applying = false;
+                    return;
+                }
+                this.applying = false;
+                this.close();
+                await vpSwapContent();
+            } catch (err) {
+                this.applyError = 'Redaction failed: ' + (err && err.message ? err.message : 'network error') + '.';
+                this.applying = false;
+            }
+        },
+
+        // Pointer Events + setPointerCapture: once the press starts, EVERY move/up is
+        // routed back to this overlay even if the cursor leaves it — so a fast or
+        // straying drag still commits. coords are relative to the overlay (== image box).
         startDraw(e, page) {
+            try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
             const r = e.currentTarget.getBoundingClientRect();
-            this.drag = { active: true, page, startX: e.clientX - r.left, startY: e.clientY - r.top, x: e.clientX - r.left, y: e.clientY - r.top, w: 0, h: 0 };
+            const x = e.clientX - r.left, y = e.clientY - r.top;
+            this.drag = { active: true, page, startX: x, startY: y, x, y, w: 0, h: 0 };
         },
         moveDraw(e, page) {
             if (!this.drag.active || this.drag.page !== page) return;
@@ -490,23 +591,25 @@ function redactionTool(csrf) {
         },
         endDraw(e, page) {
             if (!this.drag.active || this.drag.page !== page) return;
+            try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
             if (this.drag.w > 3 && this.drag.h > 3) {
-                if (!this.displayBoxes[page]) this.displayBoxes[page] = [];
-                this.displayBoxes[page].push({ x: this.drag.x, y: this.drag.y, w: this.drag.w, h: this.drag.h });
+                // push onto the FLAT top-level array — rock-solid Alpine reactivity, the
+                // box x-for re-renders immediately (no fragile dynamic-key object).
+                this.boxes.push({ page, x: this.drag.x, y: this.drag.y, w: this.drag.w, h: this.drag.h });
             }
             this.drag = { active: false, page: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 };
         },
 
         // Convert display boxes → RASTER px (page.width / img.clientWidth) and
         // emit boxes[page][i][x|y|w|h] hidden inputs the controller validates.
-        prepareSubmit(e) {
+        prepareSubmit() {
             const container = this.$refs.boxesFields;
             container.innerHTML = '';
             for (const page of this.pages) {
-                const boxes = this.displayBoxes[page.index] || [];
+                const boxes = this.boxesFor(page.index);
                 if (!boxes.length) continue;
                 const img = document.querySelector('img.vp-redact-page-img[data-page="' + page.index + '"]');
-                if (!img) continue;
+                if (!img || !img.clientWidth) continue;
                 const scaleX = page.width / img.clientWidth;
                 const scaleY = page.height / img.clientHeight;
                 boxes.forEach((b, i) => {
@@ -520,7 +623,6 @@ function redactionTool(csrf) {
                     }
                 });
             }
-            // form submits normally (CSRF + boxes[] fields)
         },
     };
 }
@@ -578,9 +680,12 @@ function viewingPackOrder(items, reorderUrl, removeBase, csrf) {
         items: items,
         removeBase: removeBase,
         dragIdx: null,
+        orderError: '',
         dragStart(e, idx) {
             this.dragIdx = idx;
             e.dataTransfer.effectAllowed = 'move';
+            // setData is REQUIRED for the drag to start in Firefox/some browsers.
+            try { e.dataTransfer.setData('text/plain', String(idx)); } catch (_) {}
         },
         dragOver(e, idx) {
             if (this.dragIdx === null || this.dragIdx === idx) return;
@@ -588,12 +693,21 @@ function viewingPackOrder(items, reorderUrl, removeBase, csrf) {
             this.items.splice(idx, 0, moved);
             this.dragIdx = idx; // sequence numbers (idx+1) update reactively
         },
-        async drop(e, idx) {
-            if (this.dragIdx === null) return;
+        drop(e, idx) {
+            // Position already updated live in dragOver; persistence happens in dragEnd
+            // (which ALWAYS fires — drop only fires when released over a valid target).
+        },
+        // AT-110 — persist on dragEnd so the order is saved even if the agent releases
+        // off a row (drop wouldn't fire). The buyer/agent PDFs read sort_order at
+        // generation time, so this guarantees the download honours the dragged order.
+        async dragEnd() {
             this.dragIdx = null;
+            await this.persistOrder();
+        },
+        async persistOrder() {
             const order = this.items.map(it => it.id);
             try {
-                await fetch(reorderUrl, {
+                const res = await fetch(reorderUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -601,13 +715,14 @@ function viewingPackOrder(items, reorderUrl, removeBase, csrf) {
                         'X-CSRF-TOKEN': csrf,
                         'X-Requested-With': 'XMLHttpRequest',
                     },
+                    credentials: 'same-origin',
                     body: JSON.stringify({ order }),
                 });
+                this.orderError = res.ok ? '' : 'Could not save the new order (HTTP ' + res.status + ') — drag again.';
             } catch (err) {
-                // Order persists on next successful drop; reload reflects the server truth.
+                this.orderError = 'Could not save the new order — check your connection and drag again.';
             }
         },
-        dragEnd() { this.dragIdx = null; },
     };
 }
 
@@ -630,6 +745,39 @@ function adhocPropertySearch(searchUrl) {
             this.searched = true;
         },
     };
+}
+
+// AT-110 Bug 3 — in-place add/remove/redact. Re-render the server's truth into
+// #vp-content (no full navigation), so scroll position is preserved and Alpine's
+// MutationObserver re-initialises the swapped subtree automatically.
+async function vpSwapContent() {
+    const res = await fetch(window.location.href, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' },
+        credentials: 'same-origin',
+    });
+    const html = await res.text();
+    const fresh = new DOMParser().parseFromString(html, 'text/html').querySelector('#vp-content');
+    const cur = document.querySelector('#vp-content');
+    if (fresh && cur) { cur.innerHTML = fresh.innerHTML; }
+}
+
+// Submit a form (add/remove property or document) without reloading the page.
+// On any non-OK response or network failure, fall back to a normal full submit so
+// the action ALWAYS happens — the in-place path is an enhancement, never a trap.
+async function vpAction(form) {
+    try {
+        const res = await fetch(form.action, {
+            method: 'POST',                       // _method spoofing carried in FormData for DELETE
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' },
+            credentials: 'same-origin',
+            redirect: 'follow',
+        });
+        if (!res.ok) { form.submit(); return; }
+        await vpSwapContent();
+    } catch (e) {
+        form.submit();
+    }
 }
 </script>
 @endsection
