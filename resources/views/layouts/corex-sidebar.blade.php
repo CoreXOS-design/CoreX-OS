@@ -569,8 +569,8 @@
                 @endif
                 @endpermission
 
-                {{-- AT-117 §6 — Outreach Queue (work-the-list of due-time deferred sends). --}}
-                @permission('outreach.compose')
+                {{-- AT-117 §6 / AT-120 — Outreach Queue (gated by the scoped view capability). --}}
+                @permission('outreach_queue.view')
                 @if(\Illuminate\Support\Facades\Route::has('corex.outreach-queue.index'))
                 <a href="{{ route('corex.outreach-queue.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-queue.*') ? 'active' : '' }}">Outreach Queue</a>
                 @endif

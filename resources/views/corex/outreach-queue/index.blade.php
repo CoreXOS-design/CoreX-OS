@@ -51,6 +51,13 @@
                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
                                 {{ $sourceLabels[$row->source] ?? ucfirst($row->source) }}
                             </span>
+                            {{-- AT-120 — whose message it is, shown when viewing beyond own (manager/admin). --}}
+                            @if(($showAgent ?? false) && $row->agent)
+                                <span class="text-[10px] px-2 py-0.5 rounded-sm"
+                                      style="background: color-mix(in srgb, #00d4aa 12%, var(--surface)); border: 1px solid color-mix(in srgb, #00d4aa 30%, var(--border)); color: var(--text-secondary);">
+                                    {{ $row->agent_id === ($currentUserId ?? null) ? 'You' : ($row->agent->name ?? ('Agent #' . $row->agent_id)) }}
+                                </span>
+                            @endif
                         </div>
                         @if($propLabel($row->property))
                             <div class="text-[11px] mb-1.5" style="color: var(--text-muted);">{{ $propLabel($row->property) }}</div>
@@ -61,23 +68,30 @@
                         </div>
                     </div>
                     <div class="flex-shrink-0 flex flex-col items-end gap-1.5">
-                        @if($sendAllowed)
-                            <button type="button" @click="open({{ $row->id }}, '{{ route('corex.outreach-queue.open', $row) }}')"
+                        {{-- AT-120 — act-own: send/remove only on YOUR rows (sending opens YOUR
+                             WhatsApp). A manager/admin viewing a team member's row sees it read-only;
+                             the server enforces this too. --}}
+                        @if($row->agent_id === ($currentUserId ?? null))
+                            @if($sendAllowed)
+                                <button type="button" @click="open({{ $row->id }}, '{{ route('corex.outreach-queue.open', $row) }}')"
+                                        :disabled="busy === {{ $row->id }}"
+                                        class="px-4 py-2 text-sm font-semibold rounded-sm"
+                                        style="background: #00d4aa; color: #003a2f;">
+                                    <span x-show="busy !== {{ $row->id }}">Open WhatsApp</span>
+                                    <span x-show="busy === {{ $row->id }}" x-cloak>Recording…</span>
+                                </button>
+                            @else
+                                <button type="button" disabled
+                                        class="px-4 py-2 text-sm font-semibold rounded-sm opacity-60 cursor-not-allowed"
+                                        style="background: var(--surface-2); color: var(--text-muted);"
+                                        title="{{ $windowMessage }}">Sending closed</button>
+                            @endif
+                            <button type="button" @click="cancel({{ $row->id }}, '{{ route('corex.outreach-queue.cancel', $row) }}')"
                                     :disabled="busy === {{ $row->id }}"
-                                    class="px-4 py-2 text-sm font-semibold rounded-sm"
-                                    style="background: #00d4aa; color: #003a2f;">
-                                <span x-show="busy !== {{ $row->id }}">Open WhatsApp</span>
-                                <span x-show="busy === {{ $row->id }}" x-cloak>Recording…</span>
-                            </button>
+                                    class="text-[11px] font-medium" style="color: var(--text-muted);">Remove</button>
                         @else
-                            <button type="button" disabled
-                                    class="px-4 py-2 text-sm font-semibold rounded-sm opacity-60 cursor-not-allowed"
-                                    style="background: var(--surface-2); color: var(--text-muted);"
-                                    title="{{ $windowMessage }}">Sending closed</button>
+                            <span class="text-[10px]" style="color: var(--text-muted);">Team member's queue — view only</span>
                         @endif
-                        <button type="button" @click="cancel({{ $row->id }}, '{{ route('corex.outreach-queue.cancel', $row) }}')"
-                                :disabled="busy === {{ $row->id }}"
-                                class="text-[11px] font-medium" style="color: var(--text-muted);">Remove</button>
                     </div>
                 </div>
             </div>

@@ -42,25 +42,34 @@ class OutreachQueueController extends Controller
         $user = $request->user();
         $agency = Agency::find($user->effectiveAgencyId());
 
-        // The work-list: every prepared-and-ready message (no time-gating).
-        $ready = OutreachQueue::forAgent($user->id)->ready()
-            ->with(['contact', 'property'])
+        // AT-120 — role-based visibility via the canonical permission scope
+        // (own/branch/all from outreach_queue.view). Default 'own' so a user never
+        // accidentally sees the whole agency. BranchScope adds branch isolation under
+        // this automatically. No hardcoded role names.
+        $scope = \App\Services\PermissionService::getDataScope($user, 'outreach_queue') ?? 'own';
+
+        // The work-list: prepared-and-ready messages within the user's scope.
+        $ready = OutreachQueue::visibleTo($user, $scope)->ready()
+            ->with(['contact', 'property', 'agent'])
             ->latest('created_at')
             ->get();
 
         // Transparency: recently dropped/expired (not actionable) with their reason.
-        $inactive = OutreachQueue::forAgent($user->id)
+        $inactive = OutreachQueue::visibleTo($user, $scope)
             ->whereIn('status', [OutreachQueue::STATUS_DROPPED, OutreachQueue::STATUS_EXPIRED])
-            ->with('contact')
+            ->with(['contact', 'agent'])
             ->latest('updated_at')
             ->limit(15)
             ->get();
 
         $sendAllowed   = $agency ? $window->isSendAllowed($agency) : true;
         $windowMessage = ($agency && !$sendAllowed) ? $window->blockedMessage($agency) : '';
+        // Show whose-message-it-is when the viewer sees beyond their own.
+        $showAgent     = $scope !== 'own';
+        $currentUserId = $user->id;
 
         return view('corex.outreach-queue.index', compact(
-            'ready', 'inactive', 'sendAllowed', 'windowMessage'
+            'ready', 'inactive', 'sendAllowed', 'windowMessage', 'showAgent', 'currentUserId'
         ));
     }
 
@@ -114,6 +123,16 @@ class OutreachQueueController extends Controller
         SellerOutreachComposerService $composer,
         SellerOutreachSenderService $sender
     ) {
+        // AT-120 — capability + act-own. Dispatch opens the AGENT's OWN WhatsApp, so
+        // even a manager/admin who can VIEW a branch/agency row may only send their
+        // own (server-enforced — not just hidden). No hardcoded role names.
+        if (!$request->user()->hasPermission('outreach_queue.dispatch')) {
+            return response()->json(['message' => 'You do not have permission to send from the outreach queue.'], 403);
+        }
+        if ((int) $outreachQueue->agent_id !== (int) $request->user()->id) {
+            return response()->json(['message' => 'You can only send your own queued messages — it opens your WhatsApp.'], 403);
+        }
+
         if ($outreachQueue->status !== OutreachQueue::STATUS_READY) {
             return response()->json(['message' => 'This item is no longer in your active queue.'], 422);
         }
@@ -191,6 +210,14 @@ class OutreachQueueController extends Controller
     /** Remove a ready (prepared, unsent) row — soft delete, never a hard delete. */
     public function cancel(Request $request, OutreachQueue $outreachQueue)
     {
+        // AT-120 — capability + act-own (a manager views the team's queues but removes
+        // only their own by default; server-enforced, no hardcoded role names).
+        if (!$request->user()->hasPermission('outreach_queue.cancel')) {
+            return response()->json(['message' => 'You do not have permission to remove outreach-queue items.'], 403);
+        }
+        if ((int) $outreachQueue->agent_id !== (int) $request->user()->id) {
+            return response()->json(['message' => 'You can only remove your own queued messages.'], 403);
+        }
         if ($outreachQueue->status !== OutreachQueue::STATUS_READY) {
             return response()->json(['message' => 'Only a ready (unsent) item can be removed.'], 422);
         }

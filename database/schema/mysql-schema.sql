@@ -6334,6 +6334,7 @@ DROP TABLE IF EXISTS `outreach_queue`;
 CREATE TABLE `outreach_queue` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
   `contact_id` bigint unsigned NOT NULL,
   `property_id` bigint unsigned DEFAULT NULL,
   `agent_id` bigint unsigned NOT NULL,
@@ -6360,8 +6361,10 @@ CREATE TABLE `outreach_queue` (
   KEY `outreach_queue_status_due_at_index` (`status`,`due_at`),
   KEY `outreach_queue_agent_id_status_index` (`agent_id`,`status`),
   KEY `outreach_queue_due_at_index` (`due_at`),
+  KEY `outreach_queue_branch_id_status_index` (`branch_id`,`status`),
   CONSTRAINT `outreach_queue_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `outreach_queue_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `outreach_queue_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `outreach_queue_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `outreach_queue_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
   CONSTRAINT `outreach_queue_seller_outreach_send_id_foreign` FOREIGN KEY (`seller_outreach_send_id`) REFERENCES `seller_outreach_sends` (`id`) ON DELETE SET NULL,
@@ -12371,3 +12374,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (899,'2026_07_06_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (901,'2026_07_07_000001_create_outreach_queue_table',184);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (902,'2026_07_08_000001_add_outreach_queue_settings_to_agencies_table',185);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (903,'2026_07_09_000001_make_outreach_queue_due_at_nullable',186);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (904,'2026_07_10_000001_add_branch_id_to_outreach_queue_table',187);
