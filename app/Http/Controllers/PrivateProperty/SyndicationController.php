@@ -38,6 +38,7 @@ class SyndicationController extends Controller
 
         // Gate: only enforce when ENABLING syndication (disabling is always allowed)
         if (!$wasEnabled) {
+            $this->enforceListingNotDraft($property, 'Private Property');
             $this->enforceMarketingReadiness($property);
         }
         $nowEnabled = !$wasEnabled;
@@ -75,6 +76,7 @@ class SyndicationController extends Controller
     public function submit(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        $this->enforceListingNotDraft($property, 'Private Property');
         $this->enforceMarketingReadiness($property);
 
         // Save exclusive days if provided
@@ -183,6 +185,7 @@ class SyndicationController extends Controller
     public function reactivate(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        $this->enforceListingNotDraft($property, 'Private Property');
         $this->enforceMarketingReadiness($property);
 
         $result = $this->syndicationService->reactivateListing($property);

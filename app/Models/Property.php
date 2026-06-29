@@ -71,6 +71,18 @@ class Property extends Model
     }
 
     /**
+     * True when this property is still an unpublished draft. A draft is never
+     * ready to be pushed to any portal/website — it must be set Active first.
+     * Case-insensitive so 'Draft'/'DRAFT' are caught alongside the canonical
+     * lowercase 'draft'. The single source of truth for the syndication draft
+     * guard (EnforcesMarketingReadiness::enforceListingNotDraft()).
+     */
+    public function isDraft(): bool
+    {
+        return strtolower(trim((string) $this->status)) === 'draft';
+    }
+
+    /**
      * Whether this property type is a habitable dwelling that is normally
      * listed with bedroom/bathroom counts. Land, farms, commercial and
      * industrial stock are not — so readiness/completeness gates must not
