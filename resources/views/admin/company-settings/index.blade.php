@@ -368,6 +368,46 @@
                     </label>
                 </div>
 
+                {{-- AT-117 §4a — agency-configurable outreach send-window. Hidden
+                     marker so the controller only touches it from THIS form. --}}
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Outreach Send Window</div>
+                <div class="space-y-2">
+                    <p class="text-xs" style="color:var(--text-muted);">
+                        Permitted hours for sending WhatsApp / email outreach. Outside these hours the send
+                        action is disabled across the contact, map and Market Intelligence surfaces — agents
+                        prepare the message now and send it when the window opens. Defaults follow SA
+                        direct-marketing permitted times; adjust to your agency's policy.
+                    </p>
+                    <input type="hidden" name="outreach_send_window_present" value="1">
+                    @php
+                        $swDays = ['mon'=>'Monday','tue'=>'Tuesday','wed'=>'Wednesday','thu'=>'Thursday','fri'=>'Friday','sat'=>'Saturday','sun'=>'Sunday'];
+                        $sw = old('send_window', $agency->outreachSendWindow());
+                        $swInput = 'rounded-md px-2 py-1 text-sm';
+                        $swInputStyle = 'background:var(--surface); border:1px solid var(--border); color:var(--text-primary);';
+                    @endphp
+                    @foreach($swDays as $swKey => $swLabel)
+                        @php $swDay = $sw[$swKey] ?? []; $swOn = !empty($swDay['enabled']); @endphp
+                        <div class="flex items-center gap-3">
+                            <label class="flex items-center gap-2 w-28 cursor-pointer">
+                                <input type="hidden" name="send_window[{{ $swKey }}][enabled]" value="0">
+                                <input type="checkbox" name="send_window[{{ $swKey }}][enabled]" value="1" class="rounded" {{ $swOn ? 'checked' : '' }}>
+                                <span class="text-xs font-medium" style="color:var(--text-primary);">{{ $swLabel }}</span>
+                            </label>
+                            <input type="time" name="send_window[{{ $swKey }}][start]" value="{{ $swDay['start'] ?? '' }}" class="{{ $swInput }}" style="{{ $swInputStyle }}">
+                            <span class="text-xs" style="color:var(--text-muted);">to</span>
+                            <input type="time" name="send_window[{{ $swKey }}][end]" value="{{ $swDay['end'] ?? '' }}" class="{{ $swInput }}" style="{{ $swInputStyle }}">
+                        </div>
+                    @endforeach
+                    <label class="flex items-start gap-2 cursor-pointer pt-1">
+                        <input type="hidden" name="send_window_public_holidays_off" value="0">
+                        <input type="checkbox" name="send_window_public_holidays_off" value="1" class="mt-0.5 rounded" {{ !empty($sw['public_holidays_off']) ? 'checked' : '' }}>
+                        <span class="text-xs" style="color:var(--text-secondary);">
+                            <span class="font-medium" style="color:var(--text-primary);">No sending on SA public holidays</span><br>
+                            Treat public holidays as closed (uses the CoreX public-holiday calendar). <strong>Recommended on.</strong>
+                        </span>
+                    </label>
+                </div>
+
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Company Logo</div>
                 <div>
                     @if($agency->logo_path)

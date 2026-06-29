@@ -862,13 +862,27 @@ class ContactController extends Controller
      * mailbox/WA ingestion reconciles in place (no double count). The returned
      * count is DERIVED from the archive, so the tile always reflects real sends.
      */
-    public function incrementChannel(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger)
+    public function incrementChannel(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger, \App\Services\Outreach\OutreachWindowService $window)
     {
         $data = $request->validate([
             'channel' => 'required|in:whatsapp,email',
             'subject' => 'nullable|string|max:1000',
             'body'    => 'nullable|string|max:20000',
         ]);
+
+        // AT-117 §4a — send-window lock (server-side; the UI also disables the
+        // button). The contact inline "WhatsApp" box launches the chat client-side
+        // and records the dispatch here, so refusing the record out-of-window is
+        // the server-side enforcement for this surface.
+        if ($data['channel'] === 'whatsapp') {
+            $agency = \App\Models\Agency::find($contact->agency_id ?? auth()->user()?->effectiveAgencyId());
+            if ($agency && !$window->isSendAllowed($agency)) {
+                return response()->json([
+                    'message'             => $window->blockedMessage($agency),
+                    'send_window_blocked' => true,
+                ], 422);
+            }
+        }
 
         $communication = $logger->log(
             $contact,

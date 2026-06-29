@@ -44,6 +44,29 @@ class Agency extends Model
     ];
 
     /**
+     * AT-117 §4a — outreach send-window defaults.
+     *
+     * Legally-correct SA CPA direct-marketing permitted times, but AGENCY-EDITABLE
+     * (never hardcoded law): an agency overrides these via the company-settings UI.
+     * A NULL `outreach_send_window` column resolves to these defaults so existing
+     * agencies inherit the correct window without a backfill.
+     *
+     * Shape: each weekday key => ['enabled' => bool, 'start' => 'HH:MM'|null,
+     * 'end' => 'HH:MM'|null], plus 'public_holidays_off' => bool.
+     */
+    public const OUTREACH_SEND_WINDOW_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    public const OUTREACH_SEND_WINDOW_DEFAULT = [
+        'mon' => ['enabled' => true,  'start' => '08:00', 'end' => '20:00'],
+        'tue' => ['enabled' => true,  'start' => '08:00', 'end' => '20:00'],
+        'wed' => ['enabled' => true,  'start' => '08:00', 'end' => '20:00'],
+        'thu' => ['enabled' => true,  'start' => '08:00', 'end' => '20:00'],
+        'fri' => ['enabled' => true,  'start' => '08:00', 'end' => '20:00'],
+        'sat' => ['enabled' => true,  'start' => '09:00', 'end' => '13:00'],
+        'sun' => ['enabled' => false, 'start' => null,    'end' => null],
+        'public_holidays_off' => true,
+    ];
+
+    /**
      * Property24 syndication defaults (AT-101). The single source of truth for
      * the "current behaviour" fallback used everywhere the per-agency setting is
      * unset: photo cap = 150, HTTP read timeout = 120s (job timeout derives as
@@ -114,6 +137,7 @@ class Agency extends Model
         'privacy_policy_published_at',
         'whatsapp_launch_mode_agent',
         'whatsapp_launch_mode_seller',
+        'outreach_send_window', // AT-117 §4a — JSON send-window config
         'prospecting_pitch_temp_lock_minutes',
         'is_active',
         'is_demo',
@@ -263,6 +287,7 @@ class Agency extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
+        'outreach_send_window' => 'array', // AT-117 §4a — send-window config (null => defaults)
         'viewing_pack_redaction_dpi' => 'integer', // AT-107 Step 5b
         'viewing_pack_default_duration_minutes' => 'integer', // AT-107 Step 8
 
@@ -495,6 +520,40 @@ class Agency extends Model
     public function branches(): HasMany
     {
         return $this->hasMany(Branch::class);
+    }
+
+    /**
+     * AT-117 §4a — resolved outreach send-window config.
+     *
+     * The stored JSON merged OVER the legal defaults, so a partial/absent config
+     * never yields a missing day key. NULL column → full defaults. Every consumer
+     * (OutreachWindowService, the settings UI) reads through here — never the raw
+     * column — so the default-merge happens in exactly one place.
+     */
+    public function outreachSendWindow(): array
+    {
+        $stored = is_array($this->outreach_send_window) ? $this->outreach_send_window : [];
+        $resolved = self::OUTREACH_SEND_WINDOW_DEFAULT;
+        foreach (self::OUTREACH_SEND_WINDOW_DAYS as $day) {
+            if (isset($stored[$day]) && is_array($stored[$day])) {
+                $resolved[$day] = array_merge($resolved[$day], array_intersect_key($stored[$day], $resolved[$day]));
+            }
+        }
+        if (array_key_exists('public_holidays_off', $stored)) {
+            $resolved['public_holidays_off'] = (bool) $stored['public_holidays_off'];
+        }
+        return $resolved;
+    }
+
+    /**
+     * AT-117 §4a — the timezone the send-window is evaluated in. No per-agency
+     * timezone column today; CoreX is single-region SA, so this is the app
+     * timezone (Africa/Johannesburg, UTC+2, no DST). Centralised here so a future
+     * per-agency timezone column is a one-line change, not a hunt across surfaces.
+     */
+    public function outreachTimezone(): string
+    {
+        return config('app.timezone') ?: 'Africa/Johannesburg';
     }
 
     public function defaultBranch(): \Illuminate\Database\Eloquent\Relations\BelongsTo

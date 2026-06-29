@@ -112,7 +112,12 @@
 
         @if($telHref)
             <a href="{{ $telHref }}" style="{{ $actionSecondary }}" title="Call {{ $rawPhone }}">📞 Call</a>
-            <a href="{{ $waHref }}" target="_blank" rel="noopener" style="{{ $actionSecondary }}" title="Open WhatsApp">💬 WhatsApp</a>
+            @if($outreachWindow['allowed'] ?? true)
+                <a href="{{ $waHref }}" target="_blank" rel="noopener" style="{{ $actionSecondary }}" title="Open WhatsApp">💬 WhatsApp</a>
+            @else
+                {{-- AT-117 §4a — outside the outreach send-window. --}}
+                <span style="{{ $actionSecondary }} opacity:0.55; cursor:not-allowed;" title="{{ $outreachWindow['message'] ?? '' }}">💬 Closed</span>
+            @endif
         @else
             <span style="{{ $actionDisabled }}" title="No linked contact — pitch first">📞 Call</span>
             <span style="{{ $actionDisabled }}" title="No linked contact — pitch first">💬 WhatsApp</span>

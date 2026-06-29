@@ -137,7 +137,7 @@ final class ComposerController extends Controller
         return $out;
     }
 
-    public function submit(Request $request, Contact $contact)
+    public function submit(Request $request, Contact $contact, \App\Services\Outreach\OutreachWindowService $window)
     {
         $agencyId = $this->ensureAgencyContext($request, $contact);
 
@@ -209,6 +209,22 @@ final class ComposerController extends Controller
             $msg = 'Cannot send: ' . implode(' ', $context->validationIssues);
             return $request->wantsJson()
                 ? response()->json(['message' => $msg], 422)
+                : back()->with('error', $msg);
+        }
+
+        // AT-117 §4a — send-window lock (server-side enforcement; the UI also gates
+        // the button). Refuse the dispatch out-of-window BEFORE any send row is
+        // created, so a created send is always in-window — its sent_at is the
+        // agency's in-window dispatch evidence.
+        $agency = \App\Models\Agency::find($agencyId);
+        if ($agency && !$window->isSendAllowed($agency)) {
+            $msg = $window->blockedMessage($agency);
+            return $request->wantsJson()
+                ? response()->json([
+                    'message'             => $msg,
+                    'send_window_blocked' => true,
+                    'next_opens_at'       => optional($window->nextOpensAt($agency))->toIso8601String(),
+                ], 422)
                 : back()->with('error', $msg);
         }
 

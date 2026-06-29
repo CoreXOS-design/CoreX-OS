@@ -549,6 +549,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Phase A.2 — endpoints + CSRF for activity logging + launches.
     const MAP_ACTIVITY_URL = @json(route('corex.map.activity.log'));
+    // AT-117 §4a — outreach send-window state (server-computed). Direct wa.me
+    // launches are blocked client-side outside the window; composer-opening
+    // actions stay available (prepare now, send when the window opens).
+    const OUTREACH_SEND_ALLOWED  = @json($outreachWindow['allowed'] ?? true);
+    const OUTREACH_WINDOW_MESSAGE = @json($outreachWindow['message'] ?? '');
     // Phase A.3.2 — saved-search CRUD endpoints.
     const SAVED_SEARCH_INDEX_URL  = @json(route('corex.map.saved-searches.index'));
     const SAVED_SEARCH_STORE_URL  = @json(route('corex.map.saved-searches.store'));
@@ -3092,6 +3097,19 @@ document.addEventListener('DOMContentLoaded', function () {
      *  3) No destUrl — preventDefault (link is disabled).
      */
     async function handleActionClick(e, act) {
+        // AT-117 §4a — block DIRECT WhatsApp launches (wa.me / whatsapp:// deep
+        // links) outside the send-window. Composer-opening actions (corex URLs)
+        // are NOT blocked — agents prepare in closed hours and send when open.
+        const directWa = typeof act.destUrl === 'string'
+            && (act.destUrl.includes('wa.me') || act.destUrl.startsWith('whatsapp://'));
+        if (directWa && !OUTREACH_SEND_ALLOWED) {
+            e.preventDefault();
+            e.stopPropagation();
+            (typeof toastInfo === 'function' ? toastInfo : window.alert)(
+                OUTREACH_WINDOW_MESSAGE || 'Outreach sending is closed right now.'
+            );
+            return;
+        }
         // A.2.5 — "Override and prospect anyway" → open the reason modal
         // first. After the agent supplies ≥ 20 chars and confirms, fire
         // prospect_override (audit), then proceed to the standard

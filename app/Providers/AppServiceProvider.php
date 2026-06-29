@@ -117,6 +117,20 @@ class AppServiceProvider extends ServiceProvider
             return \Illuminate\Support\Str::headline(str_replace(['_', '-'], ' ', $t));
         });
 
+        // AT-117 §4a — share the resolved outreach send-window state to every
+        // dispatch surface from one server-computed source (no duplicated time
+        // logic in Blade). The server endpoints remain the authoritative refusal.
+        \Illuminate\Support\Facades\View::composer([
+            'corex.contacts.show',
+            'corex.contacts.match-results',
+            'corex.map.index',
+            'seller-outreach.compose',
+            'corex.market-intelligence._slideover-header',
+            'corex.market-intelligence._listing-row',
+            'corex.market-intelligence._slideover-buyer-row',
+            'prospecting._buyer-matches-panel',
+        ], \App\View\Composers\OutreachWindowComposer::class);
+
         Agency::observe(AgencyObserver::class);
         CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
         CalendarEvent::observe(CalendarEventObserver::class);

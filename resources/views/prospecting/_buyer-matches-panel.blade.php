@@ -120,11 +120,18 @@
                                     </a>
                                 @endif
                                 @if($waPhone)
+                                    @if($outreachWindow['allowed'] ?? true)
                                     <a href="https://wa.me/{{ $waPhone }}" target="_blank" rel="noopener"
                                        class="text-[10px] font-medium px-2 py-1 rounded no-underline"
                                        style="background: #25D366; color: #fff;">
                                         💬 WhatsApp
                                     </a>
+                                    @else
+                                    {{-- AT-117 §4a — outside the outreach send-window. --}}
+                                    <span class="text-[10px] font-medium px-2 py-1 rounded"
+                                          style="background: #9ca3af; color: #fff; cursor: not-allowed;"
+                                          title="{{ $outreachWindow['message'] ?? '' }}">💬 Closed</span>
+                                    @endif
                                 @endif
                             </div>
                         </div>
