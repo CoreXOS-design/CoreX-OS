@@ -9,6 +9,20 @@
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800,900&display=swap" rel="stylesheet">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    {{-- Agency brand tokens (UI_DESIGN_SYSTEM.md §1.4) — this standalone page does
+         not load corex.css, so we declare the brand vars here for a branded header
+         + brand-consistent accents. Falls back to the safe navy/sky defaults. --}}
+    @php
+        $_brandAgency = $property->agency
+            ?? (auth()->user()?->effectiveAgencyId() ? \App\Models\Agency::find(auth()->user()->effectiveAgencyId()) : null);
+    @endphp
+    <style id="agency-brand">
+        :root {
+            --brand-icon:    {{ $_brandAgency->icon_color    ?? '#0ea5e9' }};
+            --brand-default: {{ $_brandAgency->default_color ?? '#0b2a4a' }};
+            --brand-button:  {{ $_brandAgency->button_color  ?? '#0ea5e9' }};
+        }
+    </style>
     @php
         // Single source of truth for the data injected into every template.
         $propertyData = $property->adData();
@@ -66,13 +80,19 @@
     @endphp
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Figtree', sans-serif; background: #060f1c; color: #f1f5f9; min-height: 100vh; overflow-x: hidden; }
+        {{-- Fixed-height flex column so the editor never grows past the viewport
+             (UI_DESIGN_SYSTEM.md §6 — content must stay within the screen). --}}
+        html, body { height: 100%; }
+        body { font-family: 'Figtree', sans-serif; background: #060f1c; color: #f1f5f9; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        #ad-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
         [x-cloak] { display: none !important; }
         .tpl-card { cursor: pointer; border-radius: 18px; border: 1.5px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); overflow: hidden; transition: all 0.18s ease; }
         .tpl-card:hover { border-color: rgba(0,180,216,0.55); background: rgba(255,255,255,0.07); transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
-        .plat-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55); transition: all 0.12s; white-space: nowrap; }
-        .plat-btn:hover { border-color: rgba(255,255,255,0.25); color: #fff; }
-        .plat-btn.active { background: #00b4d8; border-color: #00b4d8; color: #fff; }
+        .plat-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.82); transition: all 0.12s; white-space: nowrap; }
+        .plat-btn .plat-size { font-size: 10px; color: rgba(255,255,255,0.55); }
+        .plat-btn:hover { border-color: rgba(255,255,255,0.35); color: #fff; }
+        .plat-btn.active { background: var(--brand-button,#00b4d8); border-color: var(--brand-button,#00b4d8); color: #fff; }
+        .plat-btn.active .plat-size { color: rgba(255,255,255,0.85); }
         .agent-pill { display:inline-flex; align-items:center; padding:5px 11px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:none; background:transparent; color:rgba(255,255,255,0.55); font-family:inherit; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:all 0.12s; }
         .agent-pill:hover { color:#fff; background:rgba(255,255,255,0.06); }
         .agent-pill.active { background:#00b4d8; color:#fff; }
@@ -87,16 +107,33 @@
 </head>
 <body x-data="adApp({{ Js::from($savedTemplates) }}, {{ Js::from($propertyData) }}, {{ Js::from(['listing' => $listingAgentCard, 'co' => $coAgentCard]) }})">
 
-{{-- ═══ STEP 1 — TEMPLATE PICKER ═══ --}}
-<div x-show="step === 'pick'" style="min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:40px 32px;">
-
-    <a href="{{ route('corex.properties.index') }}" style="position:absolute;top:22px;left:24px;display:inline-flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,0.35);text-decoration:none;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.35)'">
-        <svg xmlns="http://www.w3.org/2000/svg" style="width:13px;height:13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-        Back
+{{-- ═══ BRANDED HEADER (UI_DESIGN_SYSTEM.md §2.4 Pattern A) — full width ═══ --}}
+<header style="background:var(--brand-default,#0b2a4a);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:14px;min-width:0;">
+        <a href="{{ route('corex.properties.index') }}" title="Back to properties"
+           style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;background:rgba(255,255,255,0.12);color:#fff;text-decoration:none;flex-shrink:0;transition:background 0.15s;"
+           onmouseover="this.style.background='rgba(255,255,255,0.22)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
+            <svg style="width:16px;height:16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+        </a>
+        <div style="min-width:0;">
+            <h1 style="font-size:20px;font-weight:700;color:#fff;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Create Ad</h1>
+            <p style="font-size:13px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $property->title }} &middot; {{ $suburb }} &middot; {{ $price }}</p>
+        </div>
+    </div>
+    <a href="{{ route('corex.properties.show', $property) }}"
+       style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;color:#fff;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);text-decoration:none;transition:background 0.15s;flex-shrink:0;"
+       onmouseover="this.style.background='rgba(255,255,255,0.22)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
+        View property
     </a>
+</header>
+
+<div id="ad-body">
+
+{{-- ═══ STEP 1 — TEMPLATE PICKER ═══ --}}
+<div x-show="step === 'pick'" style="flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; align-items:center; padding:32px;">
 
     <div style="text-align:center; margin-bottom:28px;">
-        <div style="font-size:11px;font-weight:700;color:#00b4d8;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:10px;">{{ $suburb }} &middot; {{ $price }}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--brand-button,#00b4d8);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:10px;">{{ $suburb }} &middot; {{ $price }}</div>
         <h1 style="font-size:30px;font-weight:900;color:#fff;letter-spacing:-0.025em;">Choose a Template</h1>
         <p style="font-size:14px;color:rgba(255,255,255,0.38);margin-top:8px;">Click a design, then pick your platform and download</p>
     </div>
@@ -241,7 +278,7 @@
 </div>
 
 {{-- ═══ STEP 2 — GENERATOR ═══ --}}
-<div x-show="step === 'generate'" x-cloak style="display:flex; flex-direction:column; min-height:100vh;">
+<div x-show="step === 'generate'" x-cloak style="flex:1; min-height:0; display:flex; flex-direction:column;">
 
     <div style="position:sticky;top:0;z-index:100;background:rgba(6,15,28,0.98);border-bottom:1px solid rgba(255,255,255,0.07);padding:10px 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
 
@@ -268,20 +305,36 @@
 
         <button class="plat-btn" :class="{active: platform==='facebook'}"  @click="platform='facebook'; onGenerate()">
             <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-            Facebook <span style="opacity:.6;font-size:10px;">1200×628</span>
+            Facebook <span class="plat-size">1200×628</span>
         </button>
         <button class="plat-btn" :class="{active: platform==='instagram'}" @click="platform='instagram'; onGenerate()">
             <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
-            Instagram <span style="opacity:.6;font-size:10px;">1080×1080</span>
+            Instagram <span class="plat-size">1080×1080</span>
         </button>
         <button class="plat-btn" :class="{active: platform==='story'}"     @click="platform='story'; onGenerate()">
             <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
-            Story <span style="opacity:.6;font-size:10px;">1080×1920</span>
+            Story <span class="plat-size">1080×1920</span>
         </button>
         <button class="plat-btn" :class="{active: platform==='whatsapp'}"  @click="platform='whatsapp'; onGenerate()">
             <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-            WhatsApp <span style="opacity:.6;font-size:10px;">900×900</span>
+            WhatsApp <span class="plat-size">900×900</span>
         </button>
+
+        {{-- Custom size --}}
+        <button class="plat-btn" :class="{active: platform==='custom'}" @click="platform='custom'; onGenerate()" title="Set a custom size">
+            <svg style="width:13px;height:13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/></svg>
+            Custom
+        </button>
+        <template x-if="platform==='custom'">
+            <div style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.16);border-radius:9px;padding:3px 7px;">
+                <input type="number" min="200" max="4000" step="10" x-model.number="customW" @input="onGenerate()" title="Width (px)"
+                       style="width:62px;background:#0b1726;color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
+                <span style="color:rgba(255,255,255,0.4);font-size:11px;">×</span>
+                <input type="number" min="200" max="4000" step="10" x-model.number="customH" @input="onGenerate()" title="Height (px)"
+                       style="width:62px;background:#0b1726;color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
+                <span style="color:rgba(255,255,255,0.4);font-size:10px;">px</span>
+            </div>
+        </template>
 
         <button @click="download()" :disabled="generating || exporting"
                 style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:#e63946;border:none;color:#fff;font-family:inherit;transition:opacity 0.12s;"
@@ -292,7 +345,7 @@
 
         <template x-if="returnMarketing">
             <button @click="exportForMarketing()" :disabled="generating || exporting"
-                    style="display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:#00b4d8;border:none;color:#fff;font-family:inherit;transition:opacity 0.12s;"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:var(--brand-button,#00b4d8);border:none;color:#fff;font-family:inherit;transition:opacity 0.12s;"
                     onmouseover="if(!this.disabled)this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                 <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
                 <span x-text="exporting ? 'Sending…' : 'Use for Marketing'"></span>
@@ -300,8 +353,8 @@
         </template>
     </div>
 
-    {{-- Preview --}}
-    <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:32px 20px 48px;">
+    {{-- Preview — fills remaining height; scales to fit so it never leaves the screen --}}
+    <div id="ad-preview-area" style="flex:1; min-height:0; overflow:hidden; display:flex; align-items:center; justify-content:center; padding:24px 20px;">
         <div :style="'overflow:hidden;border-radius:4px;box-shadow:0 28px 90px rgba(0,0,0,0.75);flex-shrink:0;width:'+previewW+'px;height:'+previewH+'px;'">
             <div id="ad-scale-wrapper" :style="'transform:scale('+scale+');transform-origin:top left;width:'+cfg.w+'px;height:'+cfg.h+'px;'">
                 <div id="ad-canvas" :style="'width:'+cfg.w+'px;height:'+cfg.h+'px;position:relative;overflow:hidden;font-size:'+cfg.baseFontPx+'px;font-family:Figtree,Arial,sans-serif;background:#071325;'">
@@ -321,6 +374,8 @@
     </div>
 
 </div>
+
+</div>{{-- /#ad-body --}}
 
 <script>
 const PREBUILT_NAMES = @json(collect($prebuilt)->pluck('name', 'key'));
@@ -361,6 +416,11 @@ function adApp(savedTemplates, propertyData, agentCfg) {
         savedTemplates: savedTemplates || [],
         propertyData: propertyData || {},
         _customLayout: null,
+        // Custom canvas size (the "Custom" size button).
+        customW: 1080,
+        customH: 1080,
+        showCustomSize: false,
+        _vp: 0,   // bumped on resize so scale getters recompute
 
         // ── Co-listing agent choice (ad-manager.md §"Agent identity") ──
         // Only meaningful when the listing has a co-agent; otherwise the ad just
@@ -370,12 +430,12 @@ function adApp(savedTemplates, propertyData, agentCfg) {
         agentMode:    'listing',
 
         init() {
-            const fit = () => this.fitThumbs();
+            const fit = () => { this._vp++; this.fitThumbs(); };
             this.$nextTick(fit);
             window.addEventListener('resize', fit);
             // Refit when returning to the picker or after filtering reflows the grid.
-            this.$watch('step', v => { if (v === 'pick') this.$nextTick(fit); });
-            this.$watch('searchQuery', () => this.$nextTick(fit));
+            this.$watch('step', v => { if (v === 'pick') this.$nextTick(() => this.fitThumbs()); else this.$nextTick(() => this._vp++); });
+            this.$watch('searchQuery', () => this.$nextTick(() => this.fitThumbs()));
         },
 
         // Thumbnails render a fixed 1200×628 design scaled to the card's real
@@ -412,11 +472,30 @@ function adApp(savedTemplates, propertyData, agentCfg) {
                 const preset = this._customLayout.canvasPreset || 'facebook';
                 return platforms[preset] || { w: this._customLayout.canvasW || 1200, h: this._customLayout.canvasH || 628, baseFontPx: 16, label: 'Custom' };
             }
+            if (this.platform === 'custom') {
+                const w = Math.max(200, Math.min(4000, +this.customW || 1080));
+                const h = Math.max(200, Math.min(4000, +this.customH || 1080));
+                // Scale the em base font with the canvas so templates stay proportional.
+                return { w, h, baseFontPx: Math.max(12, Math.round(Math.min(w, h) / 38)), label: 'Custom' };
+            }
             return platforms[this.platform];
         },
+        // Fit the preview to the actual available area (below the header + toolbar)
+        // so every size — incl. Instagram/Story — stays within the screen.
         get scale() {
-            const maxW = Math.min(window.innerWidth - 64, 1100);
-            const maxH = window.innerHeight - 130;
+            this._vp;   // reactive dependency so resize recomputes
+            const area = document.getElementById('ad-preview-area');
+            let maxW, maxH;
+            if (area) {
+                const rect = area.getBoundingClientRect();
+                maxW = (area.clientWidth || rect.width) - 44;
+                maxH = (window.innerHeight - rect.top) - 44;
+            } else {
+                maxW = Math.min(window.innerWidth - 64, 1100);
+                maxH = window.innerHeight - 200;
+            }
+            maxW = Math.max(140, maxW);
+            maxH = Math.max(140, maxH);
             return Math.min(maxW / this.cfg.w, maxH / this.cfg.h, 1);
         },
         get previewW() { return Math.round(this.cfg.w * this.scale); },

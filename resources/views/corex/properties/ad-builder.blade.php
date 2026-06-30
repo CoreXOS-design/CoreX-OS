@@ -9,6 +9,19 @@
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800,900&display=swap" rel="stylesheet">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    {{-- Agency brand tokens (UI_DESIGN_SYSTEM.md §1.4) — standalone page; declare
+         the brand vars so the header + accents use the agency colour. --}}
+    @php
+        $_brandAgency = ($property?->agency)
+            ?? (auth()->user()?->effectiveAgencyId() ? \App\Models\Agency::find(auth()->user()->effectiveAgencyId()) : null);
+    @endphp
+    <style id="agency-brand">
+        :root {
+            --brand-icon:    {{ $_brandAgency->icon_color    ?? '#0ea5e9' }};
+            --brand-default: {{ $_brandAgency->default_color ?? '#0b2a4a' }};
+            --brand-button:  {{ $_brandAgency->button_color  ?? '#0ea5e9' }};
+        }
+    </style>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; overflow: hidden; }
@@ -29,8 +42,8 @@
             font-family: inherit; transition: all 0.12s; text-decoration: none;
         }
         .tb-btn:hover { border-color: rgba(255,255,255,0.25); color: #fff; }
-        .tb-btn.primary { background: #00b4d8; border-color: #00b4d8; color: #fff; }
-        .tb-btn.primary:hover { background: #0090b0; border-color: #0090b0; }
+        .tb-btn.primary { background: var(--brand-button,#00b4d8); border-color: var(--brand-button,#00b4d8); color: #fff; }
+        .tb-btn.primary:hover { filter: brightness(0.92); }
         .tb-btn.danger { background: rgba(230,57,70,0.15); border-color: rgba(230,57,70,0.35); color: #e63946; }
         .tb-btn.danger:hover { background: #e63946; border-color: #e63946; color: #fff; }
         #tpl-name-input {
@@ -127,6 +140,28 @@
 </head>
 <body x-data="builder()" @mouseup.window="dragEnd($event)" @mousemove.window="dragMove($event)">
 
+{{-- ═══ BRANDED HEADER (UI_DESIGN_SYSTEM.md §2.4 Pattern A) — full width ═══ --}}
+<header style="flex-shrink:0;background:var(--brand-default,#0b2a4a);padding:11px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+    <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+        <a href="{{ $property ? route('corex.properties.ad', $property) : route('corex.properties.index') }}" title="Back"
+           style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.12);color:#fff;text-decoration:none;flex-shrink:0;transition:background 0.15s;"
+           onmouseover="this.style.background='rgba(255,255,255,0.22)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
+            <svg style="width:15px;height:15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+        </a>
+        <div style="min-width:0;">
+            <h1 style="font-size:18px;font-weight:700;color:#fff;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $template ? 'Edit Ad Template' : 'Ad Builder' }}</h1>
+            <p style="font-size:12px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $property ? $property->title : 'Design a reusable marketing template' }}</p>
+        </div>
+    </div>
+    @if($property)
+    <a href="{{ route('corex.properties.ad', $property) }}"
+       style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;color:#fff;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);text-decoration:none;flex-shrink:0;transition:background 0.15s;"
+       onmouseover="this.style.background='rgba(255,255,255,0.22)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
+        Property ad page
+    </a>
+    @endif
+</header>
+
 {{-- ═══ TOOLBAR ═══ --}}
 <div id="toolbar">
     <a href="javascript:history.back()" class="tb-btn">
@@ -148,15 +183,27 @@
 
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
 
-        {{-- Canvas size --}}
-        <select x-model="canvasPreset" @change="applyPreset()" class="tb-btn" style="padding:5px 8px;font-size:11px;color:rgba(255,255,255,0.65);">
-            <option value="facebook">1200×628 (Facebook)</option>
-            <option value="instagram">1080×1080 (Instagram)</option>
-            <option value="story">1080×1920 (Story)</option>
-            <option value="whatsapp">900×900 (WhatsApp)</option>
-            <option value="linkedin">1200×627 (LinkedIn)</option>
-            <option value="pinterest">1000×1500 (Pinterest)</option>
+        {{-- Canvas size (explicit dark colours so the native dropdown is readable) --}}
+        <select x-model="canvasPreset" @change="applyPreset()" class="tb-btn" style="padding:5px 8px;font-size:11px;background:#0b1726;color:#fff;border-color:rgba(255,255,255,0.16);">
+            <option style="background:#0b1726;color:#fff;" value="facebook">1200×628 (Facebook)</option>
+            <option style="background:#0b1726;color:#fff;" value="instagram">1080×1080 (Instagram)</option>
+            <option style="background:#0b1726;color:#fff;" value="story">1080×1920 (Story)</option>
+            <option style="background:#0b1726;color:#fff;" value="whatsapp">900×900 (WhatsApp)</option>
+            <option style="background:#0b1726;color:#fff;" value="linkedin">1200×627 (LinkedIn)</option>
+            <option style="background:#0b1726;color:#fff;" value="pinterest">1000×1500 (Pinterest)</option>
+            <option style="background:#0b1726;color:#fff;" value="custom">Custom size…</option>
         </select>
+        {{-- Custom W×H --}}
+        <template x-if="canvasPreset==='custom'">
+            <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.16);border-radius:8px;padding:3px 7px;">
+                <input type="number" min="200" max="4000" step="10" x-model.number="canvasW" title="Width (px)"
+                       style="width:58px;background:#0b1726;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:600;font-family:inherit;padding:4px 5px;outline:none;">
+                <span style="color:rgba(255,255,255,0.4);font-size:11px;">×</span>
+                <input type="number" min="200" max="4000" step="10" x-model.number="canvasH" title="Height (px)"
+                       style="width:58px;background:#0b1726;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:600;font-family:inherit;padding:4px 5px;outline:none;">
+                <span style="color:rgba(255,255,255,0.4);font-size:10px;">px</span>
+            </span>
+        </template>
 
         {{-- Clear all --}}
         <button class="tb-btn danger" @click="if(confirm('Clear all elements?')) { elements = []; selectedIndex = -1; }">
@@ -213,7 +260,10 @@
 
     {{-- ── CENTRE: CANVAS AREA ── --}}
     <div id="canvas-area" @dragover.prevent @drop="canvasDrop($event)">
-        <div id="canvas-wrapper">
+        {{-- Wrapper occupies the SCALED footprint (transform:scale doesn't shrink the
+             layout box) so the canvas stays centred at any size instead of pinning
+             to the top-left with a giant empty box around it. --}}
+        <div id="canvas-wrapper" :style="'width:'+(canvasW*canvasScale)+'px;height:'+(canvasH*canvasScale)+'px;'">
             <div id="canvas-scale" :style="'transform:scale('+canvasScale+');width:'+canvasW+'px;height:'+canvasH+'px;'">
 
                 <div id="canvas"
@@ -912,7 +962,9 @@ function builder() {
         },
 
         applyPreset() {
+            // "custom" keeps the current W/H — the W×H inputs drive the size.
             const p = CANVAS_PRESETS[this.canvasPreset];
+            if (!p) return;
             this.canvasW = p.w;
             this.canvasH = p.h;
         },
