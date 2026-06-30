@@ -3,11 +3,30 @@
 namespace App\Services\CommandCenter;
 
 use App\Models\CommandCenter\CalendarEvent;
+use App\Models\CommandCenter\CalendarEventClassSetting;
+use App\Models\CommandCenter\CalendarEventInvitation;
+use App\Models\CommandCenter\CalendarEventLink;
+use App\Models\Contact;
+use App\Models\Property;
 use App\Models\User;
+use App\Services\CommandCenter\Calendar\ConflictDetectionService;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class CalendarEventService
 {
+    /**
+     * Event classes a user may create manually (not source-driven).
+     * Single source of truth — the web CalendarController and the mobile
+     * API both read this so the two surfaces never diverge on which
+     * classes are user-creatable.
+     */
+    public const MANUAL_CREATABLE_CLASSES = [
+        'viewing', 'property_evaluation', 'listing_presentation',
+        'meeting', 'task', 'other',
+    ];
+
     /**
      * Create a manual calendar event.
      */
@@ -272,5 +291,366 @@ class CalendarEventService
         }
 
         return $segments;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Manual-event engine — shared by the web calendar controller AND the
+    // mobile/command-center API so the full "add event" flow (multi-
+    // property, attendees with roles, agent invitations, deal link) is
+    // identical on every surface. Integration is the moat: one engine.
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Create a manual calendar event WITH its full link graph (properties,
+     * attendees, deal) and fire agent invitations. This is the single
+     * write path behind both the web create-event panel and the mobile
+     * add-event sheet.
+     *
+     * Expected $data keys (all optional except title/category/event_date):
+     *   title, category, event_date, end_date, description, priority,
+     *   property_id (int), property_ids (int[]), contact_ids (int[]),
+     *   attendees ([{id,type:contact|agent,role?}]), deal_id (int).
+     */
+    public function createManualWithLinks(array $data, User $user): CalendarEvent
+    {
+        $category    = $data['category'] ?? 'meeting';
+        $propertyIds = $this->resolvePropertyIds($data, $user, $category);
+        $data['_resolved_property_ids'] = $propertyIds;
+
+        // For multi-property events append the count to the title if the
+        // user didn't already describe it as such (parity with web store()).
+        $title = $data['title'];
+        if (count($propertyIds) > 1 && ! str_contains($title, 'properties')) {
+            $title = $title . ' — ' . count($propertyIds) . ' properties';
+        }
+
+        return DB::transaction(function () use ($data, $user, $propertyIds, $category, $title) {
+            $eventDate = $data['event_date'];
+
+            $event = CalendarEvent::create([
+                'event_type'    => 'manual',
+                'category'      => $category,
+                'title'         => $title,
+                'description'   => ($data['description'] ?? '') ?: null,
+                'event_date'    => $eventDate,
+                'end_date'      => ($data['end_date'] ?? null) ?: null,
+                'all_day'       => array_key_exists('all_day', $data)
+                                    ? (bool) $data['all_day']
+                                    : Carbon::parse($eventDate)->format('H:i:s') === '00:00:00',
+                'status'        => 'pending',
+                'priority'      => $data['priority'] ?? 'normal',
+                'source_type'   => 'manual',
+                'user_id'       => $user->id,
+                'created_by_id' => $user->id,
+                'agency_id'     => $user->agency_id ?: 1,
+                'branch_id'     => $user->branch_id,
+                'property_id'   => $propertyIds[0] ?? ($data['property_id'] ?? null),
+                'contact_id'    => $this->firstContactId($data),
+                'send_reminder' => $data['send_reminder'] ?? true,
+            ]);
+
+            $this->syncManualEventLinks($event, $data, $user);
+
+            return $event;
+        });
+    }
+
+    /**
+     * Apply class-config property caps. Single-property classes keep only
+     * the first id. Mirrors the web store() cap enforcement exactly.
+     */
+    public function resolvePropertyIds(array $data, User $user, ?string $category = null): array
+    {
+        $category    = $category ?? ($data['category'] ?? null);
+        $propertyIds = $data['property_ids'] ?? (! empty($data['property_id']) ? [$data['property_id']] : []);
+        $propertyIds = array_values(array_unique(array_map('intval', $propertyIds)));
+
+        if (count($propertyIds) > 1 && $category) {
+            $classConfig = CalendarEventClassSetting::withoutGlobalScopes()
+                ->where('event_class', $category)
+                ->where(fn ($q) => $q->where('agency_id', $user->effectiveAgencyId())->orWhereNull('agency_id'))
+                ->orderByRaw('agency_id IS NULL')
+                ->first();
+            if ($classConfig && ! $classConfig->allow_multiple_properties) {
+                $propertyIds = [$propertyIds[0]];
+            }
+        }
+
+        return $propertyIds;
+    }
+
+    /** First contact id from attendees[] (type=contact) or contact_ids[]. */
+    private function firstContactId(array $data): ?int
+    {
+        if (! empty($data['attendees'])) {
+            $first = collect($data['attendees'])->firstWhere('type', 'contact');
+            if ($first) {
+                return (int) $first['id'];
+            }
+        }
+
+        return ($data['contact_ids'] ?? [])[0] ?? null;
+    }
+
+    /**
+     * Sync calendar_event_links for a manual event and fire agent
+     * invitations. Deletes only the link roles being re-submitted
+     * (prevents the edit-wipe bug) then re-inserts from $data.
+     *
+     * Moved verbatim from CalendarController::syncEventLinks so the web
+     * and mobile surfaces share ONE implementation. See CAL-3 (agency_id
+     * on every row) and CAL-7 (null-safe class config) notes inline.
+     */
+    public function syncManualEventLinks(CalendarEvent $event, array $data, User $user): void
+    {
+        $rolesToSync = [];
+        if (array_key_exists('property_ids', $data) || array_key_exists('property_id', $data) || array_key_exists('_resolved_property_ids', $data)) {
+            $rolesToSync[] = CalendarEventLink::ROLE_SUBJECT_PROPERTY;
+        }
+        if (array_key_exists('attendees', $data) || array_key_exists('contact_ids', $data)) {
+            $rolesToSync[] = CalendarEventLink::ROLE_ATTENDEE;
+            $rolesToSync[] = 'buyer_contact';
+            $rolesToSync[] = 'seller_contact';
+            $rolesToSync[] = 'agent_contact';
+        }
+        if (array_key_exists('deal_id', $data)) {
+            $rolesToSync[] = CalendarEventLink::ROLE_RELATED_DEAL;
+        }
+
+        if (! empty($rolesToSync)) {
+            DB::table('calendar_event_links')
+                ->where('calendar_event_id', $event->id)
+                ->whereNotNull('created_by_user_id')
+                ->whereIn('role', $rolesToSync)
+                ->delete();
+        }
+
+        $links = [];
+        $now = now();
+        $agencyId = (int) ($event->agency_id ?? $user->effectiveAgencyId() ?? 0);
+
+        $propertyIds = $data['_resolved_property_ids'] ?? ($data['property_ids'] ?? []);
+        if (empty($propertyIds) && ! empty($data['property_id'])) {
+            $propertyIds = [$data['property_id']];
+        }
+        foreach ($propertyIds as $pid) {
+            $links[] = [
+                'agency_id'          => $agencyId,
+                'calendar_event_id'  => $event->id,
+                'linkable_type'      => Property::class,
+                'linkable_id'        => (int) $pid,
+                'role'               => CalendarEventLink::ROLE_SUBJECT_PROPERTY,
+                'created_by_user_id' => $user->id,
+                'created_at'         => $now,
+                'updated_at'         => $now,
+            ];
+        }
+
+        $classConfig = CalendarEventClassSetting::withoutGlobalScopes()
+            ->where('event_class', $data['category'] ?? '')
+            ->where(fn ($q) => $q->where('agency_id', $user->effectiveAgencyId())->orWhereNull('agency_id'))
+            ->orderByRaw('agency_id IS NULL')
+            ->first();
+        $defaultRole = match ($classConfig?->actor_role ?? 'neither') {
+            'buyer_action'  => 'buyer_contact',
+            'seller_action' => 'seller_contact',
+            default         => CalendarEventLink::ROLE_ATTENDEE,
+        };
+
+        foreach (($data['attendees'] ?? $data['contact_ids'] ?? []) as $attendee) {
+            if (is_array($attendee)) {
+                $type = ($attendee['type'] ?? 'contact') === 'agent' ? User::class : Contact::class;
+                $id   = $attendee['id'];
+                $role = $attendee['role'] ?? ($type === User::class ? 'agent_contact' : $defaultRole);
+            } else {
+                $type = Contact::class;
+                $id   = $attendee;
+                $role = $defaultRole;
+            }
+            $links[] = [
+                'agency_id'          => $agencyId,
+                'calendar_event_id'  => $event->id,
+                'linkable_type'      => $type,
+                'linkable_id'        => $id,
+                'role'               => $role,
+                'created_by_user_id' => $user->id,
+                'created_at'         => $now,
+                'updated_at'         => $now,
+            ];
+        }
+
+        if (! empty($data['deal_id'])) {
+            $links[] = [
+                'agency_id'          => $agencyId,
+                'calendar_event_id'  => $event->id,
+                'linkable_type'      => \App\Models\DealV2\DealV2::class,
+                'linkable_id'        => $data['deal_id'],
+                'role'               => CalendarEventLink::ROLE_RELATED_DEAL,
+                'created_by_user_id' => $user->id,
+                'created_at'         => $now,
+                'updated_at'         => $now,
+            ];
+        }
+
+        if (! empty($links)) {
+            DB::table('calendar_event_links')->insert($links);
+        }
+
+        // Create invitations for user attendees (agents) + notify them.
+        foreach ($links as $link) {
+            if (($link['linkable_type'] ?? '') === User::class && (int) ($link['linkable_id'] ?? 0) !== (int) $user->id) {
+                $conflicts = app(ConflictDetectionService::class)
+                    ->checkUserConflicts(
+                        (int) $link['linkable_id'],
+                        $event->event_date->toDateTimeString(),
+                        ($event->end_date ?? $event->event_date)->toDateTimeString(),
+                        $event->id
+                    );
+
+                CalendarEventInvitation::updateOrCreate(
+                    ['event_id' => $event->id, 'invitee_user_id' => $link['linkable_id']],
+                    [
+                        'inviter_user_id'    => $user->id,
+                        'status'             => 'pending',
+                        'conflict_at_invite' => ! empty($conflicts) ? $conflicts : null,
+                    ]
+                );
+
+                DB::table('notifications')->insert([
+                    'id'              => \Illuminate\Support\Str::uuid(),
+                    'type'            => 'invitation_received',
+                    'notifiable_type' => 'App\\Models\\User',
+                    'notifiable_id'   => $link['linkable_id'],
+                    'data'            => json_encode([
+                        'message'      => $user->name . ' invited you to: ' . $event->title,
+                        'event_id'     => $event->id,
+                        'has_conflict' => ! empty($conflicts),
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Search attendees for the add-event form — agency contacts (canonical
+     * all-identifier search, AT-131) PLUS agency users (agents), excluding
+     * the requesting user. Shared by web + mobile.
+     */
+    public function searchAttendees(User $user, string $q): Collection
+    {
+        $q = trim($q);
+        if (mb_strlen($q) < 2) {
+            return collect();
+        }
+
+        $agencyId = $user->agency_id ?: 1;
+
+        $contacts = Contact::query()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->with(['phones', 'emails', 'type', 'agent'])
+            ->search($q)
+            ->limit(7)
+            ->get()
+            ->map(fn ($c) => [
+                'id'           => $c->id,
+                'name'         => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
+                'phone'        => $c->phone,
+                'email'        => $c->email,
+                'identifier'   => $c->matchedIdentifier($q),
+                'contact_type' => $c->type?->name,
+                'type'         => 'contact',
+            ]);
+
+        $users = User::query()
+            ->where('agency_id', $agencyId)
+            ->where('id', '!=', $user->id)
+            ->whereNull('deleted_at')
+            ->where(function ($query) use ($q) {
+                $query->where('name', 'like', "%{$q}%")
+                      ->orWhere('email', 'like', "%{$q}%");
+            })
+            ->limit(5)
+            ->get(['id', 'name', 'email'])
+            ->map(fn ($u) => [
+                'id'    => $u->id,
+                'name'  => $u->name,
+                'phone' => null,
+                'email' => $u->email,
+                'type'  => 'agent',
+            ]);
+
+        return $contacts->concat($users)->values();
+    }
+
+    /**
+     * All linked contacts for a property, with attendee-role + label, for
+     * the add-event panel's property-select auto-fill. Raw join (no global
+     * scopes) — see CAL-6. Shared by web + mobile.
+     */
+    public function propertyOwners(int $propertyId): Collection
+    {
+        $property = Property::find($propertyId);
+        if (! $property) {
+            return collect();
+        }
+
+        $toAttendeeRole = static function (?string $pivotRole): string {
+            $r = strtolower(trim((string) $pivotRole));
+            return match (true) {
+                in_array($r, ['seller', 'owner', 'landlord', 'lessor'], true) => 'seller_contact',
+                in_array($r, ['buyer', 'tenant', 'lessee'], true)             => 'buyer_contact',
+                default                                                       => 'attendee',
+            };
+        };
+        $toRoleLabel = static function (?string $pivotRole): ?string {
+            $r = trim((string) $pivotRole);
+            return $r === '' ? null : ucfirst(strtolower($r));
+        };
+
+        $rows = DB::table('contact_property as cp')
+            ->join('contacts as c', 'c.id', '=', 'cp.contact_id')
+            ->where('cp.property_id', $property->id)
+            ->whereNull('c.deleted_at')
+            ->where('c.agency_id', $property->agency_id)
+            ->orderBy('c.id')
+            ->get(['c.id', 'c.first_name', 'c.last_name', 'c.phone', 'c.email', 'cp.role']);
+
+        return $rows->map(fn ($r) => [
+            'id'         => (int) $r->id,
+            'first_name' => $r->first_name,
+            'last_name'  => $r->last_name,
+            'name'       => trim(($r->first_name ?? '') . ' ' . ($r->last_name ?? '')) ?: ('Contact #' . $r->id),
+            'phone'      => $r->phone,
+            'email'      => $r->email,
+            'type'       => 'contact',
+            'role'       => $toAttendeeRole($r->role ?? null),
+            'role_label' => $toRoleLabel($r->role ?? null),
+        ])->values();
+    }
+
+    /**
+     * The manual-creatable event classes visible to this user, with the
+     * config flags the add-event form needs (multi-property cap, actor
+     * role, completion behaviour). Mirrors the web sharedViewData().
+     */
+    public function manualCreatableClasses(User $user): Collection
+    {
+        return CalendarEventClassSetting::withoutGlobalScopes()
+            ->whereNull('agency_id')
+            ->where('is_active', true)
+            ->whereIn('event_class', self::MANUAL_CREATABLE_CLASSES)
+            ->orderBy('label')
+            ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour'])
+            ->map(fn ($c) => [
+                'event_class'               => $c->event_class,
+                'label'                     => $c->label,
+                'allow_multiple_properties' => (bool) $c->allow_multiple_properties,
+                'actor_role'                => $c->actor_role,
+                'completion_behaviour'      => $c->completion_behaviour,
+            ])
+            ->values();
     }
 }

@@ -59,6 +59,14 @@ class MobilePropertyController extends Controller
         // $scope === 'all' with no agent filter → agency-wide (AgencyScope
         // still isolates cross-agency).
 
+        // Free-text search (?q= or ?search=) — the calendar add-event sheet's
+        // property picker calls this. Uses the ONE canonical property search
+        // scope (scopeSearchAddress) so every picker matches identically.
+        $term = trim((string) ($request->query('q') ?? $request->query('search') ?? ''));
+        if ($term !== '') {
+            $query->searchAddress($term);
+        }
+
         $properties = $query
             ->orderByDesc('updated_at')
             ->get([

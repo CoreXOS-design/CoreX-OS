@@ -186,26 +186,62 @@ class CommandCenterApiController extends Controller
 
     public function calendarStore(Request $request): JsonResponse
     {
-        $request->validate([
-            'title'         => 'required|string|max:255',
-            'event_date'    => 'required|date',
-            'end_date'      => 'nullable|date|after_or_equal:event_date',
-            'event_type'    => 'nullable|string|max:50',
-            'priority'      => 'nullable|in:low,normal,high,critical',
-            'all_day'       => 'nullable|boolean',
-            'send_reminder' => 'nullable|boolean',
-            'description'   => 'nullable|string',
-            'property_id'   => 'nullable|exists:properties,id',
-            'contact_id'    => 'nullable|exists:contacts,id',
+        // Full add-event parity with the web create-event panel: a manual
+        // class, one OR many properties, contacts + agents as attendees
+        // (with roles), an optional deal link, and agent invitations fire
+        // automatically via the shared engine.
+        $validated = $request->validate([
+            'title'          => 'required|string|max:255',
+            'category'       => 'nullable|string|in:' . implode(',', CalendarEventService::MANUAL_CREATABLE_CLASSES),
+            'event_date'     => 'required|date',
+            'end_date'       => 'nullable|date|after_or_equal:event_date',
+            'event_type'     => 'nullable|string|max:50',
+            'priority'       => 'nullable|in:low,normal,high,critical',
+            'all_day'        => 'nullable|boolean',
+            'send_reminder'  => 'nullable|boolean',
+            'description'    => 'nullable|string|max:2000',
+            'property_id'    => 'nullable|integer|exists:properties,id',
+            'property_ids'   => 'nullable|array',
+            'property_ids.*' => 'integer|exists:properties,id',
+            'contact_id'     => 'nullable|integer|exists:contacts,id',
+            'contact_ids'    => 'nullable|array',
+            'contact_ids.*'  => 'integer|exists:contacts,id',
+            'attendees'         => 'nullable|array',
+            'attendees.*.id'    => 'required_with:attendees|integer',
+            'attendees.*.type'  => 'required_with:attendees|string|in:contact,agent',
+            'attendees.*.role'  => 'nullable|string|in:attendee,buyer_contact,seller_contact,agent_contact',
+            'deal_id'        => 'nullable|integer',
         ]);
 
-        $data = $request->all();
+        $data = $validated;
+        $data['category']      = $validated['category'] ?? 'meeting';
         $data['send_reminder'] = $request->boolean('send_reminder', true);
 
-        $service = new CalendarEventService();
-        $event   = $service->createManual($data, $request->user());
+        // Legacy single contact_id → contact_ids[] so the engine links it.
+        if (! empty($validated['contact_id']) && empty($validated['contact_ids']) && empty($validated['attendees'])) {
+            $data['contact_ids'] = [$validated['contact_id']];
+        }
 
-        return response()->json($this->formatEvent($event->load('property')), 201);
+        $service = new CalendarEventService();
+        $event   = $service->createManualWithLinks($data, $request->user());
+
+        return response()->json(
+            $this->formatEventDetail($event->fresh()->load(['property', 'contact'])),
+            201
+        );
+    }
+
+    /**
+     * Full single-event payload (for the mobile detail / edit sheet):
+     * lightweight fields + the link graph (properties + attendees).
+     *
+     *   GET /api/v1/command-center/calendar/{calendarEvent}
+     */
+    public function calendarShow(Request $request, CalendarEvent $calendarEvent): JsonResponse
+    {
+        return response()->json(
+            $this->formatEventDetail($calendarEvent->load(['property', 'contact']))
+        );
     }
 
     public function calendarComplete(CalendarEvent $calendarEvent): JsonResponse
@@ -231,14 +267,45 @@ class CommandCenterApiController extends Controller
             'status'        => 'nullable|in:pending,completed,overdue,dismissed',
             'category'      => 'nullable|string|max:50',
             'property_id'   => 'nullable|integer|exists:properties,id',
+            'property_ids'   => 'nullable|array',
+            'property_ids.*' => 'integer|exists:properties,id',
             'contact_id'    => 'nullable|integer|exists:contacts,id',
+            'contact_ids'    => 'nullable|array',
+            'contact_ids.*'  => 'integer|exists:contacts,id',
+            'attendees'         => 'nullable|array',
+            'attendees.*.id'    => 'required_with:attendees|integer',
+            'attendees.*.type'  => 'required_with:attendees|string|in:contact,agent',
+            'attendees.*.role'  => 'nullable|string|in:attendee,buyer_contact,seller_contact,agent_contact',
+            'deal_id'        => 'nullable|integer',
         ]);
 
         $oldValues = $calendarEvent->only(['title', 'event_date', 'end_date', 'description', 'category', 'priority', 'status', 'property_id', 'contact_id']);
 
         $calendarEvent->update(collect($data)->only([
-            'title', 'event_date', 'end_date', 'description', 'category', 'priority', 'status', 'property_id', 'contact_id',
+            'title', 'event_date', 'end_date', 'description', 'category', 'priority', 'status', 'property_id',
         ])->all());
+
+        // Derive the direct contact_id FK from attendees[] / contact_ids[]
+        // (parity with the web update()), so the event card's primary
+        // contact stays in sync with the attendee chips.
+        if (array_key_exists('attendees', $data)) {
+            $firstContact = collect($data['attendees'] ?? [])->firstWhere('type', 'contact');
+            $calendarEvent->update(['contact_id' => $firstContact['id'] ?? null]);
+        } elseif (array_key_exists('contact_ids', $data)) {
+            $calendarEvent->update(['contact_id' => ($data['contact_ids'] ?? [])[0] ?? null]);
+        } elseif (array_key_exists('contact_id', $data)) {
+            $calendarEvent->update(['contact_id' => $data['contact_id']]);
+        }
+
+        // Re-sync the link graph (properties / attendees / deal) + fire any
+        // new agent invitations through the shared engine.
+        if (array_key_exists('property_id', $data) || array_key_exists('property_ids', $data)
+            || array_key_exists('contact_ids', $data) || array_key_exists('attendees', $data)
+            || array_key_exists('deal_id', $data)) {
+            $linkData = $data;
+            $linkData['category'] = $data['category'] ?? $calendarEvent->category;
+            (new CalendarEventService())->syncManualEventLinks($calendarEvent->fresh(), $linkData, $request->user());
+        }
 
         $newValues = $calendarEvent->fresh()->only(array_keys($oldValues));
         $changed   = array_filter($newValues, fn ($v, $k) => ($oldValues[$k] ?? null) != $v, ARRAY_FILTER_USE_BOTH);
@@ -276,7 +343,7 @@ class CommandCenterApiController extends Controller
             }
         }
 
-        return response()->json($this->formatEvent($calendarEvent->fresh()->load(['property', 'contact'])));
+        return response()->json($this->formatEventDetail($calendarEvent->fresh()->load(['property', 'contact'])));
     }
 
     public function calendarDestroy(Request $request, CalendarEvent $calendarEvent): JsonResponse
@@ -317,6 +384,58 @@ class CommandCenterApiController extends Controller
             $request->get('end'),
             $request->get('exclude_event_id')
         ));
+    }
+
+    // ── Add-event form helpers (full parity with web create panel) ──
+
+    /**
+     * Search attendees for the add-event sheet — agency contacts (all
+     * identifiers) + agency agents. Returns [{id,name,phone,email,type,
+     * role?,contact_type?}]. Shared engine with the web calendar.
+     *
+     *   GET /api/v1/command-center/calendar/search/attendees?q=...
+     */
+    public function calendarSearchAttendees(Request $request): JsonResponse
+    {
+        return response()->json(
+            (new CalendarEventService())->searchAttendees($request->user(), (string) $request->input('q', ''))
+        );
+    }
+
+    /**
+     * Linked contacts (owners/sellers/buyers/tenants) for a property, with
+     * attendee-role + label, for the property-select auto-fill.
+     *
+     *   GET /api/v1/command-center/calendar/properties/{property}/owners
+     */
+    public function calendarPropertyOwners(Request $request, int $propertyId): JsonResponse
+    {
+        return response()->json(
+            (new CalendarEventService())->propertyOwners($propertyId)
+        );
+    }
+
+    /**
+     * Form bootstrap for the add-event sheet: the manual-creatable event
+     * classes (with multi-property / role / completion flags) so the
+     * mobile picker mirrors the web one exactly.
+     *
+     *   GET /api/v1/command-center/calendar/options
+     */
+    public function calendarOptions(Request $request): JsonResponse
+    {
+        $service = new CalendarEventService();
+
+        return response()->json([
+            'classes'    => $service->manualCreatableClasses($request->user()),
+            'priorities' => ['low', 'normal', 'high', 'critical'],
+            'attendee_roles' => [
+                ['key' => 'attendee',        'label' => 'Attendee'],
+                ['key' => 'buyer_contact',   'label' => 'Buyer'],
+                ['key' => 'seller_contact',  'label' => 'Seller'],
+                ['key' => 'agent_contact',   'label' => 'Agent'],
+            ],
+        ]);
     }
 
     // ── Calendar Invitations ──────────────────────────────────────
@@ -701,6 +820,7 @@ class CommandCenterApiController extends Controller
         return [
             'id'               => $e->id,
             'title'            => $e->title,
+            'description'      => $e->description,
             'event_date'       => $e->event_date?->toIso8601String(),
             'end_date'         => $e->end_date?->toIso8601String(),
             'all_day'          => $e->all_day,
@@ -716,7 +836,85 @@ class CommandCenterApiController extends Controller
             'contact_id'       => $e->contact_id,
             'contact_name'     => $e->contact ? trim("{$e->contact->first_name} {$e->contact->last_name}") : null,
             'pillar_tag'       => $e->pillarTag(),
+            'is_editable'      => in_array($e->source_type, ['manual', 'manual:demo'], true),
         ];
+    }
+
+    /**
+     * Full event payload for a SINGLE event (create/update/show responses) —
+     * adds the link graph (subject properties + attendees with roles and
+     * invite status). NOT used for list/grid responses to avoid N+1; the
+     * lightweight formatEvent() covers those.
+     */
+    private function formatEventDetail(CalendarEvent $e): array
+    {
+        return array_merge($this->formatEvent($e), [
+            'linked_properties' => $this->eventLinkedProperties($e),
+            'attendees'         => $this->eventAttendees($e),
+        ]);
+    }
+
+    /** Subject properties linked to an event (multi-property aware). */
+    private function eventLinkedProperties(CalendarEvent $e): array
+    {
+        if (! in_array($e->source_type, ['manual', 'manual:demo'], true)) {
+            return [];
+        }
+
+        return $e->linkedProperties->map(fn ($p) => [
+            'id'      => $p->id,
+            'address' => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
+        ])->values()->toArray();
+    }
+
+    /** Contacts + agents linked to a manual event, with role + invite status. */
+    private function eventAttendees(CalendarEvent $e): array
+    {
+        if (! in_array($e->source_type, ['manual', 'manual:demo'], true)) {
+            return [];
+        }
+
+        return $e->links()
+            ->whereIn('role', ['attendee', 'buyer_contact', 'seller_contact', 'agent_contact'])
+            ->get()
+            ->map(function ($l) use ($e) {
+                $isAgent = $l->linkable_type === \App\Models\User::class;
+                $type    = $isAgent ? 'agent' : 'contact';
+                $name    = ($isAgent ? 'Agent' : 'Contact') . ' #' . $l->linkable_id;
+                $first   = null;
+                $last    = null;
+                $inv     = null;
+
+                if ($isAgent) {
+                    $u = \App\Models\User::withoutGlobalScopes()->find($l->linkable_id);
+                    if ($u && (int) $u->id === (int) $l->linkable_id) {
+                        $name = $u->name ?? $name;
+                    }
+                    $inv = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $e->id)
+                        ->where('invitee_user_id', $l->linkable_id)->first();
+                } else {
+                    $c = \App\Models\Contact::withoutGlobalScopes()->find($l->linkable_id);
+                    if ($c && (int) $c->id === (int) $l->linkable_id) {
+                        $first = $c->first_name;
+                        $last  = $c->last_name;
+                        $built = trim(($first ?? '') . ' ' . ($last ?? ''));
+                        if ($built !== '') {
+                            $name = $built;
+                        }
+                    }
+                }
+
+                return [
+                    'id'                => (int) $l->linkable_id,
+                    'type'              => $type,
+                    'role'              => $l->role,
+                    'first_name'        => $first,
+                    'last_name'         => $last,
+                    'name'              => $name,
+                    'invitation_status' => $inv?->status,
+                    'invitation_id'     => $inv?->id,
+                ];
+            })->values()->toArray();
     }
 
     private function formatTasks($tasks): array
