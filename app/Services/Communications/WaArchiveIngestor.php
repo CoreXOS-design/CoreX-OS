@@ -56,25 +56,44 @@ class WaArchiveIngestor
         $direction = $this->normalizeDirection($msg['direction'] ?? 'in');
         $sender = (string) ($msg['sender'] ?? '');
         // 1:1 chat: the counterpart is the other party — the sender on inbound,
-        // the chat number on outbound. Strip the WA jid suffix before resolving.
+        // the chat number on outbound.
         $counterpartRaw = $direction === Communication::DIRECTION_INBOUND ? ($sender ?: $chatId) : $chatId;
-        $counterpartNumber = $this->numberFromJid($counterpartRaw);
 
-        // AT-122 — MATCH-FIRST, store-only-on-match. Resolve the counterpart phone
-        // (0→27 normalisation lives in ContactDuplicateService::normalizePhone via
-        // the resolver) BEFORE anything touches disk or the DB. A WA message that
-        // matches no existing contact is DISCARDED — never written to the archive
-        // AND never parked in communication_pending. No contact, no record.
-        $contact = $counterpartNumber !== '' ? $this->resolver->resolve($counterpartNumber, $agencyId) : null;
+        // AT-133 — @lid SAFETY GUARD. Modern WhatsApp Web identifies chats/senders
+        // by an @lid (e.g. 222758646611979@lid) that carries NO phone. Its digits
+        // MUST NEVER be normalised into a phone match — they'd false-match an
+        // unrelated contact whose last-9 collides. So we only match when the
+        // counterpart is a REAL number (a …@c.us / MSISDN), never an @lid or a
+        // display name. (The @lid → phone resolution itself is the held Q1=yes
+        // build; this guard + the tagging below are correct in EVERY path.)
+        $matchNumber = '';
+        if (! $this->isLidIdentifier($counterpartRaw)) {
+            $n = $this->numberFromJid($counterpartRaw);
+            if ($this->looksLikePhone($n)) {
+                $matchNumber = $n;
+            }
+        }
+
+        // An @lid chat with no resolvable real number is a RESOLUTION FAILURE, not a
+        // genuine non-contact — tag it distinctly so resolution failures are visible
+        // (a worklist) vs real non-contacts. Either direction: the chat jid is the @lid.
+        $isLidOnly = $matchNumber === ''
+            && ($this->isLidIdentifier($counterpartRaw) || $this->isLidIdentifier($chatId));
+
+        // AT-122 — MATCH-FIRST, store-only-on-match. The @lid guard means we only
+        // ever hand a REAL number to the resolver (ContactIdentifierResolver also
+        // refuses @lid as defense-in-depth). No contact, no record.
+        $contact = $matchNumber !== '' ? $this->resolver->resolve($matchNumber, $agencyId) : null;
 
         if (! $contact) {
+            $reason = $isLidOnly ? 'unresolved_lid' : 'no_contact_match';
             Log::info('Communication archive: WA ingestion dropped (not stored)', [
                 'agency_id'   => $agencyId,
                 'device_id'   => $device->id,
                 'channel'     => Communication::CHANNEL_WHATSAPP,
                 'direction'   => $direction,
-                'sender'      => $counterpartNumber,
-                'reason'      => 'no_contact_match',
+                'sender'      => $matchNumber !== '' ? $matchNumber : $counterpartRaw,
+                'reason'      => $reason,
                 'dropped_at'  => now()->toIso8601String(),
             ]);
 
@@ -97,8 +116,8 @@ class WaArchiveIngestor
                     'sender_raw'          => $sender,
                     'author'              => $msg['author'] ?? null,
                     'counterpart_raw'     => $counterpartRaw,
-                    'counterpart_number'  => $counterpartNumber,
-                    'normalize_returned'  => app(\App\Services\ContactDuplicateService::class)->normalizePhone($counterpartNumber),
+                    'match_number'        => $matchNumber,
+                    'drop_reason'         => $reason,
                     'jid_like_fields'     => $jidFields, // every value containing '@' (…@c.us vs …@lid)
                     'raw_payload'         => $msg,       // ENTIRE inbound message as received
                 ]);
@@ -120,8 +139,11 @@ class WaArchiveIngestor
             'direction'              => $direction,
             'external_id'            => $externalId,
             'thread_key'             => $chatId,
-            'from_identifier'        => $sender ?: $counterpartNumber,
-            'participant_identifiers' => array_values(array_unique(array_filter([$sender, $this->numberFromJid($chatId)]))),
+            // AT-133 — store the RESOLVED real number (…@c.us / MSISDN), not the @lid
+            // digits. from_identifier prefers the matched number; participants carry
+            // it (+ the sender name) so the archive row shows who, not an @lid.
+            'from_identifier'        => $matchNumber ?: ($sender ?: $counterpartRaw),
+            'participant_identifiers' => array_values(array_unique(array_filter([$matchNumber, $sender]))),
             'occurred_at'            => $this->toDate($msg['timestamp'] ?? null),
             'captured_at'            => now(),
             'subject'                => null,
@@ -234,6 +256,26 @@ class WaArchiveIngestor
             return '';
         }
         return str_contains($jid, '@') ? substr($jid, 0, strpos($jid, '@')) : $jid;
+    }
+
+    /**
+     * AT-133 — a WhatsApp @lid (linked id) is NOT a phone. Its digits must never be
+     * normalised into a phone match (they'd false-match an unrelated contact whose
+     * last-9 collides). The guard: anything ending @lid is non-matchable.
+     */
+    private function isLidIdentifier(string $s): bool
+    {
+        return str_ends_with(trim($s), '@lid');
+    }
+
+    /**
+     * AT-133 — does this look like a real phone (≥9 digits after stripping)? A
+     * display name ("Elize Reichel") yields 0 digits → false. Used to refuse names
+     * and short junk before handing anything to the phone resolver.
+     */
+    private function looksLikePhone(string $s): bool
+    {
+        return strlen(preg_replace('/\D/', '', $s)) >= 9;
     }
 
     private function toDate($ts): \Illuminate\Support\Carbon
