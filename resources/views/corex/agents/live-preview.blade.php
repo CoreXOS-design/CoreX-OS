@@ -26,6 +26,23 @@
     $waNumber = $agent->cell ? preg_replace('/[^0-9]/', '', $agent->cell) : null;
     $callNo   = $agent->cell ?: $agent->phone;
 
+    // ── Social-share (Open Graph) preview ───────────────────────────────────
+    // Drives the rich card shown when the public profile URL is pasted into
+    // WhatsApp / Facebook / iMessage / Slack. Image + URL must be absolute and
+    // publicly reachable — profilePhotoUrl()/asset() already return absolute URLs.
+    $ogImage = $photo ?: (optional($agency)->logo_path ? asset('storage/'.$agency->logo_path) : null);
+    $ogImageType = null;
+    if ($ogImage) {
+        $ext = strtolower(pathinfo((string) parse_url($ogImage, PHP_URL_PATH), PATHINFO_EXTENSION));
+        $ogImageType = ['png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif'][$ext] ?? 'image/jpeg';
+    }
+    $ogParts = collect([$agent->designation, optional($agency)->name, optional($agent->branch)->name])->filter();
+    $ogDescription = $ogParts->isNotEmpty() ? $ogParts->implode(' · ') : 'Property Practitioner';
+    if (!empty($agent->about_me)) {
+        $ogDescription .= ' — ' . Str::limit(trim(preg_replace('/\s+/', ' ', $agent->about_me)), 140);
+    }
+    $ogUrl = $agent->publicProfileUrl();
+
     $socials = array_filter([
         'facebook'  => $agent->website_social_facebook,
         'instagram' => $agent->website_social_instagram,
@@ -63,6 +80,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ $agent->name }} — {{ $agency->name ?? 'Home Finders Coastal' }}</title>
     <meta name="robots" content="noindex">
+
+    {{-- Open Graph — rich link preview (WhatsApp / Facebook / iMessage / Slack) --}}
+    <meta property="og:type" content="profile">
+    <meta property="og:site_name" content="{{ $agency->name ?? 'Home Finders Coastal' }}">
+    <meta property="og:title" content="{{ $agent->name }}{{ optional($agency)->name ? ' — '.$agency->name : '' }}">
+    <meta property="og:description" content="{{ $ogDescription }}">
+    <meta property="og:url" content="{{ $ogUrl }}">
+    @if($ogImage)
+        <meta property="og:image" content="{{ $ogImage }}">
+        <meta property="og:image:secure_url" content="{{ $ogImage }}">
+        @if($ogImageType)<meta property="og:image:type" content="{{ $ogImageType }}">@endif
+        <meta property="og:image:alt" content="{{ $agent->name }}">
+    @endif
+
+    {{-- Twitter card (also honoured by some unfurlers) --}}
+    <meta name="twitter:card" content="{{ $ogImage ? 'summary_large_image' : 'summary' }}">
+    <meta name="twitter:title" content="{{ $agent->name }}{{ optional($agency)->name ? ' — '.$agency->name : '' }}">
+    <meta name="twitter:description" content="{{ $ogDescription }}">
+    @if($ogImage)<meta name="twitter:image" content="{{ $ogImage }}">@endif
+
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700|jetbrains-mono:400,500,600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
