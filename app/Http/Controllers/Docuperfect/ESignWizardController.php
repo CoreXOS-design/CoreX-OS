@@ -1032,8 +1032,10 @@ class ESignWizardController extends Controller
 
         $results = [];
 
-        // 1. Search main properties table
+        // 1. Search main properties table (canonical search, newest-first)
         $properties = Property::searchAddress($q)
+            ->with('agent')
+            ->latest()
             ->limit(10)
             ->get();
 
@@ -1080,6 +1082,8 @@ class ESignWizardController extends Controller
                 'beds'              => $p->beds,
                 'baths'             => $p->baths,
                 'display'           => $p->buildDisplayAddress(),
+                'agent'             => $p->agent?->name,
+                'status'            => $p->statusBadge(),
             ];
         }
 

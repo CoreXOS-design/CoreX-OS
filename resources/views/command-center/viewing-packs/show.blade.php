@@ -209,7 +209,10 @@
                 <ul class="mt-2 space-y-2" x-show="results.length" x-cloak>
                     <template x-for="r in results" :key="r.id">
                         <li class="flex items-center gap-3 rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
-                            <span class="flex-1 text-sm" style="color: var(--text-primary);" x-text="r.label"></span>
+                            <span class="flex-1 min-w-0">
+                                <span class="text-sm" style="color: var(--text-primary);" x-text="r.label"></span>
+                                <span class="block text-xs mt-0.5" style="color: var(--text-muted);" x-text="[r.status, r.agent].filter(Boolean).join(' · ')"></span>
+                            </span>
                             <form method="POST" action="{{ route('corex.viewing-packs.properties.add', $pack) }}" @submit.prevent="vpAction($el)">
                                 @csrf
                                 <input type="hidden" name="property_id" :value="r.id">

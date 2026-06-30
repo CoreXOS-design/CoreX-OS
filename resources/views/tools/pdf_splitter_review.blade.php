@@ -149,8 +149,11 @@
                  style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
                 <template x-for="r in propResults" :key="r.id">
                     <button type="button" @click="pickProp(r)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
-                        <div x-text="r.label"></div>
-                        <div class="text-xs" style="color: var(--text-muted);" x-text="r.ref ? ('Ref: ' + r.ref) : ''"></div>
+                        <div class="flex items-center gap-2">
+                            <span x-text="r.label"></span>
+                            <span x-show="r.status" x-text="r.status" class="text-[10px] px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>
+                        </div>
+                        <div class="text-xs" style="color: var(--text-muted);" x-text="[r.ref ? ('Ref: ' + r.ref) : '', r.agent].filter(Boolean).join(' · ')"></div>
                     </button>
                 </template>
             </div>

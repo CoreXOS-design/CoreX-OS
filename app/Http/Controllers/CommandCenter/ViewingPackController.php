@@ -288,40 +288,20 @@ class ViewingPackController extends Controller
             return response()->json([]);
         }
 
-        $cols  = ['address', 'street_number', 'street_name', 'suburb', 'city', 'complex_name', 'unit_number', 'property_number'];
-        $terms = preg_split('/\s+/', $q, -1, PREG_SPLIT_NO_EMPTY);
-
-        // Property carries AgencyScope, so this is already bounded to the user's
-        // agency — the same agency-wide stock a buyer pack draws from.
+        // Canonical property search + label (fix-the-class): unit+complex aware,
+        // multi-term token AND, newest-first. Property carries AgencyScope, so this
+        // is already bounded to the user's agency.
         $rows = Property::query()
-            ->where(function ($outer) use ($terms, $cols) {
-                foreach ($terms as $term) {
-                    $outer->where(function ($w) use ($term, $cols) {
-                        foreach ($cols as $c) {
-                            $w->orWhere($c, 'like', "%{$term}%");
-                        }
-                    });
-                }
-            })
+            ->searchAddress($q)
+            ->with('agent')
+            ->latest()
             ->limit(12)
-            ->get(['id', 'address', 'street_number', 'street_name', 'suburb', 'city', 'property_number', 'price']);
+            ->get();
 
-        return response()->json($rows->map(function (Property $p) {
-            $addr = trim((string) $p->address);
-            if ($addr === '') {
-                $addr = trim(implode(' ', array_filter([$p->street_number, $p->street_name])));
-            }
-            if ($addr === '') {
-                $addr = '(no address)';
-            }
-
-            return [
-                'id'    => $p->id,
-                'label' => trim($addr . ($p->suburb ? ' — ' . $p->suburb : '')),
-                'ref'   => $p->property_number,
-                'price' => $p->price,
-            ];
-        }));
+        return response()->json($rows->map(fn (Property $p) => $p->toSearchResult([
+            'ref'   => $p->property_number,
+            'price' => $p->price,
+        ])));
     }
 
     /**

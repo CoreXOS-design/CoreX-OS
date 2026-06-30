@@ -16,7 +16,8 @@ class ContactPropertyController extends Controller
         $q = trim($request->query('q', ''));
 
         $query = Property::whereNotIn('id', $contact->properties()->pluck('properties.id'))
-            ->orderBy('title')
+            ->with('agent')
+            ->latest() // newest-first (CoreX never deletes — current listings on top)
             ->limit(10);
 
         if ($q !== '') {
@@ -24,13 +25,11 @@ class ContactPropertyController extends Controller
         }
 
         return response()->json(
-            $query->get()->map(fn ($p) => [
-                'id'      => $p->id,
+            $query->get()->map(fn ($p) => $p->toSearchResult([
                 'title'   => $p->title,
                 'address' => $p->buildDisplayAddress(),
                 'price'   => $p->formattedPrice(),
-                'status'  => $p->status,
-            ])
+            ]))
         );
     }
 
