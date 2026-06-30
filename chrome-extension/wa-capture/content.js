@@ -1,6 +1,11 @@
 /**
  * CoreX WhatsApp Capture — content script (READ-ONLY).
  *
+ * v1.4.4 (AT-137 item 4): backfill the CURRENTLY-OPEN chat first when it's a target
+ * (the agent is usually viewing the chat they want archived) — deterministic, no
+ * dependency on the list-walk reaching/re-opening it, can't be lost to the agent
+ * clicking back. READ-ONLY/idle-gated unchanged.
+ *
  * v1.4.3 (AT-137 item 4 follow-up): deep-history backfill made virtualization-safe.
  * WhatsApp evicts off-screen bubbles, so the one-shot end-of-scroll scrape missed
  * most history; backfillOpenChat now ACCUMULATES the DOM text index at every scroll
@@ -962,6 +967,21 @@ async function runHistorySweep() {
         backfillTargets.phones.size + ' phone + ' + backfillTargets.lids.size + ' @lid pending body; cap ' +
         MAX_BACKFILL_CHATS_PER_RUN + '/run (idle, paced, READ-ONLY)');
     if (!targetCount) { log('history sweep — nothing pending body backfill; done'); return; }
+
+    // AT-137 — backfill the CURRENTLY-OPEN chat FIRST when it's a target. The agent
+    // is most likely viewing the chat they want archived; doing it before the
+    // disruptive list-walk makes that case deterministic (no dependency on the walk
+    // reaching + re-opening it, and it can't be lost to the agent clicking back).
+    if (originalChatId && !originalChatId.includes('@g.us')) {
+      const openLid = lidDigits(originalChatId);
+      const openResolved = resolvePhoneJid(originalChatId) || originalChatId;
+      const openN9 = last9(numberFromChatId(openResolved) || numberFromChatId(originalChatId));
+      if ((openLid && backfillTargets.lids.has(openLid)) || (openN9 && backfillTargets.phones.has(openN9))) {
+        log('history sweep — open chat ' + originalChatId + ' is a target → backfilling it first');
+        await backfillOpenChat(originalChatId);
+        backfilled++;
+      }
+    }
 
     for (const item of items) {
       if (backfilled >= MAX_BACKFILL_CHATS_PER_RUN) { log('history sweep — per-run cap reached, will resume next run'); break; }
