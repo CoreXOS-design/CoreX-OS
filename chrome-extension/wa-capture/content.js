@@ -1,6 +1,15 @@
 /**
  * CoreX WhatsApp Capture — content script (READ-ONLY).
  *
+ * v1.4.2 (AT-137): (1) OUTBOUND body capture — buildDomTextIndex now derives a
+ * bubble's direction authoritatively from its data-id (true_/false_) and learns
+ * ownerName from confirmed outbound, so outbound bodies join the IndexedDB message
+ * (was mis-filed 'in' when WA's tick markup didn't match); plus a safe
+ * unambiguous-minute fallback. (2) DEEP HISTORY — backfillOpenChat now SENDS the
+ * chat's full IndexedDB history (cursor-independent) after scrolling, so 5-year
+ * FICA history actually lands (idbSweep alone is forward-only). Server dedups/
+ * fills/consent-gates. READ-ONLY unchanged.
+ *
  * v1.4.1 (AT-135): @lid-NATIVE body backfill. The pending-body target set now
  * carries @lid digit-keys, so the idle sweep matches an @lid chat DIRECTLY off the
  * chat list — no reverse @lid→phone resolution (the asymmetry that left @lid chats,
@@ -110,8 +119,10 @@ const IDLE_BEFORE_SWEEP_MS = 12000;       // only auto-walk when the agent is id
 const OPEN_CHAT_RENDER_MS = 1500;         // let an opened chat render
 const BETWEEN_CHATS_MIN_MS = 6000;        // randomised gap between chats
 const BETWEEN_CHATS_MAX_MS = 14000;
-const HISTORY_SCROLL_STEPS = 25;          // max scroll-up steps per chat backfill
+const HISTORY_SCROLL_STEPS = 25;          // max scroll-up steps per chat backfill (config knob)
 const HISTORY_SCROLL_PAUSE_MS = 700;
+const MAX_BACKFILL_MSGS_PER_CHAT = 2000;  // AT-137 — cap on history depth sent per chat (config knob)
+const backfilledChats = {};               // AT-137 — jid -> true: full history sent once this session
 
 const lastSeenByChat = {};   // chatId -> last message id captured this session (mirror of storage)
 const contactCache = {};     // number -> bool (resolved via the contact-check endpoint)
@@ -640,42 +651,76 @@ function idbExtract(rec) {
  * fallback when WA omits data-id. Only the currently-open chat is in the DOM. */
 function buildDomTextIndex() {
   const byId = {}, byKey = {};
+  const minuteText = {}, minuteCount = {}; // AT-137 — direction-agnostic per-minute
   let count = 0;
   const root = document.querySelector(SELECTORS.main);
-  if (!root) return { byId, byKey, count };
+  if (!root) return { byId, byKey, byMinute: {}, count };
   for (const metaEl of messageEls(root)) {
     const textEl = metaEl.querySelector(SELECTORS.textSpan);
     const text = textEl ? (textEl.innerText || textEl.textContent || '').trim() : '';
     if (!text) continue;
     count++;
-    // primary key: the message id from a data-id ancestor (exact IndexedDB join).
+
+    const meta = metaEl.getAttribute('data-pre-plain-text') || '';
+    const sm = meta.match(/^\s*\[[^\]]*\]\s*([\s\S]*?):\s*$/);
+    const sndr = sm ? sm[1].trim() : '';
+
+    // AT-137 — direction, AUTHORITATIVE from a data-id ancestor (true_/false_) when
+    // present (same source idbExtract trusts). This also drives the byKey direction
+    // (previously re-derived only via tick/ownerName — which silently mis-filed
+    // OUTBOUND bubbles as 'in' when WA's tick markup didn't match, so outbound
+    // bodies never joined). A confirmed outbound also LEARNS ownerName so later
+    // no-data-id outbound bubbles resolve by sender name.
+    let dir = '';
     const idEl = dataIdAncestor(metaEl);
     if (idEl) {
       const parts = (idEl.getAttribute('data-id') || '').split('_');
       if (DATA_ID_RE.test(parts[0] + '_') && parts.length >= 3) {
         const mid = parts.slice(2).join('_');
-        if (mid && !byId[mid]) byId[mid] = text;
+        if (mid && !byId[mid]) byId[mid] = text; // exact IndexedDB join key
+        dir = parts[0] === 'true' ? 'out' : 'in';
+        if (dir === 'out' && sndr && sndr !== ownerName) { ownerName = sndr; try { chrome.storage.local.set({ waOwnerName: ownerName }); } catch (e) {} }
       }
     }
+    if (!dir) {
+      // No usable data-id: tick → learned ownerName → default inbound.
+      const scope = metaEl.closest('[role="row"]') || metaEl;
+      if (scope.querySelector(SELECTORS.outboundTick)) {
+        dir = 'out';
+        if (sndr && sndr !== ownerName) { ownerName = sndr; try { chrome.storage.local.set({ waOwnerName: ownerName }); } catch (e) {} }
+      } else if (ownerName && sndr === ownerName) {
+        dir = 'out';
+      } else {
+        dir = 'in';
+      }
+    }
+
     // fallback key: direction + minute (UTC), matching idbExtract._domKey.
-    const meta = metaEl.getAttribute('data-pre-plain-text') || '';
     const ts = parseTimestamp(meta);
     if (ts) {
-      const scope = metaEl.closest('[role="row"]') || metaEl;
-      const sm = meta.match(/^\s*\[[^\]]*\]\s*([\s\S]*?):\s*$/);
-      const sndr = sm ? sm[1].trim() : '';
-      const dir = (scope.querySelector(SELECTORS.outboundTick) || (ownerName && sndr === ownerName)) ? 'out' : 'in';
-      const k = dir + '|' + ts.slice(0, 16);
+      const minute = ts.slice(0, 16);
+      const k = dir + '|' + minute;
       if (!byKey[k]) byKey[k] = text;
+      // AT-137 — direction-AGNOSTIC per-minute fallback, used ONLY when a minute
+      // holds exactly ONE bubble (no in/out collision) → recovers an outbound body
+      // even if the direction above was still wrong, with zero wrong-body risk.
+      minuteCount[minute] = (minuteCount[minute] || 0) + 1;
+      if (minuteCount[minute] === 1) minuteText[minute] = text; else delete minuteText[minute];
     }
   }
-  return { byId, byKey, count };
+  return { byId, byKey, byMinute: minuteText, count };
 }
 
 /** Fill an unreadable-body message from the DOM index; flag body_unreadable if not found. */
 function applyDomBodyFallback(m, domIndex) {
   if (m._bodyReadable || m.has_media) return; // plaintext/media — fast path unchanged
-  const fromDom = domIndex.byId[m.message_id] || domIndex.byKey[m._domKey] || '';
+  // AT-137 — id join → direction+minute → unambiguous-minute (covers outbound when
+  // WA tick markup defeated direction detection; the unique-minute guard makes it safe).
+  const minute = (m._domKey || '').split('|')[1] || '';
+  const fromDom = domIndex.byId[m.message_id]
+    || domIndex.byKey[m._domKey]
+    || (minute && domIndex.byMinute ? domIndex.byMinute[minute] : '')
+    || '';
   if (fromDom) {
     m.text = fromDom;
     m._bodyReadable = true;
@@ -976,6 +1021,99 @@ async function backfillOpenChat(chatId) {
     if (scroller.scrollTop >= before) break; // reached the top — no more history
   }
   sweep('history-backfill-final');
+
+  // AT-137 — idbSweep is FORWARD-ONLY (it never sends messages older than the
+  // per-chat cursor), so scrolling alone rendered the old bubbles but nothing
+  // ingested them. Send the chat's full IndexedDB history (bodies filled from the
+  // now-rendered DOM), cursor-independent — the server dedups (alreadySeen),
+  // fills bodies (backfillBodyIfArchived) and consent-gates. Once per session per
+  // chat (forward capture covers anything newer).
+  if (!backfilledChats[chatId]) {
+    backfilledChats[chatId] = true;
+    try {
+      const n = await backfillSendChat(chatId);
+      log('history backfill (AT-137) — sent ' + n + ' message(s) for ' + chatId + ' cursor-independent (server dedups/fills/consent-gates)');
+    } catch (e) { warn('backfillSendChat error: ' + String(e)); backfilledChats[chatId] = false; }
+  }
+}
+
+/**
+ * AT-137 — read a single chat's FULL history from IndexedDB (not the global
+ * newest-N window) and send it, IGNORING the forward-only cursor, so 5-year-FICA
+ * history actually lands. Bodies are filled from the currently-rendered DOM
+ * (backfillOpenChat scrolled them in). READ-ONLY: reads IndexedDB + the rendered
+ * DOM only; the only write is the POST to OUR server, which dedups/fills/gates.
+ */
+async function backfillSendChat(targetJid) {
+  const db = await idbOpen(MODEL_DB);
+  if (!db) return 0;
+  try {
+    const msgStore = pickStore(db, ['message', 'messages'], /mess/i);
+    if (!msgStore) return 0;
+
+    // Ensure the @lid→phone map exists (idbSweep normally builds it); rebuild from
+    // the contact store if a sweep hasn't populated it yet this session.
+    if (!Object.keys(phoneByJid).length) {
+      const contactStore = pickStore(db, ['contact', 'contacts'], /contact/i);
+      if (contactStore) {
+        const crecs = await idbReadAll(db, contactStore, 5000);
+        const phones = {}, idx = {};
+        for (const r of crecs) {
+          const c = r.value || {};
+          const j = serId(c.id) || (typeof r.key === 'string' ? r.key : '');
+          const nm = c.name || c.pushname || c.notify || c.shortName || c.verifiedName || c.displayName || '';
+          if (j && nm) idx[j] = nm;
+          const pn = findPhoneJid(c);
+          if (RE_CUS.test(j)) phones[j] = j;
+          if (pn && !phones[j] && j) phones[j] = pn;
+        }
+        contactNameByJid = Object.keys(contactNameByJid).length ? contactNameByJid : idx;
+        phoneByJid = phones;
+      }
+    }
+
+    const recs = await idbReadChat(db, msgStore, String(targetJid), MAX_BACKFILL_MSGS_PER_CHAT);
+    const domIndex = buildDomTextIndex();
+    const msgs = [];
+    for (const r of recs) {
+      const m = idbExtract(r);
+      if (!m || String(m.chat_id) !== String(targetJid)) continue;
+      applyDomBodyFallback(m, domIndex);
+      msgs.push(m);
+    }
+    msgs.sort((a, b) => (a._t - b._t)); // oldest → newest
+
+    const batch = msgs.map((m) => ({
+      message_id: m.message_id, chat_id: String(m.chat_id), direction: m.direction,
+      sender: m.sender, timestamp: m.timestamp, text: m.text, has_media: m.has_media, media: [],
+      counterpart_phone: m.counterpart_phone || '', counterpart_lid: m.counterpart_lid || '',
+      resolved: !!m.resolved, body_unreadable: !!m.body_unreadable,
+    }));
+    for (let i = 0; i < batch.length; i += 50) send(batch.slice(i, i + 50)); // chunk to OUR server
+    return batch.length;
+  } finally {
+    if (db) { try { db.close(); } catch (e) {} }
+  }
+}
+
+/** AT-137 — all IndexedDB message records for one chat jid (true_/false_<jid>_*), capped. */
+function idbReadChat(db, store, chatJid, cap) {
+  return new Promise((res) => {
+    const recs = [];
+    const pre1 = 'true_' + chatJid + '_', pre0 = 'false_' + chatJid + '_';
+    try {
+      const cur = db.transaction(store, 'readonly').objectStore(store).openCursor();
+      cur.onsuccess = (e) => {
+        const c = e.target.result;
+        if (c && recs.length < cap) {
+          const id = serId(c.value && c.value.id) || (typeof c.primaryKey === 'string' ? c.primaryKey : '');
+          if (id && (id.indexOf(pre1) === 0 || id.indexOf(pre0) === 0)) recs.push({ key: c.primaryKey, value: c.value });
+          c.continue();
+        } else { res(recs); }
+      };
+      cur.onerror = () => res(recs);
+    } catch (e) { res(recs); }
+  });
 }
 
 function openChat(item) {

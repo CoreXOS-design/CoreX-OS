@@ -2,7 +2,16 @@
 
 @section('corex-content')
 <div class="-m-4 lg:-m-6">
-    <x-page-header title="Communication" :back-route="route('compliance.comm-archive.index')" back-label="Communication Archive" :flush="true" />
+    @php
+        // AT-137 — context-aware Back (return to the originating contact when present).
+        $backRoute = isset($backContact) && $backContact
+            ? route('corex.contacts.show', $backContact->id)
+            : route('compliance.comm-archive.index');
+        $backLabel = isset($backContact) && $backContact
+            ? (trim(($backContact->first_name ?? '').' '.($backContact->last_name ?? '')) ?: 'Contact')
+            : 'Communication Archive';
+    @endphp
+    <x-page-header title="Communication" :back-route="$backRoute" :back-label="$backLabel" :flush="true" />
 
     <div class="p-4 lg:p-6">
         <div class="max-w-3xl mx-auto bg-white border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
@@ -13,7 +22,7 @@
                     <span class="text-xs ml-auto" style="color:#94a3b8;">{{ $communication->occurred_at?->format('d M Y H:i') }}</span>
                 </div>
                 <h2 class="text-base font-bold" style="color:var(--text-primary);">{{ $communication->subject ?: '(no subject)' }}</h2>
-                <div class="text-xs mt-1" style="color:#64748b;">From: {{ $communication->from_identifier ?? '—' }}</div>
+                <div class="text-xs mt-1" style="color:#64748b;">From: {{ $communication->from_display }}</div>
             </div>
             <div class="px-5 py-4 text-sm whitespace-pre-wrap" style="color:#334155; line-height:1.7;">{{ $communication->body_text ?: $communication->body_preview }}</div>
 

@@ -1909,10 +1909,12 @@
                 @php
                     $isWa     = $thread->channel === \App\Models\Communications\Communication::CHANNEL_WHATSAPP;
                     $accent   = $isWa ? '#25d366' : 'var(--brand-icon, #0ea5e9)';
+                    // AT-137 — pass origin context so the thread/message Back returns
+                    // HERE (the contact), not the compliance archive.
                     $openHref = $thread->is_visible
                         ? ($thread->thread_key !== null
-                            ? route('compliance.comm-archive.thread', ['threadKey' => $thread->thread_key])
-                            : route('compliance.comm-archive.show', ['communication' => $thread->communication_id]))
+                            ? route('compliance.comm-archive.thread', ['threadKey' => $thread->thread_key, 'from' => 'contact', 'contact' => $contact->id])
+                            : route('compliance.comm-archive.show', ['communication' => $thread->communication_id, 'from' => 'contact', 'contact' => $contact->id]))
                         : null;
                 @endphp
 
