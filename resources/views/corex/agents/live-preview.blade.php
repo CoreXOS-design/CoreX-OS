@@ -307,6 +307,7 @@
 
     <div style="text-align:center; padding-top:2.5rem; margin-top:4rem; border-top:1px solid var(--border); color:var(--muted-2); font-size:.8125rem;">
         {{ $agency->name ?? 'Home Finders Coastal' }}@if($agent->branch) · {{ $agent->branch->name }}@endif
+        <div style="margin-top:.4rem;">Registered with the PPRA</div>
     </div>
 </div>
 
