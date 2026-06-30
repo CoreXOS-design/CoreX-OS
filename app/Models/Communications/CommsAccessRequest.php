@@ -3,6 +3,7 @@
 namespace App\Models\Communications;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Communications\Communication;
 use App\Models\Contact;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -24,8 +25,16 @@ class CommsAccessRequest extends Model
     public const STATUS_EXPIRED  = 'expired';
     public const STATUS_REVOKED  = 'revoked';
 
+    // AT-132 Wave 1 — grant modes. 'session' = end-of-day cap + midnight reset +
+    // logout revoke (the AT-118 behaviour). 'always' = permanent for that thread
+    // (skipped by the resets — wired in Step 2). 'otp' is RESERVED for Wave 2
+    // (AT-130 break-glass) and is intentionally NOT defined as usable here.
+    public const MODE_SESSION = 'session';
+    public const MODE_ALWAYS  = 'always';
+
     protected $fillable = [
-        'agency_id', 'contact_id', 'requester_user_id', 'status', 'reason',
+        'agency_id', 'contact_id', 'thread_key', 'communication_id',
+        'requester_user_id', 'status', 'grant_mode', 'reason',
         'denial_reason', 'authorized_by_user_id', 'authorized_at',
         'expires_at', 'granted_session_expires_at', 'revoked_at', 'revoked_reason',
         'session_id',
@@ -53,6 +62,15 @@ class CommsAccessRequest extends Model
     public function authorizer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'authorized_by_user_id');
+    }
+
+    /**
+     * AT-132 — the specific communication a NULL-thread grant is keyed on (when
+     * thread_key is null/empty, the grant scopes to this single comm). Nullable.
+     */
+    public function communication(): BelongsTo
+    {
+        return $this->belongsTo(Communication::class, 'communication_id');
     }
 
     // ── Scopes ──
