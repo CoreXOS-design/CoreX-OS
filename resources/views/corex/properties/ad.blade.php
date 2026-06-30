@@ -326,8 +326,17 @@
 const PREBUILT_NAMES = @json(collect($prebuilt)->pluck('name', 'key'));
 const PREBUILT_SEARCH = @json(collect($prebuilt)->map(fn($t) => strtolower($t['name'].' '.$t['desc'].' '.$t['tags']))->values());
 
-const IMAGE_FIELDS = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agency_logo'];
-const NON_TEXT_FIELDS = [...IMAGE_FIELDS, 'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape'];
+const IMAGE_FIELDS = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agent_2_avatar','agency_logo'];
+const NON_TEXT_FIELDS = [...IMAGE_FIELDS, 'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape', 'custom_image', 'custom_video'];
+// Shape geometry — mirrors the Ad Builder (ad-builder.blade.php SHAPE_CLIPS).
+const SHAPE_CLIPS = {
+    triangle: 'polygon(50% 0,100% 100%,0 100%)',
+    diamond:  'polygon(50% 0,100% 50%,50% 100%,0 50%)',
+    pentagon: 'polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)',
+    hexagon:  'polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)',
+    star:     'polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)',
+    chevron:  'polygon(0 0,75% 0,100% 50%,75% 100%,0 100%,25% 50%)',
+};
 
 function adApp(savedTemplates, propertyData, agentCfg) {
     agentCfg = agentCfg || { listing: null, co: null };
@@ -529,13 +538,35 @@ function adApp(savedTemplates, propertyData, agentCfg) {
                         Object.assign(div.style, { display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.2)', fontSize:'11px' });
                         div.textContent = el.label;
                     }
+                } else if (field === 'custom_image') {
+                    if (el.src) {
+                        const img = document.createElement('img');
+                        img.src = el.src;
+                        img.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
+                        div.appendChild(img);
+                    }
+                } else if (field === 'custom_video') {
+                    if (el.src) {
+                        const v = document.createElement('video');
+                        v.src = el.src; v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true;
+                        v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+                        v.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
+                        div.appendChild(v);
+                        v.play?.().catch(() => {});
+                    }
                 } else if (field === 'color_block') {
                     div.style.background = el.bg || '#07111e';
                     div.style.opacity = el.opacity ?? 1;
                 } else if (field === 'shape') {
                     div.style.background = el.bg || '#00b4d8';
                     div.style.opacity = el.opacity ?? 1;
-                    div.style.borderRadius = (el.borderRadius ?? 50) + '%';
+                    const t = el.shapeType;
+                    if (!t) { div.style.borderRadius = (el.borderRadius ?? 50) + '%'; }  // legacy %
+                    else if (SHAPE_CLIPS[t]) { div.style.clipPath = SHAPE_CLIPS[t]; div.style.borderRadius = '0'; }
+                    else if (t === 'circle') div.style.borderRadius = '50%';
+                    else if (t === 'pill')   div.style.borderRadius = '9999px';
+                    else if (t === 'rounded') div.style.borderRadius = (el.borderRadius ?? 24) + 'px';
+                    else div.style.borderRadius = '0';
                 } else if (field === 'gradient') {
                     div.style.background = `linear-gradient(${el.gradAngle || 180}deg, ${el.gradFrom || '#071325'}, ${el.gradTo || 'rgba(7,19,37,0)'})`;
                     div.style.opacity = el.opacity ?? 1;
@@ -569,6 +600,11 @@ function adApp(savedTemplates, propertyData, agentCfg) {
                     let value;
                     if (field === 'custom_text' || field === 'badge') {
                         value = el.text || el.label;
+                    } else if (field === 'features') {
+                        // Show the chosen amenities (null selection = all of them).
+                        const all = Array.isArray(prop.features_list) ? prop.features_list : [];
+                        const chosen = (el.selectedFeatures == null) ? all : all.filter(f => el.selectedFeatures.includes(f));
+                        value = chosen.length ? chosen.join('  ·  ') : (prop.features || el.preview || '');
                     } else {
                         value = (prop[field] !== undefined && prop[field] !== null && prop[field] !== '') ? prop[field] : (String(field).startsWith('agent_2') ? '' : (el.preview || el.label));
                     }
