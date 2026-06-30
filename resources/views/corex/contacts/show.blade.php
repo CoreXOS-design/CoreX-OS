@@ -277,7 +277,7 @@
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'consent','label'=>'Consent'],
-                ['key'=>'communications','label'=>'Communications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. (($canViewComms ?? false) ? $contactComms->count() : 0) .'</span>'],
+                ['key'=>'communications','label'=>'Communications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contactThreads ?? collect())->count() .'</span>'],
                 ['key'=>'outreach','label'=>'Outreach <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $outreachCount .'</span>' . $outreachOptOutBadge],
             ] as $t)
             @if($t['key'] === 'outreach' && !auth()->user()->hasPermission('outreach.compose'))
@@ -1855,114 +1855,100 @@
         {{-- ════════════════════════════
              COMMUNICATIONS TAB (AT-43) — linked archive comms (email + WhatsApp)
              ════════════════════════════ --}}
+        {{-- AT-132 Wave 1 — per-thread list. Safe metadata for every thread (channel,
+             date, message count, owning agent, attachment flag, subject unless the
+             owner hid it); BODIES stay gated per row. Visible threads open to the
+             archive; gated threads show a per-thread "Request access". Never renders
+             body / body_preview / message content. DESIGN SYSTEM COMPLIANCE:
+             UI_DESIGN_SYSTEM.md (tokens via var(), no emojis, sharp corners). --}}
         @if(($canViewComms ?? false) || ($canRequestComms ?? false))
         <div x-show="activeTab === 'communications'" x-cloak class="p-6 space-y-4" id="tab-communications">
-            @if($commsViaGrant ?? false)
-            <div class="rounded-md px-4 py-2.5 flex items-center gap-2 text-xs"
-                 style="background:color-mix(in srgb, #00d4aa 12%, transparent); border:1px solid color-mix(in srgb, #00d4aa 40%, transparent); color:var(--text-secondary);">
-                <span>🔓</span>
-                <span><strong style="color:var(--text-primary);">Access granted for this session.</strong> Your access to this contact's communications ends when you log out, and automatically resets at midnight.</span>
-            </div>
-            @endif
-
-            @if($canViewComms ?? false)
             <div class="flex items-center justify-between">
                 <div>
-                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Communication Archive</h3>
-                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Captured email &amp; WhatsApp linked to this contact. This is the legal archive — separate from "sent from CoreX" counts.</p>
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Communications</h3>
+                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Email &amp; WhatsApp threads linked to this contact. Message contents are private to the owning agent — request access to a thread to read it.</p>
                 </div>
-                <a href="{{ route('compliance.comm-archive.index') }}" class="text-xs font-semibold underline" style="color:var(--brand-icon, #0ea5e9);">Open full archive →</a>
+                @if($canViewComms ?? false)
+                <a href="{{ route('compliance.comm-archive.index', ['contact' => $contact->id]) }}" class="text-xs font-semibold underline" style="color:var(--brand-icon, #0ea5e9);">Open full archive</a>
+                @endif
             </div>
 
-            @forelse($contactComms as $comm)
+            @forelse(($contactThreads ?? collect()) as $thread)
                 @php
-                    $isOut = $comm->direction === \App\Models\Communications\Communication::DIRECTION_OUTBOUND;
-                    $isWa  = $comm->channel === \App\Models\Communications\Communication::CHANNEL_WHATSAPP;
+                    $isWa     = $thread->channel === \App\Models\Communications\Communication::CHANNEL_WHATSAPP;
+                    $accent   = $isWa ? '#25d366' : 'var(--brand-icon, #0ea5e9)';
+                    $openHref = $thread->is_visible
+                        ? ($thread->thread_key !== null
+                            ? route('compliance.comm-archive.thread', ['threadKey' => $thread->thread_key])
+                            : route('compliance.comm-archive.show', ['communication' => $thread->communication_id]))
+                        : null;
                 @endphp
-                <a href="{{ route('compliance.comm-archive.show', $comm) }}"
-                   class="block rounded-md px-4 py-3 transition-all hover:opacity-90"
-                   style="background:var(--surface-2); border:1px solid var(--border); border-left:3px solid {{ $isWa ? '#25d366' : 'var(--brand-icon, #0ea5e9)' }};">
-                    <div class="flex items-center justify-between gap-3 mb-1">
-                        <div class="flex items-center gap-2 min-w-0">
-                            <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                                  style="background:color-mix(in srgb, {{ $isWa ? '#25d366' : 'var(--brand-icon, #0ea5e9)' }} 14%, transparent); color:{{ $isWa ? '#1a9e4b' : 'var(--brand-icon, #0ea5e9)' }};">
-                                {{ $isWa ? 'WhatsApp' : 'Email' }}
-                            </span>
-                            <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                                  style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
-                                  title="{{ $isOut ? 'Sent by the agency' : 'Received from the contact' }}">
-                                {{ $isOut ? '↑ Outbound' : '↓ Inbound' }}
-                            </span>
-                            <span class="text-sm font-semibold truncate" style="color:var(--text-primary);">{{ $comm->subject ?: '(no subject)' }}</span>
-                        </div>
-                        <span class="text-xs whitespace-nowrap" style="color:var(--text-muted);">{{ optional($comm->occurred_at)->format('d M Y, H:i') ?? '—' }}</span>
-                    </div>
-                    @if($comm->body_preview)
-                    <p class="text-xs line-clamp-2" style="color:var(--text-secondary);">{{ $comm->body_preview }}</p>
-                    @endif
-                    <div class="flex items-center gap-3 mt-1.5">
-                        <span class="text-[11px]" style="color:var(--text-muted);">{{ $comm->from_identifier }}</span>
-                        @if($comm->has_attachments)
-                        <span class="text-[11px] inline-flex items-center gap-1" style="color:var(--text-muted);">📎 attachment</span>
-                        @endif
-                        <span class="text-[11px] font-semibold ml-auto" style="color:var(--brand-icon, #0ea5e9);">Open thread →</span>
+
+                @if($thread->is_visible)
+                {{-- VISIBLE thread — opens to the body --}}
+                <a href="{{ $openHref }}"
+                   class="block rounded px-4 py-3 transition-all hover:opacity-90"
+                   style="background:var(--surface-2); border:1px solid var(--border); border-left:3px solid {{ $accent }};">
+                    @include('corex.contacts._comm-thread-meta', ['thread' => $thread, 'isWa' => $isWa, 'accent' => $accent])
+                    <div class="flex items-center mt-1.5">
+                        <span class="text-[11px] font-semibold ml-auto" style="color:var(--brand-icon, #0ea5e9);">Open thread</span>
                     </div>
                 </a>
+                @else
+                {{-- GATED thread — safe metadata + per-thread Request access (No Silent Locks) --}}
+                <div class="rounded px-4 py-3"
+                     style="background:var(--surface-2); border:1px solid var(--border); border-left:3px solid var(--text-muted);"
+                     x-data="{
+                        requested: {{ $thread->pending ? 'true' : 'false' }},
+                        loading: false, error: '',
+                        async request(){
+                            this.loading = true; this.error = '';
+                            try {
+                                const r = await fetch('{{ route('api.v1.comms-access.store') }}', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type':'application/json', 'Accept':'application/json',
+                                               'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
+                                    body: JSON.stringify({
+                                        contact_id: {{ $contact->id }},
+                                        thread_key: {{ $thread->thread_key !== null ? json_encode($thread->thread_key) : 'null' }},
+                                        communication_id: {{ $thread->communication_id !== null ? $thread->communication_id : 'null' }}
+                                    })
+                                });
+                                const d = await r.json();
+                                if (r.ok && d.ok) { this.requested = true; }
+                                else { this.error = d.error || 'Could not send the request.'; }
+                            } catch (e) { this.error = 'Network error — please try again.'; }
+                            finally { this.loading = false; }
+                        }
+                     }">
+                    @include('corex.contacts._comm-thread-meta', ['thread' => $thread, 'isWa' => $isWa, 'accent' => 'var(--text-muted)'])
+                    <div class="flex items-center gap-3 mt-2">
+                        <span class="text-[11px]" style="color:var(--text-muted);">Private to the owning agent</span>
+                        <div class="ml-auto">
+                            <template x-if="!requested">
+                                <button type="button" @click="request()" :disabled="loading"
+                                        class="text-[11px] font-semibold rounded px-3 py-1.5"
+                                        style="background:var(--brand-button, #0ea5e9); color:#fff;"
+                                        :style="loading ? 'opacity:.6;cursor:wait' : ''">
+                                    <span x-show="!loading">Request access</span>
+                                    <span x-show="loading">Sending</span>
+                                </button>
+                            </template>
+                            <template x-if="requested">
+                                <span class="inline-flex items-center text-[11px] font-semibold rounded px-2.5 py-1"
+                                      style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b);">Requested — awaiting approval</span>
+                            </template>
+                        </div>
+                    </div>
+                    <p x-show="error" x-text="error" class="text-[11px] mt-1.5" style="color:var(--ds-crimson, #c41e3a);"></p>
+                </div>
+                @endif
             @empty
-                <div class="rounded-md px-4 py-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border);">
-                    <p class="text-sm" style="color:var(--text-secondary);">No archived communications linked to this contact yet.</p>
+                <div class="rounded px-4 py-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border);">
+                    <p class="text-sm" style="color:var(--text-secondary);">No communications linked to this contact yet.</p>
                     <p class="text-xs mt-1" style="color:var(--text-muted);">Captured email/WhatsApp with this contact's address or number will appear here automatically.</p>
                 </div>
             @endforelse
-            @else
-            {{-- AT-118 Flow A — comms-capable user without access to THIS contact's threads --}}
-            <div class="rounded-md px-4 py-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border);"
-                 x-data="{
-                    requested: {{ ($pendingCommsRequest ?? null) ? 'true' : 'false' }},
-                    reason: '', loading: false, error: '',
-                    async submit(){
-                        this.loading = true; this.error = '';
-                        try {
-                            const r = await fetch('{{ route('api.v1.comms-access.store') }}', {
-                                method: 'POST',
-                                headers: { 'Content-Type':'application/json', 'Accept':'application/json',
-                                           'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
-                                body: JSON.stringify({ contact_id: {{ $contact->id }}, reason: this.reason })
-                            });
-                            const d = await r.json();
-                            if (r.ok && d.ok) { this.requested = true; }
-                            else { this.error = d.error || 'Could not send the request.'; }
-                        } catch (e) { this.error = 'Network error — please try again.'; }
-                        finally { this.loading = false; }
-                    }
-                 }">
-                <div class="text-2xl mb-2">🔒</div>
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Communications are private to the owning agent</h3>
-                <p class="text-xs mt-1 mb-4 max-w-md mx-auto" style="color:var(--text-muted);">You don't have access to this contact's email &amp; WhatsApp threads. Request access — the owning agent or a manager can approve it for your current session.</p>
-
-                <template x-if="!requested">
-                    <div class="flex flex-col items-center gap-2">
-                        <input type="text" x-model="reason" placeholder="Reason (optional)" maxlength="1000"
-                               class="w-full max-w-sm text-sm rounded-md px-3 py-2"
-                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        <button type="button" @click="submit()" :disabled="loading"
-                                class="text-xs font-semibold rounded-md px-4 py-2"
-                                style="background:var(--brand-icon, #0ea5e9); color:#fff;"
-                                :style="loading ? 'opacity:.6;cursor:wait' : ''">
-                            <span x-show="!loading">Request access</span>
-                            <span x-show="loading">Sending…</span>
-                        </button>
-                    </div>
-                </template>
-                <template x-if="requested">
-                    <div class="inline-flex items-center gap-2 text-xs font-semibold rounded-md px-3 py-2"
-                         style="background:color-mix(in srgb, #f59e0b 14%, transparent); color:#b45309;">
-                        <span>⏳</span><span>Request sent — awaiting approval. You'll get access for this session once approved.</span>
-                    </div>
-                </template>
-                <p x-show="error" x-text="error" class="text-xs mt-2" style="color:#ef4444;"></p>
-            </div>
-            @endif
         </div>
         @endif
 
