@@ -169,9 +169,39 @@ class Communication extends Model
             } else {
                 $outer->where('owner_user_id', $user->id); // 'own', or 'branch' with no branch id
             }
-            // (b) OR — you were a participant via one of your own active mailboxes
-            foreach ($mailboxAddresses as $addr) {
-                $outer->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($addr)]);
+
+            // (b) OR — participant visibility, THREAD-LEVEL (AT-127). A user who was
+            // on ANY message of a thread (via their own active mailbox) sees EVERY
+            // message in that thread — closing the reply-vs-reply-all gap (a colleague
+            // who replies without reply-all must not hide that message from the other
+            // thread agent). Mailbox-less users add nothing here.
+            if (!empty($mailboxAddresses)) {
+                $outer->orWhere(function (Builder $p) use ($mailboxAddresses) {
+                    // (b1) per-message match — also the ONLY path for a NULL/empty
+                    // thread_key comm (it matches itself, never groups with other
+                    // null-thread comms).
+                    foreach ($mailboxAddresses as $addr) {
+                        $p->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($addr)]);
+                    }
+
+                    // (b2) thread-level — this comm's (non-empty) thread_key is one
+                    // where I was a participant on at least one message. The subquery
+                    // is Eloquent so AgencyScope + SoftDeletes apply (multi-tenant safe).
+                    $threadKeys = static::query()
+                        ->select('thread_key')
+                        ->whereNotNull('thread_key')->where('thread_key', '!=', '')
+                        ->whereNull('purged_at')
+                        ->where(function (Builder $w) use ($mailboxAddresses) {
+                            foreach ($mailboxAddresses as $addr) {
+                                $w->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($addr)]);
+                            }
+                        });
+
+                    $p->orWhere(function (Builder $t) use ($threadKeys) {
+                        $t->whereNotNull('thread_key')->where('thread_key', '!=', '')
+                          ->whereIn('thread_key', $threadKeys);
+                    });
+                });
             }
         });
     }
