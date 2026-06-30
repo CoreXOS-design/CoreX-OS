@@ -27,12 +27,7 @@ class WaBodyBackfillService
      */
     public function pendingBodyNumbers(int $agencyId): array
     {
-        return Communication::query()
-            ->withoutGlobalScope(AgencyScope::class)
-            ->where('agency_id', $agencyId)
-            ->where('channel', Communication::CHANNEL_WHATSAPP)
-            ->where('body_status', 'unreadable')
-            ->whereNull('purged_at')
+        return $this->pendingQuery($agencyId)
             ->pluck('from_identifier')
             ->map(fn ($v) => $this->last9((string) $v))
             ->filter()
@@ -41,16 +36,32 @@ class WaBodyBackfillService
             ->all();
     }
 
-    /** Count of unreadable WA bodies for an agency (coverage visibility). */
+    /** Count of WA messages still missing a body for an agency (coverage visibility). */
     public function pendingBodyCount(int $agencyId): int
+    {
+        return $this->pendingQuery($agencyId)->count();
+    }
+
+    /**
+     * WA messages with NO body text yet and a body still expected — both AT-135
+     * 'unreadable'-tagged rows AND legacy blanks archived before the column. Media
+     * (has_attachments) and already-captured rows are excluded (nothing to fill).
+     */
+    private function pendingQuery(int $agencyId)
     {
         return Communication::query()
             ->withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)
             ->where('channel', Communication::CHANNEL_WHATSAPP)
-            ->where('body_status', 'unreadable')
             ->whereNull('purged_at')
-            ->count();
+            ->where('has_attachments', false)
+            ->where(function ($q) {
+                $q->where('body_status', 'unreadable')
+                  ->orWhere(function ($w) {
+                      $w->where(fn ($b) => $b->whereNull('body_text')->orWhere('body_text', ''))
+                        ->where(fn ($s) => $s->whereNull('body_status')->orWhere('body_status', '!=', 'captured'));
+                  });
+            });
     }
 
     private function last9(string $s): ?string
