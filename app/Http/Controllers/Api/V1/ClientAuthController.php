@@ -80,17 +80,18 @@ class ClientAuthController extends Controller
         $email   = strtolower(trim($data['email']));
         $purpose = $data['purpose'] ?? 'activation';
 
-        $cooldownKey = 'clientauth.otp.cooldown:' . $email;
-        if (RateLimiter::tooManyAttempts($cooldownKey, 1)) {
+        // AT-130: issuance throttle now lives in the canonical OtpService
+        // (resend cooldown + hourly cap). Called BEFORE the match check so the
+        // counter ticks regardless of whether the email matches — same
+        // enumeration-resistance as before. Bucket 'client_login' is shared
+        // across activation + recovery (matches the prior per-email keying).
+        $throttle = app(\App\Services\Otp\OtpService::class)->throttle('client_login', $email);
+        if ($throttle === 'cooldown') {
             return response()->json(['message' => 'Please wait before requesting another code.'], 429);
         }
-        RateLimiter::hit($cooldownKey, (int) config('clientauth.otp.resend_cooldown_secs', 60));
-
-        $hourlyKey = 'clientauth.otp.hourly:' . $email;
-        if (RateLimiter::tooManyAttempts($hourlyKey, (int) config('clientauth.otp.hourly_limit_per_email', 5))) {
+        if ($throttle === 'hourly') {
             return response()->json(['message' => 'Too many codes requested. Try again later.'], 429);
         }
-        RateLimiter::hit($hourlyKey, 3600);
 
         // Don't issue OTP if there's no matching contact AND no client user — but
         // also don't reveal that fact (consistent timing).
