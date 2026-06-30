@@ -167,6 +167,25 @@ final class WaLidBackfillTargetTest extends TestCase
         $this->assertNotSame('captured', $comm->body_status);
     }
 
+    public function test_occurred_at_is_stored_in_app_timezone_not_utc(): void
+    {
+        // Regression: a Unix timestamp was stored as a UTC wall-clock, landing
+        // occurred_at hours behind created_at (now() is app-tz) — so a just-sent
+        // message displayed 2h in the past and read as "capture stopped".
+        config(['app.timezone' => 'Africa/Johannesburg']);
+        $this->setConsent(AgentCaptureConsent::STATUS_OPTED_IN);
+
+        $epoch = 1751302502; // a fixed instant
+        $this->ingest($this->lidMessage(['timestamp' => $epoch]));
+
+        $comm = Communication::firstWhere('agency_id', $this->agencyId);
+        $expectedSast = \Illuminate\Support\Carbon::createFromTimestamp($epoch, 'Africa/Johannesburg')->toDateTimeString();
+        $oldUtcBug    = \Illuminate\Support\Carbon::createFromTimestamp($epoch, 'UTC')->toDateTimeString();
+
+        $this->assertSame($expectedSast, $comm->occurred_at->toDateTimeString(), 'occurred_at must be app-tz wall-clock');
+        $this->assertNotSame($oldUtcBug, $comm->occurred_at->toDateTimeString(), 'must NOT be the old UTC wall-clock');
+    }
+
     public function test_optin_then_rescrape_fills_the_withheld_lid_body(): void
     {
         // The full recovery path: withheld at ingest → opt-in → extension re-scrapes

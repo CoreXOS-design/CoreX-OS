@@ -423,13 +423,21 @@ class WaArchiveIngestor
         if ($ts === null || $ts === '') {
             return now();
         }
+        // The instant must be expressed in the APP timezone before it is stored —
+        // Laravel persists a Carbon's wall-clock as-is (no UTC conversion), so a
+        // UTC-based Carbon would land hours behind created_at (now() is app-tz).
+        // createFromTimestamp() defaults to UTC; setTimezone() preserves the instant
+        // and rebases the wall-clock onto app-tz so occurred_at matches created_at.
+        $tz = config('app.timezone');
         try {
             // Unix seconds (10 digits) or millis (13) vs ISO string.
             if (is_numeric($ts)) {
                 $n = (int) $ts;
-                return $n > 9999999999 ? \Illuminate\Support\Carbon::createFromTimestampMs($n) : \Illuminate\Support\Carbon::createFromTimestamp($n);
+                return ($n > 9999999999
+                    ? \Illuminate\Support\Carbon::createFromTimestampMs($n)
+                    : \Illuminate\Support\Carbon::createFromTimestamp($n))->setTimezone($tz);
             }
-            return \Illuminate\Support\Carbon::parse((string) $ts);
+            return \Illuminate\Support\Carbon::parse((string) $ts)->setTimezone($tz);
         } catch (\Throwable $e) {
             return now();
         }
