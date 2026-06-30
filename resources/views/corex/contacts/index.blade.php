@@ -106,7 +106,7 @@
             async checkDuplicate() {
                 // AT-125 — read the first non-empty value from the phones/emails
                 // repeaters (the live hint; store() checks ALL identifiers).
-                const firstVal = (group) => [...document.querySelectorAll(`[data-identifier-group="${group}"] [data-identifier-value]`)]
+                const firstVal = (group) => [...document.querySelectorAll(`[data-identifier-group='${group}'] [data-identifier-value]`)]
                     .map(el => el.value.trim()).find(v => v) || '';
                 const phone = firstVal('phones');
                 const email = firstVal('emails');

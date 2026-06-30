@@ -31,20 +31,19 @@ class CommsAccessGrantService
      */
     public function hasActiveGrant(User $user, Contact $contact): bool
     {
-        $sid = $this->currentSessionId();
-
+        // An approved, non-revoked, non-expired grant for (requester, contact)
+        // opens the gate. We deliberately do NOT match on session_id: it is still
+        // stored on the row for the audit trail, but gating on it broke the flow
+        // (the session id regenerates on every login / switch-user, so a grant
+        // bound at request time could never match once the requester's session
+        // rotated — e.g. while the owner approved it). "Current session only /
+        // dies at logout + midnight" is preserved by RevokeCommsGrantsOnLogout
+        // (logout), comms-access:reset (midnight), and the end-of-day
+        // granted_session_expires_at hard cap in liveGrant().
         return CommsAccessRequest::query()
             ->byRequester($user->id)
             ->forContact($contact->id)
             ->liveGrant()
-            ->where(function ($q) use ($sid) {
-                // A grant bound to a session only opens the gate inside that
-                // session; an unbound (null) grant is a defensive fallback.
-                $q->whereNull('session_id');
-                if ($sid !== null) {
-                    $q->orWhere('session_id', $sid);
-                }
-            })
             ->exists();
     }
 
