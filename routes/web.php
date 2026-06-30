@@ -325,6 +325,14 @@ Route::middleware('auth')->group(function () {
             Route::post('/{request}/confirm-switch',[\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'confirmSwitch'])->name('confirm-switch');
         });
 
+        // ── AT-118 Communications Access Gate — Flow A request/authorise ──
+        // See .ai/specs/at118-communications-access-gate.md §3.3
+        Route::prefix('comms-access')->name('comms-access.')->group(function () {
+            Route::post('/request',                       [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'store'])->name('store');
+            Route::get('/{commsAccessRequest}/status',    [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'status'])->name('status');
+            Route::post('/{commsAccessRequest}/authorize',[\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'authorize'])->name('authorize');
+        });
+
         // ── Command Center: Task Notes (threaded) + Checklist ──
         Route::prefix('command-center/tasks/{task}')->name('command-center.tasks.')->group(function () {
             Route::get('/notes',           [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'index'])->name('notes.index');
@@ -2503,6 +2511,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{outreachQueue}/open',   [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'open'])->name('open');
             Route::post('/{outreachQueue}/cancel', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'cancel'])->name('cancel');
         });
+
+    // AT-118 — Communications Access inbox (approvers: owning agents + grant_access holders).
+    // Any comms-capable user may open it; the controller shows only the requests they may authorise.
+    Route::get('/comms-access/inbox', [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'inbox'])
+        ->middleware(['permission:communications.view', 'agency.required'])
+        ->name('corex.comms-access.inbox');
 
     // Contacts
     Route::prefix('contacts')->middleware(['permission:access_contacts', 'agency.required'])->name('corex.contacts.')->group(function () {

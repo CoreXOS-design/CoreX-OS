@@ -2425,6 +2425,39 @@ CREATE TABLE `comms_access_audit_log` (
   CONSTRAINT `comms_audit_subject_fk` FOREIGN KEY (`subject_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `comms_access_requests`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `comms_access_requests` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `requester_user_id` bigint unsigned NOT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `reason` text COLLATE utf8mb4_unicode_ci,
+  `denial_reason` text COLLATE utf8mb4_unicode_ci,
+  `authorized_by_user_id` bigint unsigned DEFAULT NULL,
+  `authorized_at` timestamp NULL DEFAULT NULL,
+  `expires_at` timestamp NOT NULL,
+  `granted_session_expires_at` timestamp NULL DEFAULT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
+  `revoked_reason` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `session_id` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `car_contact_fk` (`contact_id`),
+  KEY `car_authorizer_fk` (`authorized_by_user_id`),
+  KEY `car_agency_contact_idx` (`agency_id`,`contact_id`),
+  KEY `car_requester_status_idx` (`requester_user_id`,`status`),
+  KEY `car_status_idx` (`status`),
+  CONSTRAINT `car_authorizer_fk` FOREIGN KEY (`authorized_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `car_contact_fk` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`),
+  CONSTRAINT `car_requester_fk` FOREIGN KEY (`requester_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `comms_access_requests_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_attachments`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -2648,6 +2681,7 @@ CREATE TABLE `communications` (
   `content_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `text_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `owner_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -2661,7 +2695,10 @@ CREATE TABLE `communications` (
   KEY `comm_hash_idx` (`content_hash`),
   KEY `comm_provisional_idx` (`agency_id`,`channel`,`provisional_at`),
   KEY `comm_texthash_idx` (`text_hash`),
-  CONSTRAINT `comm_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+  KEY `comm_owner_user_fk` (`owner_user_id`),
+  KEY `comm_agency_owner_idx` (`agency_id`,`owner_user_id`),
+  CONSTRAINT `comm_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `comm_owner_user_fk` FOREIGN KEY (`owner_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `company_expenses`;
@@ -2844,6 +2881,28 @@ CREATE TABLE `contact_duplicate_log` (
   CONSTRAINT `contact_duplicate_log_existing_contact_id_foreign` FOREIGN KEY (`existing_contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `contact_emails`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `contact_emails` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email_normalised` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `label` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_primary` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `contact_emails_contact_norm_idx` (`contact_id`,`email_normalised`),
+  KEY `contact_emails_agency_norm_idx` (`agency_id`,`email_normalised`),
+  KEY `contact_emails_primary_idx` (`contact_id`,`is_primary`),
+  CONSTRAINT `contact_emails_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_emails_contact_fk` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `contact_match_feedback`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -2994,6 +3053,28 @@ CREATE TABLE `contact_outreach_log` (
   CONSTRAINT `contact_outreach_log_send_id_foreign` FOREIGN KEY (`send_id`) REFERENCES `seller_outreach_sends` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `contact_phones`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `contact_phones` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `phone` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `phone_normalised` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `label` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_primary` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `contact_phones_contact_norm_idx` (`contact_id`,`phone_normalised`),
+  KEY `contact_phones_agency_norm_idx` (`agency_id`,`phone_normalised`),
+  KEY `contact_phones_primary_idx` (`contact_id`,`is_primary`),
+  CONSTRAINT `contact_phones_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_phones_contact_fk` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `contact_property`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -3128,7 +3209,7 @@ CREATE TABLE `contacts` (
   `client_user_id` bigint unsigned DEFAULT NULL,
   `first_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `phone` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `phone` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `birthday` date DEFAULT NULL,
@@ -12403,3 +12484,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (902,'2026_07_08_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (903,'2026_07_09_000001_make_outreach_queue_due_at_nullable',186);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (904,'2026_07_10_000001_add_branch_id_to_outreach_queue_table',187);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (906,'2026_07_12_000001_create_comms_access_audit_log_table',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (907,'2026_07_11_000001_add_owner_user_id_to_communications_table',189);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (908,'2026_07_12_000001_create_contact_phones_and_emails_tables',189);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (909,'2026_07_12_000002_backfill_contact_identifiers_and_relax_phone',189);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (911,'2026_07_13_000001_create_comms_access_requests_table',190);
