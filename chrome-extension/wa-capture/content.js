@@ -1,9 +1,13 @@
 /**
  * CoreX WhatsApp Capture — content script (READ-ONLY).
  *
- * v1.2.1 (AT-133): adds a one-time, READ-ONLY @lid→phone resolution probe — prints
- * a [CoreX WA] lidResolve line per @lid chat (Q1: is the phone reachable from the
- * @lid in model-storage?). No payload/behaviour change; investigation only.
+ * v1.3.0 (AT-133): @lid → phone AUTO-RESOLUTION. Q1 proved 26/26 @lid chats resolve
+ * to a real …@c.us via the contact store (phoneNumber), so every message now POSTs
+ * counterpart_phone (resolved …@c.us) + counterpart_lid (audit) + resolved flag —
+ * the server matches on the real number. The read-only lidResolve probe is retained.
+ *
+ * v1.2.1 (AT-133): one-time, READ-ONLY @lid→phone resolution probe — [CoreX WA]
+ * lidResolve line per @lid chat (Q1: is the phone reachable from the @lid?).
  *
  * v1.2.0: PRIMARY message source is WhatsApp Web's `model-storage` IndexedDB
  * (durable cleartext metadata + plaintext body), read READ-ONLY — see the
@@ -455,6 +459,7 @@ let idbSweeping = false;
 let schemaDumped = false;
 let lidProbeDone = false;         // AT-133: one-time @lid→phone resolution probe
 let contactNameByJid = {};        // jid -> display name (from the contact store)
+let phoneByJid = {};              // AT-133: jid (@lid or @c.us) -> resolved …@c.us phone jid
 
 function sweep(reason) { idbSweep(reason); } // the scheduled entry point
 
@@ -477,6 +482,13 @@ function findPhoneJid(obj, depth) {
     }
     for (const k in obj) { try { const f = findPhoneJid(obj[k], depth + 1); if (f) return f; } catch (e) {} }
   }
+  return '';
+}
+
+/** Resolve any jid to its …@c.us phone jid: identity for @c.us, contact-store map for @lid. */
+function resolvePhoneJid(jid) {
+  if (RE_CUS.test(jid)) return jid;
+  if (isLid(jid)) return phoneByJid[jid] || '';
   return '';
 }
 
@@ -562,6 +574,13 @@ function idbExtract(rec) {
   const senderJid = fromMe ? '' : (serId(v.author) || serId(v.from) || chatJid);
   const sender = senderJid ? (contactNameByJid[senderJid] || senderJid.split('@')[0]) : '';
 
+  // AT-133 — resolve the counterpart's REAL …@c.us phone. In a 1:1 chat the chat
+  // jid IS the counterpart (both directions); fall back to the sender jid. For an
+  // @lid chat this is the only way a real number reaches the server.
+  let counterpartPhone = resolvePhoneJid(chatJid);
+  if (!counterpartPhone && senderJid) counterpartPhone = resolvePhoneJid(senderJid);
+  const counterpartLid = isLid(chatJid) ? chatJid : (isLid(senderJid) ? senderJid : '');
+
   return {
     message_id: msgId,
     chat_id: chatJid,
@@ -571,6 +590,12 @@ function idbExtract(rec) {
     text: text || '',
     has_media: hasMedia,
     media: [],
+    // AT-133 — resolved real number for server matching; original @lid for audit;
+    // resolved flag so the server distinguishes a resolution failure from a
+    // genuine non-contact.
+    counterpart_phone: counterpartPhone || '',
+    counterpart_lid: counterpartLid || '',
+    resolved: !!counterpartPhone,
     _t: t,
     _bodyReadable: !!text,
   };
@@ -635,17 +660,35 @@ async function idbSweep(reason) {
     const contactStore = pickStore(db, ['contact', 'contacts'], /contact/i);
     if (!msgStore) { warn('idbSweep[' + reason + '] no message store; stores=[' + Array.from(db.objectStoreNames).join(',') + ']'); return; }
 
-    // contact index: jid -> display name (best-effort, cleartext)
+    // contact index: jid -> display name (best-effort) + AT-133 jid -> …@c.us phone.
     if (contactStore) {
       const crecs = await idbReadAll(db, contactStore, 5000);
-      const idx = {};
+      const idx = {}, phones = {};
       for (const r of crecs) {
         const c = r.value || {};
         const j = serId(c.id) || (typeof r.key === 'string' ? r.key : '');
         const nm = c.name || c.pushname || c.notify || c.shortName || c.verifiedName || c.displayName || '';
         if (j && nm) idx[j] = nm;
+        // AT-133 — pair this record's jid with the real …@c.us reachable from it
+        // (Q1 proved 26/26 resolve via the contact store's phoneNumber field).
+        const pn = findPhoneJid(c);
+        if (RE_CUS.test(j)) phones[j] = j;          // a phone contact maps to itself
+        if (pn && !phones[j] && j) phones[j] = pn;  // @lid (or other) → its …@c.us
+      }
+      // A dedicated lid↔pn store on newer WA Web builds (if present) — extra coverage.
+      const lidStore = pickStore(db, ['lid-mapping', 'lidmapping', 'lid_pn_map', 'lid'], /lid/i);
+      if (lidStore) {
+        const lrecs = await idbReadAll(db, lidStore, 20000);
+        for (const r of lrecs) {
+          const v = r.value || {};
+          const keyJid = (typeof r.key === 'string' ? r.key : '') || serId(v.lid) || serId(v.id);
+          const lidJid = isLid(keyJid) ? keyJid : (isLid(serId(v.lid)) ? serId(v.lid) : '');
+          const pn = findPhoneJid(v);
+          if (lidJid && pn && !phones[lidJid]) phones[lidJid] = pn;
+        }
       }
       contactNameByJid = idx;
+      phoneByJid = phones;
     }
 
     const { recs, indexed } = await idbReadNewest(db, msgStore, MAX_MSG_SCAN);
@@ -691,7 +734,7 @@ async function idbSweep(reason) {
       for (const m of msgs) {
         if (!passed) { if (m.message_id === seen) passed = true; continue; }
         if (!m._bodyReadable && !m.has_media) unreadableBodies++;
-        batch.push({ message_id: m.message_id, chat_id: String(m.chat_id), direction: m.direction, sender: m.sender, timestamp: m.timestamp, text: m.text, has_media: m.has_media, media: [] });
+        batch.push({ message_id: m.message_id, chat_id: String(m.chat_id), direction: m.direction, sender: m.sender, timestamp: m.timestamp, text: m.text, has_media: m.has_media, media: [], counterpart_phone: m.counterpart_phone || '', counterpart_lid: m.counterpart_lid || '', resolved: !!m.resolved });
         newLast = m.message_id;
       }
       // If the cursor message wasn't in the newest-N window (long-idle chat), the

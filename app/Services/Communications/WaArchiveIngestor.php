@@ -59,15 +59,26 @@ class WaArchiveIngestor
         // the chat number on outbound.
         $counterpartRaw = $direction === Communication::DIRECTION_INBOUND ? ($sender ?: $chatId) : $chatId;
 
-        // AT-133 — @lid SAFETY GUARD. Modern WhatsApp Web identifies chats/senders
-        // by an @lid (e.g. 222758646611979@lid) that carries NO phone. Its digits
-        // MUST NEVER be normalised into a phone match — they'd false-match an
-        // unrelated contact whose last-9 collides. So we only match when the
-        // counterpart is a REAL number (a …@c.us / MSISDN), never an @lid or a
-        // display name. (The @lid → phone resolution itself is the held Q1=yes
-        // build; this guard + the tagging below are correct in EVERY path.)
+        // AT-133 — resolve the number to MATCH ON, with the @lid SAFETY GUARD.
+        // Modern WhatsApp Web identifies chats/senders by an @lid (e.g.
+        // 222758646611979@lid) that carries NO phone — its digits MUST NEVER be
+        // normalised into a phone match (they'd false-match an unrelated contact
+        // whose last-9 collides). Resolution order:
+        //   1. counterpart_phone — the …@c.us the EXTENSION resolved from WA Web's
+        //      contact store (Q1 proved 26/26 resolve). The real number.
+        //   2. else the raw counterpart, but ONLY if it's already a real number
+        //      (not an @lid, not a display name) — back-compat for chats WA still
+        //      exposes by phone, and for older extensions that don't send it.
+        $counterpartLid = (string) ($msg['counterpart_lid'] ?? '');
+        $cpPhoneRaw     = (string) ($msg['counterpart_phone'] ?? '');
         $matchNumber = '';
-        if (! $this->isLidIdentifier($counterpartRaw)) {
+        if ($cpPhoneRaw !== '' && ! $this->isLidIdentifier($cpPhoneRaw)) {
+            $n = $this->numberFromJid($cpPhoneRaw);
+            if ($this->looksLikePhone($n)) {
+                $matchNumber = $n;
+            }
+        }
+        if ($matchNumber === '' && ! $this->isLidIdentifier($counterpartRaw)) {
             $n = $this->numberFromJid($counterpartRaw);
             if ($this->looksLikePhone($n)) {
                 $matchNumber = $n;
@@ -78,7 +89,8 @@ class WaArchiveIngestor
         // genuine non-contact — tag it distinctly so resolution failures are visible
         // (a worklist) vs real non-contacts. Either direction: the chat jid is the @lid.
         $isLidOnly = $matchNumber === ''
-            && ($this->isLidIdentifier($counterpartRaw) || $this->isLidIdentifier($chatId));
+            && ($this->isLidIdentifier($counterpartRaw) || $this->isLidIdentifier($chatId)
+                || $this->isLidIdentifier($cpPhoneRaw) || $counterpartLid !== '');
 
         // AT-122 — MATCH-FIRST, store-only-on-match. The @lid guard means we only
         // ever hand a REAL number to the resolver (ContactIdentifierResolver also
