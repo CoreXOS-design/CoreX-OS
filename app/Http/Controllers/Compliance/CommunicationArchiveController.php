@@ -6,19 +6,31 @@ use App\Http\Controllers\Controller;
 use App\Models\Communications\Communication;
 use App\Models\Communications\CommunicationLink;
 use App\Models\Contact;
+use App\Services\Communications\CommsAccessGrantService;
 use Illuminate\Http\Request;
 
 /**
  * Communication Archive viewer (AT-33). Slots into the Compliance area beside
  * the existing Communications Log; agency-scoped via BelongsToAgency. Read-only
- * — the archive is immutable. Gated by manage_compliance (the full cross-staff
- * archive is a sensitive POPIA surface; not exposed to every agent).
+ * — the archive is immutable.
+ *
+ * ENTRY is gated by the access_communication_archive permission (route middleware
+ * — who may reach the archive area at all). AT-132 Wave 1 Step 3: WHICH rows /
+ * threads / messages are returned INSIDE it is now gated by the SAME per-thread
+ * gate as the contact tab — CommsAccessGrantService::applyArchiveVisibility
+ * (owner OR communications.view scope OR AT-127 participant OR a live per-thread /
+ * legacy whole-contact grant). This closes the body-surface bypass where the
+ * thread body opened behind only the agency-wide entry permission, ignoring the
+ * per-thread grant the list enforced. One gated path — no duplicated logic.
  */
 class CommunicationArchiveController extends Controller
 {
+    public function __construct(protected CommsAccessGrantService $grants) {}
+
     public function index(Request $request)
     {
         $query = Communication::query()->notPurged()->with('links');
+        $this->grants->applyArchiveVisibility($query, $request->user());
 
         if ($channel = $request->query('channel')) {
             $query->where('channel', $channel);
@@ -57,16 +69,19 @@ class CommunicationArchiveController extends Controller
     }
 
     /**
-     * Conversation thread (grouped by thread_key), chronological.
+     * Conversation thread (grouped by thread_key), chronological. Gated: only
+     * messages the user may see are returned; a user with no entitlement to the
+     * thread gets an empty set → 404 (no body, no URL-guessing bypass).
      */
-    public function thread(string $threadKey)
+    public function thread(string $threadKey, Request $request)
     {
-        $messages = Communication::query()
+        $query = Communication::query()
             ->notPurged()
             ->where('thread_key', $threadKey)
-            ->with('attachments')
-            ->orderBy('occurred_at')
-            ->get();
+            ->with('attachments');
+        $this->grants->applyArchiveVisibility($query, $request->user());
+
+        $messages = $query->orderBy('occurred_at')->get();
 
         abort_if($messages->isEmpty(), 404);
 
@@ -76,8 +91,17 @@ class CommunicationArchiveController extends Controller
         ]);
     }
 
-    public function show(Communication $communication)
+    public function show(Communication $communication, Request $request)
     {
+        // Route-model binding already AgencyScopes the comm; now enforce the
+        // per-thread gate — a non-entitled user hitting the message URL directly
+        // is refused (404, not the body).
+        $visible = $this->grants->applyArchiveVisibility(
+            Communication::query()->whereKey($communication->id),
+            $request->user()
+        )->exists();
+        abort_unless($visible, 404);
+
         $communication->load('attachments', 'links');
 
         return view('compliance.communication-archive.show', [
