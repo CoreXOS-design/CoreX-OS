@@ -81,6 +81,10 @@ function captureConsent() {
                     headers: { 'Content-Type':'application/json', 'Accept':'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
                     body: JSON.stringify({ contact_id: contactId, status, reason })
                 });
+                // 419 = the page's CSRF token went stale (session refreshed / device
+                // re-link). Reload to mint a fresh token rather than dead-end on
+                // "Could not save" — the decision did not persist, so retry after.
+                if (r.status === 419) { alert('Your session refreshed — reloading the page; please choose again.'); window.location.reload(); return; }
                 const d = await r.json();
                 if (r.ok && d.ok) { window.location.reload(); }
                 else { alert(d.error || 'Could not save.'); }

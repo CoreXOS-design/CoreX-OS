@@ -1885,6 +1885,7 @@
                         try{ const r=await fetch('{{ route('communications.capture.decide') }}',{method:'POST',
                             headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content},
                             body:JSON.stringify({contact_id:{{ $contact->id }},status:s,reason})});
+                            if(r.status===419){ alert('Your session refreshed — reloading the page; please choose again.'); window.location.reload(); return; }
                             const d=await r.json(); if(r.ok&&d.ok){ this.status=d.status; } else { alert(d.error||'Could not save.'); }
                         }catch(e){ alert('Network error — try again.'); } finally{ this.busy=false; } } }">
                 <div class="min-w-0">
