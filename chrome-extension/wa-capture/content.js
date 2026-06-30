@@ -1,6 +1,13 @@
 /**
  * CoreX WhatsApp Capture — content script (READ-ONLY).
  *
+ * v1.4.3 (AT-137 item 4 follow-up): deep-history backfill made virtualization-safe.
+ * WhatsApp evicts off-screen bubbles, so the one-shot end-of-scroll scrape missed
+ * most history; backfillOpenChat now ACCUMULATES the DOM text index at every scroll
+ * position (mergeDomIndex/finalizeDomIndex) and drops the once-per-session guard so
+ * a partial pass retries (the server target set self-limits). Adds a server-side
+ * batch-stats log for visibility.
+ *
  * v1.4.2 (AT-137): (1) OUTBOUND body capture — buildDomTextIndex now derives a
  * bubble's direction authoritatively from its data-id (true_/false_) and learns
  * ownerName from confirmed outbound, so outbound bodies join the IndexedDB message
@@ -122,7 +129,6 @@ const BETWEEN_CHATS_MAX_MS = 14000;
 const HISTORY_SCROLL_STEPS = 25;          // max scroll-up steps per chat backfill (config knob)
 const HISTORY_SCROLL_PAUSE_MS = 700;
 const MAX_BACKFILL_MSGS_PER_CHAT = 2000;  // AT-137 — cap on history depth sent per chat (config knob)
-const backfilledChats = {};               // AT-137 — jid -> true: full history sent once this session
 
 const lastSeenByChat = {};   // chatId -> last message id captured this session (mirror of storage)
 const contactCache = {};     // number -> bool (resolved via the contact-check endpoint)
@@ -1009,32 +1015,53 @@ async function runHistorySweep() {
   }
 }
 
+/* AT-137 — accumulate DOM text across the WHOLE scroll. WhatsApp VIRTUALIZES the
+ * message list: scrolling up renders older bubbles but EVICTS recent ones, so a
+ * single end-of-scroll scrape misses most of the history. We merge a fresh index
+ * at every scroll position. byId/byKey are first-wins; the unambiguous-minute set
+ * stays safe by tracking all distinct texts seen per minute (kept only if one). */
+function mergeDomIndex(acc, fresh) {
+  for (const k in fresh.byId) { if (!(k in acc.byId)) acc.byId[k] = fresh.byId[k]; }
+  for (const k in fresh.byKey) { if (!(k in acc.byKey)) acc.byKey[k] = fresh.byKey[k]; }
+  for (const minute in fresh.byMinute) {
+    (acc._minuteTexts[minute] = acc._minuteTexts[minute] || new Set()).add(fresh.byMinute[minute]);
+  }
+  acc.count += fresh.count;
+}
+function finalizeDomIndex(acc) {
+  const byMinute = {};
+  for (const minute in acc._minuteTexts) {
+    if (acc._minuteTexts[minute].size === 1) byMinute[minute] = acc._minuteTexts[minute].values().next().value;
+  }
+  return { byId: acc.byId, byKey: acc.byKey, byMinute, count: acc.count };
+}
+
 async function backfillOpenChat(chatId) {
   const scroller = document.querySelector(SELECTORS.messageList);
-  // Scroll up in steps to pull older history into the DOM, sweeping as we go.
+  // Accumulate the rendered text ACROSS the scroll (defeats virtualization).
+  const domAcc = { byId: {}, byKey: {}, _minuteTexts: {}, count: 0 };
+  mergeDomIndex(domAcc, buildDomTextIndex()); // what's on screen now (the recent end)
   for (let i = 0; i < HISTORY_SCROLL_STEPS; i++) {
-    sweep('history-backfill');
     if (!scroller) break;
     const before = scroller.scrollTop;
     scroller.scrollTop = 0; // request older messages
     await wait(HISTORY_SCROLL_PAUSE_MS);
+    mergeDomIndex(domAcc, buildDomTextIndex()); // capture the newly-rendered older bubbles
     if (scroller.scrollTop >= before) break; // reached the top — no more history
   }
-  sweep('history-backfill-final');
 
   // AT-137 — idbSweep is FORWARD-ONLY (it never sends messages older than the
   // per-chat cursor), so scrolling alone rendered the old bubbles but nothing
-  // ingested them. Send the chat's full IndexedDB history (bodies filled from the
-  // now-rendered DOM), cursor-independent — the server dedups (alreadySeen),
-  // fills bodies (backfillBodyIfArchived) and consent-gates. Once per session per
-  // chat (forward capture covers anything newer).
-  if (!backfilledChats[chatId]) {
-    backfilledChats[chatId] = true;
-    try {
-      const n = await backfillSendChat(chatId);
-      log('history backfill (AT-137) — sent ' + n + ' message(s) for ' + chatId + ' cursor-independent (server dedups/fills/consent-gates)');
-    } catch (e) { warn('backfillSendChat error: ' + String(e)); backfilledChats[chatId] = false; }
-  }
+  // ingested them. Send the chat's full IndexedDB history with bodies from the
+  // ACCUMULATED DOM index, cursor-independent — the server dedups (alreadySeen),
+  // fills bodies (backfillBodyIfArchived) and consent-gates. NO once-per-session
+  // guard: the server-side target set stops targeting this chat once its bodies
+  // are filled, so re-runs are self-limiting and a partial first pass can recover.
+  try {
+    const finalIdx = finalizeDomIndex(domAcc);
+    const n = await backfillSendChat(chatId, finalIdx);
+    log('history backfill (AT-137) — sent ' + n + ' message(s) for ' + chatId + ' | domBubbles=' + finalIdx.count + ' (cursor-independent; server dedups/fills/consent-gates)');
+  } catch (e) { warn('backfillSendChat error: ' + String(e)); }
 }
 
 /**
@@ -1044,7 +1071,7 @@ async function backfillOpenChat(chatId) {
  * (backfillOpenChat scrolled them in). READ-ONLY: reads IndexedDB + the rendered
  * DOM only; the only write is the POST to OUR server, which dedups/fills/gates.
  */
-async function backfillSendChat(targetJid) {
+async function backfillSendChat(targetJid, accIndex) {
   const db = await idbOpen(MODEL_DB);
   if (!db) return 0;
   try {
@@ -1073,7 +1100,9 @@ async function backfillSendChat(targetJid) {
     }
 
     const recs = await idbReadChat(db, msgStore, String(targetJid), MAX_BACKFILL_MSGS_PER_CHAT);
-    const domIndex = buildDomTextIndex();
+    // Use the index accumulated across the scroll when provided (virtualization-safe);
+    // fall back to a one-shot read of whatever is currently rendered.
+    const domIndex = accIndex || buildDomTextIndex();
     const msgs = [];
     for (const r of recs) {
       const m = idbExtract(r);
