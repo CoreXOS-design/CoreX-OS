@@ -33,6 +33,7 @@ class WaArchiveIngestor
         private CommunicationStorageService $storage,
         private ContactIdentifierResolver $resolver,
         private ProvisionalReconciler $reconciler,
+        private AgentCaptureConsentService $consent,
     ) {
     }
 
@@ -149,12 +150,31 @@ class WaArchiveIngestor
             return self::RESULT_DROPPED;
         }
 
-        // Matched → now (and only now) persist the raw JSON and build the index row.
-        $raw = json_encode($msg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
-        $stored = $this->storage->store($agencyId, 'whatsapp', $raw);
+        // AT-136 — a WA↔CoreX match is the agent's per-contact capture decision.
+        // Register it as PENDING (idempotent; this IS the periodic re-check — a new
+        // match surfaces automatically). The BODY then flows ONLY when the agent has
+        // opted IN; pending/opted-out keep the ENVELOPE (FICA floor) but withhold the
+        // body. (No CoreX match never reaches here — the hard floor above.)
+        $agentUserId = (int) $device->user_id;
+        $this->consent->ensurePending($agencyId, $agentUserId, (int) $contact->id);
+        $captureOptedIn = $this->consent->isCaptureOptedIn($agentUserId, (int) $contact->id);
 
-        $media = $msg['media'] ?? [];
-        $hasMedia = (bool) ($msg['has_media'] ?? (count($media) > 0));
+        // AT-136 body gate: opted_in → normal body; otherwise withhold the body and
+        // mark consent_pending (envelope still archived for FICA).
+        $bodyText   = $captureOptedIn ? ($msg['text'] ?? null) : null;
+        $bodyStatus = $captureOptedIn ? $this->bodyStatusFor($msg) : 'consent_pending';
+
+        // The has-attachment FLAG is envelope (kept either way); the media BYTES are
+        // body content — stored ONLY when opted in. The raw payload is REDACTED of
+        // text/caption/media when not opted in, so no body is ever written to disk
+        // for a pending/opted-out contact (no backdoor).
+        $hasMedia = (bool) ($msg['has_media'] ?? (count($msg['media'] ?? []) > 0));
+        $media    = $captureOptedIn ? ($msg['media'] ?? []) : [];
+        $rawMsg   = $captureOptedIn ? $msg : array_merge($msg, ['text' => null, 'caption' => null, 'media' => []]);
+
+        // Matched → now (and only now) persist the (consent-redacted) raw + index row.
+        $raw = json_encode($rawMsg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
+        $stored = $this->storage->store($agencyId, 'whatsapp', $raw);
 
         $common = [
             'agency_id'              => $agencyId,
@@ -170,19 +190,20 @@ class WaArchiveIngestor
             'occurred_at'            => $this->toDate($msg['timestamp'] ?? null),
             'captured_at'            => now(),
             'subject'                => null,
-            'body_text'              => $msg['text'] ?? null,
-            'body_preview'           => isset($msg['text']) ? Str::limit((string) $msg['text'], 160) : null,
-            // AT-135 — coverage marker: 'captured' = body text present; 'unreadable'
-            // = envelope captured but the body wasn't rendered yet (encrypted IDB +
-            // bubble not on screen) — the backfill sweep targets these; null =
-            // nothing to capture (media-only / genuinely empty message).
-            'body_status'            => $this->bodyStatusFor($msg),
+            // AT-135 body / AT-136 gate: present only when the agent opted IN to
+            // capturing this contact; otherwise withheld (envelope-only, FICA floor).
+            'body_text'              => $bodyText,
+            'body_preview'           => ($bodyText !== null && $bodyText !== '') ? Str::limit((string) $bodyText, 160) : null,
+            // 'captured' = body present; 'unreadable' = opted-in but not yet rendered
+            // (backfill targets it); 'consent_pending' = withheld until the agent
+            // opts in; null = nothing to capture (media-only / empty).
+            'body_status'            => $bodyStatus,
             'raw_path'               => $stored['path'],
             'content_hash'           => $stored['content_hash'],
             'text_hash'              => MessageTextHasher::hash(
                 Communication::CHANNEL_WHATSAPP,
                 null,
-                $msg['text'] ?? null
+                $bodyText
             ),
             'has_attachments'        => $hasMedia,
             'source_ref'             => 'wa_device:' . $device->id,
@@ -267,10 +288,21 @@ class WaArchiveIngestor
             return null;
         }
 
+        // AT-136 — only fill the body if the agent (owner) has opted IN to capturing
+        // this contact. A pending/opted-out contact keeps its envelope; the body is
+        // never written (even on a re-POST that carries text).
+        $existingContactId = CommunicationLink::query()
+            ->where('communication_id', $existing->id)
+            ->where('linkable_type', Contact::class)
+            ->value('linkable_id');
+        if (! $existingContactId
+            || ! $this->consent->isCaptureOptedIn((int) $existing->owner_user_id, (int) $existingContactId)) {
+            return self::RESULT_DUPLICATE; // not opted in → leave envelope-only
+        }
+
         // Fill the body when the archived row has NO body text yet (whether tagged
-        // 'unreadable' by AT-135, or a legacy blank archived before this column /
-        // before the extension flagged it) and we now have rendered text. Never
-        // overwrite an existing captured body.
+        // 'unreadable'/'consent_pending', or a legacy blank archived before this
+        // column) and we now have rendered text. Never overwrite a captured body.
         $text         = $msg['text'] ?? null;
         $existingText = (string) $existing->body_text;
         $bodyMissing  = $existing->body_status !== 'captured' && trim($existingText) === '';

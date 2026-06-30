@@ -706,8 +706,14 @@
 
                 @permission('access_communication')
                 <a href="{{ route('communications.wa-devices.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.wa-devices.*') ? 'active' : '' }}">WhatsApp Capture</a>
+                {{-- AT-136 — per-agent WhatsApp capture consent (which contacts I archive). --}}
+                <a href="{{ route('communications.capture.my') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.my') ? 'active' : '' }}">My WhatsApp Capture</a>
                 {{-- Communication Capture (AT-39) — user email self-service --}}
                 <a href="{{ route('my-portal.comm-capture.index') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.comm-capture.*') ? 'active' : '' }}">Communication Capture</a>
+                @endpermission
+                {{-- AT-136 — admin/CO review of capture opt-outs (declaration, never content). --}}
+                @permission('communications.capture_review')
+                <a href="{{ route('communications.capture.review') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.review') ? 'active' : '' }}">Capture Opt-outs (Review)</a>
                 @endpermission
             </div>
         </div>
