@@ -314,7 +314,7 @@
                 <div class="text-sm font-bold" style="color:var(--text-primary);">Your public agent page</div>
                 <div class="text-xs mt-0.5" style="color:var(--text-muted);">See exactly how your profile, listings &amp; testimonials look on the agency website.</div>
             </div>
-            <a href="{{ route('corex.agents.preview', auth()->user()) }}" target="_blank" class="corex-btn-primary text-sm" style="white-space:nowrap;">
+            <a href="{{ auth()->user()->publicProfileUrl() }}" target="_blank" class="corex-btn-primary text-sm" style="white-space:nowrap;">
                 Preview my agent page ↗
             </a>
         </div>
@@ -431,7 +431,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 0a8.949 8.949 0 0 0 4.951-1.488A3.987 3.987 0 0 0 13 16h-2a3.987 3.987 0 0 0-3.951 3.512A8.949 8.949 0 0 0 12 21Zm3-11a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                         <span style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Public Website Profile</span>
                     </div>
-                    <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px;">Shown on your public agent page. <a href="{{ route('corex.agents.preview', auth()->user()) }}" target="_blank" style="color:var(--brand-icon); text-decoration:underline;">Preview ↗</a></p>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px;">Shown on your public agent page. <a href="{{ auth()->user()->publicProfileUrl() }}" target="_blank" style="color:var(--brand-icon); text-decoration:underline;">Preview ↗</a></p>
                     <div style="max-width:560px;">
                         <div style="margin-bottom:16px;">
                             <label for="about_me" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">About me</label>
