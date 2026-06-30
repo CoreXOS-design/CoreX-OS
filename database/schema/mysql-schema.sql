@@ -205,6 +205,7 @@ CREATE TABLE `agencies` (
   `whatsapp_launch_mode_agent` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'whatsapp_web',
   `whatsapp_launch_mode_seller` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'whatsapp_web',
   `outreach_send_window` json DEFAULT NULL,
+  `communication_first_poll_days` smallint unsigned DEFAULT NULL,
   `outreach_queue_expiry_hours` smallint unsigned DEFAULT NULL,
   `outreach_queue_daily_cap_per_agent` smallint unsigned DEFAULT NULL,
   `ai_monthly_budget_zar` decimal(10,2) NOT NULL DEFAULT '1000.00',
@@ -12492,3 +12493,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (908,'2026_07_12_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (909,'2026_07_12_000002_backfill_contact_identifiers_and_relax_phone',189);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (911,'2026_07_13_000001_create_comms_access_requests_table',190);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (913,'2026_07_14_000001_add_impersonator_id_to_contact_access_log',191);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (915,'2026_07_15_000001_add_communication_first_poll_days_to_agencies',192);

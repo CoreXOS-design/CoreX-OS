@@ -138,6 +138,7 @@ class Agency extends Model
         'whatsapp_launch_mode_agent',
         'whatsapp_launch_mode_seller',
         'outreach_send_window', // AT-117 §4a — JSON send-window config
+        'communication_first_poll_days', // AT-122 — first-poll IMAP backfill window override (days)
         'outreach_queue_expiry_hours', // AT-117 §8 — surfaced-row lifetime (null = end of day)
         'outreach_queue_daily_cap_per_agent', // AT-117 §8 — per-agent daily queue cap (null = none)
         'prospecting_pitch_temp_lock_minutes',

@@ -45,9 +45,19 @@ class ImapMailboxPoller
             return ['status' => 'error', 'reason' => 'connect_failed', 'stats' => $stats];
         }
 
+        // Incremental polls read since last_polled_at (1-day overlap so a message
+        // near the boundary is never missed). The FIRST poll backfills a small,
+        // agency-configurable window (default 7d) so the initial read fits the
+        // budget instead of trapping the mailbox in a never-completing 30-day pull.
         $since = $mailbox->last_polled_at
             ? Carbon::parse($mailbox->last_polled_at)->subDay()->startOfDay()
-            : now()->subDays(30);
+            : now()->subDays($this->firstPollBackfillDays($mailbox));
+
+        // Stamp progress up-front, now that the connection succeeded and $since is
+        // fixed from the PRE-poll value. If the folder read later exceeds the budget
+        // and the worker is killed before `finally`, the mailbox must not re-attempt
+        // the full backfill every cycle — the next poll reads incrementally instead.
+        $mailbox->forceFill(['last_polled_at' => now()])->save();
 
         // Resolve actual Folder objects up front. Sent is resolved by its IMAP
         // SPECIAL-USE \Sent flag (RFC 6154), not by name-guessing — a mailbox
@@ -121,6 +131,19 @@ class ImapMailboxPoller
         }
 
         return ['status' => $status, 'reason' => $reason, 'stats' => $stats];
+    }
+
+    /**
+     * First-poll backfill window (days): agency override
+     * (agencies.communication_first_poll_days) ?? config default (7). Clamped to
+     * [1, 90]. Mirrors CommunicationPending::graceDays. Never hardcoded.
+     */
+    private function firstPollBackfillDays(CommunicationMailbox $mailbox): int
+    {
+        $override = \App\Models\Agency::where('id', $mailbox->agency_id)->value('communication_first_poll_days');
+        $days = (int) ($override ?? config('communications.first_poll_backfill_days', 7));
+
+        return max(1, min(90, $days ?: 7));
     }
 
     /**
