@@ -142,13 +142,63 @@ class Communication extends Model
      */
     public function scopeVisibleTo(Builder $query, User $user, ?string $scope): Builder
     {
-        return match ($scope) {
-            'all'    => $query,
-            'branch' => $user->effectiveBranchId()
-                ? $query->whereHas('owner', fn ($q) => $q->where('branch_id', $user->effectiveBranchId()))
-                : $query->where('owner_user_id', $user->id),
-            'none'   => $query->whereRaw('1 = 0'),
-            default  => $query->where('owner_user_id', $user->id), // 'own' or null capability
-        };
+        // 'all' sees everything in the agency; 'none' sees nothing — both unchanged.
+        if ($scope === 'all') {
+            return $query;
+        }
+        if ($scope === 'none') {
+            return $query->whereRaw('1 = 0');
+        }
+
+        // AT-118 — multi-participant visibility. Beyond the scope tier (own =
+        // owner_user_id; branch = owner in my branch), a user ALSO sees any thread
+        // they were genuinely on — i.e. one of their OWN active mailbox addresses
+        // is in participant_identifiers (the deduped to/from/cc set). This closes
+        // the dual-recipient gap: an email to two agents ingests once under a
+        // single owner_user_id, but both recipients were on it and both should see
+        // it without requesting. Applied to own AND branch (the demonstrated case
+        // is a branch_manager whose branch scope doesn't cover an out-of-branch
+        // owner). Participant→agent maps ONLY via communication_mailboxes — never
+        // contact_emails (those map to contacts, not agents).
+        $mailboxAddresses = static::participantMailboxAddresses($user);
+
+        return $query->where(function (Builder $outer) use ($user, $scope, $mailboxAddresses) {
+            // (a) scope tier
+            if ($scope === 'branch' && $user->effectiveBranchId()) {
+                $outer->whereHas('owner', fn ($q) => $q->where('branch_id', $user->effectiveBranchId()));
+            } else {
+                $outer->where('owner_user_id', $user->id); // 'own', or 'branch' with no branch id
+            }
+            // (b) OR — you were a participant via one of your own active mailboxes
+            foreach ($mailboxAddresses as $addr) {
+                $outer->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($addr)]);
+            }
+        });
+    }
+
+    /**
+     * AT-118 — the current user's OWN active mailbox addresses, normalised
+     * (lower/trim) to match how participant_identifiers are stored. Used to let an
+     * agent who was on an email (to/from/cc) see it without requesting. Maps via
+     * communication_mailboxes only (agent-owned accounts), not contact identifiers.
+     */
+    protected static function participantMailboxAddresses(User $user): array
+    {
+        $rows = CommunicationMailbox::query()
+            ->where('user_id', $user->id)
+            ->where('active', true)
+            ->get(['username', 'email_address']);
+
+        $addrs = [];
+        foreach ($rows as $row) {
+            foreach ([$row->username, $row->email_address] as $a) {
+                $a = strtolower(trim((string) $a));
+                if ($a !== '' && str_contains($a, '@')) {
+                    $addrs[$a] = true;
+                }
+            }
+        }
+
+        return array_keys($addrs);
     }
 }
