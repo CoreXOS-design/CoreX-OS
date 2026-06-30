@@ -76,10 +76,13 @@
             <div x-show="propertyResults.length > 0 && !selectedProperty" class="absolute z-20 w-full mt-1 rounded-md shadow-lg overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
                 <template x-for="p in propertyResults" :key="p.id">
                     <button @click="selectProperty(p)" class="deal-result-btn w-full text-left px-4 py-2 text-sm transition-colors" style="border-bottom: 1px solid var(--border); color: var(--text-primary);">
-                        <div x-text="p.address" class="font-medium"></div>
+                        <div class="font-medium flex items-center gap-2">
+                            <span x-text="p.address"></span>
+                            <span x-show="p.status" x-text="p.status" class="text-[10px] px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>
+                        </div>
                         <div class="text-xs" style="color: var(--text-muted);">
                             <span x-show="p.price" x-text="'R ' + Number(p.price).toLocaleString()"></span>
-                            <span x-show="p.listing_agent_name" x-text="' — ' + p.listing_agent_name"></span>
+                            <span x-show="p.agent || p.listing_agent_name" x-text="' — ' + (p.agent || p.listing_agent_name)"></span>
                         </div>
                     </button>
                 </template>

@@ -76,48 +76,28 @@ class PdfSplitterController extends Controller
             return response()->json([]);
         }
 
-        $cols = ['address', 'street_number', 'street_name', 'suburb', 'city', 'complex_name', 'unit_number', 'property_number'];
-        $terms = preg_split('/\s+/', $q, -1, PREG_SPLIT_NO_EMPTY);
-
+        // Canonical property search + label (fix-the-class): unit+complex aware,
+        // multi-term token AND, newest-first.
         $rows = Property::query()
             ->visibleTo($request->user())
-            ->where(function ($outer) use ($terms, $cols) {
-                foreach ($terms as $term) {
-                    $outer->where(function ($w) use ($term, $cols) {
-                        foreach ($cols as $c) {
-                            $w->orWhere($c, 'like', "%{$term}%");
-                        }
-                    });
-                }
-            })
+            ->searchAddress($q)
+            ->with('agent')
+            ->latest()
             ->limit(12)
-            ->get(['id', 'address', 'street_number', 'street_name', 'suburb', 'city', 'complex_name', 'unit_number', 'property_number']);
+            ->get();
 
-        return response()->json($rows->map(function ($p) {
-            $addr = trim((string) $p->address);
-            if ($addr === '') {
-                $addr = trim(implode(' ', array_filter([
-                    $p->unit_number ? 'Unit ' . $p->unit_number : null,
-                    $p->complex_name,
-                    $p->street_number,
-                    $p->street_name,
-                ])));
-            }
-            if ($addr === '') { $addr = '(no address)'; }
-
+        return response()->json($rows->map(function (Property $p) {
             // AT-105 — surface the seller/owner's OWN FICA state so the FICA
             // kickoff toggle can key off the CONTACT (not the property's
             // import-set compliance snapshot). null seller = no kickoff target.
             $seller = $p->sellerOwnerContact();
             $sellerFica = $seller ? $seller->ficaStatus() : null; // complete|expiring|incomplete|null
 
-            return [
-                'id'          => $p->id,
-                'label'       => trim($addr . ($p->suburb ? ' — ' . $p->suburb : '')),
+            return $p->toSearchResult([
                 'ref'         => $p->property_number,
                 'seller'      => $seller ? trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? '')) : null,
                 'seller_fica' => $sellerFica,
-            ];
+            ]);
         }));
     }
 

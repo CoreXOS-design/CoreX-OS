@@ -858,8 +858,8 @@
                             <button type="submit" class="w-full flex items-center gap-3 px-4 py-3 text-left hover:opacity-80 transition-colors"
                                     style="border-bottom:1px solid var(--border); background:var(--surface);">
                                 <div class="flex-1 min-w-0">
-                                    <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.title"></div>
-                                    <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="(r.address || '') + ' · ' + r.price"></div>
+                                    <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.label || r.address || r.title"></div>
+                                    <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="(r.address || '') + ' · ' + r.price + (r.agent ? ' · ' + r.agent : '')"></div>
                                 </div>
                                 <span class="text-xs font-semibold flex-shrink-0 px-2 py-1 rounded-md"
                                       :style="`background:${statusColor(r.status || '')}22; color:${statusColor(r.status || '')}; border:1px solid ${statusColor(r.status || '')}44;`"
