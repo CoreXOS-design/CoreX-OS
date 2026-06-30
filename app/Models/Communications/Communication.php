@@ -23,7 +23,7 @@ class Communication extends Model
     const DIRECTION_OUTBOUND = 'outbound';
 
     protected $fillable = [
-        'agency_id', 'channel', 'direction', 'external_id', 'thread_key',
+        'agency_id', 'channel', 'direction', 'external_id', 'thread_key', 'counterpart_lid',
         'from_identifier', 'participant_identifiers', 'occurred_at', 'captured_at',
         'provisional_at', 'subject', 'body_text', 'body_preview', 'body_status', 'raw_path',
         'has_attachments', 'content_hash', 'text_hash', 'source_ref',

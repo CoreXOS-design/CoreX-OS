@@ -36,6 +36,27 @@ class WaBodyBackfillService
             ->all();
     }
 
+    /**
+     * AT-135 — the @lid digit-keys of WA messages still missing a body (opted-in
+     * set, same gate as pendingBodyNumbers). WhatsApp Web lists chats by @lid, so
+     * the extension matches an @lid chat DIRECTLY against this set — no reverse
+     * @lid→phone resolution, which is the asymmetry that left bodies unrecovered.
+     * Consent is NOT bypassed: this is the opted-in pending set, and the server
+     * re-checks isCaptureOptedIn before filling any body.
+     */
+    public function pendingBodyLids(int $agencyId): array
+    {
+        return $this->pendingQuery($agencyId)
+            ->whereNotNull('counterpart_lid')
+            ->where('counterpart_lid', '!=', '')
+            ->pluck('counterpart_lid')
+            ->map(fn ($v) => preg_replace('/\D/', '', (string) $v))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     /** Count of WA messages still missing a body for an agency (coverage visibility). */
     public function pendingBodyCount(int $agencyId): int
     {
