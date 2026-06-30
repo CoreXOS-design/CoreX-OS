@@ -330,38 +330,101 @@ class ContactController extends Controller
             ? app(\App\Services\Communications\CommsAccessGrantService::class)->hasActiveGrant($viewer, $contact)
             : false;
 
-        $contactCommsQuery = \App\Models\Communications\Communication::query()
+        // AT-132 Step 4 — ALL of this contact's threads (safe metadata for the list).
+        // The list itself is always shown to a comms-capable user; only the BODIES
+        // are gated. Visibility per comm is decided by the ONE source of truth
+        // (CommsAccessGrantService::applyArchiveVisibility — Step 3), so the contact
+        // tab and the compliance archive can never drift.
+        $grantService  = app(\App\Services\Communications\CommsAccessGrantService::class);
+        $allContactComms = \App\Models\Communications\Communication::query()
             ->whereNull('purged_at')
+            ->with('owner:id,name')
             ->whereHas('links', function ($q) use ($contact) {
                 $q->where('linkable_type', \App\Models\Contact::class)
                   ->where('linkable_id', $contact->id);
             })
             ->orderByDesc('occurred_at')
-            ->limit(200);
+            ->limit(500)
+            ->get();
 
-        $canViewComms = false;
-        $contactComms = collect();
+        $allIds = $allContactComms->pluck('id')->all();
+        $visibleIds = $allIds
+            ? $grantService->applyArchiveVisibility(
+                  \App\Models\Communications\Communication::query()->whereIn('id', $allIds),
+                  $viewer
+              )->pluck('id')->map(fn ($i) => (int) $i)->all()
+            : [];
+        $visibleSet = array_flip($visibleIds);
 
-        if ($isAuthoriser || $hasGrant || $scope === 'all') {
-            // Entitled to the full set of this contact's threads (capability/grant).
-            $canViewComms = true;
-            $contactComms = $contactCommsQuery->get();
-        } elseif ($scope !== null) {
-            // own/branch — entitled only to threads their scope covers; owning ≥1
-            // visible thread IS the per-contact entitlement (owner-based visibility).
-            $contactComms = $contactCommsQuery->visibleTo($viewer, $scope)->get();
-            $canViewComms = $contactComms->isNotEmpty();
+        // Existing refs (badge / documents-tab "in archive" link) keep meaning the
+        // set of comms whose BODIES this user may see.
+        $contactComms = $allContactComms->whereIn('id', $visibleIds)->values();
+        $canViewComms = $contactComms->isNotEmpty();
+
+        // Per-thread hide-subject (owner privacy control, Step 1) + this user's
+        // still-pending per-thread requests (so a row can render its "requested" state).
+        $threadSettings = \App\Models\Communications\CommsThreadSetting::forContact($contact->id)
+            ->get()->keyBy('thread_key');
+        $pendingReqs = \App\Models\Communications\CommsAccessRequest::byRequester($viewer->id)
+            ->forContact($contact->id)->pending()->where('expires_at', '>', now())->get();
+        $pendingThreadKeys = $pendingReqs->whereNotNull('thread_key')->pluck('thread_key')->all();
+        $pendingCommIds    = $pendingReqs->whereNull('thread_key')->pluck('communication_id')
+            ->filter()->map(fn ($i) => (int) $i)->all();
+
+        // Group comms into threads: real thread_key → one row; NULL/empty thread_key
+        // → each comm its own row keyed on communication_id (never grouped — AT-132 §2).
+        $grouped = [];
+        foreach ($allContactComms as $c) {
+            $tk  = ($c->thread_key !== null && $c->thread_key !== '') ? $c->thread_key : null;
+            $key = $tk !== null ? 'tk:' . $tk : 'comm:' . $c->id;
+            $grouped[$key][] = $c;
         }
 
-        // AT-118 Flow A view-state: a comms-capable user who can't currently see
-        // this contact's threads may REQUEST access; show a "granted until logout"
-        // banner when access is via a transient grant; surface any pending request.
+        $contactThreads = collect();
+        foreach ($grouped as $key => $msgs) {
+            $latest      = $msgs[0]; // query is occurred_at DESC → first is newest
+            $isNull      = str_starts_with($key, 'comm:');
+            $tk          = $isNull ? null : $latest->thread_key;
+            $hideSubject = ($tk !== null && isset($threadSettings[$tk])) ? (bool) $threadSettings[$tk]->hide_subject : false;
+
+            $subject = null;
+            foreach ($msgs as $m) {
+                if (trim((string) $m->subject) !== '') { $subject = $m->subject; break; }
+            }
+
+            $visible = false;
+            foreach ($msgs as $m) { if (isset($visibleSet[$m->id])) { $visible = true; break; } }
+
+            $pending = $isNull
+                ? in_array((int) $latest->id, $pendingCommIds, true)
+                : in_array($tk, $pendingThreadKeys, true);
+
+            $contactThreads->push((object) [
+                'row_key'          => $key,
+                'thread_key'       => $tk,
+                'communication_id' => $isNull ? (int) $latest->id : null,
+                'channel'          => $latest->channel,
+                'latest_at'        => $latest->occurred_at,
+                'message_count'    => count($msgs),
+                'owner_name'       => $latest->owner?->name,
+                'has_attachments'  => collect($msgs)->contains(fn ($m) => (bool) $m->has_attachments),
+                'subject'          => $hideSubject ? null : $subject,
+                'subject_hidden'   => $hideSubject,
+                'is_visible'       => $visible,
+                'pending'          => $pending,
+            ]);
+        }
+
+        // The comms tab + its thread list show for any comms-capable user (the
+        // metadata is safe); bodies stay gated per row. A user with no comms
+        // capability but a live grant (rare) still sees it because they can view ≥1.
+        $commsTabVisible = $isAuthoriser || $scope !== null || $canViewComms;
+
+        // Kept for blade compatibility: $canRequestComms now means "the comms tab is
+        // available to this user" (the per-row Request buttons drive the real flow).
         $commsViaGrant   = $hasGrant;
-        $canRequestComms = !$canViewComms && $scope !== null;
-        $pendingCommsRequest = $canRequestComms
-            ? \App\Models\Communications\CommsAccessRequest::byRequester($viewer->id)
-                ->forContact($contact->id)->pending()->where('expires_at', '>', now())->latest()->first()
-            : null;
+        $canRequestComms = $commsTabVisible;
+        $pendingCommsRequest = $pendingReqs->first();
 
         // AT-59 — tile counts DERIVE from the communications archive (outbound,
         // provisional + confirmed), not the legacy scalar columns. The relation
@@ -369,7 +432,7 @@ class ContactController extends Controller
         $waSent    = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP);
         $emailSent = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_EMAIL);
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'waSent', 'emailSent'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'waSent', 'emailSent'));
     }
 
     public function checkDuplicate(Request $request)
