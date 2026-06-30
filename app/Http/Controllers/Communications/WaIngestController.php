@@ -59,6 +59,9 @@ class WaIngestController extends Controller
         return response()->json([
             'success' => true,
             'numbers' => $svc->pendingBodyNumbers((int) $device->agency_id),
+            // AT-135 — @lid digit-keys so the sweep matches @lid chats directly
+            // (WhatsApp Web lists chats by @lid; no reverse-resolution needed).
+            'lids'    => $svc->pendingBodyLids((int) $device->agency_id),
         ]);
     }
 

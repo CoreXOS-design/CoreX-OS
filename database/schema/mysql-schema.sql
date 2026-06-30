@@ -2740,6 +2740,7 @@ CREATE TABLE `communications` (
   `direction` enum('inbound','outbound') COLLATE utf8mb4_unicode_ci NOT NULL,
   `external_id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `thread_key` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `counterpart_lid` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `from_identifier` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `participant_identifiers` json DEFAULT NULL,
   `occurred_at` datetime NOT NULL,
@@ -2770,6 +2771,7 @@ CREATE TABLE `communications` (
   KEY `comm_texthash_idx` (`text_hash`),
   KEY `comm_owner_user_fk` (`owner_user_id`),
   KEY `comm_agency_owner_idx` (`agency_id`,`owner_user_id`),
+  KEY `communications_counterpart_lid_index` (`counterpart_lid`),
   CONSTRAINT `comm_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `comm_owner_user_fk` FOREIGN KEY (`owner_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -12572,3 +12574,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (922,'2026_06_30_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (924,'2026_07_16_000003_add_revoke_to_comms_access_audit_event_type',195);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (926,'2026_07_17_000001_add_body_status_to_communications_table',196);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (928,'2026_07_18_000001_create_agent_capture_consent_table',197);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (929,'2026_07_19_000001_add_counterpart_lid_to_communications_table',198);

@@ -1,6 +1,12 @@
 /**
  * CoreX WhatsApp Capture — content script (READ-ONLY).
  *
+ * v1.4.1 (AT-135): @lid-NATIVE body backfill. The pending-body target set now
+ * carries @lid digit-keys, so the idle sweep matches an @lid chat DIRECTLY off the
+ * chat list — no reverse @lid→phone resolution (the asymmetry that left @lid chats,
+ * e.g. Elize, unmatched and their bodies unrecovered). Consent unaffected: targets
+ * are the opted-in set; the server re-checks opt-in before filling any body.
+ *
  * v1.4.0 (AT-135): message BODY via DOM fallback. WhatsApp stores bodies encrypted-
  * at-rest in IndexedDB (msgRowOpaqueData), so idbExtract often gets no plaintext.
  * When a message has no plaintext IDB body and isn't media, we read the rendered
@@ -112,7 +118,7 @@ const contactCache = {};     // number -> bool (resolved via the contact-check e
 let ownerName = null;        // this account's own display name (learned from outbound ticks)
 let historySweepEnabled = true;
 let backfillEnabled = true;  // AT-135 — agency toggle (from ping); read-only body backfill sweep
-let backfillTargets = null;  // AT-135 — Set of last-9 numbers with unreadable bodies (server)
+let backfillTargets = null;  // AT-135 — {phones:Set<last9>, lids:Set<digits>} pending body (server)
 const MAX_BACKFILL_CHATS_PER_RUN = 6; // AT-135 — cap chats opened per idle run (paced/ToS)
 let lastUserInteractionAt = 0;
 let sweepRunning = false;
@@ -868,13 +874,29 @@ function last9(s) {
   return d.length >= 9 ? d.slice(-9) : '';
 }
 
-/** AT-135 — fetch the set of numbers (last-9) with unreadable bodies to backfill. */
+/** Bare digits of an @lid jid (its matchable key); '' when not an @lid. */
+function lidDigits(jid) { return isLid(jid) ? String(jid).replace(/\D/g, '') : ''; }
+
+/**
+ * AT-135 — fetch the server's pending-body target set: phone last-9 (legacy @c.us
+ * chats) AND @lid digit-keys. The @lid set lets the sweep match an @lid chat
+ * DIRECTLY off WhatsApp Web's list — no reverse @lid→phone resolution, which is
+ * the asymmetry that left bodies unrecovered (live=AT-133 resolved per-message;
+ * the sweep's map did not). Both sets are the server's OPTED-IN pending set —
+ * matching an @lid here is not a consent bypass (the server re-checks opt-in
+ * before filling any body).
+ */
 async function fetchBackfillTargets() {
   try {
     const resp = await sendAsync({ type: 'WA_BACKFILL_TARGETS' });
-    const nums = (resp && resp.ok && resp.body && Array.isArray(resp.body.numbers)) ? resp.body.numbers : [];
-    return new Set(nums.map(last9).filter(Boolean));
-  } catch (e) { vlog('backfill-targets fetch failed:', String(e)); return new Set(); }
+    const body = (resp && resp.ok && resp.body) ? resp.body : {};
+    const nums = Array.isArray(body.numbers) ? body.numbers : [];
+    const lids = Array.isArray(body.lids) ? body.lids : [];
+    return {
+      phones: new Set(nums.map(last9).filter(Boolean)),
+      lids: new Set(lids.map((l) => String(l).replace(/\D/g, '')).filter(Boolean)),
+    };
+  } catch (e) { vlog('backfill-targets fetch failed:', String(e)); return { phones: new Set(), lids: new Set() }; }
 }
 
 async function runHistorySweep() {
@@ -883,10 +905,12 @@ async function runHistorySweep() {
   let walked = 0, backfilled = 0, skipped = 0;
   try {
     backfillTargets = await fetchBackfillTargets();
+    const targetCount = backfillTargets.phones.size + backfillTargets.lids.size;
     const items = Array.from(document.querySelectorAll(SELECTORS.chatListItem));
-    log('history sweep (AT-135 body backfill) — ' + items.length + ' chats; ' + backfillTargets.size +
-        ' numbers pending body; cap ' + MAX_BACKFILL_CHATS_PER_RUN + '/run (idle, paced, READ-ONLY)');
-    if (!backfillTargets.size) { log('history sweep — nothing pending body backfill; done'); return; }
+    log('history sweep (AT-135 body backfill) — ' + items.length + ' chats; ' +
+        backfillTargets.phones.size + ' phone + ' + backfillTargets.lids.size + ' @lid pending body; cap ' +
+        MAX_BACKFILL_CHATS_PER_RUN + '/run (idle, paced, READ-ONLY)');
+    if (!targetCount) { log('history sweep — nothing pending body backfill; done'); return; }
 
     for (const item of items) {
       if (backfilled >= MAX_BACKFILL_CHATS_PER_RUN) { log('history sweep — per-run cap reached, will resume next run'); break; }
@@ -900,13 +924,26 @@ async function runHistorySweep() {
       const chatId = currentChatId();
       if (!chatId || chatId.includes('@g.us')) { await wait(betweenChats()); continue; } // skip groups
 
-      // Resolve the chat's REAL number (an @lid chat resolves via AT-133's map).
+      // AT-135 — match the chat against the server's pending-body set by @lid FIRST
+      // (read straight off the list, zero resolution), then by resolved phone. The
+      // @lid path closes the asymmetry that left @lid chats (e.g. Elize) unmatched
+      // when reverse @lid→phone resolution missed. An @lid that's in the target set
+      // is, by construction, a server-vetted OPTED-IN CoreX contact (the server
+      // builds the set from opted-in pending rows and re-checks opt-in before
+      // filling) — so it needs no separate contact-check.
+      const lidKey = lidDigits(chatId);
+      const matchedByLid = lidKey && backfillTargets.lids.has(lidKey);
+
       const resolved = resolvePhoneJid(chatId) || chatId;
       const n9 = last9(numberFromChatId(resolved) || numberFromChatId(chatId));
+      const matchedByPhone = n9 && backfillTargets.phones.has(n9);
 
-      // Only backfill a chat that actually has pending bodies (server-targeted) AND
-      // is a CoreX contact (POPIA: never backfill non-contacts).
-      if (n9 && backfillTargets.has(n9)) {
+      if (matchedByLid) {
+        await backfillOpenChat(chatId);                  // opted-in contact (server-vetted)
+        backfilled++;
+      } else if (matchedByPhone) {
+        // Phone-targeted (@c.us) chat — confirm it's a CoreX contact (POPIA: never
+        // backfill an unverified non-contact).
         const isContact = await checkContact(numberFromChatId(resolved) || n9);
         if (isContact) {
           await backfillOpenChat(chatId);

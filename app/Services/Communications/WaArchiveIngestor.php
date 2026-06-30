@@ -187,6 +187,11 @@ class WaArchiveIngestor
             // it (+ the sender name) so the archive row shows who, not an @lid.
             'from_identifier'        => $matchNumber ?: ($sender ?: $counterpartRaw),
             'participant_identifiers' => array_values(array_unique(array_filter([$matchNumber, $sender]))),
+            // AT-135 — the chat's @lid digits (matchable key) so the body-backfill
+            // sweep can target an @lid chat DIRECTLY, without reverse-resolving it
+            // to a phone (the asymmetry that left bodies unrecovered). Null for
+            // chats WA still exposes by phone (@c.us). Consent gate unaffected.
+            'counterpart_lid'        => $this->lidDigits($counterpartLid !== '' ? $counterpartLid : $chatId),
             'occurred_at'            => $this->toDate($msg['timestamp'] ?? null),
             'captured_at'            => now(),
             'subject'                => null,
@@ -386,6 +391,21 @@ class WaArchiveIngestor
     private function isLidIdentifier(string $s): bool
     {
         return str_ends_with(trim($s), '@lid');
+    }
+
+    /**
+     * AT-135 — the bare digits of an @lid (its matchable key), or null when the
+     * value is not an @lid. Stored on the row so the body-backfill sweep can match
+     * an @lid chat directly off WA Web's list (no reverse @lid→phone resolution).
+     */
+    private function lidDigits(string $s): ?string
+    {
+        if (! $this->isLidIdentifier($s)) {
+            return null;
+        }
+        $digits = preg_replace('/\D/', '', $s);
+
+        return $digits !== '' ? $digits : null;
     }
 
     /**
