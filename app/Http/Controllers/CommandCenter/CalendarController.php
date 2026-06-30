@@ -1748,24 +1748,24 @@ class CalendarController extends Controller
 
         $agencyId = $user->agency_id ?: 1;
 
-        // Search contacts
+        // Search contacts — AT-131 canonical (all identifiers via child tables +
+        // relevance + newest-first). 'type'=>'contact' is the attendee KIND
+        // (contact vs agent); the contact's classification is 'contact_type'.
         $contacts = \App\Models\Contact::query()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
-            ->where(function ($query) use ($q) {
-                $query->where('first_name', 'like', "%{$q}%")
-                      ->orWhere('last_name', 'like', "%{$q}%")
-                      ->orWhere('phone', 'like', "%{$q}%")
-                      ->orWhere('email', 'like', "%{$q}%");
-            })
+            ->with(['phones', 'emails', 'type', 'agent'])
+            ->search($q)
             ->limit(7)
-            ->get(['id', 'first_name', 'last_name', 'phone', 'email'])
+            ->get()
             ->map(fn ($c) => [
-                'id'    => $c->id,
-                'name'  => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
-                'phone' => $c->phone,
-                'email' => $c->email,
-                'type'  => 'contact',
+                'id'           => $c->id,
+                'name'         => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
+                'phone'        => $c->phone,
+                'email'        => $c->email,
+                'identifier'   => $c->matchedIdentifier($q),
+                'contact_type' => $c->type?->name,
+                'type'         => 'contact',
             ]);
 
         // Search users (agents) — exclude the current user

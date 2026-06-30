@@ -1142,13 +1142,8 @@ class ESignWizardController extends Controller
             return response()->json([]);
         }
 
-        $query = Contact::where(function ($qb) use ($q) {
-            $qb->where('first_name', 'like', "%{$q}%")
-                ->orWhere('last_name', 'like', "%{$q}%")
-                ->orWhere('email', 'like', "%{$q}%")
-                ->orWhere('id_number', 'like', "%{$q}%")
-                ->orWhere('phone', 'like', "%{$q}%");
-        });
+        // AT-131 canonical contact search (all identifiers via child tables + relevance + newest-first).
+        $query = Contact::query()->with(['phones', 'emails', 'type', 'agent'])->search($q);
 
         // Filter by contact type role if provided — uses esign_role from contact_types
         $role = $request->input('role');
@@ -1202,14 +1197,16 @@ class ESignWizardController extends Controller
             }
         }
 
-        $contacts = $query->with('type')->limit(10)->get();
+        $contacts = $query->limit(10)->get();
 
-        return response()->json($contacts->map(function ($c) {
+        return response()->json($contacts->map(function ($c) use ($q) {
             return [
                 'id'                  => $c->id,
                 'first_name'          => $c->first_name,
                 'last_name'           => $c->last_name,
                 'full_name'           => $c->first_name . ' ' . $c->last_name,
+                'identifier'          => $c->matchedIdentifier($q),
+                'agent'               => $c->agent?->name,
                 'email'               => $c->email ?? '',
                 'phone'               => $c->phone ?? '',
                 'id_number'           => $c->id_number ?? '',
