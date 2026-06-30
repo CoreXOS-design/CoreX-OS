@@ -32,6 +32,10 @@ class CommsAccessAuditLog extends Model
     public const EVENT_SESSION_EXPIRED    = 'session_expired';
     public const EVENT_MIDNIGHT_RESET     = 'midnight_reset';
     public const EVENT_OWNERSHIP_TRANSFER = 'ownership_transfer';
+    // AT-132 — a deliberate human-actioned revoke (owner/authoriser or requester
+    // self-revoke), distinct from the automatic session_expired/midnight_reset. The
+    // only way to end an 'always' grant. Wave 2 adds otp_issued/otp_unlock here.
+    public const EVENT_REVOKE             = 'revoke';
 
     public const EVENT_TYPES = [
         self::EVENT_REQUEST,
@@ -40,6 +44,7 @@ class CommsAccessAuditLog extends Model
         self::EVENT_SESSION_EXPIRED,
         self::EVENT_MIDNIGHT_RESET,
         self::EVENT_OWNERSHIP_TRANSFER,
+        self::EVENT_REVOKE,
     ];
 
     protected $table = 'comms_access_audit_log';

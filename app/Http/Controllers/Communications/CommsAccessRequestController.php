@@ -114,6 +114,32 @@ class CommsAccessRequestController extends Controller
     }
 
     /**
+     * AT-132 — explicit revoke of a live grant. The requester (self), the owning
+     * agent of the thread, or a communications.grant_access holder may revoke. The
+     * only way to end an 'always' grant. Audited (EVENT_REVOKE).
+     * POST /api/v1/comms-access/{commsAccessRequest}/revoke
+     */
+    public function revoke(CommsAccessRequest $commsAccessRequest, Request $request): JsonResponse
+    {
+        $user = $request->user();
+        if (!$this->grants->canRevoke($user, $commsAccessRequest)) {
+            return response()->json(['ok' => false, 'error' => 'You are not authorised to revoke this access.'], 403);
+        }
+
+        $data = $request->validate(['reason' => 'nullable|string|max:255']);
+
+        return DB::transaction(function () use ($commsAccessRequest, $user, $data) {
+            $fresh = CommsAccessRequest::lockForUpdate()->find($commsAccessRequest->id);
+            if (!$fresh || !$fresh->isLiveGrant()) {
+                return response()->json(['ok' => false, 'error' => 'This access is no longer active.'], 409);
+            }
+            $this->grants->revokeGrant($fresh, $user, $data['reason'] ?? 'manual_revoke');
+
+            return response()->json(['ok' => true, 'status' => $fresh->status]);
+        });
+    }
+
+    /**
      * Requester polls their request's status. GET /api/v1/comms-access/{commsAccessRequest}/status
      */
     public function status(CommsAccessRequest $commsAccessRequest, Request $request): JsonResponse

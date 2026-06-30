@@ -2411,7 +2411,7 @@ DROP TABLE IF EXISTS `comms_access_audit_log`;
 CREATE TABLE `comms_access_audit_log` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `event_type` enum('request','grant','decline','session_expired','midnight_reset','ownership_transfer') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `event_type` enum('request','grant','decline','session_expired','midnight_reset','ownership_transfer','revoke') COLLATE utf8mb4_unicode_ci NOT NULL,
   `actor_user_id` bigint unsigned DEFAULT NULL,
   `subject_user_id` bigint unsigned DEFAULT NULL,
   `contact_id` bigint unsigned DEFAULT NULL,
@@ -12533,3 +12533,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (915,'2026_07_15_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (918,'2026_07_16_000001_add_thread_scope_and_mode_to_comms_access_requests',193);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (919,'2026_07_16_000002_create_comms_thread_settings_table',193);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (922,'2026_06_30_120000_generalise_client_otps_into_canonical_otp_store',194);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (924,'2026_07_16_000003_add_revoke_to_comms_access_audit_event_type',195);
