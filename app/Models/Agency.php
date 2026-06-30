@@ -104,6 +104,8 @@ class Agency extends Model
     protected $fillable = [
         'name',
         'slug',
+        'wa_history_backfill', // AT-135 — read-only WA body backfill toggle
+
         'viewing_pack_redaction_dpi', // AT-107 Step 5b — redaction render DPI (null = default 150)
         'viewing_pack_default_duration_minutes', // AT-107 Step 8 — default viewing duration (null = 60)
         'trading_name',
@@ -290,6 +292,7 @@ class Agency extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
+        'wa_history_backfill' => 'boolean', // AT-135 — read-only WA body backfill toggle (default on)
         'outreach_send_window' => 'array', // AT-117 §4a — send-window config (null => defaults)
         'outreach_queue_expiry_hours' => 'integer', // AT-117 §8
         'outreach_queue_daily_cap_per_agent' => 'integer', // AT-117 §8

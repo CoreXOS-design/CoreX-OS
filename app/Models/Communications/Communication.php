@@ -25,7 +25,7 @@ class Communication extends Model
     protected $fillable = [
         'agency_id', 'channel', 'direction', 'external_id', 'thread_key',
         'from_identifier', 'participant_identifiers', 'occurred_at', 'captured_at',
-        'provisional_at', 'subject', 'body_text', 'body_preview', 'raw_path',
+        'provisional_at', 'subject', 'body_text', 'body_preview', 'body_status', 'raw_path',
         'has_attachments', 'content_hash', 'text_hash', 'source_ref',
         'owner_user_id', 'purged_at', 'purged_reason',
     ];

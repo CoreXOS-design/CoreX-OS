@@ -25,7 +25,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true; // async response
   }
+  if (msg.type === 'WA_BACKFILL_TARGETS') {
+    // AT-135: which numbers still have unreadable bodies (read-only GET). Tells the
+    // backfill sweep which chats to open. The contact list never reaches the browser.
+    get('/communications/wa/backfill-targets')
+      .then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true; // async response
+  }
 });
+
+async function get(path) {
+  const cfg = await chrome.storage.local.get(['baseUrl', 'deviceToken']);
+  const baseUrl = (cfg.baseUrl || '').replace(/\/+$/, '');
+  const token = cfg.deviceToken || '';
+  const url = baseUrl + path;
+  if (!baseUrl || !token) return { ok: false, error: 'not_configured', url: url };
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Authorization': 'Bearer ' + token },
+    });
+    let body = null;
+    try { body = await res.json(); } catch (e) { /* ignore */ }
+    return { ok: res.ok, status: res.status, body: body, url: url };
+  } catch (e) {
+    return { ok: false, status: 0, error: 'network: ' + String(e), url: url };
+  }
+}
 
 async function post(path, payload) {
   const cfg = await chrome.storage.local.get(['baseUrl', 'deviceToken']);

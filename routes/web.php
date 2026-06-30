@@ -1717,6 +1717,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/wa-devices')->name('communications.wa-devices.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'index'])->name('index');
         Route::post('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'store'])->name('store');
+        Route::post('/backfill-toggle', [\App\Http\Controllers\Communications\WaDeviceController::class, 'toggleBackfill'])->name('backfill-toggle'); // AT-135
         Route::delete('/{waDevice}', [\App\Http\Controllers\Communications\WaDeviceController::class, 'destroy'])->name('destroy');
     });
 
@@ -3620,4 +3621,8 @@ Route::middleware(['auth.wa_capture'])->post('/communications/wa/contact-check',
 // Proves the injection -> CORS -> auth pipe independent of WhatsApp DOM detection.
 Route::middleware(['auth.wa_capture'])->post('/communications/wa/ping', [\App\Http\Controllers\Communications\WaIngestController::class, 'ping'])
     ->name('communications.wa.ping');
+
+// AT-135 — numbers with unreadable bodies, for the read-only backfill sweep.
+Route::middleware(['auth.wa_capture'])->get('/communications/wa/backfill-targets', [\App\Http\Controllers\Communications\WaIngestController::class, 'backfillTargets'])
+    ->name('communications.wa.backfill-targets');
 

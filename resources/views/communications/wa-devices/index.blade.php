@@ -18,6 +18,31 @@
     <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif
 
+    {{-- AT-135 — agency-wide read-only body backfill toggle (admin/owner only).
+         Default ON. OFF keeps capture strictly passive/live-only (ToS risk control). --}}
+    <div class="rounded-md p-4 flex items-start justify-between gap-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="min-w-0">
+            <div class="text-sm font-semibold" style="color: var(--text-primary);">Message-body backfill (read-only)</div>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">
+                WhatsApp stores message bodies encrypted on the device, so older/unopened chats archive with the body pending. When ON, the extension — only while you're idle, and strictly read-only (it opens &amp; reads chats, never sends) — fills those bodies so business WhatsApp is fully retained for FICA. Turn OFF to capture live messages only.
+            </p>
+            <p class="text-xs mt-1 font-semibold" style="color: {{ $backfillEnabled ? 'var(--ds-green)' : 'var(--text-muted)' }};">
+                Currently {{ $backfillEnabled ? 'ON' : 'OFF' }} for this agency.
+            </p>
+        </div>
+        @if($canManageBackfill)
+        <form method="POST" action="{{ route('communications.wa-devices.backfill-toggle') }}" class="shrink-0">
+            @csrf
+            <input type="hidden" name="enabled" value="{{ $backfillEnabled ? '0' : '1' }}">
+            <button type="submit" class="text-xs font-semibold rounded px-3 py-2"
+                    style="background: {{ $backfillEnabled ? 'var(--surface-2)' : 'var(--brand-button, #0ea5e9)' }}; color: {{ $backfillEnabled ? 'var(--text-secondary)' : '#fff' }}; border:1px solid var(--border);"
+                    onclick="return confirm('{{ $backfillEnabled ? 'Turn OFF body backfill? Only live messages will be captured.' : 'Turn ON read-only body backfill for this agency?' }}')">
+                {{ $backfillEnabled ? 'Turn OFF' : 'Turn ON' }}
+            </button>
+        </form>
+        @endif
+    </div>
+
     @if($plainToken)
     <div class="rounded-md p-4" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
         <div class="text-sm font-semibold mb-1">Your device token (shown once)</div>

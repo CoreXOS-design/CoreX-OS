@@ -35,6 +35,30 @@ class WaIngestController extends Controller
             'success'      => true,
             'device_id'    => $device->id,
             'last_seen_at' => optional($device->last_seen_at)->toIso8601String(),
+            // AT-135 — agency-configurable read-only body backfill toggle (default
+            // ON). The extension gates its idle backfill sweep on this.
+            'backfill_enabled' => (bool) optional($device->agency)->wa_history_backfill ?? true,
+        ]);
+    }
+
+    /**
+     * AT-135 — numbers (last-9, SA-core) of this agency's contacts that have at
+     * least one WhatsApp message archived with body_status='unreadable' (envelope
+     * captured, body not yet rendered). The read-only backfill sweep opens ONLY
+     * these chats to scrape + fill the missing bodies. The contact list never
+     * reaches the browser — only the set of numbers already in the agent's WA.
+     * GET /communications/wa/backfill-targets
+     */
+    public function backfillTargets(Request $request, \App\Services\Communications\WaBodyBackfillService $svc): JsonResponse
+    {
+        $device = $request->attributes->get('wa_device');
+        if (! $device) {
+            return response()->json(['error' => 'No device context'], 401);
+        }
+
+        return response()->json([
+            'success' => true,
+            'numbers' => $svc->pendingBodyNumbers((int) $device->agency_id),
         ]);
     }
 
@@ -61,6 +85,9 @@ class WaIngestController extends Controller
             'messages.*.counterpart_phone' => 'nullable|string|max:64',
             'messages.*.counterpart_lid'   => 'nullable|string|max:64',
             'messages.*.resolved'          => 'nullable|boolean',
+            // AT-135 — body could not be rendered (encrypted IDB + bubble absent);
+            // archive the envelope with body_status=unreadable, never a silent blank.
+            'messages.*.body_unreadable'   => 'nullable|boolean',
         ]);
 
         // AT-122 — 'dropped' = matched no contact, discarded (never stored).

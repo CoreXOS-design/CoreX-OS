@@ -149,6 +149,7 @@ DROP TABLE IF EXISTS `agencies`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `agencies` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `wa_history_backfill` tinyint(1) NOT NULL DEFAULT '1',
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `trading_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `tagline` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -2713,6 +2714,7 @@ CREATE TABLE `communications` (
   `subject` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `body_text` mediumtext COLLATE utf8mb4_unicode_ci,
   `body_preview` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `body_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `raw_path` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `has_attachments` tinyint(1) NOT NULL DEFAULT '0',
   `content_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -12534,3 +12536,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (918,'2026_07_16_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (919,'2026_07_16_000002_create_comms_thread_settings_table',193);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (922,'2026_06_30_120000_generalise_client_otps_into_canonical_otp_store',194);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (924,'2026_07_16_000003_add_revoke_to_comms_access_audit_event_type',195);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (926,'2026_07_17_000001_add_body_status_to_communications_table',196);
