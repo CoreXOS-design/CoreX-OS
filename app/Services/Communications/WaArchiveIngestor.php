@@ -27,6 +27,7 @@ class WaArchiveIngestor
     public const RESULT_DUPLICATE   = 'duplicate';
     public const RESULT_INVALID     = 'invalid';
     public const RESULT_DROPPED     = 'dropped';
+    public const RESULT_BODY_FILLED = 'body_filled'; // AT-135 — backfilled an unreadable body
 
     public function __construct(
         private CommunicationStorageService $storage,
@@ -49,6 +50,16 @@ class WaArchiveIngestor
             return self::RESULT_INVALID;
         }
 
+        // AT-135 — BODY BACKFILL: if this message was already archived with an
+        // unreadable body (envelope captured by AT-133; body not yet rendered) and
+        // we now have the rendered text, fill it IN PLACE (enrichment of a known
+        // gap, not a history rewrite — analogous to provisional reconciliation).
+        // Returns a result if the message already exists; null if it's brand new.
+        $existingResult = $this->backfillBodyIfArchived($agencyId, $externalId, $msg);
+        if ($existingResult !== null) {
+            return $existingResult;
+        }
+        // Not in the archive — still guard against a legacy parked-pending duplicate.
         if ($this->alreadySeen($agencyId, $externalId)) {
             return self::RESULT_DUPLICATE;
         }
@@ -161,6 +172,11 @@ class WaArchiveIngestor
             'subject'                => null,
             'body_text'              => $msg['text'] ?? null,
             'body_preview'           => isset($msg['text']) ? Str::limit((string) $msg['text'], 160) : null,
+            // AT-135 — coverage marker: 'captured' = body text present; 'unreadable'
+            // = envelope captured but the body wasn't rendered yet (encrypted IDB +
+            // bubble not on screen) — the backfill sweep targets these; null =
+            // nothing to capture (media-only / genuinely empty message).
+            'body_status'            => $this->bodyStatusFor($msg),
             'raw_path'               => $stored['path'],
             'content_hash'           => $stored['content_hash'],
             'text_hash'              => MessageTextHasher::hash(
@@ -210,6 +226,60 @@ class WaArchiveIngestor
 
             return self::RESULT_ARCHIVED;
         });
+    }
+
+    /**
+     * AT-135 — coverage marker for a freshly-ingested message.
+     *   captured   → has body text
+     *   unreadable → extension flagged body_unreadable (IDB opaque + bubble absent)
+     *   null       → nothing to capture (media-only / genuinely empty)
+     */
+    private function bodyStatusFor(array $msg): ?string
+    {
+        $text = $msg['text'] ?? null;
+        if (is_string($text) && trim($text) !== '') {
+            return 'captured';
+        }
+        if (!empty($msg['body_unreadable'])) {
+            return 'unreadable';
+        }
+        return null;
+    }
+
+    /**
+     * AT-135 — if this message is ALREADY archived, fill its body when it was
+     * 'unreadable' and we now have rendered text (the backfill flip). Returns:
+     *   RESULT_BODY_FILLED — was unreadable, now filled;
+     *   RESULT_DUPLICATE   — already archived, nothing to fill;
+     *   null               — not in the archive (caller proceeds to normal ingest).
+     * Body fields only — identity, links, owner, thread all untouched.
+     */
+    private function backfillBodyIfArchived(int $agencyId, string $externalId, array $msg): ?string
+    {
+        $existing = Communication::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $agencyId)
+            ->where('external_id', $externalId)
+            ->whereNull('purged_at')
+            ->first();
+
+        if (!$existing) {
+            return null;
+        }
+
+        $text = $msg['text'] ?? null;
+        if ($existing->body_status === 'unreadable' && is_string($text) && trim($text) !== '') {
+            $existing->update([
+                'body_text'    => $text,
+                'body_preview' => Str::limit($text, 160),
+                'body_status'  => 'captured',
+                'text_hash'    => MessageTextHasher::hash(Communication::CHANNEL_WHATSAPP, null, $text),
+            ]);
+
+            return self::RESULT_BODY_FILLED;
+        }
+
+        return self::RESULT_DUPLICATE;
     }
 
     private function alreadySeen(int $agencyId, string $externalId): bool

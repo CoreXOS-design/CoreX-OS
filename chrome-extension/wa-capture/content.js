@@ -1,6 +1,13 @@
 /**
  * CoreX WhatsApp Capture — content script (READ-ONLY).
  *
+ * v1.4.0 (AT-135): message BODY via DOM fallback. WhatsApp stores bodies encrypted-
+ * at-rest in IndexedDB (msgRowOpaqueData), so idbExtract often gets no plaintext.
+ * When a message has no plaintext IDB body and isn't media, we read the rendered
+ * bubble text from the OPEN chat (READ-ONLY scrape, AT-44 §8) and fill it — joined
+ * by message_id (data-id), with a direction+minute fallback. Bubble not in DOM →
+ * body_unreadable:true (server marks body_status=unreadable; never a silent blank).
+ *
  * v1.3.0 (AT-133): @lid → phone AUTO-RESOLUTION. Q1 proved 26/26 @lid chats resolve
  * to a real …@c.us via the contact store (phoneNumber), so every message now POSTs
  * counterpart_phone (resolved …@c.us) + counterpart_lid (audit) + resolved flag —
@@ -104,6 +111,9 @@ const lastSeenByChat = {};   // chatId -> last message id captured this session 
 const contactCache = {};     // number -> bool (resolved via the contact-check endpoint)
 let ownerName = null;        // this account's own display name (learned from outbound ticks)
 let historySweepEnabled = true;
+let backfillEnabled = true;  // AT-135 — agency toggle (from ping); read-only body backfill sweep
+let backfillTargets = null;  // AT-135 — Set of last-9 numbers with unreadable bodies (server)
+const MAX_BACKFILL_CHATS_PER_RUN = 6; // AT-135 — cap chats opened per idle run (paced/ToS)
 let lastUserInteractionAt = 0;
 let sweepRunning = false;
 let observer = null;
@@ -147,9 +157,15 @@ async function init() {
   setInterval(attachObserver, 8000);                 // re-attach if WA re-mounts the pane
   setInterval(() => sweep('interval'), SWEEP_INTERVAL_MS); // catches background-chat messages
   setTimeout(() => sweep('first-load'), FIRST_SWEEP_MS);
-  // NOTE: the old DOM chat-list walk (auto-opening chats) is GONE — IndexedDB
-  // exposes every chat's messages without navigating, which is both reliable and
-  // lower ToS risk. maybeRunHistorySweep is retained but no longer scheduled.
+
+  // AT-135 — RE-ENABLED, idle-gated, agency-toggled, READ-ONLY body backfill.
+  // The envelope of every message is already captured from IndexedDB (no
+  // navigation). WhatsApp stores bodies encrypted-at-rest, so older/unopened
+  // chats archive body_status=unreadable; this sweep opens ONLY those chats
+  // (server tells us which), strictly read-only (open + scroll + read rendered
+  // text — never compose/send), while the agent is idle, capped per run, to
+  // recover the bodies for FICA retention. Gated by the agency toggle (ping).
+  setInterval(maybeRunHistorySweep, HISTORY_SWEEP_INTERVAL_MS);
 }
 
 /**
@@ -167,7 +183,11 @@ function heartbeat(reason) {
       return;
     }
     if (resp.ok) {
-      log('heartbeat[' + reason + '] OK ' + resp.status + ' → ' + resp.url + ' | device #' + ((resp.body && resp.body.device_id) || '?') + ' last_seen stamped');
+      // AT-135 — pick up the agency's read-only backfill toggle from the ping.
+      if (resp.body && typeof resp.body.backfill_enabled === 'boolean') {
+        backfillEnabled = resp.body.backfill_enabled;
+      }
+      log('heartbeat[' + reason + '] OK ' + resp.status + ' → ' + resp.url + ' | device #' + ((resp.body && resp.body.device_id) || '?') + ' last_seen stamped | backfill:' + backfillEnabled);
     } else {
       warn('heartbeat[' + reason + '] FAILED status=' + resp.status + ' → ' + resp.url +
            (resp.status === 401 ? ' | TOKEN REJECTED — paste the CURRENT token from My Portal → WhatsApp Capture (you may be holding a revoked one).'
@@ -598,7 +618,65 @@ function idbExtract(rec) {
     resolved: !!counterpartPhone,
     _t: t,
     _bodyReadable: !!text,
+    // AT-135 — fallback join key for the DOM body index (when WA omits data-id):
+    // direction + the message's minute (UTC). message_id is the primary join.
+    _domKey: (fromMe ? 'out' : 'in') + '|' + (timestamp ? timestamp.slice(0, 16) : ''),
   };
+}
+
+/* ── AT-135 — DOM body fallback ───────────────────────────────────────────────
+ * WhatsApp stores message bodies ENCRYPTED-AT-REST in IndexedDB (msgRowOpaqueData),
+ * so idbExtract gets no plaintext for many messages (_bodyReadable=false). The
+ * rendered bubble in the OPEN chat IS plaintext, so we read it READ-ONLY (scrape
+ * the already-rendered text; never compose/click/send — AT-44 spec §8) and fill
+ * the body before POSTing. Joins to the IndexedDB message by message_id (the
+ * data-id's <msgid>, identical to the IndexedDB id) with a direction+minute
+ * fallback when WA omits data-id. Only the currently-open chat is in the DOM. */
+function buildDomTextIndex() {
+  const byId = {}, byKey = {};
+  let count = 0;
+  const root = document.querySelector(SELECTORS.main);
+  if (!root) return { byId, byKey, count };
+  for (const metaEl of messageEls(root)) {
+    const textEl = metaEl.querySelector(SELECTORS.textSpan);
+    const text = textEl ? (textEl.innerText || textEl.textContent || '').trim() : '';
+    if (!text) continue;
+    count++;
+    // primary key: the message id from a data-id ancestor (exact IndexedDB join).
+    const idEl = dataIdAncestor(metaEl);
+    if (idEl) {
+      const parts = (idEl.getAttribute('data-id') || '').split('_');
+      if (DATA_ID_RE.test(parts[0] + '_') && parts.length >= 3) {
+        const mid = parts.slice(2).join('_');
+        if (mid && !byId[mid]) byId[mid] = text;
+      }
+    }
+    // fallback key: direction + minute (UTC), matching idbExtract._domKey.
+    const meta = metaEl.getAttribute('data-pre-plain-text') || '';
+    const ts = parseTimestamp(meta);
+    if (ts) {
+      const scope = metaEl.closest('[role="row"]') || metaEl;
+      const sm = meta.match(/^\s*\[[^\]]*\]\s*([\s\S]*?):\s*$/);
+      const sndr = sm ? sm[1].trim() : '';
+      const dir = (scope.querySelector(SELECTORS.outboundTick) || (ownerName && sndr === ownerName)) ? 'out' : 'in';
+      const k = dir + '|' + ts.slice(0, 16);
+      if (!byKey[k]) byKey[k] = text;
+    }
+  }
+  return { byId, byKey, count };
+}
+
+/** Fill an unreadable-body message from the DOM index; flag body_unreadable if not found. */
+function applyDomBodyFallback(m, domIndex) {
+  if (m._bodyReadable || m.has_media) return; // plaintext/media — fast path unchanged
+  const fromDom = domIndex.byId[m.message_id] || domIndex.byKey[m._domKey] || '';
+  if (fromDom) {
+    m.text = fromDom;
+    m._bodyReadable = true;
+    m._domFilled = true;
+  } else {
+    m.body_unreadable = true; // bubble not in the DOM (scrolled out / chat not open)
+  }
 }
 
 /**
@@ -704,16 +782,25 @@ async function idbSweep(reason) {
           ' | msgRowOpaqueData present=' + ('msgRowOpaqueData' in v0) + ' | id sample=' + JSON.stringify(serId(v0.id) || recs[0].key).slice(0, 80));
     }
 
-    // group newest-N by chat, send messages after each chat's stored cursor
+    // AT-135 — read the OPEN chat's rendered bubbles once (READ-ONLY), to fill the
+    // body of any message WhatsApp stored encrypted-at-rest (no plaintext in IDB).
+    const domIndex = buildDomTextIndex();
+
+    // group newest-N by chat, send messages after each chat's stored cursor.
     const byChat = {};
-    for (const r of recs) { const m = idbExtract(r); if (m) (byChat[m.chat_id] = byChat[m.chat_id] || []).push(m); }
+    for (const r of recs) {
+      const m = idbExtract(r);
+      if (!m) continue;
+      applyDomBodyFallback(m, domIndex); // AT-135 — fill body from DOM when IDB body is opaque
+      (byChat[m.chat_id] = byChat[m.chat_id] || []).push(m);
+    }
 
     // AT-133 — one-time, read-only @lid→phone resolution probe (Q1). Prints a
     // [CoreX WA] lidResolve line per @lid chat seen, so Johan reads it like the
     // idbSweep lines (no console pasting). Reads contact/lid/wid stores only.
     if (!lidProbeDone) { lidProbeDone = true; try { await lidResolveProbe(db, Object.keys(byChat)); } catch (e) { warn('lidResolve outer error: ' + String(e)); } }
 
-    let sent = 0, chatsWithNew = 0, firstSeen = 0, unreadableBodies = 0;
+    let sent = 0, chatsWithNew = 0, firstSeen = 0, unreadableBodies = 0, domFilled = 0;
     for (const jid of Object.keys(byChat)) {
       const msgs = byChat[jid].sort((a, b) => (a._t - b._t)); // oldest -> newest
       const key = jid; // store cursor keyed by jid
@@ -733,8 +820,9 @@ async function idbSweep(reason) {
       let newLast = seen, passed = false;
       for (const m of msgs) {
         if (!passed) { if (m.message_id === seen) passed = true; continue; }
-        if (!m._bodyReadable && !m.has_media) unreadableBodies++;
-        batch.push({ message_id: m.message_id, chat_id: String(m.chat_id), direction: m.direction, sender: m.sender, timestamp: m.timestamp, text: m.text, has_media: m.has_media, media: [], counterpart_phone: m.counterpart_phone || '', counterpart_lid: m.counterpart_lid || '', resolved: !!m.resolved });
+        if (m._domFilled) domFilled++;
+        if (m.body_unreadable) unreadableBodies++; // AT-135: IDB opaque AND not in the open-chat DOM
+        batch.push({ message_id: m.message_id, chat_id: String(m.chat_id), direction: m.direction, sender: m.sender, timestamp: m.timestamp, text: m.text, has_media: m.has_media, media: [], counterpart_phone: m.counterpart_phone || '', counterpart_lid: m.counterpart_lid || '', resolved: !!m.resolved, body_unreadable: !!m.body_unreadable });
         newLast = m.message_id;
       }
       // If the cursor message wasn't in the newest-N window (long-idle chat), the
@@ -745,7 +833,8 @@ async function idbSweep(reason) {
     log('idbSweep[' + reason + '] store=' + msgStore + ' scanned=' + recs.length +
         ' chats=' + Object.keys(byChat).length + ' firstSeen=' + firstSeen +
         ' sent=' + sent + ' across ' + chatsWithNew + ' chats' +
-        (unreadableBodies ? ' | ' + unreadableBodies + ' bodies not plaintext (DOM fallback TBD)' : ''));
+        ' | AT-135 domBodyFilled=' + domFilled + ' (domBubbles=' + domIndex.count + ')' +
+        (unreadableBodies ? ' | ' + unreadableBodies + ' bodies unreadable (IDB opaque + bubble not in open DOM)' : ''));
   } catch (e) {
     warn('idbSweep[' + reason + '] error: ' + String(e));
   } finally {
@@ -767,21 +856,41 @@ async function idbSweep(reason) {
  * it never hijacks an active session (spec §8 ToS mitigation).
  */
 async function maybeRunHistorySweep() {
-  if (!historySweepEnabled || sweepRunning) return;
+  if (!historySweepEnabled || !backfillEnabled || sweepRunning) return; // AT-135 agency toggle
   if (!document.querySelector(SELECTORS.chatListPane)) return; // not on the chat UI yet
   if (!agentIsIdle()) { vlog('history sweep deferred — agent active'); return; }
   await runHistorySweep();
 }
 
+/** AT-135 — last-9 (SA core) of a number/jid, for matching against backfill targets. */
+function last9(s) {
+  const d = String(s || '').replace(/\D/g, '');
+  return d.length >= 9 ? d.slice(-9) : '';
+}
+
+/** AT-135 — fetch the set of numbers (last-9) with unreadable bodies to backfill. */
+async function fetchBackfillTargets() {
+  try {
+    const resp = await sendAsync({ type: 'WA_BACKFILL_TARGETS' });
+    const nums = (resp && resp.ok && resp.body && Array.isArray(resp.body.numbers)) ? resp.body.numbers : [];
+    return new Set(nums.map(last9).filter(Boolean));
+  } catch (e) { vlog('backfill-targets fetch failed:', String(e)); return new Set(); }
+}
+
 async function runHistorySweep() {
   sweepRunning = true;
   const originalChatId = currentChatId();
-  let walked = 0, backfilled = 0;
+  let walked = 0, backfilled = 0, skipped = 0;
   try {
+    backfillTargets = await fetchBackfillTargets();
     const items = Array.from(document.querySelectorAll(SELECTORS.chatListItem));
-    log('history sweep starting —', items.length, 'chats in list (idle, paced, read-only)');
+    log('history sweep (AT-135 body backfill) — ' + items.length + ' chats; ' + backfillTargets.size +
+        ' numbers pending body; cap ' + MAX_BACKFILL_CHATS_PER_RUN + '/run (idle, paced, READ-ONLY)');
+    if (!backfillTargets.size) { log('history sweep — nothing pending body backfill; done'); return; }
+
     for (const item of items) {
-      if (!historySweepEnabled) break;
+      if (backfilled >= MAX_BACKFILL_CHATS_PER_RUN) { log('history sweep — per-run cap reached, will resume next run'); break; }
+      if (!historySweepEnabled || !backfillEnabled) break;
       if (!agentIsIdle()) { log('history sweep paused — agent became active'); break; }
 
       openChat(item);                                  // navigation only (read-only)
@@ -789,17 +898,22 @@ async function runHistorySweep() {
       walked++;
 
       const chatId = currentChatId();
-      if (!chatId) { await wait(betweenChats()); continue; }
+      if (!chatId || chatId.includes('@g.us')) { await wait(betweenChats()); continue; } // skip groups
 
-      const number = numberFromChatId(chatId);
-      const isContact = number ? await checkContact(number) : false;
-      vlog('history sweep chat', chatId, 'number', number, '→ contact:', isContact);
+      // Resolve the chat's REAL number (an @lid chat resolves via AT-133's map).
+      const resolved = resolvePhoneJid(chatId) || chatId;
+      const n9 = last9(numberFromChatId(resolved) || numberFromChatId(chatId));
 
-      if (isContact && !lastSeenByChat[chatId]) {
-        await backfillOpenChat(chatId);
-        backfilled++;
+      // Only backfill a chat that actually has pending bodies (server-targeted) AND
+      // is a CoreX contact (POPIA: never backfill non-contacts).
+      if (n9 && backfillTargets.has(n9)) {
+        const isContact = await checkContact(numberFromChatId(resolved) || n9);
+        if (isContact) {
+          await backfillOpenChat(chatId);
+          backfilled++;
+        } else { skipped++; sweep('history-forward'); }
       } else {
-        sweep('history-forward'); // contact already cursored, or non-contact: forward-only
+        skipped++;
       }
       await wait(betweenChats());
     }
@@ -809,7 +923,7 @@ async function runHistorySweep() {
     // Restore the agent's original chat so the sweep is invisible to them.
     if (originalChatId) restoreChat(originalChatId);
     sweepRunning = false;
-    log('history sweep done — walked', walked, 'chats, backfilled', backfilled);
+    log('history sweep done — walked ' + walked + ', backfilled ' + backfilled + ', skipped ' + skipped + ' (READ-ONLY: never sent)');
   }
 }
 
