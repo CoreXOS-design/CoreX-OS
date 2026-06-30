@@ -1,6 +1,10 @@
 /**
  * CoreX WhatsApp Capture — content script (READ-ONLY).
  *
+ * v1.2.1 (AT-133): adds a one-time, READ-ONLY @lid→phone resolution probe — prints
+ * a [CoreX WA] lidResolve line per @lid chat (Q1: is the phone reachable from the
+ * @lid in model-storage?). No payload/behaviour change; investigation only.
+ *
  * v1.2.0: PRIMARY message source is WhatsApp Web's `model-storage` IndexedDB
  * (durable cleartext metadata + plaintext body), read READ-ONLY — see the
  * "IndexedDB reader" section below. DOM scraping is retained ONLY as a body
@@ -449,9 +453,32 @@ const MODEL_DB = 'model-storage';
 const MAX_MSG_SCAN = 1500;        // newest-N messages read per sweep
 let idbSweeping = false;
 let schemaDumped = false;
+let lidProbeDone = false;         // AT-133: one-time @lid→phone resolution probe
 let contactNameByJid = {};        // jid -> display name (from the contact store)
 
 function sweep(reason) { idbSweep(reason); } // the scheduled entry point
+
+/* ── AT-133 — @lid → phone resolution PROBE (read-only, one-time) ─────────────
+ * Q1: does WA Web's model-storage map an @lid (e.g. 222758646611979@lid) to the
+ * real …@c.us phone number? We read the contact/lid/wid stores (NOT the message
+ * store), try to resolve each @lid seen as a chat_id, and print the result in the
+ * standard [CoreX WA] style — Johan just reads the line, no console pasting.
+ * READ-ONLY: reads IndexedDB + console.log only. No writes, no POST. ───────────*/
+const RE_CUS = /^\d{5,}@c\.us$/;
+function isLid(j) { return typeof j === 'string' && j.endsWith('@lid'); }
+/** Recursively find the first …@c.us phone jid anywhere in a record (depth-capped). */
+function findPhoneJid(obj, depth) {
+  depth = depth || 0;
+  if (obj == null || depth > 5) return '';
+  if (typeof obj === 'string') return RE_CUS.test(obj) ? obj : '';
+  if (typeof obj === 'object') {
+    for (const k of ['phoneNumber', 'pnJid', 'pn', 'wid', 'jid', 'id']) {
+      const s = serId(obj[k]); if (RE_CUS.test(s)) return s;
+    }
+    for (const k in obj) { try { const f = findPhoneJid(obj[k], depth + 1); if (f) return f; } catch (e) {} }
+  }
+  return '';
+}
 
 function serId(x) {
   if (typeof x === 'string') return x;
@@ -549,6 +576,55 @@ function idbExtract(rec) {
   };
 }
 
+/**
+ * AT-133 — read-only @lid → phone resolution probe. For every @lid seen as a
+ * chat_id this sweep, scan the contact/lid/wid stores for a record tied to that
+ * @lid and report whether a real …@c.us phone (or a phone-ish field) is reachable.
+ * Logs in [CoreX WA] style; reads IndexedDB + console only (no writes, no POST).
+ */
+async function lidResolveProbe(db, chatJids) {
+  const lids = Array.from(new Set((chatJids || []).filter(isLid)));
+  const stores = Array.from(db.objectStoreNames).filter((s) => /contact|lid|wid/i.test(s));
+  log('lidResolve candidate stores=[' + stores.join(',') + '] | @lid chats this sweep=' + lids.length);
+  if (!lids.length) { log('lidResolve: no @lid chats seen this sweep — nothing to resolve'); return; }
+
+  const info = {}; // lid -> { pn, store, fields, hints }
+  for (const s of stores) {
+    const recs = await idbReadAll(db, s, 20000);
+    for (const r of recs) {
+      const v = r.value || {};
+      const keyJid = serId(v.id) || (typeof r.key === 'string' ? r.key : '');
+      const recLids = new Set();
+      if (isLid(keyJid)) recLids.add(keyJid);
+      for (const k of ['lid', 'lidJid', 'id']) { const sj = serId(v[k]); if (isLid(sj)) recLids.add(sj); }
+      if (!recLids.size) continue;
+      const pn = findPhoneJid(v);
+      const hints = ['phoneNumber', 'pn', 'pnJid', 'number', 'formattedNumber', 'wid', 'jid']
+        .map((k) => { const val = serId(v[k]); return val ? (k + '=' + val) : null; })
+        .filter(Boolean).join(' ');
+      for (const L of recLids) {
+        if (!info[L]) info[L] = { pn: '', store: s, fields: Object.keys(v).join(','), hints: '' };
+        if (pn && !info[L].pn) { info[L].pn = pn; info[L].store = s; }
+        if (!info[L].hints && hints) info[L].hints = hints;
+      }
+    }
+  }
+
+  let resolved = 0;
+  for (const lid of lids) {
+    const it = info[lid];
+    if (it && it.pn) {
+      resolved++;
+      log('lidResolve lid=' + lid + ' → pn=' + it.pn + ' (RESOLVED via store ' + it.store + ' fields=[' + it.fields + '])');
+    } else if (it) {
+      log('lidResolve lid=' + lid + ' → NO @c.us found. record store=' + it.store + ' fields=[' + it.fields + ']' + (it.hints ? ' hints{' + it.hints + '}' : ' (no phone-ish field)'));
+    } else {
+      log('lidResolve lid=' + lid + ' → NO matching record in [' + stores.join(',') + '] (masked / not stored)');
+    }
+  }
+  log('lidResolve SUMMARY ' + resolved + '/' + lids.length + ' resolved → ' + (resolved ? 'Q1=YES (auto-resolution viable)' : 'Q1=NO (no reachable phone → manual-link path)'));
+}
+
 async function idbSweep(reason) {
   if (idbSweeping) return;
   idbSweeping = true;
@@ -588,6 +664,11 @@ async function idbSweep(reason) {
     // group newest-N by chat, send messages after each chat's stored cursor
     const byChat = {};
     for (const r of recs) { const m = idbExtract(r); if (m) (byChat[m.chat_id] = byChat[m.chat_id] || []).push(m); }
+
+    // AT-133 — one-time, read-only @lid→phone resolution probe (Q1). Prints a
+    // [CoreX WA] lidResolve line per @lid chat seen, so Johan reads it like the
+    // idbSweep lines (no console pasting). Reads contact/lid/wid stores only.
+    if (!lidProbeDone) { lidProbeDone = true; try { await lidResolveProbe(db, Object.keys(byChat)); } catch (e) { warn('lidResolve outer error: ' + String(e)); } }
 
     let sent = 0, chatsWithNew = 0, firstSeen = 0, unreadableBodies = 0;
     for (const jid of Object.keys(byChat)) {

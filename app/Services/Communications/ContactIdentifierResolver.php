@@ -33,6 +33,15 @@ class ContactIdentifierResolver
             return null;
         }
 
+        // AT-133 — SAFETY GUARD (defense-in-depth): a WhatsApp @lid (linked id) is
+        // NOT a phone. Never normalise its digits into a phone match — they would
+        // false-match an unrelated contact whose last-9 happens to collide. Only a
+        // real …@c.us / MSISDN (or an email) is match-eligible. The WA ingestor
+        // already refuses @lid upstream; this makes the rule hold for every caller.
+        if (str_ends_with($identifier, '@lid') || str_contains($identifier, '@lid')) {
+            return null;
+        }
+
         return str_contains($identifier, '@')
             ? $this->resolveEmail($identifier, $agencyId)
             : $this->resolvePhone($identifier, $agencyId);
