@@ -2433,8 +2433,11 @@ CREATE TABLE `comms_access_requests` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned NOT NULL,
+  `thread_key` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `communication_id` bigint unsigned DEFAULT NULL,
   `requester_user_id` bigint unsigned NOT NULL,
   `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `grant_mode` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'session',
   `reason` text COLLATE utf8mb4_unicode_ci,
   `denial_reason` text COLLATE utf8mb4_unicode_ci,
   `authorized_by_user_id` bigint unsigned DEFAULT NULL,
@@ -2453,10 +2456,37 @@ CREATE TABLE `comms_access_requests` (
   KEY `car_agency_contact_idx` (`agency_id`,`contact_id`),
   KEY `car_requester_status_idx` (`requester_user_id`,`status`),
   KEY `car_status_idx` (`status`),
+  KEY `car_communication_fk` (`communication_id`),
+  KEY `car_requester_thread_idx` (`requester_user_id`,`thread_key`),
+  KEY `car_requester_comm_idx` (`requester_user_id`,`communication_id`),
   CONSTRAINT `car_authorizer_fk` FOREIGN KEY (`authorized_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `car_communication_fk` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE SET NULL,
   CONSTRAINT `car_contact_fk` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`),
   CONSTRAINT `car_requester_fk` FOREIGN KEY (`requester_user_id`) REFERENCES `users` (`id`),
   CONSTRAINT `comms_access_requests_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `comms_thread_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `comms_thread_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `thread_key` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `hide_subject` tinyint(1) NOT NULL DEFAULT '0',
+  `set_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `cts_agency_contact_thread_uq` (`agency_id`,`contact_id`,`thread_key`),
+  KEY `cts_contact_fk` (`contact_id`),
+  KEY `cts_set_by_fk` (`set_by_user_id`),
+  KEY `cts_agency_thread_idx` (`agency_id`,`thread_key`),
+  CONSTRAINT `comms_thread_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `cts_contact_fk` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `cts_set_by_fk` FOREIGN KEY (`set_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_attachments`;
@@ -12494,3 +12524,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (909,'2026_07_12_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (911,'2026_07_13_000001_create_comms_access_requests_table',190);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (913,'2026_07_14_000001_add_impersonator_id_to_contact_access_log',191);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (915,'2026_07_15_000001_add_communication_first_poll_days_to_agencies',192);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (918,'2026_07_16_000001_add_thread_scope_and_mode_to_comms_access_requests',193);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (919,'2026_07_16_000002_create_comms_thread_settings_table',193);
