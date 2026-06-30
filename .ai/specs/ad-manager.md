@@ -156,9 +156,39 @@ New catalogue fields: `custom_text`, `agency_logo` (real logo image), `status_ba
 `reference`, `address`, `agent_phone`, `agency_name`, `website`, `line` (divider),
 `badge` (pill), `shape` (circle/rect), `gradient` (overlay).
 
+**Agent 2 (co-listing) fields** (AT-124): the Agent group exposes a full second
+set — `agent_2_name`, `agent_2_email`, `agent_2_phone`, `agent_2_designation`,
+`agent_2_avatar` — so a designer can build true **dual-agent templates** (place
+Agent 1 and Agent 2 elements separately). They preview a co-agent placeholder on a
+single-agent property and resolve to the real co-listing agent when one exists; on a
+single-agent listing they render **empty** (never a placeholder) in the generator.
+
 New per-element controls: text background colour + opacity (pill), border width + colour,
 rotation, line-height. New canvas controls: two-stop background gradient + angle, extra
 presets (LinkedIn 1200×627, Pinterest 1000×1500).
+
+**Builder overhaul (AT-124):**
+- **Shape list.** A `shape` element now carries a `shapeType` chosen from a visual
+  picker — `rectangle`, `rounded` (editable corner radius), `circle`, `pill`,
+  `triangle`, `diamond`, `pentagon`, `hexagon`, `star`, `chevron`. Geometry is one
+  shared `shapeCss()` in the builder, mirrored by `SHAPE_CLIPS` in the generator
+  (clip-path for the polygonal shapes). Legacy shapes (no `shapeType`, `borderRadius`
+  as a %) still render unchanged.
+- **Colour Block removed** from the palette (its renderer is kept so existing
+  templates still display/edit).
+- **Custom Image / Custom Video.** Two new fields let a user upload their own media
+  into a block — `POST corex.ad-templates.upload-media` (image/video, ≤40 MB,
+  server-side mimetype check, stored on the public disk under `ad-media/{agency}`);
+  the URL is saved into the element's `src`. Video plays in the live preview; a
+  downloaded **PNG captures a single still frame** (html2canvas limitation, noted in
+  the panel).
+- **Features chooser.** A `features` element now offers a checklist of the property's
+  actual amenities (`Property::adData()['features_list']`); the chosen subset is
+  stored in `el.selectedFeatures` (null = all). Falls back to the beds/baths summary
+  when the property has no listed features.
+- **On-element action toolbar.** Selecting any element shows a floating toolbar
+  pinned above it on the canvas with **Duplicate / Rotate 45° / Delete** (counter-
+  scaled so it stays a constant on-screen size at any canvas zoom).
 
 ---
 
@@ -295,6 +325,77 @@ their raw bytes rather than dropping (dompdf renders webp/png/jpeg natively).
 - [ ] Foreign-agency listing 404s. Covered by `tests/Feature/Properties/BrochurePdfTest.php`.
 
 ---
+
+## 10d. Agent identity (who appears on the ad) — AT-124
+
+> Status: LIVE (single-property generator + brochure) · 2026-06-29 (Andre)
+> Driven by agent feedback: *"Kan ons dalk by die ads 'n opsie hê om die agent se
+> naam te kan verander veral as daar meer as 1 agent op 'n eiendom werk?"*
+
+Every ad defaulted to the **listing agent** (`Property::adData()` hard-wired
+`$this->agent`), with no way to change whose name/contact appears — even though a
+listing can be **co-worked by two agents** (the co-listing agent already lives on
+`pp_second_agent_id` / `Property::secondAgent()`, used for P24/PP dual-agent
+syndication). This section adds an **agent selector** to the Ad Manager.
+
+**Capabilities** — there is **no general agent picker**. An ad shows the people who
+actually work the listing. The choice only appears **when the listing is co-listed**
+(has a `pp_second_agent_id`):
+- **Listing agent** (default) · **Co-agent** · **Both** — a 3-way segmented control
+  in the generator toolbar (and on the brochure card). The chosen agent's **name,
+  email, phone, designation, photo and initial** all follow.
+- **Both** renders the two agents as **two SEPARATE blocks** (each its own avatar,
+  name and contact) — never a merged "A & B" line. Every agent-bearing pre-built
+  template has a real second agent block (`split`/`power`/`luxe` etc. show two agent
+  cards; the inline-footer templates show two agent lines), and the A4 brochure shows
+  a compact **two-column footer** (smaller photos/type so it stays one page).
+- A single-agent listing shows the listing agent with **no control at all**.
+- *(Not in this slice: free-typed custom names; persisting the choice on the
+  property. The choice is per-ad, made at generation time.)*
+
+**How it works (no new write path — pure read/render)**
+- `Property::agentAdCard(?User)` → the `{id,name,email,phone,designation,initial,
+  avatar}` card the client consumes (keys mirror `adData()`'s `agent_*`).
+- `PropertyController::ad()` passes just two cards: `$listingAgentCard` and
+  `$coAgentCard` (null unless the listing has a distinct `pp_second_agent_id`).
+- `Property::adData()` / `adTemplateVars()` emit a full **`agent_2_*`** set sourced
+  from `secondAgent` (empty unless co-listed) — used by the dual-agent layouts and
+  the builder's Agent 2 fields.
+- **Pre-built templates are server-rendered Blade**. Two reusable closures in
+  `_ad-templates.blade.php` (`$agentChip` avatar block, `$agentLine` inline) render
+  slot 1 (tagged `js-ad-name`/`-email`/`-desig`/`-initial`) and a slot-2 block
+  (`js-ad-*-2` inside a hidden `js-ad-agent2` wrapper, each carrying its shown-display
+  in `data-disp`). The generator swaps both slots' `textContent` and shows/hides the
+  slot-2 wrapper per `agentMode`. **Custom templates render client-side** from
+  `propertyData` (`agent_*` + `agent_2_*`) → same swap updates it and re-renders.
+  `html2canvas` captures the live DOM, so downloads reflect the choice.
+- **Brochure** (`PropertyBrochureService::data()/pdf()`) takes optional
+  `$primary` / `$secondary` `User`s; the route `corex.properties.brochure` reads
+  `?ad_agent=<id>` (in-scope agent, AgencyScope-validated, falls back to listing)
+  and `?co=1` (co-brand with the listing's co-listing agent). The brochure card's
+  control shares the generator's `agentMode` (`listing` | `co` | `both`) state.
+
+**Scope / safety** — only the listing's own two agents are ever offered (built
+server-side as `$listingAgentCard` / `$coAgentCard`); `?ad_agent` on the brochure
+route is re-validated by `User::find` under `AgencyScope` (a foreign/unknown id
+silently falls back to the listing agent). No client value is trusted to widen scope.
+
+**Follow-ups (documented, not built here)**
+- Bulk **Tools → Ad Manager** per-property agent override + a "Both" toggle (it
+  already groups by listing agent and renders single-agent; the dual-agent blocks
+  exist in the partial but the bulk surface has no toggle yet).
+- Free-typed name override + remembering the choice on the property.
+
+**Acceptance**
+- [x] Co-listed property: generator + brochure show a Listing / Co-agent / Both
+      control; switching updates the live preview and the downloaded PNG/PDF.
+- [x] **Both** renders two SEPARATE agent blocks across every agent-bearing
+      template (not a merged "A & B" line).
+- [x] The builder Agent group has full Agent 1 + Agent 2 field sets; Agent 2
+      previews a co-agent placeholder and renders empty on a single-agent listing.
+- [x] Single-agent property: no control; the listing agent shows as before.
+- [x] Brochure honours `?ad_agent` / `?co=1`; Both renders two agent blocks and
+      stays one A4 page; bad/foreign `ad_agent` falls back to the listing agent.
 
 ## 11. Files to create / modify
 

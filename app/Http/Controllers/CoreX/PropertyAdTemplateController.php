@@ -31,6 +31,36 @@ class PropertyAdTemplateController extends Controller
         return view('corex.properties.ad-builder', compact('template', 'property', 'propertyData'));
     }
 
+    /**
+     * Upload a custom image or video for an Ad Builder "Custom Image/Video"
+     * element. Stored on the public disk; the returned URL is saved into the
+     * element's layout_json. Spec: ad-manager.md §9 (Ad Builder range).
+     */
+    public function uploadMedia(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $request->validate([
+            // 40 MB ceiling — covers short clips without letting the builder
+            // become a video host. Mimes are checked server-side, never trusted.
+            'file' => 'required|file|max:40960|mimetypes:image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime',
+        ]);
+
+        $file = $request->file('file');
+        $kind = str_starts_with((string) $file->getMimeType(), 'video/') ? 'video' : 'image';
+        $ext  = strtolower($file->getClientOriginalExtension() ?: $file->guessExtension() ?: ($kind === 'video' ? 'mp4' : 'jpg'));
+
+        $path = $file->storeAs(
+            'ad-media/' . (auth()->user()?->effectiveAgencyId() ?? 0),
+            uniqid($kind . '_') . '.' . $ext,
+            'public'
+        );
+
+        return response()->json([
+            'ok'   => true,
+            'kind' => $kind,
+            'url'  => \Illuminate\Support\Facades\Storage::disk('public')->url($path),
+        ]);
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
