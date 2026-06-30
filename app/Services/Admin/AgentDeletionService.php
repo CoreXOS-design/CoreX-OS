@@ -2,6 +2,8 @@
 
 namespace App\Services\Admin;
 
+use App\Models\Communications\CommsAccessAuditLog;
+use App\Models\Property;
 use App\Models\User;
 use App\Services\DealMoneyLineRebuilder;
 use Illuminate\Support\Facades\DB;
@@ -208,6 +210,148 @@ class AgentDeletionService
 
             return $counts;
         });
+    }
+
+    /**
+     * AT-118 Flow B — offboarding transfer. Moves the departing agent's LIVE
+     * working set to the successor and LEAVES the historic/financial record with
+     * the departed agent. Deals + commissions are NOT touched here (they stay).
+     *
+     * Transfers to $target:
+     *   - Properties: ON-MARKET only (status NOT in Property::OFF_MARKET_STATUSES).
+     *     Sold / transferred / withdrawn / expired / let / draft / archived stay
+     *     attributed to the departed agent (their track record).
+     *   - Contacts: agent_id + second_agent_id + created_by_user_id (so the contact
+     *     surface — $contact->agent ?? $contact->createdBy — shows the successor).
+     *   - FICA: requested_by + agent_verified_by (the agent-side fields).
+     *   - communications.owner_user_id (the AT-118 gate re-points automatically).
+     * Calendar events + tasks owned by the source are soft-deleted (existing
+     * offboarding behaviour). Logs an immutable ownership_transfer audit event.
+     *
+     * @return array<string,int>
+     */
+    public function transferForOffboarding(User $source, User $target, string $secondaryHandling, int $actorId): array
+    {
+        if ((int) $source->id === (int) $target->id) {
+            return ['skipped_same_user' => 1];
+        }
+
+        $counts = DB::transaction(function () use ($source, $target, $secondaryHandling) {
+            $now      = now();
+            $offMkt   = Property::OFF_MARKET_STATUSES;
+
+            // ── Properties — ON-MARKET only (status-based split) ──
+            $primaryChanged = 0;
+            if ($secondaryHandling === 'promote') {
+                $promoted = DB::table('properties')->whereNull('deleted_at')
+                    ->whereNotIn('status', $offMkt)
+                    ->where('agent_id', $source->id)
+                    ->whereNotNull('pp_second_agent_id')
+                    ->where('pp_second_agent_id', '!=', $source->id)
+                    ->get(['id', 'pp_second_agent_id']);
+                foreach ($promoted as $row) {
+                    DB::table('properties')->where('id', $row->id)->update([
+                        'agent_id' => $row->pp_second_agent_id, 'pp_second_agent_id' => null, 'updated_at' => $now,
+                    ]);
+                    $primaryChanged++;
+                }
+                $primaryChanged += DB::table('properties')->whereNull('deleted_at')
+                    ->whereNotIn('status', $offMkt)
+                    ->where('agent_id', $source->id)
+                    ->update(['agent_id' => $target->id, 'updated_at' => $now]);
+            } else {
+                $primaryChanged = DB::table('properties')->whereNull('deleted_at')
+                    ->whereNotIn('status', $offMkt)
+                    ->where('agent_id', $source->id)
+                    ->update(['agent_id' => $target->id, 'updated_at' => $now]);
+            }
+
+            $secondaryChanged = 0;
+            foreach (DB::table('properties')->whereNull('deleted_at')
+                        ->whereNotIn('status', $offMkt)
+                        ->where('pp_second_agent_id', $source->id)
+                        ->get(['id', 'agent_id']) as $row) {
+                $newSecondary = ((int) $row->agent_id === (int) $target->id) ? null : $target->id;
+                DB::table('properties')->where('id', $row->id)
+                    ->update(['pp_second_agent_id' => $newSecondary, 'updated_at' => $now]);
+                $secondaryChanged++;
+            }
+
+            // Properties left with the departed agent (sold/historic) — for the audit detail.
+            $historicLeft = DB::table('properties')->whereNull('deleted_at')
+                ->whereIn('status', $offMkt)
+                ->where(fn ($q) => $q->where('agent_id', $source->id)->orWhere('pp_second_agent_id', $source->id))
+                ->count();
+
+            // ── Contacts — current operational agent + capture fields → successor ──
+            $contactsPrimary = DB::table('contacts')->whereNull('deleted_at')
+                ->where('agent_id', $source->id)->update(['agent_id' => $target->id, 'updated_at' => $now]);
+            $contactsSecond = DB::table('contacts')->whereNull('deleted_at')
+                ->where('second_agent_id', $source->id)->update(['second_agent_id' => $target->id, 'updated_at' => $now]);
+            $contactsCreated = DB::table('contacts')->whereNull('deleted_at')
+                ->where('created_by_user_id', $source->id)->update(['created_by_user_id' => $target->id, 'updated_at' => $now]);
+
+            // ── FICA — agent-side fields → successor (compliance-officer verify fields stay) ──
+            $ficaRequested = 0;
+            $ficaAgentVerified = 0;
+            if (Schema::hasTable('fica_submissions')) {
+                $ficaRequested = DB::table('fica_submissions')
+                    ->where('requested_by', $source->id)->update(['requested_by' => $target->id, 'updated_at' => $now]);
+                if (Schema::hasColumn('fica_submissions', 'agent_verified_by')) {
+                    $ficaAgentVerified = DB::table('fica_submissions')
+                        ->where('agent_verified_by', $source->id)->update(['agent_verified_by' => $target->id, 'updated_at' => $now]);
+                }
+            }
+
+            // ── Communications — owner re-points → the AT-118 gate follows automatically ──
+            $commsOwner = DB::table('communications')
+                ->where('owner_user_id', $source->id)->update(['owner_user_id' => $target->id, 'updated_at' => $now]);
+
+            // ── Calendar + tasks — soft-delete (existing offboarding behaviour) ──
+            $eventsDeleted = DB::table('calendar_events')->whereNull('deleted_at')
+                ->where('user_id', $source->id)->update(['deleted_at' => $now, 'updated_at' => $now]);
+            $tasksDeleted = DB::table('command_tasks')->whereNull('deleted_at')
+                ->where('assigned_to', $source->id)->update(['deleted_at' => $now, 'updated_at' => $now]);
+
+            return [
+                'properties_primary'    => $primaryChanged,
+                'properties_secondary'  => $secondaryChanged,
+                'properties_historic_left' => $historicLeft,
+                'contacts_agent'        => $contactsPrimary,
+                'contacts_second_agent' => $contactsSecond,
+                'contacts_created_by'   => $contactsCreated,
+                'fica_requested_by'     => $ficaRequested,
+                'fica_agent_verified_by' => $ficaAgentVerified,
+                'communications_owner'  => $commsOwner,
+                'calendar_events'       => $eventsDeleted,
+                'command_tasks'         => $tasksDeleted,
+            ];
+        });
+
+        // Immutable POPIA record of the transfer (req 1). Deals/commissions intentionally absent.
+        CommsAccessAuditLog::record(CommsAccessAuditLog::EVENT_OWNERSHIP_TRANSFER, [
+            'agency_id'       => $source->agency_id,
+            'actor_user_id'   => $actorId,
+            'subject_user_id' => $source->id,
+            'detail'          => [
+                'departed_user_id'  => $source->id,
+                'departed_user'     => $source->name,
+                'successor_user_id' => $target->id,
+                'successor_user'    => $target->name,
+                'secondary_handling' => $secondaryHandling,
+                'transferred'       => $counts,
+                'stays_with_departed' => ['deal_register', 'commissions', 'sold_historic_stock'],
+            ],
+        ]);
+
+        Log::info('agent.offboarding_transfer', [
+            'actor_user_id'  => $actorId,
+            'source_user_id' => $source->id,
+            'target_user_id' => $target->id,
+            'counts'         => $counts,
+        ]);
+
+        return $counts;
     }
 
     /**
