@@ -277,7 +277,7 @@
             @if($t['key'] === 'outreach' && !auth()->user()->hasPermission('outreach.compose'))
                 @continue
             @endif
-            @if($t['key'] === 'communications' && !($canViewComms ?? false))
+            @if($t['key'] === 'communications' && !(($canViewComms ?? false) || ($canRequestComms ?? false)))
                 @continue
             @endif
             <button type="button"
@@ -1832,8 +1832,17 @@
         {{-- ════════════════════════════
              COMMUNICATIONS TAB (AT-43) — linked archive comms (email + WhatsApp)
              ════════════════════════════ --}}
-        @if($canViewComms ?? false)
+        @if(($canViewComms ?? false) || ($canRequestComms ?? false))
         <div x-show="activeTab === 'communications'" x-cloak class="p-6 space-y-4" id="tab-communications">
+            @if($commsViaGrant ?? false)
+            <div class="rounded-md px-4 py-2.5 flex items-center gap-2 text-xs"
+                 style="background:color-mix(in srgb, #00d4aa 12%, transparent); border:1px solid color-mix(in srgb, #00d4aa 40%, transparent); color:var(--text-secondary);">
+                <span>🔓</span>
+                <span><strong style="color:var(--text-primary);">Access granted for this session.</strong> Your access to this contact's communications ends when you log out, and automatically resets at midnight.</span>
+            </div>
+            @endif
+
+            @if($canViewComms ?? false)
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-sm font-bold" style="color:var(--text-primary);">Communication Archive</h3>
@@ -1882,6 +1891,55 @@
                     <p class="text-xs mt-1" style="color:var(--text-muted);">Captured email/WhatsApp with this contact's address or number will appear here automatically.</p>
                 </div>
             @endforelse
+            @else
+            {{-- AT-118 Flow A — comms-capable user without access to THIS contact's threads --}}
+            <div class="rounded-md px-4 py-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border);"
+                 x-data="{
+                    requested: {{ ($pendingCommsRequest ?? null) ? 'true' : 'false' }},
+                    reason: '', loading: false, error: '',
+                    async submit(){
+                        this.loading = true; this.error = '';
+                        try {
+                            const r = await fetch('{{ route('api.v1.comms-access.store') }}', {
+                                method: 'POST',
+                                headers: { 'Content-Type':'application/json', 'Accept':'application/json',
+                                           'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
+                                body: JSON.stringify({ contact_id: {{ $contact->id }}, reason: this.reason })
+                            });
+                            const d = await r.json();
+                            if (r.ok && d.ok) { this.requested = true; }
+                            else { this.error = d.error || 'Could not send the request.'; }
+                        } catch (e) { this.error = 'Network error — please try again.'; }
+                        finally { this.loading = false; }
+                    }
+                 }">
+                <div class="text-2xl mb-2">🔒</div>
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Communications are private to the owning agent</h3>
+                <p class="text-xs mt-1 mb-4 max-w-md mx-auto" style="color:var(--text-muted);">You don't have access to this contact's email &amp; WhatsApp threads. Request access — the owning agent or a manager can approve it for your current session.</p>
+
+                <template x-if="!requested">
+                    <div class="flex flex-col items-center gap-2">
+                        <input type="text" x-model="reason" placeholder="Reason (optional)" maxlength="1000"
+                               class="w-full max-w-sm text-sm rounded-md px-3 py-2"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <button type="button" @click="submit()" :disabled="loading"
+                                class="text-xs font-semibold rounded-md px-4 py-2"
+                                style="background:var(--brand-icon, #0ea5e9); color:#fff;"
+                                :style="loading ? 'opacity:.6;cursor:wait' : ''">
+                            <span x-show="!loading">Request access</span>
+                            <span x-show="loading">Sending…</span>
+                        </button>
+                    </div>
+                </template>
+                <template x-if="requested">
+                    <div class="inline-flex items-center gap-2 text-xs font-semibold rounded-md px-3 py-2"
+                         style="background:color-mix(in srgb, #f59e0b 14%, transparent); color:#b45309;">
+                        <span>⏳</span><span>Request sent — awaiting approval. You'll get access for this session once approved.</span>
+                    </div>
+                </template>
+                <p x-show="error" x-text="error" class="text-xs mt-2" style="color:#ef4444;"></p>
+            </div>
+            @endif
         </div>
         @endif
 

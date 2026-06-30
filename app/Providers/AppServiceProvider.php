@@ -167,6 +167,9 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Leads\NewPortalLeadReceived::class,
             \App\Listeners\Leads\EmailPortalLeadToAgent::class,
         );
+        // AT-118 — a session-scoped communications access grant dies at logout.
+        Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
+
         \App\Models\ProspectingListing::observe(\App\Observers\ProspectingListingObserver::class);
         \App\Models\DealV2\DealV2::observe(\App\Observers\DealV2Observer::class);
         \App\Models\DealV2\DealStepInstance::observe(\App\Observers\DealStepInstanceObserver::class);

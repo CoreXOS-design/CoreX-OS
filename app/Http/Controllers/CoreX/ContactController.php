@@ -320,7 +320,7 @@ class ContactController extends Controller
         //   • they hold communications.grant_access (an authoriser must see the
         //     threads in order to authorise a request), OR
         //   • they hold an active session-scoped grant for this contact
-        //     (Step-3 seam — CommsAccessGrantService, currently a no-op stub), OR
+        //     (Flow A — CommsAccessGrantService::hasActiveGrant, session + midnight bound), OR
         //   • their communications.view scope (own/branch/all) covers ≥1 thread —
         //     where "own" === the owning agent (communications.owner_user_id).
         // The rows are filtered server-side via Communication::scopeVisibleTo, so a
@@ -359,13 +359,23 @@ class ContactController extends Controller
             $canViewComms = $contactComms->isNotEmpty();
         }
 
+        // AT-118 Flow A view-state: a comms-capable user who can't currently see
+        // this contact's threads may REQUEST access; show a "granted until logout"
+        // banner when access is via a transient grant; surface any pending request.
+        $commsViaGrant   = $hasGrant;
+        $canRequestComms = !$canViewComms && $scope !== null;
+        $pendingCommsRequest = $canRequestComms
+            ? \App\Models\Communications\CommsAccessRequest::byRequester($viewer->id)
+                ->forContact($contact->id)->pending()->where('expires_at', '>', now())->latest()->first()
+            : null;
+
         // AT-59 — tile counts DERIVE from the communications archive (outbound,
         // provisional + confirmed), not the legacy scalar columns. The relation
         // is eager-loaded above so these are computed in memory (no N+1).
         $waSent    = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP);
         $emailSent = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_EMAIL);
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'waSent', 'emailSent'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'waSent', 'emailSent'));
     }
 
     public function checkDuplicate(Request $request)

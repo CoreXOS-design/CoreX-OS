@@ -699,6 +699,11 @@
                 <a href="{{ route('communications.triage.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.triage.*') ? 'active' : '' }}">Message Triage</a>
                 @endpermission
 
+                {{-- AT-118 — Communications Access Gate: approver inbox (owning agents + grant_access holders) --}}
+                @permission('communications.view')
+                <a href="{{ route('corex.comms-access.inbox') }}" class="corex-nav-subitem {{ request()->routeIs('corex.comms-access.inbox') ? 'active' : '' }}">Access Requests</a>
+                @endpermission
+
                 @permission('access_communication')
                 <a href="{{ route('communications.wa-devices.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.wa-devices.*') ? 'active' : '' }}">WhatsApp Capture</a>
                 {{-- Communication Capture (AT-39) — user email self-service --}}
