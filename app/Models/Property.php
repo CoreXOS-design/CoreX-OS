@@ -1302,6 +1302,12 @@ class Property extends Model
             'suburb'            => strtoupper((string) $this->suburb) . ($this->city ? ', ' . strtoupper((string) $this->city) : ''),
             'property_type'     => strtoupper(str_replace('_', ' ', (string) $this->property_type)),
             'features'          => trim(($beds ? $beds . ' Bed' : '') . ($baths ? ' · ' . $baths . ' Bath' : '') . ($garages ? ' · ' . $garages . ' Garage' : ''), ' · '),
+            // Full amenity list — the Ad Builder "Features" element lets the user
+            // pick which of these to display. Deduped, blanks dropped.
+            'features_list'     => array_values(array_unique(array_filter(array_map(
+                fn ($f) => trim((string) $f),
+                (array) ($this->features_json ?? []),
+            )))),
             'beds'              => (string) ($beds ?? ''),
             'baths'             => (string) ($baths ?? ''),
             'garages'           => (string) ($garages ?? ''),

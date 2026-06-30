@@ -167,6 +167,29 @@ New per-element controls: text background colour + opacity (pill), border width 
 rotation, line-height. New canvas controls: two-stop background gradient + angle, extra
 presets (LinkedIn 1200×627, Pinterest 1000×1500).
 
+**Builder overhaul (AT-124):**
+- **Shape list.** A `shape` element now carries a `shapeType` chosen from a visual
+  picker — `rectangle`, `rounded` (editable corner radius), `circle`, `pill`,
+  `triangle`, `diamond`, `pentagon`, `hexagon`, `star`, `chevron`. Geometry is one
+  shared `shapeCss()` in the builder, mirrored by `SHAPE_CLIPS` in the generator
+  (clip-path for the polygonal shapes). Legacy shapes (no `shapeType`, `borderRadius`
+  as a %) still render unchanged.
+- **Colour Block removed** from the palette (its renderer is kept so existing
+  templates still display/edit).
+- **Custom Image / Custom Video.** Two new fields let a user upload their own media
+  into a block — `POST corex.ad-templates.upload-media` (image/video, ≤40 MB,
+  server-side mimetype check, stored on the public disk under `ad-media/{agency}`);
+  the URL is saved into the element's `src`. Video plays in the live preview; a
+  downloaded **PNG captures a single still frame** (html2canvas limitation, noted in
+  the panel).
+- **Features chooser.** A `features` element now offers a checklist of the property's
+  actual amenities (`Property::adData()['features_list']`); the chosen subset is
+  stored in `el.selectedFeatures` (null = all). Falls back to the beds/baths summary
+  when the property has no listed features.
+- **On-element action toolbar.** Selecting any element shows a floating toolbar
+  pinned above it on the canvas with **Duplicate / Rotate 45° / Delete** (counter-
+  scaled so it stays a constant on-screen size at any canvas zoom).
+
 ---
 
 ## 10. Acceptance criteria
