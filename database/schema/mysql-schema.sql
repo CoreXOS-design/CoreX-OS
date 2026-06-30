@@ -2741,6 +2741,7 @@ CREATE TABLE `contact_access_log` (
   `agency_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned NOT NULL,
   `user_id` bigint unsigned NOT NULL,
+  `impersonator_id` bigint unsigned DEFAULT NULL,
   `action_type` enum('view','edit','export','share','delete','merge') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `accessed_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -2751,6 +2752,8 @@ CREATE TABLE `contact_access_log` (
   KEY `contact_access_log_user_id_foreign` (`user_id`),
   KEY `contact_access_log_contact_id_accessed_at_index` (`contact_id`,`accessed_at`),
   KEY `contact_access_log_agency_id_accessed_at_index` (`agency_id`,`accessed_at`),
+  KEY `cal_impersonator_fk` (`impersonator_id`),
+  CONSTRAINT `cal_impersonator_fk` FOREIGN KEY (`impersonator_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contact_access_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `contact_access_log_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `contact_access_log_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
@@ -12488,3 +12491,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (907,'2026_07_11_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (908,'2026_07_12_000001_create_contact_phones_and_emails_tables',189);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (909,'2026_07_12_000002_backfill_contact_identifiers_and_relax_phone',189);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (911,'2026_07_13_000001_create_comms_access_requests_table',190);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (913,'2026_07_14_000001_add_impersonator_id_to_contact_access_log',191);
