@@ -72,13 +72,10 @@ class FicaController extends Controller
         }
 
         if ($search = $request->query('search')) {
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('contact', function ($cq) use ($search) {
-                    $cq->where('first_name', 'like', "%{$search}%")
-                       ->orWhere('last_name', 'like', "%{$search}%")
-                       ->orWhere('email', 'like', "%{$search}%");
-                });
-            });
+            // AT-131 — match the related contact via the canonical search (name +
+            // id_number + ALL identifiers), so a FICA record is findable by the
+            // contact's secondary phone/email too.
+            $query->whereHas('contact', fn ($cq) => $cq->search($search));
         }
 
         $submissions = $query->paginate(20)->withQueryString();

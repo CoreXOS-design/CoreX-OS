@@ -49,15 +49,10 @@ class MobileContactController extends Controller
             ->orderBy('last_name')->orderBy('first_name');
 
         if ($request->filled('search')) {
-            foreach (array_filter(explode(' ', trim($request->search))) as $w) {
-                $query->where(function ($q) use ($w) {
-                    $q->where('first_name', 'like', "%{$w}%")
-                      ->orWhere('last_name',  'like', "%{$w}%")
-                      ->orWhere('phone',      'like', "%{$w}%")
-                      ->orWhere('email',      'like', "%{$w}%")
-                      ->orWhere('id_number',  'like', "%{$w}%");
-                });
-            }
+            // AT-131 canonical contact search — matches name + id_number + ALL
+            // identifiers (child phones/emails), closing the AT-125 gap. (The list
+            // keeps its alphabetical order above for the mobile UX.)
+            $query->search($request->search);
         }
 
         $contacts = $query->paginate((int) $request->input('per_page', 50));

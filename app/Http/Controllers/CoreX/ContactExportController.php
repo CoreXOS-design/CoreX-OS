@@ -179,16 +179,9 @@ class ContactExportController extends Controller
 
         if (!$exportAll) {
             if ($request->filled('search')) {
-                $words = array_filter(explode(' ', trim($request->search)));
-                foreach ($words as $word) {
-                    $query->where(function ($q) use ($word) {
-                        $q->where('first_name', 'like', "%{$word}%")
-                          ->orWhere('last_name',  'like', "%{$word}%")
-                          ->orWhere('phone',      'like', "%{$word}%")
-                          ->orWhere('email',      'like', "%{$word}%")
-                          ->orWhere('id_number',  'like', "%{$word}%");
-                    });
-                }
+                // AT-131 — same canonical search as the index, so the export set
+                // matches exactly what the agent searched (incl. all identifiers).
+                $query->search($request->search);
             }
 
             if ($request->filled('type')) {
