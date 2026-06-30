@@ -775,6 +775,20 @@ class ContactController extends Controller
             $data['second_agent_id'] = null;
         }
 
+        // AT-118 hardening — reassigning the Primary/Co-Agent is a manager action
+        // (contacts.reassign_agent), enforced SERVER-SIDE here, not just by hiding
+        // the dropdown. A user without the capability may still edit every other
+        // field, but any CHANGE to the assignment is refused. (Comms visibility is
+        // owner-based, so this is not a comms-access bypass today — but agent
+        // assignment must be manager-controlled regardless.)
+        $changingPrimary = array_key_exists('agent_id', $data)
+            && (int) ($data['agent_id'] ?? 0) !== (int) ($contact->agent_id ?? 0);
+        $changingSecond = array_key_exists('second_agent_id', $data)
+            && (int) ($data['second_agent_id'] ?? 0) !== (int) ($contact->second_agent_id ?? 0);
+        if (($changingPrimary || $changingSecond) && ! $request->user()->hasPermission('contacts.reassign_agent')) {
+            abort(403, 'You do not have permission to change the agent assigned to this contact.');
+        }
+
         // AT-125 — only touch identifiers when the request actually carries them
         // (this endpoint also serves partial edits that must not wipe phones/emails).
         $hasIdentifierInput = $request->has('phones') || $request->has('emails')

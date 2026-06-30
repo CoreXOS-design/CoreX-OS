@@ -119,18 +119,24 @@
                     @endforelse
                 </div>
 
-                {{-- Linked agent + timestamps --}}
-                @php $primaryAgent = $contact->agent ?? $contact->createdBy; @endphp
+                {{-- Linked agent + timestamps. The "Agent:" label is the ASSIGNED
+                     agent (contacts.agent_id) ONLY — never the creator. A contact
+                     with no assigned agent reads "Unassigned" (AT-118: do not pass
+                     created_by off as the agent; the creator is shown separately as
+                     "Captured by" on the assignment panel). --}}
+                @php $primaryAgent = $contact->agent; @endphp
                 <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1">
-                    @if($primaryAgent)
                     <span class="text-xs flex items-center gap-1.5" style="color:rgba(255,255,255,0.4);">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
-                        Agent: <strong class="text-white/60">{{ $primaryAgent->name }}</strong>
-                        @if($primaryAgent->email)
-                            <span style="color:rgba(255,255,255,0.3);">· {{ $primaryAgent->email }}</span>
+                        @if($primaryAgent)
+                            Agent: <strong class="text-white/60">{{ $primaryAgent->name }}</strong>
+                            @if($primaryAgent->email)
+                                <span style="color:rgba(255,255,255,0.3);">· {{ $primaryAgent->email }}</span>
+                            @endif
+                        @else
+                            Agent: <strong class="text-white/60">Unassigned</strong>
                         @endif
                     </span>
-                    @endif
                     @if($contact->secondAgent)
                     <span class="text-xs flex items-center gap-1.5" style="color:rgba(255,255,255,0.4);">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
@@ -695,12 +701,15 @@
                     </div>
                 </div>
 
-                {{-- Assigned Agents — primary (reassignable) + optional co-agent.
-                     created_by stays the immutable capture audit; this drives the
-                     "Agent" shown in the header and is the operational owner. --}}
+                {{-- Assigned Agents — the operational Primary/Co-Agent (agent_id /
+                     second_agent_id). created_by stays the immutable capture audit
+                     (shown as "Captured by"), never as the assigned agent. AT-118:
+                     changing the assignment requires contacts.reassign_agent. --}}
+                @php $canReassign = auth()->user()?->hasPermission('contacts.reassign_agent'); @endphp
                 <div class="pt-2 border-t" style="border-color:var(--border);">
                     <h3 class="text-xs font-bold uppercase tracking-widest pt-4 mb-1" style="color:var(--text-muted);">Assigned Agents</h3>
-                    <p class="text-[11px] mb-3" style="color:var(--text-muted);">Reassign the primary agent on this contact, or add a co-agent. Captured by {{ $contact->createdBy?->name ?? 'Unknown' }}.</p>
+                    <p class="text-[11px] mb-3" style="color:var(--text-muted);">The agent(s) assigned to this contact. Captured by {{ $contact->createdBy?->name ?? 'Unknown' }}.</p>
+                    @if($canReassign)
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Agent</label>
@@ -728,6 +737,20 @@
                     @error('second_agent_id')
                         <p class="text-[11px] mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>
                     @enderror
+                    @else
+                    {{-- No Silent Locks: show the current assignment read-only + why it's locked. --}}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Agent</label>
+                            <p class="text-sm" style="color:var(--text-primary);">{{ $contact->agent?->name ?? 'Unassigned' }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Co-Agent</label>
+                            <p class="text-sm" style="color:var(--text-primary);">{{ $contact->secondAgent?->name ?? 'None' }}</p>
+                        </div>
+                    </div>
+                    <p class="text-[11px] mt-2" style="color:var(--text-muted);">Only a manager can change the agent assigned to a contact. Ask an admin or branch manager to reassign it.</p>
+                    @endif
                 </div>
 
                 <div class="flex items-center gap-3 pt-2">

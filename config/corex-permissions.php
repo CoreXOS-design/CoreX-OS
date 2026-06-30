@@ -308,6 +308,11 @@ return [
         ['key' => 'contacts.delete',             'label' => 'Delete',                      'section' => 'contacts',         'type' => 'action',  'module' => 'contacts',         'sort_order' => 15],
         ['key' => 'contacts.whatsapp',           'label' => 'WhatsApp',                    'section' => 'contacts',         'type' => 'action',  'module' => 'contacts',         'sort_order' => 16],
         ['key' => 'contacts.email',              'label' => 'Email',                       'section' => 'contacts',         'type' => 'action',  'module' => 'contacts',         'sort_order' => 17],
+        // AT-118 hardening — changing a contact's assigned Primary/Co-Agent is a
+        // manager action (it shifts who is accountable for the contact). Default
+        // admin + branch_manager; agency-reconfigurable in Role Manager. A plain
+        // agent without this cap cannot reassign (enforced server-side).
+        ['key' => 'contacts.reassign_agent',     'label' => 'Reassign Contact Agent / Co-Agent', 'section' => 'contacts',   'type' => 'action',  'module' => 'contacts',         'sort_order' => 19],
 
         // ── Core Matches ──
         ['key' => 'access_core_matches',         'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
@@ -644,6 +649,7 @@ return [
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email', 'contacts.export',
+                'contacts.reassign_agent', // AT-118 hardening — managers reassign contact agents
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
                 'core_matches.all_view',
@@ -790,6 +796,18 @@ return [
                 'view_own_screening',
                 // Sidebar sections
                 'sidebar.section.agents', 'sidebar.section.tools',
+            ],
+        ],
+
+        // AT-118 — office_admin had NO config defaults, so it was skipped by
+        // sync and never received communications.view (Angelique saw no comms
+        // tab at all). Seed it PRESENT with 'own' scope (via scope_defaults
+        // fallback) so the capability is toggleable in Role Manager per agency —
+        // an agency can widen it to branch/all or remove it entirely. The default
+        // is deliberately minimal (own), not broad.
+        'office_admin' => [
+            'include' => [
+                'communications.view',
             ],
         ],
     ],
