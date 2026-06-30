@@ -58,6 +58,16 @@ return [
     'imap_poll_budget_seconds' => (int) env('COMMUNICATIONS_IMAP_POLL_BUDGET', 50),
 
     /*
+    | First-poll backfill window (days). The VERY FIRST poll of a mailbox (no
+    | last_polled_at yet) reads mail received in the last N days. A large window
+    | on a slow/large INBOX can exceed imap_poll_budget_seconds and trap the
+    | mailbox in a never-completing full backfill, so the default is small;
+    | incremental polls thereafter only read since last_polled_at (with a 1-day
+    | overlap). Agency-overridable via agencies.communication_first_poll_days.
+    */
+    'first_poll_backfill_days' => (int) env('COMMUNICATIONS_FIRST_POLL_DAYS', 7),
+
+    /*
     |--------------------------------------------------------------------------
     | Sent-folder candidates (AT-43)
     |--------------------------------------------------------------------------

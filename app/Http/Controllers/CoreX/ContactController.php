@@ -136,7 +136,7 @@ class ContactController extends Controller
             ]);
         }
 
-        $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications']);
+        $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications', 'phones', 'emails']);
 
         // Agents in this contact's agency — for the "agent this testimonial is
         // about" selector on the Notes & Testimonials tab.
@@ -313,23 +313,61 @@ class ContactController extends Controller
             }
         }
 
-        // Communication Archive (AT-43) — this contact's linked archive comms
-        // (email + WhatsApp). Gated by access_communication_archive: the archive
-        // is a privacy-sensitive surface, so a user without that permission sees
-        // no Communications tab at all. Deleted/purged rows excluded.
-        $canViewComms = (bool) auth()->user()?->hasPermission('access_communication_archive');
+        // AT-118 — Communications Access Gate. The old binary
+        // access_communication_archive capability (the agency-wide compliance
+        // archive) is REPLACED here by a layered, server-side, per-contact gate.
+        // A user may see THIS contact's threads (email + WhatsApp) iff:
+        //   • they hold communications.grant_access (an authoriser must see the
+        //     threads in order to authorise a request), OR
+        //   • they hold an active session-scoped grant for this contact
+        //     (Flow A — CommsAccessGrantService::hasActiveGrant, session + midnight bound), OR
+        //   • their communications.view scope (own/branch/all) covers ≥1 thread —
+        //     where "own" === the owning agent (communications.owner_user_id).
+        // The rows are filtered server-side via Communication::scopeVisibleTo, so a
+        // user without visibility never receives the data (not merely hidden in UI).
+        // NULL-owner rows (legacy/outbound provisional) never open under own/branch
+        // — only 'all'. Routine views are NOT logged to comms_access_audit_log: that
+        // sink is reserved for access-CONTROL events (request/grant/decline/transfer,
+        // Steps 3-4); ordinary contact views are already captured by contact_access_log.
+        $viewer       = auth()->user();
+        $scope        = $viewer ? PermissionService::getDataScope($viewer, 'communications') : null;
+        $isAuthoriser = (bool) $viewer?->hasPermission('communications.grant_access');
+        $hasGrant     = $viewer
+            ? app(\App\Services\Communications\CommsAccessGrantService::class)->hasActiveGrant($viewer, $contact)
+            : false;
+
+        $contactCommsQuery = \App\Models\Communications\Communication::query()
+            ->whereNull('purged_at')
+            ->whereHas('links', function ($q) use ($contact) {
+                $q->where('linkable_type', \App\Models\Contact::class)
+                  ->where('linkable_id', $contact->id);
+            })
+            ->orderByDesc('occurred_at')
+            ->limit(200);
+
+        $canViewComms = false;
         $contactComms = collect();
-        if ($canViewComms) {
-            $contactComms = \App\Models\Communications\Communication::query()
-                ->whereNull('purged_at')
-                ->whereHas('links', function ($q) use ($contact) {
-                    $q->where('linkable_type', \App\Models\Contact::class)
-                      ->where('linkable_id', $contact->id);
-                })
-                ->orderByDesc('occurred_at')
-                ->limit(200)
-                ->get();
+
+        if ($isAuthoriser || $hasGrant || $scope === 'all') {
+            // Entitled to the full set of this contact's threads (capability/grant).
+            $canViewComms = true;
+            $contactComms = $contactCommsQuery->get();
+        } elseif ($scope !== null) {
+            // own/branch — entitled only to threads their scope covers; owning ≥1
+            // visible thread IS the per-contact entitlement (owner-based visibility).
+            $contactComms = $contactCommsQuery->visibleTo($viewer, $scope)->get();
+            $canViewComms = $contactComms->isNotEmpty();
         }
+
+        // AT-118 Flow A view-state: a comms-capable user who can't currently see
+        // this contact's threads may REQUEST access; show a "granted until logout"
+        // banner when access is via a transient grant; surface any pending request.
+        $commsViaGrant   = $hasGrant;
+        $canRequestComms = !$canViewComms && $scope !== null;
+        $pendingCommsRequest = $canRequestComms
+            ? \App\Models\Communications\CommsAccessRequest::byRequester($viewer->id)
+                ->forContact($contact->id)->pending()->where('expires_at', '>', now())->latest()->first()
+            : null;
 
         // AT-59 — tile counts DERIVE from the communications archive (outbound,
         // provisional + confirmed), not the legacy scalar columns. The relation
@@ -337,7 +375,7 @@ class ContactController extends Controller
         $waSent    = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP);
         $emailSent = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_EMAIL);
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'waSent', 'emailSent'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'waSent', 'emailSent'));
     }
 
     public function checkDuplicate(Request $request)
@@ -354,23 +392,19 @@ class ContactController extends Controller
             return response()->json(['found' => false]);
         }
 
-        // Drop ONLY the role-based ContactScope — an agent with 'own' data scope
-        // can't see contacts captured by other agents, but a duplicate is still a
-        // duplicate. AgencyScope stays on (non-negotiable #7), so the match is
-        // agency-wide yet agency-isolated, mirroring the server-side store()
-        // check (ContactDuplicateService::findDuplicates). Without this the agent
-        // gets a green light here and a hard block on submit.
-        $duplicate = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
-            ->with(['createdBy', 'agent'])
-            ->whereNull('purged_at')
-            ->where(function ($q) use ($phone, $email) {
-                if ($phone) {
-                    $q->where('phone', $phone);
-                }
-                if ($email) {
-                    $q->orWhere('email', $email);
-                }
-            })
+        // AT-125 — route the pre-check through the canonical multi-identifier
+        // service so it matches ANY of a contact's phones/emails (child tables),
+        // consistent with the authoritative store() check. Agency-scoped; the
+        // service drops AgencyScope and filters agency_id explicitly.
+        $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+        $duplicate = app(ContactDuplicateService::class)
+            ->findDuplicatesForIdentifiers(
+                $phone ? [$phone] : [],
+                $email ? [$email] : [],
+                null,
+                $agencyId
+            )
+            ->load(['createdBy', 'agent'])
             ->first();
 
         if (!$duplicate) {
@@ -393,13 +427,80 @@ class ContactController extends Controller
         ]);
     }
 
+    /**
+     * AT-125 — normalise the repeatable phones[]/emails[] form input into a clean
+     * list of {value,label,is_primary}, falling back to the legacy single field.
+     * Guarantees exactly one is_primary when any rows exist (first wins).
+     *
+     * @return array{0:array<int,array{value:string,label:?string,is_primary:bool}>,1:array<int,array{value:string,label:?string,is_primary:bool}>}
+     */
+    private function extractIdentifiers(Request $request, array $data): array
+    {
+        $phones = $this->normaliseIdentifierInput($request->input('phones', []));
+        $emails = $this->normaliseIdentifierInput($request->input('emails', []));
+
+        if ($phones === [] && !empty($data['phone'])) {
+            $phones = [['value' => trim((string) $data['phone']), 'label' => null, 'is_primary' => true]];
+        }
+        if ($emails === [] && !empty($data['email'])) {
+            $emails = [['value' => trim((string) $data['email']), 'label' => null, 'is_primary' => true]];
+        }
+
+        return [$phones, $emails];
+    }
+
+    /** @return array<int,array{value:string,label:?string,is_primary:bool}> */
+    private function normaliseIdentifierInput($input): array
+    {
+        if (!is_array($input)) {
+            return [];
+        }
+        $out = [];
+        foreach ($input as $row) {
+            $value = is_array($row) ? trim((string) ($row['value'] ?? '')) : trim((string) $row);
+            if ($value === '') {
+                continue;
+            }
+            $label = is_array($row) ? trim((string) ($row['label'] ?? '')) : '';
+            $out[] = [
+                'value'      => $value,
+                'label'      => $label !== '' ? $label : null,
+                'is_primary' => is_array($row) && filter_var($row['is_primary'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            ];
+        }
+        if ($out !== [] && !collect($out)->contains(fn ($r) => $r['is_primary'])) {
+            $out[0]['is_primary'] = true;
+        }
+        return $out;
+    }
+
+    private function primaryValue(array $items): ?string
+    {
+        foreach ($items as $item) {
+            if (!empty($item['is_primary'])) {
+                return $item['value'];
+            }
+        }
+        return $items[0]['value'] ?? null;
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
             'last_name'       => 'required|string|max:100',
-            'phone'           => 'required|string|max:30',
+            // AT-125 — single fields kept for back-compat (external posters); the
+            // form posts the repeatable phones[]/emails[] arrays below.
+            'phone'           => 'nullable|string|max:30',
             'email'           => 'nullable|email|max:150',
+            'phones'              => 'nullable|array',
+            'phones.*.value'      => 'nullable|string|max:30',
+            'phones.*.label'      => 'nullable|string|max:60',
+            'phones.*.is_primary' => 'nullable|boolean',
+            'emails'              => 'nullable|array',
+            'emails.*.value'      => 'nullable|email|max:150',
+            'emails.*.label'      => 'nullable|string|max:60',
+            'emails.*.is_primary' => 'nullable|boolean',
             // Type/tag assignments arrive via the pop-up picker and are applied
             // after creation (applyTypeAssignments) — not a single column.
             'notes'           => 'nullable|string|max:1000',
@@ -410,18 +511,40 @@ class ContactController extends Controller
             'override_reason'        => 'nullable|string|max:500',
         ]);
 
+        // AT-125 — a contact needs at least one identifier (phone OR email), but
+        // not necessarily a phone (email-only is valid).
+        [$phones, $emails] = $this->extractIdentifiers($request, $data);
+        if ($phones === [] && $emails === []) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'phones' => 'Add at least one phone number or email address.',
+            ]);
+        }
+
         // Pull the ID out before the duplicate check (matches on phone/email/name)
         // and re-attach it with audit fields once we're past the dupe guard.
         $idNumber = !empty($data['id_number']) ? preg_replace('/\s+/', '', (string) $data['id_number']) : null;
         unset($data['id_number']);
 
+        // The mirror columns are written by ContactIdentifierService from the
+        // child rows — never set them directly here.
+        unset($data['phone'], $data['email'], $data['phones'], $data['emails']);
+
         $user = auth()->user();
         $agencyId = $user->effectiveAgencyId() ?? 1;
         $service = app(ContactDuplicateService::class);
 
+        // Primary identifier values for the duplicate-match label + modal display.
+        $data['phone'] = $this->primaryValue($phones);
+        $data['email'] = $this->primaryValue($emails);
+
         // Skip duplicate check if explicitly bypassed (user already chose "create anyway")
         if (empty($data['bypass_duplicate_check'])) {
-            $duplicates = $service->findDuplicates($data, $agencyId);
+            $duplicates = $service->findDuplicatesForIdentifiers(
+                array_column($phones, 'value'),
+                array_column($emails, 'value'),
+                $idNumber,
+                $agencyId
+            );
 
             if ($duplicates->isNotEmpty()) {
                 $mode = $service->resolveMode($agencyId);
@@ -511,10 +634,17 @@ class ContactController extends Controller
             ?? \DB::table('branches')->where('agency_id', $agencyId)->min('id')
             ?? 1;
 
+        // The mirror columns are owned by ContactIdentifierService — strip the
+        // primary values used for the dedupe label so Contact::create writes none.
+        unset($data['phone'], $data['email']);
+
         // Wrapped so a failed type-assignment validation (contact type is
         // required) rolls the just-created contact back — no orphan record.
-        $contact = \DB::transaction(function () use ($data, $request) {
+        $contact = \DB::transaction(function () use ($data, $request, $phones, $emails) {
             $contact = Contact::create($data);
+            // AT-125 — write the multi-identifier child rows (mirror + one-primary
+            // invariant kept correct by the canonical sync point).
+            app(\App\Services\Contacts\ContactIdentifierService::class)->syncIdentifiers($contact, $phones, $emails);
             $this->applyTypeAssignments($contact, $request);
             return $contact;
         });
@@ -591,8 +721,17 @@ class ContactController extends Controller
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
             'last_name'       => 'required|string|max:100',
-            'phone'           => 'required|string|max:30',
+            // AT-125 — single fields kept for back-compat; the form posts arrays.
+            'phone'           => 'nullable|string|max:30',
             'email'           => 'nullable|email|max:150',
+            'phones'              => 'nullable|array',
+            'phones.*.value'      => 'nullable|string|max:30',
+            'phones.*.label'      => 'nullable|string|max:60',
+            'phones.*.is_primary' => 'nullable|boolean',
+            'emails'              => 'nullable|array',
+            'emails.*.value'      => 'nullable|email|max:150',
+            'emails.*.label'      => 'nullable|string|max:60',
+            'emails.*.is_primary' => 'nullable|boolean',
             // Type/tag assignments handled by applyTypeAssignments (the picker).
             'notes'           => 'nullable|string|max:1000',
             // Agent assignment — primary (reassignable) + optional co-agent.
@@ -636,12 +775,42 @@ class ContactController extends Controller
             $data['second_agent_id'] = null;
         }
 
+        // AT-118 hardening — reassigning the Primary/Co-Agent is a manager action
+        // (contacts.reassign_agent), enforced SERVER-SIDE here, not just by hiding
+        // the dropdown. A user without the capability may still edit every other
+        // field, but any CHANGE to the assignment is refused. (Comms visibility is
+        // owner-based, so this is not a comms-access bypass today — but agent
+        // assignment must be manager-controlled regardless.)
+        $changingPrimary = array_key_exists('agent_id', $data)
+            && (int) ($data['agent_id'] ?? 0) !== (int) ($contact->agent_id ?? 0);
+        $changingSecond = array_key_exists('second_agent_id', $data)
+            && (int) ($data['second_agent_id'] ?? 0) !== (int) ($contact->second_agent_id ?? 0);
+        if (($changingPrimary || $changingSecond) && ! $request->user()->hasPermission('contacts.reassign_agent')) {
+            abort(403, 'You do not have permission to change the agent assigned to this contact.');
+        }
+
+        // AT-125 — only touch identifiers when the request actually carries them
+        // (this endpoint also serves partial edits that must not wipe phones/emails).
+        $hasIdentifierInput = $request->has('phones') || $request->has('emails')
+            || $request->filled('phone') || $request->filled('email');
+        [$phones, $emails] = $this->extractIdentifiers($request, $data);
+        if ($hasIdentifierInput && $phones === [] && $emails === []) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'phones' => 'A contact needs at least one phone number or email address.',
+            ]);
+        }
+        // Mirror columns are owned by ContactIdentifierService — never set directly.
+        unset($data['phone'], $data['email'], $data['phones'], $data['emails']);
+
         // Transaction-wrapped so a partial failure (e.g. assignment sync) rolls
         // the whole save back cleanly — no half-written record. The picker's
         // type/tag selections are applied via the shared helper, which keeps the
         // multi-parent pivot, sub-tag pivot and primary-type mirror consistent.
-        \DB::transaction(function () use ($contact, $data, $request) {
+        \DB::transaction(function () use ($contact, $data, $request, $hasIdentifierInput, $phones, $emails) {
             $contact->update($data);
+            if ($hasIdentifierInput) {
+                app(\App\Services\Contacts\ContactIdentifierService::class)->syncIdentifiers($contact, $phones, $emails);
+            }
             $this->applyTypeAssignments($contact, $request);
         });
 

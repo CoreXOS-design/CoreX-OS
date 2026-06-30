@@ -88,6 +88,10 @@ Schedule::command('corex:matches:archive-stale')->dailyAt('03:00')->withoutOverl
 // Agency Access Authorization — expire stale pending requests every minute.
 Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
 
+// AT-118 — Communications Access Gate: midnight reset of all live grants
+// (closes the never-closed-session loophole) + expire stale pending requests.
+Schedule::command('comms-access:reset')->dailyAt('00:00')->withoutOverlapping();
+
 // Private Property activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncPrivatePropertyActivations())->everyFifteenMinutes()->withoutOverlapping();
 

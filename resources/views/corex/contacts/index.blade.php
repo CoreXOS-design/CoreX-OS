@@ -104,8 +104,12 @@
             dupFound: false,
             dupData: {},
             async checkDuplicate() {
-                const phone = this.$refs.phoneInput.value.trim();
-                const email = this.$refs.emailInput.value.trim();
+                // AT-125 — read the first non-empty value from the phones/emails
+                // repeaters (the live hint; store() checks ALL identifiers).
+                const firstVal = (group) => [...document.querySelectorAll(`[data-identifier-group='${group}'] [data-identifier-value]`)]
+                    .map(el => el.value.trim()).find(v => v) || '';
+                const phone = firstVal('phones');
+                const email = firstVal('emails');
                 if (!phone && !email) { this.dupFound = false; return; }
                 this.dupChecking = true;
                 try {
@@ -132,6 +136,7 @@
                 }
             }
          }"
+         x-on:contact-check-dup.window="checkDuplicate()"
          class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
         <div class="text-lg font-semibold mb-4" style="color:var(--text-primary);">New Contact</div>
 
@@ -208,25 +213,11 @@
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone Number <span class="text-red-500">*</span></label>
-                    <input type="text" name="phone" value="{{ old('phone') }}" required
-                           data-tour="contact-phone"
-                           placeholder="e.g. 082 123 4567"
-                           x-ref="phoneInput"
-                           @blur="checkDuplicate()"
-                           class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
-                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-phone">
+                    @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567'])
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                    <input type="email" name="email" value="{{ old('email') }}"
-                           data-tour="contact-email"
-                           placeholder="e.g. john@example.com"
-                           x-ref="emailInput"
-                           @blur="checkDuplicate()"
-                           class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
-                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-email">
+                    @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com'])
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>

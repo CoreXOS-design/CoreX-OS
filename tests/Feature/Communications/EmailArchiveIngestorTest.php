@@ -28,6 +28,7 @@ final class EmailArchiveIngestorTest extends TestCase
     use RefreshDatabase;
 
     private int $agencyId;
+    private int $mailboxOwnerId;
     private CommunicationMailbox $mailbox;
 
     protected function setUp(): void
@@ -47,8 +48,13 @@ final class EmailArchiveIngestorTest extends TestCase
             'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'admin',
         ]));
 
+        $this->mailboxOwnerId = (int) User::factory()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'agent',
+        ])->id;
+
         $this->mailbox = CommunicationMailbox::create([
-            'agency_id' => $this->agencyId, 'email_address' => 'office@agency.test',
+            'agency_id' => $this->agencyId, 'user_id' => $this->mailboxOwnerId,
+            'email_address' => 'office@agency.test',
             'imap_host' => 'imap.agency.test', 'imap_port' => 993, 'username' => 'office@agency.test',
             'encrypted_password' => 'secret', 'poll_inbox' => true, 'poll_sent' => true,
             'poll_interval_minutes' => 15, 'active' => true,
@@ -92,6 +98,8 @@ final class EmailArchiveIngestorTest extends TestCase
         $this->assertSame('inbound', $comm->direction);
         $this->assertNotNull($comm->raw_path);
         $this->assertSame(0, CommunicationPending::count());
+        // AT-122 — owning-agent provenance = the mailbox's user.
+        $this->assertSame($this->mailboxOwnerId, (int) $comm->owner_user_id);
 
         $this->assertDatabaseHas('communication_links', [
             'communication_id' => $comm->id,
@@ -101,18 +109,29 @@ final class EmailArchiveIngestorTest extends TestCase
         ]);
     }
 
-    public function test_unknown_sender_parks_in_pending_grace_buffer(): void
+    /** AT-122 — match-only: an unknown sender is DISCARDED, never stored anywhere. */
+    public function test_unknown_sender_is_discarded_and_nothing_is_written(): void
     {
+        Storage::fake('local'); // fresh disk so we can assert nothing landed on it
+
         $result = $this->ingestor()->ingest($this->mailbox, $this->message(['from' => 'stranger@nowhere.test', 'counterpart' => 'stranger@nowhere.test']), Communication::DIRECTION_INBOUND);
 
-        $this->assertSame(EmailArchiveIngestor::RESULT_PENDING, $result);
+        $this->assertSame(EmailArchiveIngestor::RESULT_DROPPED, $result);
+        // Nothing in either table…
+        $this->assertSame(0, Communication::count(), 'no archive row');
+        $this->assertSame(0, CommunicationPending::count(), 'no pending row — grace buffer is gone under match-only');
+        // …and nothing written to disk (the .eml is only stored after a match).
+        $this->assertEmpty(Storage::disk('local')->allFiles(), 'no raw payload on disk for an unmatched email');
+    }
+
+    /** AT-122 — a never-business sender is likewise dropped (filter still classifies it). */
+    public function test_never_business_sender_is_dropped(): void
+    {
+        $result = $this->ingestor()->ingest($this->mailbox, $this->message(['from' => 'no-reply@bank.test', 'counterpart' => 'no-reply@bank.test']), Communication::DIRECTION_INBOUND);
+
+        $this->assertSame(EmailArchiveIngestor::RESULT_DROPPED, $result);
         $this->assertSame(0, Communication::count());
-        $pending = CommunicationPending::firstWhere('agency_id', $this->agencyId);
-        $this->assertNotNull($pending);
-        $this->assertNotNull($pending->expires_at);
-        // default grace = 4 calendar days
-        $this->assertTrue($pending->expires_at->isAfter(now()->addDays(3)));
-        $this->assertTrue($pending->expires_at->isBefore(now()->addDays(6)));
+        $this->assertSame(0, CommunicationPending::count());
     }
 
     public function test_message_id_dedup_prevents_a_second_row(): void
@@ -128,14 +147,30 @@ final class EmailArchiveIngestorTest extends TestCase
         $this->assertSame(1, Communication::where('external_id', $msg['external_id'])->count());
     }
 
-    public function test_pending_then_same_id_is_deduped_across_tables(): void
+    /**
+     * AT-122 — the dedup guard still also checks the LEGACY communication_pending
+     * table, so a Message-ID already parked under the old store-then-match
+     * behaviour is treated as a duplicate (not re-ingested) rather than matched
+     * and archived a second time. Ingest itself never writes pending anymore.
+     */
+    public function test_legacy_pending_row_dedupes_a_re_poll(): void
     {
-        $msg = $this->message(['from' => 'unknown@nowhere.test', 'counterpart' => 'unknown@nowhere.test']);
+        Contact::create(['agency_id' => $this->agencyId, 'first_name' => 'B', 'last_name' => 'B', 'phone' => '', 'email' => 'buyer@example.com']);
+        $msg = $this->message();
 
-        $this->assertSame(EmailArchiveIngestor::RESULT_PENDING, $this->ingestor()->ingest($this->mailbox, $msg, Communication::DIRECTION_INBOUND));
-        // Re-poll the same Message-ID while still pending → duplicate, not a 2nd pending row.
+        // Simulate a row left in pending by the pre-AT-122 behaviour.
+        CommunicationPending::create([
+            'agency_id' => $this->agencyId,
+            'channel' => Communication::CHANNEL_EMAIL,
+            'direction' => Communication::DIRECTION_INBOUND,
+            'external_id' => $msg['external_id'],
+            'occurred_at' => now()->subDay(),
+            'captured_at' => now()->subDay(),
+            'expires_at' => now()->addDays(4),
+        ]);
+
         $this->assertSame(EmailArchiveIngestor::RESULT_DUPLICATE, $this->ingestor()->ingest($this->mailbox, $msg, Communication::DIRECTION_INBOUND));
-        $this->assertSame(1, CommunicationPending::where('external_id', $msg['external_id'])->count());
+        $this->assertSame(0, Communication::count(), 're-poll of a legacy-pending id is not archived again');
     }
 
     public function test_identical_attachments_are_stored_once(): void

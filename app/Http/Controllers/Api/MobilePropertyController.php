@@ -947,9 +947,14 @@ class MobilePropertyController extends Controller
             $contact = Contact::findOrFail($data['contact_id']);
         } else {
             // Inline-create — same duplicate guard as the mobile contacts endpoint.
-            $dup = Contact::where('phone', $data['phone'])
-                ->when(!empty($data['email']), fn ($q) => $q->orWhere('email', $data['email']))
-                ->first();
+            // AT-125 — match ALL of every contact's identifiers (child tables + mirror).
+            $dup = app(\App\Services\ContactDuplicateService::class)
+                ->findDuplicatesForIdentifiers(
+                    array_values(array_filter([$data['phone'] ?? null])),
+                    array_values(array_filter([$data['email'] ?? null])),
+                    $data['id_number'] ?? null,
+                    (int) $user->agency_id
+                )->first();
             if ($dup) {
                 return response()->json([
                     'message'      => 'Duplicate contact (phone or email already exists). Link the existing one with contact_id.',

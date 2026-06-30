@@ -40,6 +40,9 @@ class LogsContactAccess
                 'agency_id' => $user->effectiveAgencyId() ?? ($user->agency_id ?? 1),
                 'contact_id' => $contactId,
                 'user_id' => $user->id,
+                // AT-118 — under switch-user, user_id is the impersonated user; record
+                // the real acting admin so the contact-access trail is honest.
+                'impersonator_id' => \App\Support\Impersonation::actingAdminId(),
                 'action_type' => $actionType,
                 'accessed_at' => now(),
                 'ip_address' => $request->ip(),

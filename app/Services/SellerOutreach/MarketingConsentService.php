@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Services\SellerOutreach;
 
 use App\Models\Contact;
+use App\Models\ContactEmail;
+use App\Models\ContactPhone;
 use App\Models\MarketingSuppression;
+use App\Models\Scopes\AgencyScope;
 use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Models\User;
 use App\Services\ContactDuplicateService;
@@ -219,6 +222,32 @@ class MarketingConsentService
         });
     }
 
+    /**
+     * AT-125 no-backdoor — when an identifier is ADDED to a contact that is
+     * ALREADY opted out, suppress that identifier too. The contact flag already
+     * blocks every send, but suppressing the new identifier closes the
+     * identifier-level / cross-contact gap (a re-imported duplicate carrying that
+     * email/number stays blocked). A second/third email can NEVER become a path
+     * to reach someone who opted out. Idempotent (writeSuppression dedupes).
+     * Driven by the ContactPhone/ContactEmail `created` observers.
+     */
+    public function suppressNewIdentifierIfOptedOut(Contact $contact, string $type, ?string $normalised): void
+    {
+        if (empty($normalised) || $contact->messaging_opt_out_at === null) {
+            return; // not opted out → nothing to close
+        }
+        $this->writeSuppression(
+            agencyId: (int) $contact->agency_id,
+            type: $type,
+            identifier: $normalised,
+            source: $contact->messaging_opt_out_source ?: MarketingSuppression::SOURCE_AGENT,
+            reason: $contact->messaging_opt_out_reason ?: 'opted_out_contact_new_identifier',
+            contactId: (int) $contact->id,
+            sendId: null,
+            recordedBy: $contact->messaging_opt_out_recorded_by_user_id,
+        );
+    }
+
     /** Lift a single suppression row (admin screen). */
     public function liftSuppression(MarketingSuppression $suppression, ?int $actorUserId = null): void
     {
@@ -354,20 +383,44 @@ class MarketingConsentService
     }
 
     /**
-     * @return array<int, array{0:string,1:string}> [type, normalised] pairs for
-     *   the contact's email + phone (whichever are present and valid).
+     * AT-125 — ALL of a contact's normalised identifiers (every contact_emails +
+     * contact_phones row), not just the primary mirror, so a contact-level
+     * opt-out suppresses EVERY email/number and the marketability gate checks
+     * every one. The mirror is folded in as a defensive fallback for a contact
+     * that somehow carries no child rows (deduped by normalised key). This keeps
+     * opt-out CONTACT-LEVEL while correctly covering all N identifiers.
+     *
+     * @return array<int, array{0:string,1:string}> [type, normalised] pairs.
      */
     private function contactIdentifiers(Contact $contact): array
     {
         $out = [];
+
+        foreach (ContactEmail::withoutGlobalScope(AgencyScope::class)
+            ->where('contact_id', $contact->id)->whereNull('deleted_at')
+            ->pluck('email_normalised') as $norm) {
+            if (!empty($norm)) {
+                $out[MarketingSuppression::TYPE_EMAIL . '|' . $norm] = [MarketingSuppression::TYPE_EMAIL, $norm];
+            }
+        }
+        foreach (ContactPhone::withoutGlobalScope(AgencyScope::class)
+            ->where('contact_id', $contact->id)->whereNull('deleted_at')
+            ->pluck('phone_normalised') as $norm) {
+            if (!empty($norm)) {
+                $out[MarketingSuppression::TYPE_PHONE . '|' . $norm] = [MarketingSuppression::TYPE_PHONE, $norm];
+            }
+        }
+
+        // Defensive: a contact carrying only the legacy mirror (no child rows).
         if (!empty($contact->email)) {
-            $out[] = [MarketingSuppression::TYPE_EMAIL, strtolower(trim((string) $contact->email))];
+            $n = strtolower(trim((string) $contact->email));
+            $out[MarketingSuppression::TYPE_EMAIL . '|' . $n] = [MarketingSuppression::TYPE_EMAIL, $n];
         }
-        $phone = $contact->phone ?? $contact->cell_number ?? $contact->mobile ?? null;
-        if (!empty($phone) && ($n = $this->duplicates->normalizePhone((string) $phone)) !== null) {
-            $out[] = [MarketingSuppression::TYPE_PHONE, $n];
+        if (!empty($contact->phone) && ($n = $this->duplicates->normalizePhone((string) $contact->phone)) !== null) {
+            $out[MarketingSuppression::TYPE_PHONE . '|' . $n] = [MarketingSuppression::TYPE_PHONE, $n];
         }
-        return $out;
+
+        return array_values($out);
     }
 
     /** @return array{0:string,1:string}|null [type, normalised] */

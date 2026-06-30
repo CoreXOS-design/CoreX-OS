@@ -77,31 +77,66 @@
                     </span>
                 </div>
 
+                {{-- AT-125 — list ALL identifiers (primary first, marked); falls back
+                     to the mirror for any contact without child rows. --}}
+                @php
+                    $allPhones = $contact->relationLoaded('phones')
+                        ? $contact->phones->sortByDesc('is_primary')->values() : collect();
+                    $allEmails = $contact->relationLoaded('emails')
+                        ? $contact->emails->sortByDesc('is_primary')->values() : collect();
+                @endphp
                 <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1.5">
-                    <span class="flex items-center gap-1.5 text-sm text-white/60">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
-                        {{ $contact->phone }}
-                    </span>
-                    @if($contact->email)
-                    <span class="flex items-center gap-1.5 text-sm text-white/60">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
-                        <a href="mailto:{{ $contact->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $contact->email }}</a>
-                    </span>
-                    @endif
+                    @forelse($allPhones as $ph)
+                        <span class="flex items-center gap-1.5 text-sm text-white/60">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
+                            <a href="tel:{{ preg_replace('/\s+/', '', $ph->phone) }}" class="no-underline hover:underline" style="color:inherit;">{{ $ph->phone }}</a>
+                            @if($ph->label)<span class="text-[11px] text-white/35">{{ $ph->label }}</span>@endif
+                            @if($ph->is_primary)<span class="text-[10px] uppercase tracking-wide font-semibold" style="color:#00d4aa;">primary</span>@endif
+                        </span>
+                    @empty
+                        @if($contact->phone)
+                        <span class="flex items-center gap-1.5 text-sm text-white/60">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
+                            {{ $contact->phone }}
+                        </span>
+                        @endif
+                    @endforelse
+
+                    @forelse($allEmails as $em)
+                        <span class="flex items-center gap-1.5 text-sm text-white/60">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                            <a href="mailto:{{ $em->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $em->email }}</a>
+                            @if($em->label)<span class="text-[11px] text-white/35">{{ $em->label }}</span>@endif
+                            @if($em->is_primary)<span class="text-[10px] uppercase tracking-wide font-semibold" style="color:#00d4aa;">primary</span>@endif
+                        </span>
+                    @empty
+                        @if($contact->email)
+                        <span class="flex items-center gap-1.5 text-sm text-white/60">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                            <a href="mailto:{{ $contact->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $contact->email }}</a>
+                        </span>
+                        @endif
+                    @endforelse
                 </div>
 
-                {{-- Linked agent + timestamps --}}
-                @php $primaryAgent = $contact->agent ?? $contact->createdBy; @endphp
+                {{-- Linked agent + timestamps. The "Agent:" label is the ASSIGNED
+                     agent (contacts.agent_id) ONLY — never the creator. A contact
+                     with no assigned agent reads "Unassigned" (AT-118: do not pass
+                     created_by off as the agent; the creator is shown separately as
+                     "Captured by" on the assignment panel). --}}
+                @php $primaryAgent = $contact->agent; @endphp
                 <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1">
-                    @if($primaryAgent)
                     <span class="text-xs flex items-center gap-1.5" style="color:rgba(255,255,255,0.4);">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
-                        Agent: <strong class="text-white/60">{{ $primaryAgent->name }}</strong>
-                        @if($primaryAgent->email)
-                            <span style="color:rgba(255,255,255,0.3);">· {{ $primaryAgent->email }}</span>
+                        @if($primaryAgent)
+                            Agent: <strong class="text-white/60">{{ $primaryAgent->name }}</strong>
+                            @if($primaryAgent->email)
+                                <span style="color:rgba(255,255,255,0.3);">· {{ $primaryAgent->email }}</span>
+                            @endif
+                        @else
+                            Agent: <strong class="text-white/60">Unassigned</strong>
                         @endif
                     </span>
-                    @endif
                     @if($contact->secondAgent)
                     <span class="text-xs flex items-center gap-1.5" style="color:rgba(255,255,255,0.4);">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
@@ -248,7 +283,7 @@
             @if($t['key'] === 'outreach' && !auth()->user()->hasPermission('outreach.compose'))
                 @continue
             @endif
-            @if($t['key'] === 'communications' && !($canViewComms ?? false))
+            @if($t['key'] === 'communications' && !(($canViewComms ?? false) || ($canRequestComms ?? false)))
                 @continue
             @endif
             <button type="button"
@@ -517,17 +552,11 @@
                             @include('corex.contacts._type_picker', ['contactTypes' => $contactTypes, 'contact' => $contact])
                             @error('parent_type_ids')<p class="mt-1 text-[11px]" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone <span class="text-red-500">*</span></label>
-                            <input type="text" name="phone" value="{{ old('phone', $contact->phone) }}" required
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        <div class="sm:col-span-2 lg:col-span-3">
+                            @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567', 'existing' => $contact->phones()->orderByDesc('is_primary')->orderBy('id')->get()])
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                            <input type="email" name="email" value="{{ old('email', $contact->email) }}"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        <div class="sm:col-span-2 lg:col-span-3">
+                            @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'existing' => $contact->emails()->orderByDesc('is_primary')->orderBy('id')->get()])
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
@@ -672,12 +701,15 @@
                     </div>
                 </div>
 
-                {{-- Assigned Agents — primary (reassignable) + optional co-agent.
-                     created_by stays the immutable capture audit; this drives the
-                     "Agent" shown in the header and is the operational owner. --}}
+                {{-- Assigned Agents — the operational Primary/Co-Agent (agent_id /
+                     second_agent_id). created_by stays the immutable capture audit
+                     (shown as "Captured by"), never as the assigned agent. AT-118:
+                     changing the assignment requires contacts.reassign_agent. --}}
+                @php $canReassign = auth()->user()?->hasPermission('contacts.reassign_agent'); @endphp
                 <div class="pt-2 border-t" style="border-color:var(--border);">
                     <h3 class="text-xs font-bold uppercase tracking-widest pt-4 mb-1" style="color:var(--text-muted);">Assigned Agents</h3>
-                    <p class="text-[11px] mb-3" style="color:var(--text-muted);">Reassign the primary agent on this contact, or add a co-agent. Captured by {{ $contact->createdBy?->name ?? 'Unknown' }}.</p>
+                    <p class="text-[11px] mb-3" style="color:var(--text-muted);">The agent(s) assigned to this contact. Captured by {{ $contact->createdBy?->name ?? 'Unknown' }}.</p>
+                    @if($canReassign)
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Agent</label>
@@ -705,6 +737,20 @@
                     @error('second_agent_id')
                         <p class="text-[11px] mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>
                     @enderror
+                    @else
+                    {{-- No Silent Locks: show the current assignment read-only + why it's locked. --}}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Agent</label>
+                            <p class="text-sm" style="color:var(--text-primary);">{{ $contact->agent?->name ?? 'Unassigned' }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Co-Agent</label>
+                            <p class="text-sm" style="color:var(--text-primary);">{{ $contact->secondAgent?->name ?? 'None' }}</p>
+                        </div>
+                    </div>
+                    <p class="text-[11px] mt-2" style="color:var(--text-muted);">Only a manager can change the agent assigned to a contact. Ask an admin or branch manager to reassign it.</p>
+                    @endif
                 </div>
 
                 <div class="flex items-center gap-3 pt-2">
@@ -1809,8 +1855,17 @@
         {{-- ════════════════════════════
              COMMUNICATIONS TAB (AT-43) — linked archive comms (email + WhatsApp)
              ════════════════════════════ --}}
-        @if($canViewComms ?? false)
+        @if(($canViewComms ?? false) || ($canRequestComms ?? false))
         <div x-show="activeTab === 'communications'" x-cloak class="p-6 space-y-4" id="tab-communications">
+            @if($commsViaGrant ?? false)
+            <div class="rounded-md px-4 py-2.5 flex items-center gap-2 text-xs"
+                 style="background:color-mix(in srgb, #00d4aa 12%, transparent); border:1px solid color-mix(in srgb, #00d4aa 40%, transparent); color:var(--text-secondary);">
+                <span>🔓</span>
+                <span><strong style="color:var(--text-primary);">Access granted for this session.</strong> Your access to this contact's communications ends when you log out, and automatically resets at midnight.</span>
+            </div>
+            @endif
+
+            @if($canViewComms ?? false)
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-sm font-bold" style="color:var(--text-primary);">Communication Archive</h3>
@@ -1859,6 +1914,55 @@
                     <p class="text-xs mt-1" style="color:var(--text-muted);">Captured email/WhatsApp with this contact's address or number will appear here automatically.</p>
                 </div>
             @endforelse
+            @else
+            {{-- AT-118 Flow A — comms-capable user without access to THIS contact's threads --}}
+            <div class="rounded-md px-4 py-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border);"
+                 x-data="{
+                    requested: {{ ($pendingCommsRequest ?? null) ? 'true' : 'false' }},
+                    reason: '', loading: false, error: '',
+                    async submit(){
+                        this.loading = true; this.error = '';
+                        try {
+                            const r = await fetch('{{ route('api.v1.comms-access.store') }}', {
+                                method: 'POST',
+                                headers: { 'Content-Type':'application/json', 'Accept':'application/json',
+                                           'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
+                                body: JSON.stringify({ contact_id: {{ $contact->id }}, reason: this.reason })
+                            });
+                            const d = await r.json();
+                            if (r.ok && d.ok) { this.requested = true; }
+                            else { this.error = d.error || 'Could not send the request.'; }
+                        } catch (e) { this.error = 'Network error — please try again.'; }
+                        finally { this.loading = false; }
+                    }
+                 }">
+                <div class="text-2xl mb-2">🔒</div>
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Communications are private to the owning agent</h3>
+                <p class="text-xs mt-1 mb-4 max-w-md mx-auto" style="color:var(--text-muted);">You don't have access to this contact's email &amp; WhatsApp threads. Request access — the owning agent or a manager can approve it for your current session.</p>
+
+                <template x-if="!requested">
+                    <div class="flex flex-col items-center gap-2">
+                        <input type="text" x-model="reason" placeholder="Reason (optional)" maxlength="1000"
+                               class="w-full max-w-sm text-sm rounded-md px-3 py-2"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <button type="button" @click="submit()" :disabled="loading"
+                                class="text-xs font-semibold rounded-md px-4 py-2"
+                                style="background:var(--brand-icon, #0ea5e9); color:#fff;"
+                                :style="loading ? 'opacity:.6;cursor:wait' : ''">
+                            <span x-show="!loading">Request access</span>
+                            <span x-show="loading">Sending…</span>
+                        </button>
+                    </div>
+                </template>
+                <template x-if="requested">
+                    <div class="inline-flex items-center gap-2 text-xs font-semibold rounded-md px-3 py-2"
+                         style="background:color-mix(in srgb, #f59e0b 14%, transparent); color:#b45309;">
+                        <span>⏳</span><span>Request sent — awaiting approval. You'll get access for this session once approved.</span>
+                    </div>
+                </template>
+                <p x-show="error" x-text="error" class="text-xs mt-2" style="color:#ef4444;"></p>
+            </div>
+            @endif
         </div>
         @endif
 

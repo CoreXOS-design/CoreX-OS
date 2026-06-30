@@ -16,6 +16,8 @@ use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventFeedback;
 use App\Models\CommandCenter\CommandTask;
 use App\Models\Contact;
+use App\Models\ContactPhone;
+use App\Models\ContactEmail;
 use App\Models\ContactAccessLog;
 use App\Models\ContactConsentRecord;
 use App\Models\ContactMatch;
@@ -40,6 +42,8 @@ use App\Observers\ContactAccessLogObserver;
 use App\Observers\ContactConsentRecordObserver;
 use App\Observers\ContactMatchObserver;
 use App\Observers\ContactObserver;
+use App\Observers\ContactPhoneObserver;
+use App\Observers\ContactEmailObserver;
 use App\Observers\DealObserver;
 use App\Observers\DealSettlementObserver;
 use App\Observers\PresentationObserver;
@@ -135,6 +139,8 @@ class AppServiceProvider extends ServiceProvider
         CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
         CalendarEvent::observe(CalendarEventObserver::class);
         Contact::observe(ContactObserver::class);
+        ContactPhone::observe(ContactPhoneObserver::class);
+        ContactEmail::observe(ContactEmailObserver::class);
         ContactAccessLog::observe(ContactAccessLogObserver::class);
         ContactConsentRecord::observe(ContactConsentRecordObserver::class);
         ContactMatch::observe(ContactMatchObserver::class);
@@ -161,6 +167,9 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Leads\NewPortalLeadReceived::class,
             \App\Listeners\Leads\EmailPortalLeadToAgent::class,
         );
+        // AT-118 — a session-scoped communications access grant dies at logout.
+        Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
+
         \App\Models\ProspectingListing::observe(\App\Observers\ProspectingListingObserver::class);
         \App\Models\DealV2\DealV2::observe(\App\Observers\DealV2Observer::class);
         \App\Models\DealV2\DealStepInstance::observe(\App\Observers\DealStepInstanceObserver::class);

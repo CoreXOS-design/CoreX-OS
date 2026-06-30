@@ -79,20 +79,26 @@ final class WaIngestTest extends TestCase
         $this->assertNotNull($comm);
         $this->assertSame('whatsapp', $comm->channel);
         $this->assertSame('27821234567@c.us', $comm->thread_key);
+        // AT-122 — owning-agent provenance = the capture device's user.
+        $this->assertSame((int) $this->device->user_id, (int) $comm->owner_user_id);
         $this->assertDatabaseHas('communication_links', [
             'communication_id' => $comm->id, 'linkable_type' => Contact::class, 'linkable_id' => $contact->id,
             'link_method' => 'deterministic',
         ]);
     }
 
-    public function test_unknown_number_parks_in_pending(): void
+    /** AT-122 — match-only: an unknown number is DISCARDED, never stored anywhere. */
+    public function test_unknown_number_is_discarded_and_nothing_is_written(): void
     {
+        Storage::fake('local'); // fresh disk so we can assert nothing landed on it
+
         $this->withToken($this->plainToken)
             ->postJson(route('communications.wa.ingest'), $this->payload(['sender' => '27999999999@c.us', 'chat_id' => '27999999999@c.us']))
-            ->assertOk()->assertJson(['stats' => ['pending' => 1]]);
+            ->assertOk()->assertJson(['stats' => ['dropped' => 1, 'pending' => 0]]);
 
-        $this->assertSame(0, Communication::count());
-        $this->assertSame(1, CommunicationPending::where('agency_id', $this->agencyId)->count());
+        $this->assertSame(0, Communication::count(), 'no archive row');
+        $this->assertSame(0, CommunicationPending::where('agency_id', $this->agencyId)->count(), 'no pending row — grace buffer is gone under match-only');
+        $this->assertEmpty(Storage::disk('local')->allFiles(), 'no raw payload on disk for an unmatched WA message');
     }
 
     public function test_same_message_id_is_deduped(): void

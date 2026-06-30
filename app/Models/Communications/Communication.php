@@ -3,6 +3,8 @@
 namespace App\Models\Communications;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -25,7 +27,7 @@ class Communication extends Model
         'from_identifier', 'participant_identifiers', 'occurred_at', 'captured_at',
         'provisional_at', 'subject', 'body_text', 'body_preview', 'raw_path',
         'has_attachments', 'content_hash', 'text_hash', 'source_ref',
-        'purged_at', 'purged_reason',
+        'owner_user_id', 'purged_at', 'purged_reason',
     ];
 
     protected $casts = [
@@ -47,6 +49,16 @@ class Communication extends Model
     public function links(): HasMany
     {
         return $this->hasMany(CommunicationLink::class);
+    }
+
+    /**
+     * AT-122 — the agent whose mailbox/device this message was ingested through
+     * (provenance). Nullable. The future AT-118 gate keys per-agent visibility
+     * off this; nothing reads it yet.
+     */
+    public function owner(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'owner_user_id');
     }
 
     // ── Scopes ──
@@ -108,5 +120,115 @@ class Communication extends Model
     public function isPurged(): bool
     {
         return $this->purged_at !== null;
+    }
+
+    /**
+     * AT-118 — owner/scope visibility for the Communications Access Gate.
+     * Mirrors the AT-120 own/branch/all pattern (OutreachQueue::scopeVisibleTo)
+     * but the "owner" of a comm is the ingesting agent (owner_user_id), and
+     * branch is derived from that owner's branch (communications carry no
+     * branch_id of their own).
+     *
+     *   own     → comms this user OWNS (owner_user_id === user). This IS the
+     *             default-visibility "owning agent" rule from the spec.
+     *   branch  → comms owned by an agent in the user's branch (no branch → own).
+     *   all     → every comm (within the agency — AgencyScope still applies).
+     *   none/null → nothing.
+     *
+     * NULL owner_user_id (legacy/outbound provisional rows) has no owning agent,
+     * so it is EXCLUDED from own + branch (never opens by accident) and only
+     * visible under 'all'. The grant + grant_access tiers live in the controller
+     * gate, not here — this scope is purely the owner/role-scope set.
+     */
+    public function scopeVisibleTo(Builder $query, User $user, ?string $scope): Builder
+    {
+        // 'all' sees everything in the agency; 'none' sees nothing — both unchanged.
+        if ($scope === 'all') {
+            return $query;
+        }
+        if ($scope === 'none') {
+            return $query->whereRaw('1 = 0');
+        }
+
+        // AT-118 — multi-participant visibility. Beyond the scope tier (own =
+        // owner_user_id; branch = owner in my branch), a user ALSO sees any thread
+        // they were genuinely on — i.e. one of their OWN active mailbox addresses
+        // is in participant_identifiers (the deduped to/from/cc set). This closes
+        // the dual-recipient gap: an email to two agents ingests once under a
+        // single owner_user_id, but both recipients were on it and both should see
+        // it without requesting. Applied to own AND branch (the demonstrated case
+        // is a branch_manager whose branch scope doesn't cover an out-of-branch
+        // owner). Participant→agent maps ONLY via communication_mailboxes — never
+        // contact_emails (those map to contacts, not agents).
+        $mailboxAddresses = static::participantMailboxAddresses($user);
+
+        return $query->where(function (Builder $outer) use ($user, $scope, $mailboxAddresses) {
+            // (a) scope tier
+            if ($scope === 'branch' && $user->effectiveBranchId()) {
+                $outer->whereHas('owner', fn ($q) => $q->where('branch_id', $user->effectiveBranchId()));
+            } else {
+                $outer->where('owner_user_id', $user->id); // 'own', or 'branch' with no branch id
+            }
+
+            // (b) OR — participant visibility, THREAD-LEVEL (AT-127). A user who was
+            // on ANY message of a thread (via their own active mailbox) sees EVERY
+            // message in that thread — closing the reply-vs-reply-all gap (a colleague
+            // who replies without reply-all must not hide that message from the other
+            // thread agent). Mailbox-less users add nothing here.
+            if (!empty($mailboxAddresses)) {
+                $outer->orWhere(function (Builder $p) use ($mailboxAddresses) {
+                    // (b1) per-message match — also the ONLY path for a NULL/empty
+                    // thread_key comm (it matches itself, never groups with other
+                    // null-thread comms).
+                    foreach ($mailboxAddresses as $addr) {
+                        $p->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($addr)]);
+                    }
+
+                    // (b2) thread-level — this comm's (non-empty) thread_key is one
+                    // where I was a participant on at least one message. The subquery
+                    // is Eloquent so AgencyScope + SoftDeletes apply (multi-tenant safe).
+                    $threadKeys = static::query()
+                        ->select('thread_key')
+                        ->whereNotNull('thread_key')->where('thread_key', '!=', '')
+                        ->whereNull('purged_at')
+                        ->where(function (Builder $w) use ($mailboxAddresses) {
+                            foreach ($mailboxAddresses as $addr) {
+                                $w->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($addr)]);
+                            }
+                        });
+
+                    $p->orWhere(function (Builder $t) use ($threadKeys) {
+                        $t->whereNotNull('thread_key')->where('thread_key', '!=', '')
+                          ->whereIn('thread_key', $threadKeys);
+                    });
+                });
+            }
+        });
+    }
+
+    /**
+     * AT-118 — the current user's OWN active mailbox addresses, normalised
+     * (lower/trim) to match how participant_identifiers are stored. Used to let an
+     * agent who was on an email (to/from/cc) see it without requesting. Maps via
+     * communication_mailboxes only (agent-owned accounts), not contact identifiers.
+     */
+    protected static function participantMailboxAddresses(User $user): array
+    {
+        $rows = CommunicationMailbox::query()
+            ->where('user_id', $user->id)
+            ->where('active', true)
+            ->get(['username', 'email_address']);
+
+        $addrs = [];
+        foreach ($rows as $row) {
+            foreach ([$row->username, $row->email_address] as $a) {
+                $a = strtolower(trim((string) $a));
+                if ($a !== '' && str_contains($a, '@')) {
+                    $addrs[$a] = true;
+                }
+            }
+        }
+
+        return array_keys($addrs);
     }
 }

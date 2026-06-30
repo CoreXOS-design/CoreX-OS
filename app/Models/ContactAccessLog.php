@@ -15,7 +15,7 @@ class ContactAccessLog extends Model
     protected $table = 'contact_access_log';
 
     protected $fillable = [
-        'agency_id', 'contact_id', 'user_id', 'action_type',
+        'agency_id', 'contact_id', 'user_id', 'impersonator_id', 'action_type',
         'accessed_at', 'ip_address', 'user_agent', 'request_id',
     ];
 

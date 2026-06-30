@@ -1776,7 +1776,9 @@ class SignatureService
             if (!$request->signer_email || $request->party_role === 'agent') continue;
 
             // Find matching contact by email
-            $contact = \App\Models\Contact::where('email', $request->signer_email)->first();
+            // AT-125 — resolve against ALL of a contact's emails (child tables), not just the mirror.
+            $contact = app(\App\Services\Communications\ContactIdentifierResolver::class)
+                ->resolve($request->signer_email, (int) $template->agency_id);
             if (!$contact) continue;
 
             // Link or update — atomic to prevent duplicate entry on concurrent requests
@@ -2077,7 +2079,9 @@ class SignatureService
         foreach ($template->requests as $request) {
             if (!$request->signer_email || $request->party_role === 'agent') continue;
 
-            $contact = \App\Models\Contact::where('email', $request->signer_email)->first();
+            // AT-125 — resolve against ALL of a contact's emails (child tables), not just the mirror.
+            $contact = app(\App\Services\Communications\ContactIdentifierResolver::class)
+                ->resolve($request->signer_email, (int) $template->agency_id);
             if (!$contact) continue;
 
             $links[$contact->id] = $request->party_role;

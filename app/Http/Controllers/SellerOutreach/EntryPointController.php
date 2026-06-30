@@ -465,30 +465,19 @@ final class EntryPointController extends Controller
      */
     private function findExistingContact(int $agencyId, array $data): ?Contact
     {
-        $normalisedPhone = !empty($data['phone'])
-            ? preg_replace('/\D/', '', (string) $data['phone'])
-            : null;
-        $normalisedEmail = !empty($data['email'])
-            ? strtolower(trim((string) $data['email']))
-            : null;
+        // AT-125 — route through the canonical resolver so an incoming phone/email
+        // matches ANY of a contact's identifiers (child tables + mirror), agency-scoped.
+        $resolver = app(\App\Services\Communications\ContactIdentifierResolver::class);
 
-        if ($normalisedPhone) {
-            $existing = Contact::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->whereRaw("REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '') = ?", [$normalisedPhone])
-                ->first();
+        if (!empty($data['phone'])) {
+            $existing = $resolver->resolve((string) $data['phone'], $agencyId);
             if ($existing) {
                 return $existing;
             }
         }
 
-        if ($normalisedEmail) {
-            $existing = Contact::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->whereRaw('LOWER(TRIM(email)) = ?', [$normalisedEmail])
-                ->first();
+        if (!empty($data['email'])) {
+            $existing = $resolver->resolve((string) $data['email'], $agencyId);
             if ($existing) {
                 return $existing;
             }
