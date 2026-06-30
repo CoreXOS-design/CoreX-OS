@@ -267,8 +267,14 @@ class WaArchiveIngestor
             return null;
         }
 
-        $text = $msg['text'] ?? null;
-        if ($existing->body_status === 'unreadable' && is_string($text) && trim($text) !== '') {
+        // Fill the body when the archived row has NO body text yet (whether tagged
+        // 'unreadable' by AT-135, or a legacy blank archived before this column /
+        // before the extension flagged it) and we now have rendered text. Never
+        // overwrite an existing captured body.
+        $text         = $msg['text'] ?? null;
+        $existingText = (string) $existing->body_text;
+        $bodyMissing  = $existing->body_status !== 'captured' && trim($existingText) === '';
+        if ($bodyMissing && is_string($text) && trim($text) !== '') {
             $existing->update([
                 'body_text'    => $text,
                 'body_preview' => Str::limit($text, 160),
