@@ -90,12 +90,21 @@ class CommsAccessRequest extends Model
         return $q->where('requester_user_id', $userId);
     }
 
-    /** Approved grants that have not been revoked and have not hit their hard expiry. */
+    /**
+     * Live grants: approved, not revoked, and — for SESSION mode — not past their
+     * end-of-day hard cap. AT-132: an ALWAYS grant has no expiry (it ends only on
+     * explicit revoke), so it is live regardless of granted_session_expires_at
+     * (which is NULL for always grants). An always grant's revoked_at is still
+     * honoured, so an explicit revoke removes it.
+     */
     public function scopeLiveGrant($q)
     {
         return $q->where('status', self::STATUS_APPROVED)
             ->whereNull('revoked_at')
-            ->where('granted_session_expires_at', '>', now());
+            ->where(function ($w) {
+                $w->where('grant_mode', self::MODE_ALWAYS)
+                  ->orWhere('granted_session_expires_at', '>', now());
+            });
     }
 
     // ── State ──
@@ -106,9 +115,14 @@ class CommsAccessRequest extends Model
 
     public function isLiveGrant(): bool
     {
-        return $this->isApproved()
-            && $this->revoked_at === null
-            && $this->granted_session_expires_at
+        if (!$this->isApproved() || $this->revoked_at !== null) {
+            return false;
+        }
+        // AT-132 — an always grant never expires (only an explicit revoke ends it).
+        if ($this->grant_mode === self::MODE_ALWAYS) {
+            return true;
+        }
+        return $this->granted_session_expires_at
             && $this->granted_session_expires_at->isFuture();
     }
 

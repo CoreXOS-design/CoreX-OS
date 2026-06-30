@@ -24,26 +24,48 @@ use Illuminate\Support\Facades\Notification;
 class CommsAccessGrantService
 {
     /**
-     * Does $user hold a live, session-scoped grant for THIS contact's threads?
-     * Live = approved, not revoked, before its hard expiry, AND bound to the
-     * current login session (true "current session only"). The Step-2 gate opens
-     * for the contact when this is true.
+     * AT-132 — does $user hold a live grant that opens a SPECIFIC thread (or, for a
+     * null-thread comm, that specific comm) on this contact? A live grant
+     * (session or always — see CommsAccessRequest::scopeLiveGrant) matches when,
+     * for (requester, contact):
+     *
+     *   (a) LEGACY whole-contact grant — thread_key NULL **and** communication_id
+     *       NULL. Pre-AT-132 grants (and the 2 existing staging rows) are stored
+     *       this way; they keep opening the WHOLE contact (backward-compat). The
+     *       2-arg call hasActiveGrant($user,$contact) therefore still means "does
+     *       the user have whole-contact access?" and only legacy grants satisfy it.
+     *   (b) THREAD match — $threadKey given and equals the grant's thread_key.
+     *   (c) NULL-THREAD match — $threadKey null/empty and $communicationId equals
+     *       the grant's communication_id (null-thread comms are keyed on the comm,
+     *       NEVER grouped — same isolation as AT-127).
+     *
+     * session_id is intentionally NOT matched (it regenerates on every login /
+     * switch-user). "Session only / dies at logout + midnight" is preserved by
+     * RevokeCommsGrantsOnLogout, comms-access:reset, and the end-of-day cap in
+     * scopeLiveGrant — all of which now skip grant_mode=always (it persists).
      */
-    public function hasActiveGrant(User $user, Contact $contact): bool
+    public function hasActiveGrant(User $user, Contact $contact, ?string $threadKey = null, ?int $communicationId = null): bool
     {
-        // An approved, non-revoked, non-expired grant for (requester, contact)
-        // opens the gate. We deliberately do NOT match on session_id: it is still
-        // stored on the row for the audit trail, but gating on it broke the flow
-        // (the session id regenerates on every login / switch-user, so a grant
-        // bound at request time could never match once the requester's session
-        // rotated — e.g. while the owner approved it). "Current session only /
-        // dies at logout + midnight" is preserved by RevokeCommsGrantsOnLogout
-        // (logout), comms-access:reset (midnight), and the end-of-day
-        // granted_session_expires_at hard cap in liveGrant().
+        $threadKey = ($threadKey === '') ? null : $threadKey;
+
         return CommsAccessRequest::query()
             ->byRequester($user->id)
             ->forContact($contact->id)
             ->liveGrant()
+            ->where(function ($q) use ($threadKey, $communicationId) {
+                // (a) legacy whole-contact grant — opens every thread on the contact.
+                $q->where(function ($legacy) {
+                    $legacy->whereNull('thread_key')->whereNull('communication_id');
+                });
+                // (b) thread-scoped match.
+                if ($threadKey !== null) {
+                    $q->orWhere('thread_key', $threadKey);
+                }
+                // (c) null-thread comm — keyed on communication_id only.
+                if ($threadKey === null && $communicationId !== null) {
+                    $q->orWhere('communication_id', $communicationId);
+                }
+            })
             ->exists();
     }
 
@@ -136,9 +158,13 @@ class CommsAccessGrantService
 
         // System-wide sweep (runs in console with no auth) — bypass AgencyScope
         // so every agency's live grants are revoked, then log per-grant agency_id.
+        // AT-132: ALWAYS grants are permanent — they survive the midnight reset
+        // (only an explicit revoke ends them); only SESSION grants are swept.
         CommsAccessRequest::query()
             ->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
-            ->liveGrant()->orderBy('id')
+            ->liveGrant()
+            ->where('grant_mode', '!=', CommsAccessRequest::MODE_ALWAYS)
+            ->orderBy('id')
             ->chunkById(200, function ($chunk) use (&$count, $reason) {
                 foreach ($chunk as $grant) {
                     $grant->markRevoked($reason);
@@ -165,7 +191,10 @@ class CommsAccessGrantService
     {
         $count = 0;
 
-        CommsAccessRequest::query()->byRequester($user->id)->liveGrant()->orderBy('id')
+        // AT-132: ALWAYS grants survive logout too — only SESSION grants are revoked.
+        CommsAccessRequest::query()->byRequester($user->id)->liveGrant()
+            ->where('grant_mode', '!=', CommsAccessRequest::MODE_ALWAYS)
+            ->orderBy('id')
             ->chunkById(200, function ($chunk) use (&$count, $reason, $user) {
                 foreach ($chunk as $grant) {
                     $grant->markRevoked($reason);
