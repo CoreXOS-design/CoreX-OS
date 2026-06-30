@@ -3,6 +3,8 @@
 namespace App\Models\Communications;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -118,5 +120,35 @@ class Communication extends Model
     public function isPurged(): bool
     {
         return $this->purged_at !== null;
+    }
+
+    /**
+     * AT-118 — owner/scope visibility for the Communications Access Gate.
+     * Mirrors the AT-120 own/branch/all pattern (OutreachQueue::scopeVisibleTo)
+     * but the "owner" of a comm is the ingesting agent (owner_user_id), and
+     * branch is derived from that owner's branch (communications carry no
+     * branch_id of their own).
+     *
+     *   own     → comms this user OWNS (owner_user_id === user). This IS the
+     *             default-visibility "owning agent" rule from the spec.
+     *   branch  → comms owned by an agent in the user's branch (no branch → own).
+     *   all     → every comm (within the agency — AgencyScope still applies).
+     *   none/null → nothing.
+     *
+     * NULL owner_user_id (legacy/outbound provisional rows) has no owning agent,
+     * so it is EXCLUDED from own + branch (never opens by accident) and only
+     * visible under 'all'. The grant + grant_access tiers live in the controller
+     * gate, not here — this scope is purely the owner/role-scope set.
+     */
+    public function scopeVisibleTo(Builder $query, User $user, ?string $scope): Builder
+    {
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->whereHas('owner', fn ($q) => $q->where('branch_id', $user->effectiveBranchId()))
+                : $query->where('owner_user_id', $user->id),
+            'none'   => $query->whereRaw('1 = 0'),
+            default  => $query->where('owner_user_id', $user->id), // 'own' or null capability
+        };
     }
 }

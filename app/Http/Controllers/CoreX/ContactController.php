@@ -313,22 +313,50 @@ class ContactController extends Controller
             }
         }
 
-        // Communication Archive (AT-43) — this contact's linked archive comms
-        // (email + WhatsApp). Gated by access_communication_archive: the archive
-        // is a privacy-sensitive surface, so a user without that permission sees
-        // no Communications tab at all. Deleted/purged rows excluded.
-        $canViewComms = (bool) auth()->user()?->hasPermission('access_communication_archive');
+        // AT-118 — Communications Access Gate. The old binary
+        // access_communication_archive capability (the agency-wide compliance
+        // archive) is REPLACED here by a layered, server-side, per-contact gate.
+        // A user may see THIS contact's threads (email + WhatsApp) iff:
+        //   • they hold communications.grant_access (an authoriser must see the
+        //     threads in order to authorise a request), OR
+        //   • they hold an active session-scoped grant for this contact
+        //     (Step-3 seam — CommsAccessGrantService, currently a no-op stub), OR
+        //   • their communications.view scope (own/branch/all) covers ≥1 thread —
+        //     where "own" === the owning agent (communications.owner_user_id).
+        // The rows are filtered server-side via Communication::scopeVisibleTo, so a
+        // user without visibility never receives the data (not merely hidden in UI).
+        // NULL-owner rows (legacy/outbound provisional) never open under own/branch
+        // — only 'all'. Routine views are NOT logged to comms_access_audit_log: that
+        // sink is reserved for access-CONTROL events (request/grant/decline/transfer,
+        // Steps 3-4); ordinary contact views are already captured by contact_access_log.
+        $viewer       = auth()->user();
+        $scope        = $viewer ? PermissionService::getDataScope($viewer, 'communications') : null;
+        $isAuthoriser = (bool) $viewer?->hasPermission('communications.grant_access');
+        $hasGrant     = $viewer
+            ? app(\App\Services\Communications\CommsAccessGrantService::class)->hasActiveGrant($viewer, $contact)
+            : false;
+
+        $contactCommsQuery = \App\Models\Communications\Communication::query()
+            ->whereNull('purged_at')
+            ->whereHas('links', function ($q) use ($contact) {
+                $q->where('linkable_type', \App\Models\Contact::class)
+                  ->where('linkable_id', $contact->id);
+            })
+            ->orderByDesc('occurred_at')
+            ->limit(200);
+
+        $canViewComms = false;
         $contactComms = collect();
-        if ($canViewComms) {
-            $contactComms = \App\Models\Communications\Communication::query()
-                ->whereNull('purged_at')
-                ->whereHas('links', function ($q) use ($contact) {
-                    $q->where('linkable_type', \App\Models\Contact::class)
-                      ->where('linkable_id', $contact->id);
-                })
-                ->orderByDesc('occurred_at')
-                ->limit(200)
-                ->get();
+
+        if ($isAuthoriser || $hasGrant || $scope === 'all') {
+            // Entitled to the full set of this contact's threads (capability/grant).
+            $canViewComms = true;
+            $contactComms = $contactCommsQuery->get();
+        } elseif ($scope !== null) {
+            // own/branch — entitled only to threads their scope covers; owning ≥1
+            // visible thread IS the per-contact entitlement (owner-based visibility).
+            $contactComms = $contactCommsQuery->visibleTo($viewer, $scope)->get();
+            $canViewComms = $contactComms->isNotEmpty();
         }
 
         // AT-59 — tile counts DERIVE from the communications archive (outbound,
