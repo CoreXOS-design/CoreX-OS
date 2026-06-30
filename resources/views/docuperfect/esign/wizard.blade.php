@@ -330,10 +330,12 @@
                                     <div class="min-w-0">
                                         <div class="text-sm font-medium truncate" style="color: var(--text-primary);" x-text="result.display"></div>
                                         <div class="text-xs mt-0.5 flex items-center gap-2" style="color: var(--text-muted);">
+                                            <span x-show="result.status" x-text="result.status" class="px-1.5 py-0.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);"></span>
                                             <span x-show="result.property_type" x-text="result.property_type" class="capitalize"></span>
                                             <span x-show="result.beds" x-text="result.beds + ' bed'"></span>
                                             <span x-show="result.price && result.source === 'properties'" x-text="'R ' + Number(result.price).toLocaleString()"></span>
                                             <span x-show="result.rental_amount" x-text="'R ' + Number(result.rental_amount).toLocaleString() + '/mo'"></span>
+                                            <span x-show="result.agent" x-text="'· ' + result.agent"></span>
                                         </div>
                                         <div x-show="result.lessor_name" class="text-xs mt-0.5" style="color: var(--brand-icon);" x-text="ownerPartyLabel + ': ' + result.lessor_name"></div>
                                     </div>

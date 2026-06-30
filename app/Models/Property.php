@@ -583,6 +583,13 @@ class Property extends Model
 
         if (!empty($this->unit_number)) {
             $parts[] = 'Unit ' . $this->unit_number;
+        } elseif (!empty($this->unit_section_block)) {
+            // Blank-unit fallback (old-import safety): show the section/block, then
+            // floor, so two units in the same complex are less ambiguous when the
+            // unit number was never captured. Real stock carries unit_number.
+            $parts[] = $this->unit_section_block;
+        } elseif (!empty($this->floor_number)) {
+            $parts[] = 'Floor ' . $this->floor_number;
         }
         if (!empty($this->complex_name)) {
             $parts[] = $this->complex_name;
@@ -640,18 +647,71 @@ class Property extends Model
      */
     public function scopeSearchAddress($query, string $term)
     {
-        return $query->where(function ($q) use ($term) {
-            $q->where('address', 'like', "%{$term}%")
-              ->orWhere('street_name', 'like', "%{$term}%")
-              ->orWhere('street_number', 'like', "%{$term}%")
-              ->orWhere('title', 'like', "%{$term}%")
-              ->orWhere('suburb', 'like', "%{$term}%")
-              ->orWhere('city', 'like', "%{$term}%")
-              ->orWhere('complex_name', 'like', "%{$term}%")
-              ->orWhere('unit_number', 'like', "%{$term}%")
-              ->orWhere('property_number', 'like', "%{$term}%")
-              ->orWhere('p24_ref', 'like', "%{$term}%");
-        });
+        // Multi-term AND across all address fields: EACH whitespace-separated token
+        // must match SOME field, so "23 sherwood" / "unit 23 sherwood" narrows to
+        // the right unit (23 hits unit_number/street_number, sherwood hits
+        // complex_name) instead of returning everything matching either word. A
+        // single token degrades to the original OR-across-fields behaviour. This is
+        // the ONE canonical property search — every picker calls it (fix-the-class).
+        $tokens = preg_split('/\s+/', trim($term), -1, PREG_SPLIT_NO_EMPTY);
+        if (empty($tokens)) {
+            return $query;
+        }
+
+        foreach ($tokens as $token) {
+            $query->where(function ($q) use ($token) {
+                $like = "%{$token}%";
+                $q->where('address', 'like', $like)
+                  ->orWhere('street_name', 'like', $like)
+                  ->orWhere('street_number', 'like', $like)
+                  ->orWhere('title', 'like', $like)
+                  ->orWhere('suburb', 'like', $like)
+                  ->orWhere('city', 'like', $like)
+                  ->orWhere('complex_name', 'like', $like)
+                  ->orWhere('unit_number', 'like', $like)
+                  ->orWhere('unit_section_block', 'like', $like)
+                  ->orWhere('property_number', 'like', $like)
+                  ->orWhere('p24_ref', 'like', $like);
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * Honest, picker-facing status label (For Sale / Sold / Under Offer / To Let /
+     * Withdrawn / Expired …). Distinct from the marketing-card badge — pickers want
+     * the real lifecycle state so an agent can tell a live listing from a dead one.
+     */
+    public function statusBadge(): string
+    {
+        $status = (string) $this->status;
+
+        return match (true) {
+            in_array($status, ['sold', 'transferred'], true) => 'Sold',
+            $status === 'under_offer'                        => 'Under Offer',
+            in_array($status, ['withdrawn', 'cancelled', 'expired', 'let_out', 'unavailable', 'archived', 'draft'], true)
+                => ucwords(str_replace('_', ' ', $status)),
+            ($this->listing_type === 'rental' || $this->listing_type === 'to_let') => 'To Let',
+            default => 'For Sale',
+        };
+    }
+
+    /**
+     * THE canonical property-picker result row. Every search/typeahead surface maps
+     * its results through this so the shape (full address label + listing agent +
+     * status) can never drift. $extra merges surface-specific fields (price, ref,
+     * seller, fees …) without re-implementing the core. Eager-load `agent` to avoid
+     * N+1. Fix-the-class companion to scopeSearchAddress().
+     */
+    public function toSearchResult(array $extra = []): array
+    {
+        return array_merge([
+            'id'     => $this->id,
+            'label'  => $this->buildDisplayAddress(),
+            'agent'  => $this->agent?->name,
+            'status' => $this->statusBadge(),
+        ], $extra);
     }
 
     /**
