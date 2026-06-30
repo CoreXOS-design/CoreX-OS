@@ -160,9 +160,11 @@ class Communication extends Model
         // is a branch_manager whose branch scope doesn't cover an out-of-branch
         // owner). Participant→agent maps ONLY via communication_mailboxes — never
         // contact_emails (those map to contacts, not agents).
-        $mailboxAddresses = static::participantMailboxAddresses($user);
+        $mailboxAddresses  = static::participantMailboxAddresses($user);
+        $grantedThreadKeys = static::grantedThreadKeysFor($user);
+        $grantedCommIds    = static::grantedCommIdsFor($user);
 
-        return $query->where(function (Builder $outer) use ($user, $scope, $mailboxAddresses) {
+        return $query->where(function (Builder $outer) use ($user, $scope, $mailboxAddresses, $grantedThreadKeys, $grantedCommIds) {
             // (a) scope tier
             if ($scope === 'branch' && $user->effectiveBranchId()) {
                 $outer->whereHas('owner', fn ($q) => $q->where('branch_id', $user->effectiveBranchId()));
@@ -203,6 +205,29 @@ class Communication extends Model
                     });
                 });
             }
+
+            // (c) OR — AT-132 per-thread / per-comm GRANT. The user holds a live
+            // grant (session OR always) for this comm's thread, or — for a
+            // null-thread comm — this exact comm. Granted threads match by
+            // thread_key (non-empty only); granted null-thread comms match by id.
+            // NULL/empty thread_key comms are reachable ONLY via the comm-id set,
+            // never via thread_key grouping (same isolation as AT-127's b1).
+            // Legacy whole-contact grants (thread_key+comm both null) are NOT here —
+            // they grant whole-contact access via the controller's hasActiveGrant
+            // path, not this row scope.
+            if (!empty($grantedThreadKeys) || !empty($grantedCommIds)) {
+                $outer->orWhere(function (Builder $g) use ($grantedThreadKeys, $grantedCommIds) {
+                    if (!empty($grantedThreadKeys)) {
+                        $g->where(function (Builder $t) use ($grantedThreadKeys) {
+                            $t->whereNotNull('thread_key')->where('thread_key', '!=', '')
+                              ->whereIn('thread_key', $grantedThreadKeys);
+                        });
+                    }
+                    if (!empty($grantedCommIds)) {
+                        $g->orWhereIn('id', $grantedCommIds);
+                    }
+                });
+            }
         });
     }
 
@@ -230,5 +255,39 @@ class Communication extends Model
         }
 
         return array_keys($addrs);
+    }
+
+    /**
+     * AT-132 — thread_keys the user holds a LIVE grant for (session or always).
+     * Drives the per-thread grant branch of scopeVisibleTo. Excludes legacy
+     * whole-contact grants (thread_key null) and null-thread comm grants (those
+     * carry communication_id, handled by grantedCommIdsFor). AgencyScope +
+     * SoftDeletes apply via the CommsAccessRequest model (multi-tenant safe).
+     */
+    protected static function grantedThreadKeysFor(User $user): array
+    {
+        return CommsAccessRequest::query()
+            ->byRequester($user->id)
+            ->liveGrant()
+            ->whereNotNull('thread_key')->where('thread_key', '!=', '')
+            ->pluck('thread_key')
+            ->unique()->values()->all();
+    }
+
+    /**
+     * AT-132 — communication ids the user holds a LIVE grant for (null-thread
+     * comms keyed on the comm itself, never grouped). Drives the per-comm branch
+     * of scopeVisibleTo.
+     */
+    protected static function grantedCommIdsFor(User $user): array
+    {
+        return CommsAccessRequest::query()
+            ->byRequester($user->id)
+            ->liveGrant()
+            ->whereNull('thread_key')
+            ->whereNotNull('communication_id')
+            ->pluck('communication_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()->values()->all();
     }
 }
