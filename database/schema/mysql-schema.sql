@@ -1932,8 +1932,12 @@ DROP TABLE IF EXISTS `client_otps`;
 CREATE TABLE `client_otps` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `client_user_id` bigint unsigned DEFAULT NULL,
-  `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `subject_type` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subject_id` bigint unsigned DEFAULT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `destination` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `purpose` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'activation',
+  `channel` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'email',
   `code_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `used_at` timestamp NULL DEFAULT NULL,
@@ -1947,6 +1951,8 @@ CREATE TABLE `client_otps` (
   KEY `client_otps_client_user_id_foreign` (`client_user_id`),
   KEY `client_otps_email_used_at_index` (`email`,`used_at`),
   KEY `client_otps_email_index` (`email`),
+  KEY `client_otps_subject_type_subject_id_index` (`subject_type`,`subject_id`),
+  KEY `client_otps_destination_purpose_used_at_index` (`destination`,`purpose`,`used_at`),
   CONSTRAINT `client_otps_client_user_id_foreign` FOREIGN KEY (`client_user_id`) REFERENCES `client_users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -12526,3 +12532,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (913,'2026_07_14_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (915,'2026_07_15_000001_add_communication_first_poll_days_to_agencies',192);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (918,'2026_07_16_000001_add_thread_scope_and_mode_to_comms_access_requests',193);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (919,'2026_07_16_000002_create_comms_thread_settings_table',193);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (922,'2026_06_30_120000_generalise_client_otps_into_canonical_otp_store',194);

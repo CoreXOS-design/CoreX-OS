@@ -5,16 +5,15 @@ namespace App\Services;
 use App\Mail\ClientAuthOtpMail;
 use App\Models\Agency;
 use App\Models\ClientAccessLog;
-use App\Models\ClientOtp;
 use App\Models\ClientSigninAttempt;
 use App\Models\ClientUser;
 use App\Models\Contact;
+use App\Models\Otp;
 use App\Models\Scopes\AgencyScope;
 use App\Models\Scopes\ContactScope;
+use App\Services\Otp\OtpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 /**
@@ -173,69 +172,57 @@ class ClientAuthService
     /**
      * Issue an OTP to the given email. Always sends if rate-limit allows,
      * regardless of whether the email is matched (to avoid enumeration).
+     *
+     * AT-130: delegates to the canonical {@see OtpService} — this consumer
+     * declares its destination (the client email), subject (the ClientUser),
+     * Mailable (ClientAuthOtpMail, for byte-identical existing emails), the
+     * fake-@corexclient.co.za delivery skip, and its audit sink
+     * (ClientAccessLog 'otp_sent', logged only when a ClientUser exists, as
+     * before). Behaviour is identical to the pre-AT-130 inline implementation.
      */
-    public function issueOtp(string $email, string $purpose, Request $request): ClientOtp
+    public function issueOtp(string $email, string $purpose, Request $request): Otp
     {
-        $email = strtolower(trim($email));
-        $code  = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-
+        $email      = strtolower(trim($email));
         $clientUser = ClientUser::where('email', $email)->first();
-
-        $otp = ClientOtp::create([
-            'client_user_id' => $clientUser?->id,
-            'email'          => $email,
-            'purpose'        => $purpose,
-            'code_hash'      => Hash::make($code),
-            'expires_at'     => now()->addMinutes((int) config('clientauth.otp.expires_minutes', 10)),
-            'ip'             => $request->ip(),
-            'user_agent'     => substr((string) $request->userAgent(), 0, 500),
-        ]);
-
-        // Don't try to email fake @corexclient.co.za addresses — they're not deliverable.
         $fakeDomain = config('clientauth.fake_email_domain', 'corexclient.co.za');
-        if (!str_ends_with($email, '@' . $fakeDomain)) {
-            try {
-                Mail::mailer(config('clientauth.mailer', 'otp'))
-                    ->to($email)
-                    ->send(new ClientAuthOtpMail($code, (int) config('clientauth.otp.expires_minutes', 10)));
-            } catch (\Throwable $e) {
-                report($e);
-            }
-        }
+        $expiresMin = (int) config('clientauth.otp.expires_minutes', 10);
 
-        if ($clientUser) {
-            $this->log($clientUser, null, null, 'otp_sent', $request, ['purpose' => $purpose]);
-        }
-
-        return $otp;
+        return app(OtpService::class)->issue($purpose, $email, [
+            'subject'         => $clientUser,
+            'channel'         => 'email',
+            'ip'              => $request->ip(),
+            'user_agent'      => $request->userAgent(),
+            'expires_minutes' => $expiresMin,
+            // Fake @corexclient.co.za logins are not deliverable mailboxes.
+            'deliver'         => !str_ends_with($email, '@' . $fakeDomain),
+            'mail'            => fn (string $code) => new ClientAuthOtpMail($code, $expiresMin),
+            // Preserve the legacy columns exactly (client_user_id + email) so
+            // the ClientUser->otps() relation and existing rows are unchanged.
+            'attributes'      => ['client_user_id' => $clientUser?->id, 'email' => $email],
+            // Consumer-provided audit sink: still ClientAccessLog, still only
+            // when a ClientUser exists. Verify-side auditing stays at the
+            // controller ('otp_verified', richer context) — untouched here.
+            'audit'           => function (string $event, ?Otp $otp, array $context) use ($clientUser, $request, $purpose) {
+                if ($event === 'otp_issued' && $clientUser) {
+                    $this->log($clientUser, null, null, 'otp_sent', $request, ['purpose' => $purpose]);
+                }
+            },
+        ]);
     }
 
     /**
      * Verify a submitted OTP code for an email.
+     *
+     * AT-130: delegates to the canonical {@see OtpService} (verify-by
+     * destination, where destination = the client email). Identical semantics
+     * to the previous inline implementation: latest unused/unexpired/matching
+     * purpose, single-use, attempts increment on miss.
      */
-    public function verifyOtp(string $email, string $code, string $purpose, Request $request): ?ClientOtp
+    public function verifyOtp(string $email, string $code, string $purpose, Request $request): ?Otp
     {
         $email = strtolower(trim($email));
 
-        $otp = ClientOtp::where('email', $email)
-            ->where('purpose', $purpose)
-            ->whereNull('used_at')
-            ->where('expires_at', '>', now())
-            ->latest('id')
-            ->first();
-
-        if (!$otp || !$otp->isValid()) {
-            return null;
-        }
-
-        if (!Hash::check($code, $otp->code_hash)) {
-            $otp->increment('attempts');
-            return null;
-        }
-
-        $otp->forceFill(['used_at' => now()])->save();
-
-        return $otp;
+        return app(OtpService::class)->verify($purpose, $email, $code);
     }
 
     /**
