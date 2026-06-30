@@ -23,6 +23,31 @@
             --brand-button:  {{ $_brandAgency->button_color  ?? '#0ea5e9' }};
         }
     </style>
+    {{-- Follow the user's theme (UI_DESIGN_SYSTEM.md §7). Apply before paint. --}}
+    <script>
+        (function(){
+            var theme = @json(auth()->user()->theme ?? 'dark');
+            if (theme === 'dark') document.documentElement.classList.add('dark');
+            try { localStorage.setItem('corex-theme', theme); } catch (e) {}
+        })();
+    </script>
+    {{-- Chrome palette — dark values equal the original look (dark is unchanged);
+         light values added so the editor is usable in the light theme. The ad
+         canvas/artwork keeps its own colours; only the surrounding chrome themes. --}}
+    <style>
+        :root {
+            --chrome-bg:#eef1f7; --chrome-surface:#ffffff; --chrome-surface-2:#f2f4f9; --chrome-input:#ffffff;
+            --chrome-border:rgba(0,0,0,0.10); --chrome-border-2:rgba(0,0,0,0.06);
+            --chrome-text:#111827; --chrome-text-soft:rgba(17,24,39,0.62); --chrome-text-mute:rgba(17,24,39,0.42);
+            --chrome-hover:rgba(0,0,0,0.05); --workspace:#e7ebf2;
+        }
+        html.dark {
+            --chrome-bg:#060f1c; --chrome-surface:#07111e; --chrome-surface-2:rgba(255,255,255,0.05); --chrome-input:#0b1726;
+            --chrome-border:rgba(255,255,255,0.10); --chrome-border-2:rgba(255,255,255,0.06);
+            --chrome-text:#f1f5f9; --chrome-text-soft:rgba(255,255,255,0.6); --chrome-text-mute:rgba(255,255,255,0.4);
+            --chrome-hover:rgba(255,255,255,0.07); --workspace:#040c15;
+        }
+    </style>
     @php
         // Single source of truth for the data injected into every template.
         $propertyData = $property->adData();
@@ -83,23 +108,23 @@
         {{-- Fixed-height flex column so the editor never grows past the viewport
              (UI_DESIGN_SYSTEM.md §6 — content must stay within the screen). --}}
         html, body { height: 100%; }
-        body { font-family: 'Figtree', sans-serif; background: #060f1c; color: #f1f5f9; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        body { font-family: 'Figtree', sans-serif; background: var(--chrome-bg); color: var(--chrome-text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         #ad-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
         [x-cloak] { display: none !important; }
-        .tpl-card { cursor: pointer; border-radius: 18px; border: 1.5px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); overflow: hidden; transition: all 0.18s ease; }
-        .tpl-card:hover { border-color: rgba(0,180,216,0.55); background: rgba(255,255,255,0.07); transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
-        .plat-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.82); transition: all 0.12s; white-space: nowrap; }
-        .plat-btn .plat-size { font-size: 10px; color: rgba(255,255,255,0.55); }
-        .plat-btn:hover { border-color: rgba(255,255,255,0.35); color: #fff; }
+        .tpl-card { cursor: pointer; border-radius: 18px; border: 1.5px solid var(--chrome-border); background: var(--chrome-surface); overflow: hidden; transition: all 0.18s ease; }
+        .tpl-card:hover { border-color: var(--brand-button,#00b4d8); background: var(--chrome-surface); transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.18); }
+        .plat-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--chrome-border); background: var(--chrome-surface-2); color: var(--chrome-text); transition: all 0.12s; white-space: nowrap; }
+        .plat-btn .plat-size { font-size: 10px; color: var(--chrome-text-mute); }
+        .plat-btn:hover { border-color: var(--brand-button,#00b4d8); }
         .plat-btn.active { background: var(--brand-button,#00b4d8); border-color: var(--brand-button,#00b4d8); color: #fff; }
         .plat-btn.active .plat-size { color: rgba(255,255,255,0.85); }
-        .agent-pill { display:inline-flex; align-items:center; padding:5px 11px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:none; background:transparent; color:rgba(255,255,255,0.55); font-family:inherit; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:all 0.12s; }
-        .agent-pill:hover { color:#fff; background:rgba(255,255,255,0.06); }
-        .agent-pill.active { background:#00b4d8; color:#fff; }
-        .custom-tpl-card { cursor:pointer; border-radius:12px; border:1.5px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03); overflow:hidden; transition:all 0.18s; display:flex; align-items:center; gap:12px; padding:12px 16px; }
-        .custom-tpl-card:hover { border-color:rgba(0,180,216,0.55); background:rgba(255,255,255,0.07); }
+        .agent-pill { display:inline-flex; align-items:center; padding:5px 11px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:none; background:transparent; color:var(--chrome-text-soft); font-family:inherit; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:all 0.12s; }
+        .agent-pill:hover { color:var(--chrome-text); background:var(--chrome-hover); }
+        .agent-pill.active { background:var(--brand-button,#00b4d8); color:#fff; }
+        .custom-tpl-card { cursor:pointer; border-radius:12px; border:1.5px solid var(--chrome-border); background:var(--chrome-surface); overflow:hidden; transition:all 0.18s; display:flex; align-items:center; gap:12px; padding:12px 16px; }
+        .custom-tpl-card:hover { border-color:var(--brand-button,#00b4d8); }
         .custom-tpl-thumb { width:100px; height:52px; background:#071325; border-radius:6px; overflow:hidden; position:relative; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; color:rgba(255,255,255,0.45); }
-        .custom-tpl-badge { font-size:9px;font-weight:700;background:rgba(0,180,216,0.15);color:#00b4d8;border-radius:4px;padding:2px 6px;letter-spacing:0.06em;text-transform:uppercase; }
+        .custom-tpl-badge { font-size:9px;font-weight:700;background:color-mix(in srgb, var(--brand-button,#00b4d8) 16%, transparent);color:var(--brand-button,#00b4d8);border-radius:4px;padding:2px 6px;letter-spacing:0.06em;text-transform:uppercase; }
         .ad-root { position: absolute; inset: 0; font-family: 'Figtree', Arial, sans-serif; }
         .ad-img-fit { width: 100%; height: 100%; object-fit: cover; display: block; }
         .ad-placeholder { width: 100%; height: 100%; background: linear-gradient(135deg, #0b2a4a 0%, #143d6e 100%); }
@@ -134,26 +159,25 @@
 
     <div style="text-align:center; margin-bottom:28px;">
         <div style="font-size:11px;font-weight:700;color:var(--brand-button,#00b4d8);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:10px;">{{ $suburb }} &middot; {{ $price }}</div>
-        <h1 style="font-size:30px;font-weight:900;color:#fff;letter-spacing:-0.025em;">Choose a Template</h1>
-        <p style="font-size:14px;color:rgba(255,255,255,0.38);margin-top:8px;">Click a design, then pick your platform and download</p>
+        <h1 style="font-size:30px;font-weight:900;color:var(--chrome-text);letter-spacing:-0.025em;">Choose a Template</h1>
+        <p style="font-size:14px;color:var(--chrome-text-mute);margin-top:8px;">Click a design, then pick your platform and download</p>
     </div>
 
     {{-- Search / filter --}}
     <div style="max-width:1760px;width:100%;margin-bottom:22px;display:flex;justify-content:center;">
         <div style="position:relative;width:100%;max-width:420px;">
-            <svg style="position:absolute;left:14px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:rgba(255,255,255,0.3);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="m21 21-4.3-4.3"/></svg>
+            <svg style="position:absolute;left:14px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--chrome-text-mute);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="m21 21-4.3-4.3"/></svg>
             <input type="text" x-model="searchQuery" placeholder="Search templates — e.g. for sale, sold, rent…"
-                   style="width:100%;background:rgba(255,255,255,0.05);border:1.5px solid rgba(255,255,255,0.12);border-radius:11px;color:#fff;font-size:13px;font-family:inherit;padding:11px 36px 11px 38px;outline:none;transition:border-color 0.12s;"
-                   onfocus="this.style.borderColor='#00b4d8'" onblur="this.style.borderColor='rgba(255,255,255,0.12)'">
+                   style="width:100%;background:var(--chrome-surface);border:1.5px solid var(--chrome-border);border-radius:11px;color:var(--chrome-text);font-size:13px;font-family:inherit;padding:11px 36px 11px 38px;outline:none;transition:border-color 0.12s;"
+                   onfocus="this.style.borderColor='var(--brand-button,#00b4d8)'" onblur="this.style.borderColor='var(--chrome-border)'">
             <button x-show="searchQuery" @click="searchQuery=''" x-cloak
-                    style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.4);font-size:16px;line-height:1;padding:4px;" title="Clear">&times;</button>
+                    style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--chrome-text-mute);font-size:16px;line-height:1;padding:4px;" title="Clear">&times;</button>
         </div>
     </div>
 
     {{-- ═══ FEATURED — PRINTABLE BROCHURE (always first · always A4 · true PDF) ═══ --}}
     <div style="max-width:1760px;width:100%;margin-bottom:26px;">
-        <div class="tpl-card" style="display:flex;gap:24px;align-items:stretch;padding:22px;cursor:default;border-color:rgba(0,180,216,0.35);"
-             onmouseover="this.style.borderColor='rgba(0,180,216,0.55)'" onmouseout="this.style.borderColor='rgba(0,180,216,0.35)'">
+        <div class="tpl-card" style="display:flex;gap:24px;align-items:stretch;padding:22px;cursor:default;border-color:color-mix(in srgb, var(--brand-button,#00b4d8) 35%, transparent);">
             {{-- A4 portrait preview --}}
             <a href="{{ route('corex.properties.brochure', $property) }}" target="_blank" rel="noopener"
                style="flex-shrink:0;width:210px;text-decoration:none;">
@@ -167,18 +191,18 @@
             <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;">
                 <div style="display:inline-flex;align-items:center;gap:8px;margin-bottom:10px;">
                     <span style="font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#04221a;background:#19c37d;padding:4px 10px;border-radius:5px;">Printable · PDF</span>
-                    <span style="font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#fff;background:rgba(255,255,255,0.12);padding:4px 10px;border-radius:5px;">A4</span>
+                    <span style="font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:var(--chrome-text-soft);background:var(--chrome-surface-2);padding:4px 10px;border-radius:5px;">A4</span>
                 </div>
-                <div style="font-size:22px;font-weight:900;color:#fff;letter-spacing:-0.02em;">Printable Brochure</div>
-                <p style="font-size:13px;color:rgba(255,255,255,0.45);line-height:1.6;margin-top:8px;max-width:560px;">
+                <div style="font-size:22px;font-weight:900;color:var(--chrome-text);letter-spacing:-0.02em;">Printable Brochure</div>
+                <p style="font-size:13px;color:var(--chrome-text-soft);line-height:1.6;margin-top:8px;max-width:560px;">
                     A full A4 property data sheet — photos, price, features, rates &amp; levy, the full description, your agent
                     card and a scan-to-view QR code. Rendered as a true print-ready PDF, not a social graphic.
                 </p>
                 {{-- Co-listing choice for the brochure footer — only when co-listed. --}}
                 <template x-if="hasCoAgent">
                     <div style="display:flex;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap;">
-                        <span style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.35);">Agent</span>
-                        <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:9px;padding:3px 4px;">
+                        <span style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--chrome-text-mute);">Agent</span>
+                        <div style="display:inline-flex;align-items:center;gap:4px;background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:9px;padding:3px 4px;">
                             <button class="agent-pill" :class="{active: agentMode==='listing'}" @click="setMode('listing')" x-text="firstName(listingAgent)" title="Listing agent only"></button>
                             <button class="agent-pill" :class="{active: agentMode==='co'}" @click="setMode('co')" x-text="firstName(coAgent)" title="Co-listing agent only"></button>
                             <button class="agent-pill" :class="{active: agentMode==='both'}" @click="setMode('both')" title="Both agents (co-listed)">Both</button>
@@ -193,8 +217,8 @@
                         Download PDF
                     </a>
                     <a :href="brochureUrl(false)" target="_blank" rel="noopener"
-                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;background:rgba(255,255,255,0.06);color:#fff;border:1.5px solid rgba(255,255,255,0.12);text-decoration:none;transition:all 0.12s;"
-                       onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.12)'">
+                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;background:var(--chrome-surface-2);color:var(--chrome-text);border:1.5px solid var(--chrome-border);text-decoration:none;transition:all 0.12s;"
+                       onmouseover="this.style.borderColor='var(--brand-button,#00b4d8)'" onmouseout="this.style.borderColor='var(--chrome-border)'">
                         <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                         Open PDF
                     </a>
@@ -213,9 +237,9 @@
                 </div>
             </div>
             <div style="padding:18px 20px 22px;">
-                <div style="font-size:15px;font-weight:800;color:#fff;margin-bottom:5px;">{{ $tplDef['name'] }}</div>
-                <div style="font-size:12px;color:rgba(255,255,255,0.42);line-height:1.6;">{{ $tplDef['desc'] }}</div>
-                <div style="margin-top:14px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#00b4d8;">
+                <div style="font-size:15px;font-weight:800;color:var(--chrome-text);margin-bottom:5px;">{{ $tplDef['name'] }}</div>
+                <div style="font-size:12px;color:var(--chrome-text-soft);line-height:1.6;">{{ $tplDef['desc'] }}</div>
+                <div style="margin-top:14px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--brand-button,#00b4d8);">
                     Use Template <svg xmlns="http://www.w3.org/2000/svg" style="width:11px;height:11px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
                 </div>
             </div>
@@ -225,18 +249,18 @@
 
     {{-- No-results state --}}
     <div x-show="searchQuery && visiblePrebuiltCount === 0 && visibleCustomCount === 0" x-cloak
-         style="max-width:1760px;width:100%;margin-top:36px;text-align:center;color:rgba(255,255,255,0.4);font-size:14px;">
-        No templates match “<span x-text="searchQuery" style="color:#fff;"></span>”.
-        <button @click="searchQuery=''" style="background:none;border:none;color:#00b4d8;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit;">Clear search</button>
+         style="max-width:1760px;width:100%;margin-top:36px;text-align:center;color:var(--chrome-text-mute);font-size:14px;">
+        No templates match “<span x-text="searchQuery" style="color:var(--chrome-text);"></span>”.
+        <button @click="searchQuery=''" style="background:none;border:none;color:var(--brand-button,#00b4d8);font-weight:600;cursor:pointer;font-size:14px;font-family:inherit;">Clear search</button>
     </div>
 
     {{-- Custom saved templates (agency-wide) --}}
     <template x-if="savedTemplates.length > 0">
         <div style="max-width:1760px;width:100%;margin-top:40px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-                <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);">Agency Custom Templates</div>
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--chrome-text-mute);">Agency Custom Templates</div>
                 @if($canManageTemplates)
-                <a href="{{ route('corex.ad-templates.builder', ['property' => $property->id]) }}" style="font-size:12px;font-weight:600;color:#00b4d8;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+                <a href="{{ route('corex.ad-templates.builder', ['property' => $property->id]) }}" style="font-size:12px;font-weight:600;color:var(--brand-button,#00b4d8);text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
                     <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                     New Template
                 </a>
@@ -247,15 +271,15 @@
                     <div class="custom-tpl-card" x-show="matchesSearch(tpl.name || '')" @click="selectCustomTemplate(tpl)">
                         <div class="custom-tpl-thumb"><span x-text="tpl.name.charAt(0).toUpperCase()"></span></div>
                         <div style="flex:1;min-width:0;">
-                            <div style="font-size:14px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="tpl.name"></div>
-                            <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:3px;" x-text="(tpl.layout_json?.elements?.length || 0) + ' elements · ' + (tpl.layout_json?.canvasW || 1200) + '×' + (tpl.layout_json?.canvasH || 628)"></div>
+                            <div style="font-size:14px;font-weight:700;color:var(--chrome-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="tpl.name"></div>
+                            <div style="font-size:11px;color:var(--chrome-text-mute);margin-top:3px;" x-text="(tpl.layout_json?.elements?.length || 0) + ' elements · ' + (tpl.layout_json?.canvasW || 1200) + '×' + (tpl.layout_json?.canvasH || 628)"></div>
                         </div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
                             <template x-if="tpl.can_manage">
-                                <a :href="`{{ route('corex.ad-templates.builder') }}/${tpl.id}?property={{ $property->id }}`" style="font-size:10px;color:rgba(255,255,255,0.4);text-decoration:none;" @click.stop>Edit</a>
+                                <a :href="`{{ route('corex.ad-templates.builder') }}/${tpl.id}?property={{ $property->id }}`" style="font-size:10px;color:var(--chrome-text-soft);text-decoration:none;" @click.stop>Edit</a>
                             </template>
                             <template x-if="!tpl.can_manage">
-                                <span style="font-size:9px;color:rgba(255,255,255,0.2);" title="Only the creator (or a manager) can edit this">view only</span>
+                                <span style="font-size:9px;color:var(--chrome-text-mute);" title="Only the creator (or a manager) can edit this">view only</span>
                             </template>
                         </div>
                     </div>
@@ -267,7 +291,7 @@
     @if($canManageTemplates)
     <template x-if="savedTemplates.length === 0">
         <div style="max-width:1760px;width:100%;margin-top:32px;text-align:center;">
-            <a href="{{ route('corex.ad-templates.builder', ['property' => $property->id]) }}" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;color:#00b4d8;border:1.5px dashed rgba(0,180,216,0.35);text-decoration:none;transition:all 0.12s;" onmouseover="this.style.borderColor='#00b4d8'" onmouseout="this.style.borderColor='rgba(0,180,216,0.35)'">
+            <a href="{{ route('corex.ad-templates.builder', ['property' => $property->id]) }}" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;color:var(--brand-button,#00b4d8);border:1.5px dashed color-mix(in srgb, var(--brand-button,#00b4d8) 35%, transparent);text-decoration:none;transition:all 0.12s;" onmouseover="this.style.borderColor='var(--brand-button,#00b4d8)'" onmouseout="this.style.borderColor='color-mix(in srgb, var(--brand-button,#00b4d8) 35%, transparent)'">
                 <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                 Build a custom template
             </a>
@@ -280,28 +304,28 @@
 {{-- ═══ STEP 2 — GENERATOR ═══ --}}
 <div x-show="step === 'generate'" x-cloak style="flex:1; min-height:0; display:flex; flex-direction:column;">
 
-    <div style="position:sticky;top:0;z-index:100;background:rgba(6,15,28,0.98);border-bottom:1px solid rgba(255,255,255,0.07);padding:10px 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <div style="position:sticky;top:0;z-index:100;background:var(--chrome-surface);border-bottom:1px solid var(--chrome-border);padding:10px 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
 
-        <button @click="step='pick'" style="display:inline-flex;align-items:center;gap:4px;color:rgba(255,255,255,0.45);font-size:12px;background:none;border:1.5px solid rgba(255,255,255,0.1);border-radius:8px;cursor:pointer;padding:5px 10px;font-family:inherit;" onmouseover="this.style.color='#fff';this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.color='rgba(255,255,255,0.45)';this.style.borderColor='rgba(255,255,255,0.1)'">
+        <button @click="step='pick'" style="display:inline-flex;align-items:center;gap:4px;color:var(--chrome-text-soft);font-size:12px;background:none;border:1.5px solid var(--chrome-border);border-radius:8px;cursor:pointer;padding:5px 10px;font-family:inherit;" onmouseover="this.style.color='var(--chrome-text)';this.style.borderColor='var(--brand-button,#00b4d8)'" onmouseout="this.style.color='var(--chrome-text-soft)';this.style.borderColor='var(--chrome-border)'">
             <svg xmlns="http://www.w3.org/2000/svg" style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
             Templates
         </button>
 
-        <div style="width:1px;height:18px;background:rgba(255,255,255,0.1);"></div>
-        <span x-text="templateLabel" style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.08em;background:rgba(255,255,255,0.06);padding:4px 9px;border-radius:6px;"></span>
-        <div style="width:1px;height:18px;background:rgba(255,255,255,0.1);"></div>
+        <div style="width:1px;height:18px;background:var(--chrome-border);"></div>
+        <span x-text="templateLabel" style="font-size:11px;font-weight:700;color:var(--chrome-text-soft);text-transform:uppercase;letter-spacing:0.08em;background:var(--chrome-surface-2);padding:4px 9px;border-radius:6px;"></span>
+        <div style="width:1px;height:18px;background:var(--chrome-border);"></div>
 
         {{-- Co-listing agent choice — ONLY shown when the listing has a co-agent.
              Picks who appears on the ad: listing agent, co-agent, or both. --}}
         <template x-if="hasCoAgent">
-            <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:9px;padding:3px 4px;">
-                <svg style="width:13px;height:13px;color:rgba(255,255,255,0.4);flex-shrink:0;margin:0 2px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-3.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-1.34"/></svg>
+            <div style="display:inline-flex;align-items:center;gap:4px;background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:9px;padding:3px 4px;">
+                <svg style="width:13px;height:13px;color:var(--chrome-text-mute);flex-shrink:0;margin:0 2px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-3.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-1.34"/></svg>
                 <button class="agent-pill" :class="{active: agentMode==='listing'}" @click="setMode('listing')" x-text="firstName(listingAgent)" title="Listing agent only"></button>
                 <button class="agent-pill" :class="{active: agentMode==='co'}" @click="setMode('co')" x-text="firstName(coAgent)" title="Co-listing agent only"></button>
                 <button class="agent-pill" :class="{active: agentMode==='both'}" @click="setMode('both')" title="Both agents (co-listed)">Both</button>
             </div>
         </template>
-        <template x-if="hasCoAgent"><div style="width:1px;height:18px;background:rgba(255,255,255,0.1);"></div></template>
+        <template x-if="hasCoAgent"><div style="width:1px;height:18px;background:var(--chrome-border);"></div></template>
 
         <button class="plat-btn" :class="{active: platform==='facebook'}"  @click="platform='facebook'; onGenerate()">
             <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
@@ -326,13 +350,13 @@
             Custom
         </button>
         <template x-if="platform==='custom'">
-            <div style="display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.16);border-radius:9px;padding:3px 7px;">
+            <div style="display:inline-flex;align-items:center;gap:5px;background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:9px;padding:3px 7px;">
                 <input type="number" min="200" max="4000" step="10" x-model.number="customW" @input="onGenerate()" title="Width (px)"
-                       style="width:62px;background:#0b1726;color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
-                <span style="color:rgba(255,255,255,0.4);font-size:11px;">×</span>
+                       style="width:62px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
+                <span style="color:var(--chrome-text-mute);font-size:11px;">×</span>
                 <input type="number" min="200" max="4000" step="10" x-model.number="customH" @input="onGenerate()" title="Height (px)"
-                       style="width:62px;background:#0b1726;color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
-                <span style="color:rgba(255,255,255,0.4);font-size:10px;">px</span>
+                       style="width:62px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
+                <span style="color:var(--chrome-text-mute);font-size:10px;">px</span>
             </div>
         </template>
 

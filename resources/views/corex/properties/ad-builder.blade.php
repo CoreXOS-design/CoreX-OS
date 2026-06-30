@@ -22,40 +22,65 @@
             --brand-button:  {{ $_brandAgency->button_color  ?? '#0ea5e9' }};
         }
     </style>
+    {{-- Follow the user's theme (UI_DESIGN_SYSTEM.md §7). Apply before paint. --}}
+    <script>
+        (function(){
+            var theme = @json(auth()->user()->theme ?? 'dark');
+            if (theme === 'dark') document.documentElement.classList.add('dark');
+            try { localStorage.setItem('corex-theme', theme); } catch (e) {}
+        })();
+    </script>
+    {{-- Chrome palette — dark values equal the original look (dark unchanged); light
+         values added so the builder is usable in the light theme. The canvas itself
+         (the artwork being designed) keeps its own colours. --}}
+    <style>
+        :root {
+            --chrome-bg:#eef1f7; --chrome-surface:#ffffff; --chrome-surface-2:#f2f4f9; --chrome-input:#ffffff;
+            --chrome-border:rgba(0,0,0,0.10); --chrome-border-2:rgba(0,0,0,0.06);
+            --chrome-text:#111827; --chrome-text-soft:rgba(17,24,39,0.62); --chrome-text-mute:rgba(17,24,39,0.42);
+            --chrome-hover:rgba(0,0,0,0.05); --workspace:#dde3ec;
+        }
+        html.dark {
+            --chrome-bg:#060f1c; --chrome-surface:#07111e; --chrome-surface-2:rgba(255,255,255,0.06); --chrome-input:#0b1726;
+            --chrome-border:rgba(255,255,255,0.10); --chrome-border-2:rgba(255,255,255,0.06);
+            --chrome-text:#f1f5f9; --chrome-text-soft:rgba(255,255,255,0.6); --chrome-text-mute:rgba(255,255,255,0.4);
+            --chrome-hover:rgba(255,255,255,0.06); --workspace:#040c15;
+        }
+    </style>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; overflow: hidden; }
-        body { font-family: 'Figtree', sans-serif; background: #060f1c; color: #f1f5f9; display: flex; flex-direction: column; }
+        body { font-family: 'Figtree', sans-serif; background: var(--chrome-bg); color: var(--chrome-text); display: flex; flex-direction: column; }
         [x-cloak] { display: none !important; }
 
         /* ─── TOOLBAR ─── */
         #toolbar {
             flex-shrink: 0; min-height: 52px;
-            background: #07111e; border-bottom: 1px solid rgba(255,255,255,0.07);
+            background: var(--chrome-surface); border-bottom: 1px solid var(--chrome-border);
             display: flex; align-items: center; gap: 8px; padding: 0 14px; flex-wrap: wrap;
         }
         .tb-btn {
             display: inline-flex; align-items: center; gap: 4px;
             padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
-            cursor: pointer; border: 1.5px solid rgba(255,255,255,0.1);
-            background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55);
+            cursor: pointer; border: 1.5px solid var(--chrome-border);
+            background: var(--chrome-surface-2); color: var(--chrome-text-soft);
             font-family: inherit; transition: all 0.12s; text-decoration: none;
         }
-        .tb-btn:hover { border-color: rgba(255,255,255,0.25); color: #fff; }
+        .tb-btn:hover { border-color: var(--brand-button,#00b4d8); color: var(--chrome-text); }
         .tb-btn.primary { background: var(--brand-button,#00b4d8); border-color: var(--brand-button,#00b4d8); color: #fff; }
         .tb-btn.primary:hover { filter: brightness(0.92); }
         .tb-btn.danger { background: rgba(230,57,70,0.15); border-color: rgba(230,57,70,0.35); color: #e63946; }
         .tb-btn.danger:hover { background: #e63946; border-color: #e63946; color: #fff; }
         #tpl-name-input {
-            background: rgba(255,255,255,0.06); border: 1.5px solid rgba(255,255,255,0.1);
-            color: #fff; border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 600;
+            background: var(--chrome-input); border: 1.5px solid var(--chrome-border);
+            color: var(--chrome-text); border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 600;
             font-family: inherit; width: 200px; outline: none;
         }
-        #tpl-name-input:focus { border-color: #00b4d8; }
+        #tpl-name-input:focus { border-color: var(--brand-button,#00b4d8); }
         .ctx-chip {
             display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 7px;
-            font-size: 11px; font-weight: 600; background: rgba(0,180,216,0.12); color: #5fd2ec;
-            border: 1px solid rgba(0,180,216,0.25);
+            font-size: 11px; font-weight: 600; background: color-mix(in srgb, var(--brand-button,#00b4d8) 14%, transparent); color: var(--brand-button,#00b4d8);
+            border: 1px solid color-mix(in srgb, var(--brand-button,#00b4d8) 28%, transparent);
         }
 
         /* ─── 3-COLUMN LAYOUT ─── */
@@ -64,34 +89,34 @@
         /* ─── LEFT SIDEBAR: field catalogue ─── */
         #sidebar {
             width: 208px; flex-shrink: 0;
-            background: #07111e; border-right: 1px solid rgba(255,255,255,0.07);
+            background: var(--chrome-surface); border-right: 1px solid var(--chrome-border);
             overflow-y: auto; padding: 12px 8px;
         }
         .sb-group { margin-bottom: 14px; }
-        .sb-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: rgba(255,255,255,0.3); padding: 0 6px; margin-bottom: 6px; }
+        .sb-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--chrome-text-mute); padding: 0 6px; margin-bottom: 6px; }
         .sb-field {
             display: flex; align-items: center; gap: 8px;
             padding: 6px 10px; border-radius: 8px; cursor: grab;
-            font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.7);
+            font-size: 12px; font-weight: 500; color: var(--chrome-text-soft);
             border: 1px solid transparent; margin-bottom: 3px;
             transition: all 0.12s; user-select: none;
         }
-        .sb-field:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.08); color: #fff; }
+        .sb-field:hover { background: var(--chrome-hover); border-color: var(--chrome-border); color: var(--chrome-text); }
         .sb-field:active { cursor: grabbing; }
         .sb-icon { width: 22px; height: 22px; border-radius: 5px; display:flex; align-items:center; justify-content:center; font-size: 11px; flex-shrink: 0; }
 
         /* ─── CANVAS AREA ─── */
         #canvas-area {
             flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center;
-            background: #040c15; padding: 32px;
+            background: var(--workspace); padding: 32px;
         }
         #canvas-wrapper { position: relative; flex-shrink: 0; box-shadow: 0 24px 80px rgba(0,0,0,0.8); }
         #canvas { width: 1200px; height: 628px; background: #071325; position: relative; overflow: hidden; cursor: default; }
         .canvas-el { position: absolute; cursor: move; user-select: none; outline: none; }
-        .canvas-el.selected { outline: 2px solid #00b4d8; }
+        .canvas-el.selected { outline: 2px solid var(--brand-button,#00b4d8); }
         .canvas-el .resize-handle {
             position: absolute; right: -5px; bottom: -5px;
-            width: 10px; height: 10px; background: #00b4d8;
+            width: 10px; height: 10px; background: var(--brand-button,#00b4d8);
             border: 2px solid #fff; border-radius: 2px; cursor: se-resize; z-index: 999;
         }
         .img-placeholder {
@@ -108,20 +133,20 @@
         /* ─── RIGHT PANEL: properties ─── */
         #prop-panel {
             width: 248px; flex-shrink: 0;
-            background: #07111e; border-left: 1px solid rgba(255,255,255,0.07);
+            background: var(--chrome-surface); border-left: 1px solid var(--chrome-border);
             overflow-y: auto; padding: 14px 12px;
         }
-        #prop-panel h3 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(255,255,255,0.3); margin-bottom: 12px; }
+        #prop-panel h3 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--chrome-text-mute); margin-bottom: 12px; }
         .pp-row { margin-bottom: 10px; }
-        .pp-row label { display: block; font-size: 11px; color: rgba(255,255,255,0.45); margin-bottom: 4px; }
+        .pp-row label { display: block; font-size: 11px; color: var(--chrome-text-soft); margin-bottom: 4px; }
         .pp-row input[type=text], .pp-row input[type=number], .pp-row select, .pp-row textarea {
-            width: 100%; background: rgba(255,255,255,0.06); border: 1.5px solid rgba(255,255,255,0.1);
-            color: #fff; border-radius: 7px; padding: 6px 9px; font-size: 12px; font-family: inherit; outline: none;
+            width: 100%; background: var(--chrome-input); border: 1.5px solid var(--chrome-border);
+            color: var(--chrome-text); border-radius: 7px; padding: 6px 9px; font-size: 12px; font-family: inherit; outline: none;
         }
-        .pp-row input:focus, .pp-row select:focus, .pp-row textarea:focus { border-color: #00b4d8; }
-        .pp-row input[type=color] { width: 100%; height: 30px; border: 1.5px solid rgba(255,255,255,0.1); border-radius: 7px; cursor: pointer; padding: 2px; background: rgba(255,255,255,0.06); }
-        .pp-row select option { background: #07111e; }
-        .pp-sep { border: none; border-top: 1px solid rgba(255,255,255,0.07); margin: 14px 0; }
+        .pp-row input:focus, .pp-row select:focus, .pp-row textarea:focus { border-color: var(--brand-button,#00b4d8); }
+        .pp-row input[type=color] { width: 100%; height: 30px; border: 1.5px solid var(--chrome-border); border-radius: 7px; cursor: pointer; padding: 2px; background: var(--chrome-input); }
+        .pp-row select option { background: var(--chrome-surface); color: var(--chrome-text); }
+        .pp-sep { border: none; border-top: 1px solid var(--chrome-border); margin: 14px 0; }
         .pp-row .pp-inline { display:flex; gap:6px; }
         .pp-row .pp-inline input { flex:1; }
         #no-selection { display:flex; flex-direction:column; align-items:center; justify-content:center; height:200px; gap:10px; opacity:0.3; font-size:12px; }
@@ -129,7 +154,7 @@
         .canvas-el:not(.selected) .resize-handle { display: none; }
 
         /* ─── Status toast ─── */
-        #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#00b4d8; color:#fff; font-size:13px; font-weight:700; padding:10px 22px; border-radius:10px; opacity:0; pointer-events:none; transition:opacity 0.3s; z-index:9999; }
+        #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--brand-button,#00b4d8); color:#fff; font-size:13px; font-weight:700; padding:10px 22px; border-radius:10px; opacity:0; pointer-events:none; transition:opacity 0.3s; z-index:9999; }
         #toast.show { opacity:1; }
         .el-toolbar { display:flex; gap:2px; background:#0b1220; border:1px solid rgba(255,255,255,0.14); border-radius:8px; padding:3px; margin-bottom:6px; box-shadow:0 6px 20px rgba(0,0,0,0.5); }
         .el-toolbar button { display:flex; align-items:center; justify-content:center; width:28px; height:28px; border:none; background:transparent; color:rgba(255,255,255,0.75); border-radius:5px; cursor:pointer; }
@@ -183,25 +208,25 @@
 
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
 
-        {{-- Canvas size (explicit dark colours so the native dropdown is readable) --}}
-        <select x-model="canvasPreset" @change="applyPreset()" class="tb-btn" style="padding:5px 8px;font-size:11px;background:#0b1726;color:#fff;border-color:rgba(255,255,255,0.16);">
-            <option style="background:#0b1726;color:#fff;" value="facebook">1200×628 (Facebook)</option>
-            <option style="background:#0b1726;color:#fff;" value="instagram">1080×1080 (Instagram)</option>
-            <option style="background:#0b1726;color:#fff;" value="story">1080×1920 (Story)</option>
-            <option style="background:#0b1726;color:#fff;" value="whatsapp">900×900 (WhatsApp)</option>
-            <option style="background:#0b1726;color:#fff;" value="linkedin">1200×627 (LinkedIn)</option>
-            <option style="background:#0b1726;color:#fff;" value="pinterest">1000×1500 (Pinterest)</option>
-            <option style="background:#0b1726;color:#fff;" value="custom">Custom size…</option>
+        {{-- Canvas size (theme-aware; option colours set so the native dropdown is readable) --}}
+        <select x-model="canvasPreset" @change="applyPreset()" class="tb-btn" style="padding:5px 8px;font-size:11px;background:var(--chrome-input);color:var(--chrome-text);">
+            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="facebook">1200×628 (Facebook)</option>
+            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="instagram">1080×1080 (Instagram)</option>
+            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="story">1080×1920 (Story)</option>
+            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="whatsapp">900×900 (WhatsApp)</option>
+            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="linkedin">1200×627 (LinkedIn)</option>
+            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="pinterest">1000×1500 (Pinterest)</option>
+            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="custom">Custom size…</option>
         </select>
         {{-- Custom W×H --}}
         <template x-if="canvasPreset==='custom'">
-            <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.16);border-radius:8px;padding:3px 7px;">
+            <span style="display:inline-flex;align-items:center;gap:4px;background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:8px;padding:3px 7px;">
                 <input type="number" min="200" max="4000" step="10" x-model.number="canvasW" title="Width (px)"
-                       style="width:58px;background:#0b1726;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:600;font-family:inherit;padding:4px 5px;outline:none;">
-                <span style="color:rgba(255,255,255,0.4);font-size:11px;">×</span>
+                       style="width:58px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:11px;font-weight:600;font-family:inherit;padding:4px 5px;outline:none;">
+                <span style="color:var(--chrome-text-mute);font-size:11px;">×</span>
                 <input type="number" min="200" max="4000" step="10" x-model.number="canvasH" title="Height (px)"
-                       style="width:58px;background:#0b1726;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:600;font-family:inherit;padding:4px 5px;outline:none;">
-                <span style="color:rgba(255,255,255,0.4);font-size:10px;">px</span>
+                       style="width:58px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:11px;font-weight:600;font-family:inherit;padding:4px 5px;outline:none;">
+                <span style="color:var(--chrome-text-mute);font-size:10px;">px</span>
             </span>
         </template>
 
@@ -225,7 +250,7 @@
         </template>
         {{-- Generic use (saved, no property context) --}}
         <template x-if="savedId && !propertyId">
-            <a :href="useOnPropertyUrl" class="tb-btn" style="color:rgba(255,255,255,0.6);">
+            <a :href="useOnPropertyUrl" class="tb-btn" style="color:var(--chrome-text-soft);">
                 Use on Property →
             </a>
         </template>
@@ -496,13 +521,13 @@
                         <div class="pp-row">
                             <label x-text="elements[selectedIndex].field === 'custom_video' ? 'Video file' : 'Image file'"></label>
                             <input type="file" :accept="elements[selectedIndex].field === 'custom_video' ? 'video/*' : 'image/*'" @change="uploadMedia($event)"
-                                   style="font-size:11px;color:rgba(255,255,255,0.7);">
+                                   style="font-size:11px;color:var(--chrome-text-soft);">
                         </div>
                         <template x-if="elements[selectedIndex].src">
                             <div style="font-size:10px;color:#19c37d;margin:-4px 0 8px;">✓ Uploaded — drag to resize on the canvas.</div>
                         </template>
                         <template x-if="elements[selectedIndex].field === 'custom_video'">
-                            <div style="font-size:10px;color:rgba(255,255,255,0.4);margin:-2px 0 8px;line-height:1.5;">Video plays in the live preview. A downloaded PNG captures a single still frame.</div>
+                            <div style="font-size:10px;color:var(--chrome-text-mute);margin:-2px 0 8px;line-height:1.5;">Video plays in the live preview. A downloaded PNG captures a single still frame.</div>
                         </template>
                         <div class="pp-row">
                             <label>Object Fit</label>
@@ -525,13 +550,13 @@
                         <div class="pp-row" style="align-items:flex-start;">
                             <label>Show features</label>
                             <template x-if="featuresList.length === 0">
-                                <div style="font-size:11px;color:rgba(255,255,255,0.4);line-height:1.5;">This property has no listed features. The element falls back to the summary (e.g. beds · baths).</div>
+                                <div style="font-size:11px;color:var(--chrome-text-mute);line-height:1.5;">This property has no listed features. The element falls back to the summary (e.g. beds · baths).</div>
                             </template>
                             <template x-if="featuresList.length > 0">
                                 <div style="display:flex;flex-direction:column;gap:5px;max-height:200px;overflow-y:auto;width:100%;">
                                     <template x-for="f in featuresList" :key="f">
-                                        <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:rgba(255,255,255,0.8);cursor:pointer;font-weight:500;">
-                                            <input type="checkbox" :checked="isFeatureOn(elements[selectedIndex], f)" @change="toggleFeature(f)" style="accent-color:#00b4d8;cursor:pointer;">
+                                        <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--chrome-text);cursor:pointer;font-weight:500;">
+                                            <input type="checkbox" :checked="isFeatureOn(elements[selectedIndex], f)" @change="toggleFeature(f)" style="accent-color:var(--brand-button,#00b4d8);cursor:pointer;">
                                             <span x-text="f"></span>
                                         </label>
                                     </template>
@@ -626,7 +651,7 @@
                             <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;width:100%;">
                                 <template x-for="s in shapes" :key="s.type">
                                     <button type="button" @click="mutate('shapeType', s.type)" :title="s.label"
-                                            :style="'aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:6px;background:'+(elements[selectedIndex].shapeType===s.type?'rgba(0,180,216,0.18)':'rgba(255,255,255,0.04)')+';border:1.5px solid '+(elements[selectedIndex].shapeType===s.type?'#00b4d8':'rgba(255,255,255,0.1)')+';'">
+                                            :style="'aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:6px;background:'+(elements[selectedIndex].shapeType===s.type?'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)':'var(--chrome-surface-2)')+';border:1.5px solid '+(elements[selectedIndex].shapeType===s.type?'var(--brand-button,#00b4d8)':'var(--chrome-border)')+';'">
                                         <span :style="shapeCss({ shapeType:s.type, bg:'#9fb4c9', opacity:1, borderRadius:9 })+'width:100%;height:100%;'"></span>
                                     </button>
                                 </template>
