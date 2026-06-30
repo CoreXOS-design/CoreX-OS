@@ -371,6 +371,14 @@ class ContactController extends Controller
         $pendingCommIds    = $pendingReqs->whereNull('thread_key')->pluck('communication_id')
             ->filter()->map(fn ($i) => (int) $i)->all();
 
+        // AT-132 Step 6/7 — this viewer's OWN live grants on this contact, so a
+        // granted row can show its mode + a "Revoke access" control (No Silent Locks
+        // + full-CRUD floor: the grant a viewer holds is removable from the surface).
+        $viewerGrants = \App\Models\Communications\CommsAccessRequest::byRequester($viewer->id)
+            ->forContact($contact->id)->liveGrant()->get();
+        $grantByThread = $viewerGrants->whereNotNull('thread_key')->keyBy('thread_key');
+        $grantByComm   = $viewerGrants->whereNull('thread_key')->whereNotNull('communication_id')->keyBy('communication_id');
+
         // Group comms into threads: real thread_key → one row; NULL/empty thread_key
         // → each comm its own row keyed on communication_id (never grouped — AT-132 §2).
         $grouped = [];
@@ -405,6 +413,9 @@ class ContactController extends Controller
             $ownerId        = $latest->owner_user_id;
             $canManageSubj  = $tk !== null && ($isAuthoriser || ($viewer && (int) $ownerId === (int) $viewer->id));
 
+            // This viewer's own live grant for this thread/comm (if any) → revocable.
+            $ownGrant = $tk !== null ? ($grantByThread[$tk] ?? null) : ($grantByComm[(int) $latest->id] ?? null);
+
             $contactThreads->push((object) [
                 'row_key'            => $key,
                 'thread_key'         => $tk,
@@ -424,6 +435,10 @@ class ContactController extends Controller
                 'is_visible'             => $visible,
                 'pending'                => $pending,
                 'can_manage_subject'     => $canManageSubj,
+                // viewer's own revocable grant (null when access is via ownership/
+                // scope/participant/legacy rather than a per-thread grant they hold).
+                'viewer_grant_id'        => $ownGrant?->id,
+                'viewer_grant_mode'      => $ownGrant?->grant_mode,
             ]);
         }
 

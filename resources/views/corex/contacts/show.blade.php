@@ -1920,6 +1920,37 @@
                             </button>
                         </div>
                         @endif
+                        @if($thread->viewer_grant_id)
+                        {{-- AT-132 — viewer holds a per-thread grant → show its mode + a Revoke control (No Silent Locks). --}}
+                        <div x-data="{
+                                revoked: false, busy: false,
+                                async revoke(){
+                                    if (!confirm('Revoke your access to this thread?')) return;
+                                    this.busy = true;
+                                    try {
+                                        const r = await fetch('{{ route('api.v1.comms-access.revoke', ['commsAccessRequest' => $thread->viewer_grant_id]) }}', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type':'application/json', 'Accept':'application/json',
+                                                       'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
+                                            body: JSON.stringify({ reason: 'self_revoke' })
+                                        });
+                                        const d = await r.json();
+                                        if (r.ok && d.ok) { this.revoked = true; setTimeout(() => window.location.reload(), 600); }
+                                        else { alert(d.error || 'Could not revoke.'); }
+                                    } catch(e) { alert('Network error — please try again.'); }
+                                    finally { this.busy = false; }
+                                }
+                             }" class="inline-flex items-center gap-2">
+                            <span class="text-[11px] font-semibold rounded px-2 py-0.5"
+                                  style="background:color-mix(in srgb, var(--ds-teal, #00d4aa) 16%, transparent); color:var(--ds-green, #059669);">
+                                Access granted · {{ $thread->viewer_grant_mode === 'always' ? 'always' : 'this session' }}
+                            </span>
+                            <button type="button" @click="revoke()" :disabled="busy" x-show="!revoked"
+                                    class="text-[11px] font-semibold rounded px-2.5 py-1"
+                                    style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">Revoke access</button>
+                            <span x-show="revoked" x-cloak class="text-[11px]" style="color:var(--text-muted);">Revoked</span>
+                        </div>
+                        @endif
                         <a href="{{ $openHref }}" class="text-[11px] font-semibold ml-auto" style="color:var(--brand-icon, #0ea5e9);">Open thread</a>
                     </div>
                 </div>

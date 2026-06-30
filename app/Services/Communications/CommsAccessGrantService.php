@@ -281,6 +281,64 @@ class CommsAccessGrantService
     }
 
     /**
+     * AT-132 — may $actor revoke this live grant? The requester themselves (give
+     * back access they no longer need), the OWNING agent of the grant's thread, or a
+     * communications.grant_access holder — within the same agency. Either/or.
+     */
+    public function canRevoke(User $actor, CommsAccessRequest $grant): bool
+    {
+        if ((int) $actor->agency_id !== (int) $grant->agency_id) {
+            return false;
+        }
+        if ((int) $actor->id === (int) $grant->requester_user_id) {
+            return true; // self-revoke
+        }
+        if ($actor->hasPermission('communications.grant_access')) {
+            return true;
+        }
+        // Owner of the granted thread / null-thread comm / (legacy) any thread on the contact.
+        $owns = $this->commsForContact($grant->contact_id)->where('owner_user_id', $actor->id);
+        if ($grant->thread_key !== null) {
+            $owns->where('thread_key', $grant->thread_key);
+        } elseif ($grant->communication_id !== null) {
+            $owns->where('id', $grant->communication_id);
+        }
+        return $owns->exists();
+    }
+
+    /**
+     * AT-132 — explicit, audited revoke of a live grant (the ONLY way to end an
+     * 'always' grant; also lets a requester hand back a session grant early). Logs
+     * EVENT_REVOKE with thread_key + grant_mode. Idempotent: revoking an already
+     * non-live grant is a no-op that returns false.
+     */
+    public function revokeGrant(CommsAccessRequest $grant, User $actor, string $reason = 'manual_revoke'): bool
+    {
+        if (!$grant->isLiveGrant()) {
+            return false;
+        }
+
+        $mode = $grant->grant_mode;
+        $grant->markRevoked($reason);
+
+        CommsAccessAuditLog::record(CommsAccessAuditLog::EVENT_REVOKE, [
+            'agency_id'        => $grant->agency_id,
+            'actor_user_id'    => $actor->id,
+            'subject_user_id'  => $grant->requester_user_id,
+            'contact_id'       => $grant->contact_id,
+            'communication_id' => $grant->communication_id,
+            'detail'           => [
+                'request_id' => $grant->id,
+                'thread_key' => $grant->thread_key,
+                'grant_mode' => $mode,
+                'reason'     => $reason,
+            ],
+        ]);
+
+        return true;
+    }
+
+    /**
      * Midnight reset — revoke EVERY live grant (across all agencies) and log a
      * 'midnight_reset' event per grant. Returns the number revoked.
      */

@@ -332,6 +332,7 @@ Route::middleware('auth')->group(function () {
             Route::post('/thread-settings',               [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'threadSettings'])->name('thread-settings');
             Route::get('/{commsAccessRequest}/status',    [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'status'])->name('status');
             Route::post('/{commsAccessRequest}/authorize',[\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'authorize'])->name('authorize');
+            Route::post('/{commsAccessRequest}/revoke',   [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'revoke'])->name('revoke');
         });
 
         // ── Command Center: Task Notes (threaded) + Checklist ──
