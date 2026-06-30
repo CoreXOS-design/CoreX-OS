@@ -56,6 +56,11 @@ class WaIngestController extends Controller
             'messages.*.text'          => 'nullable|string',
             'messages.*.has_media'     => 'nullable|boolean',
             'messages.*.media'         => 'nullable|array',
+            // AT-133 — extension-resolved real phone jid (…@c.us) + the original
+            // @lid (audit) + resolution flag. Optional (older extensions omit them).
+            'messages.*.counterpart_phone' => 'nullable|string|max:64',
+            'messages.*.counterpart_lid'   => 'nullable|string|max:64',
+            'messages.*.resolved'          => 'nullable|boolean',
         ]);
 
         // AT-122 — 'dropped' = matched no contact, discarded (never stored).
