@@ -932,23 +932,21 @@ class UserManagementController extends Controller
         $qrTarget = User::findOrFail($qrData['qr_reroute_user_id']);
         $service->setQrReroute($user, $qrTarget, (int) auth()->id());
 
-        // Decide whether reassignment is needed.
-        $counts = $service->preview($user);
+        // AT-118 — a successor is MANDATORY. An agent cannot be soft-deleted until
+        // an active successor is nominated: their contacts, FICA, communications and
+        // ON-MARKET stock transfer to that successor (no orphaned comms/contacts, no
+        // house account). Sold/historic stock, the deal register and commissions stay
+        // attributed to the departing agent. The transfer is immutably audit-logged.
+        $data = $request->validate([
+            'target_user_id'     => ['required', 'integer', 'different:user', Rule::exists('users', 'id')->where($sameAgencyActive)],
+            'secondary_handling' => ['required', Rule::in(['promote', 'replace'])],
+        ], [
+            'target_user_id.required' => 'Nominate a successor — the departing agent\'s contacts, FICA and communications must transfer to an active agent before they can be removed.',
+            'target_user_id.exists'   => 'The chosen successor is not a valid active user in this agency.',
+        ]);
 
-        if ($counts['has_any']) {
-            $data = $request->validate([
-                'target_user_id'      => ['required', 'integer', 'different:user', Rule::exists('users', 'id')->where(function ($q) use ($user) {
-                    $q->where('agency_id', $user->agency_id)->where('is_active', true)->whereNull('deleted_at');
-                })],
-                'secondary_handling'  => ['required', Rule::in(['promote', 'replace'])],
-            ], [
-                'target_user_id.required' => 'Choose an agent to reassign records to.',
-                'target_user_id.exists'   => 'The chosen agent is not a valid active user in this agency.',
-            ]);
-
-            $target = User::findOrFail($data['target_user_id']);
-            $service->reassignAndCleanup($user, $target, $data['secondary_handling'], (int) auth()->id());
-        }
+        $target = User::findOrFail($data['target_user_id']);
+        $service->transferForOffboarding($user, $target, $data['secondary_handling'], (int) auth()->id());
 
         DB::table('branch_assignments')->where('user_id', $user->id)->delete();
 

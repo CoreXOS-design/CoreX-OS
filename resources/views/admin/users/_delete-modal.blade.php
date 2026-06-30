@@ -77,23 +77,6 @@
                         </ul>
                     </div>
 
-                    <div>
-                        <label for="agent-delete-target" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
-                            Reassign properties + contacts to <span class="text-red-500">*</span>
-                        </label>
-                        <select
-                            id="agent-delete-target"
-                            x-model="targetUserId"
-                            class="w-full rounded-md px-3 py-2 text-sm"
-                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                        >
-                            <option value="">— choose an agent —</option>
-                            <template x-for="t in targets" :key="t.id">
-                                <option :value="t.id" x-text="t.label"></option>
-                            </template>
-                        </select>
-                    </div>
-
                     <fieldset class="rounded-md p-3" style="border: 1px solid var(--border);">
                         <legend class="px-1 text-xs font-medium" style="color: var(--text-secondary);">
                             For properties where this agent is primary AND a secondary agent exists
@@ -114,10 +97,32 @@
                 </div>
             </template>
 
-            <template x-if="!loading && !error && counts && !counts.has_any">
-                <p class="text-sm" style="color: var(--text-primary);">
-                    This agent has no attached properties, contacts, events, or tasks.
-                </p>
+            {{-- AT-118 — a successor is MANDATORY (no orphaned comms/contacts; no house account).
+                 Always shown. Receives the departing agent's live working set: contacts, FICA,
+                 communications, and ON-MARKET stock; sold/historic stock + deals + commissions stay. --}}
+            <template x-if="!loading && !error && counts">
+                <div class="space-y-2">
+                    <template x-if="!counts.has_any">
+                        <p class="text-sm" style="color: var(--text-primary);">
+                            This agent has no attached properties, contacts, events, or tasks — but a successor is still required so their communications and FICA records are never orphaned.
+                        </p>
+                    </template>
+                    <label for="agent-delete-target" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                        Nominate a successor (contacts, FICA, communications &amp; on-market stock transfer to them) <span class="text-red-500">*</span>
+                    </label>
+                    <select
+                        id="agent-delete-target"
+                        x-model="targetUserId"
+                        class="w-full rounded-md px-3 py-2 text-sm"
+                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                    >
+                        <option value="">— choose an agent —</option>
+                        <template x-for="t in targets" :key="t.id">
+                            <option :value="t.id" x-text="t.label"></option>
+                        </template>
+                    </select>
+                    <p class="text-xs" style="color: var(--text-muted);">Sold/historic stock, the deal register, and commissions stay attributed to the departing agent.</p>
+                </div>
             </template>
 
             {{-- Deals — leave under this agent (default) or move everything to another agent --}}
@@ -276,7 +281,7 @@ function agentDeleteModal() {
         canSubmit() {
             if (!this.counts) return false;
             if (!this.qrRerouteUserId) return false; // QR reroute is mandatory
-            if (this.counts.has_any && !this.targetUserId) return false;
+            if (!this.targetUserId) return false; // AT-118 — successor is always mandatory
             if (this.counts.deals > 0 && this.dealHandling === 'move' && !this.dealTargetUserId) return false;
             return true;
         },
@@ -299,15 +304,14 @@ function agentDeleteModal() {
             qr.type = 'hidden'; qr.name = 'qr_reroute_user_id'; qr.value = this.qrRerouteUserId;
             form.appendChild(qr);
 
-            if (this.counts.has_any) {
-                const t = document.createElement('input');
-                t.type = 'hidden'; t.name = 'target_user_id'; t.value = this.targetUserId;
-                form.appendChild(t);
+            // AT-118 — successor + secondary handling are always sent (successor mandatory).
+            const t = document.createElement('input');
+            t.type = 'hidden'; t.name = 'target_user_id'; t.value = this.targetUserId;
+            form.appendChild(t);
 
-                const s = document.createElement('input');
-                s.type = 'hidden'; s.name = 'secondary_handling'; s.value = this.secondaryHandling;
-                form.appendChild(s);
-            }
+            const s = document.createElement('input');
+            s.type = 'hidden'; s.name = 'secondary_handling'; s.value = this.secondaryHandling;
+            form.appendChild(s);
 
             if (this.counts.deals > 0) {
                 const dh = document.createElement('input');
