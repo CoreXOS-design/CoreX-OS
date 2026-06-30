@@ -76,7 +76,7 @@
                             <span class="ds-badge {{ $c->channel === 'email' ? 'ds-badge-default' : 'ds-badge-success' }}">{{ ucfirst($c->channel) }}</span>
                         </td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $c->direction === 'inbound' ? '↓ In' : '↑ Out' }}</td>
-                        <td class="px-4 py-3" style="color: var(--text-primary);">{{ $c->from_identifier ?? '—' }}</td>
+                        <td class="px-4 py-3" style="color: var(--text-primary);">{{ $c->from_display }}</td>
                         <td class="px-4 py-3" style="color: var(--text-primary);">
                             <div class="font-medium">{{ \Illuminate\Support\Str::limit($c->subject ?: '(no subject)', 70) }}</div>
                             <div class="text-xs" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::limit($c->body_preview, 90) }}</div>

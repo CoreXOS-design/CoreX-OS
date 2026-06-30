@@ -29,7 +29,7 @@ class CommunicationArchiveController extends Controller
 
     public function index(Request $request)
     {
-        $query = Communication::query()->notPurged()->with('links');
+        $query = Communication::query()->notPurged()->with(['links', 'owner:id,name']);
         $this->grants->applyArchiveVisibility($query, $request->user());
 
         if ($channel = $request->query('channel')) {
@@ -78,7 +78,7 @@ class CommunicationArchiveController extends Controller
         $query = Communication::query()
             ->notPurged()
             ->where('thread_key', $threadKey)
-            ->with('attachments');
+            ->with(['attachments', 'owner:id,name']);
         $this->grants->applyArchiveVisibility($query, $request->user());
 
         $messages = $query->orderBy('occurred_at')->get();
@@ -86,8 +86,9 @@ class CommunicationArchiveController extends Controller
         abort_if($messages->isEmpty(), 404);
 
         return view('compliance.communication-archive.thread', [
-            'threadKey' => $threadKey,
-            'messages'  => $messages,
+            'threadKey'   => $threadKey,
+            'messages'    => $messages,
+            'backContact' => $this->backContext($request), // AT-137 context-aware back
         ]);
     }
 
@@ -102,10 +103,27 @@ class CommunicationArchiveController extends Controller
         )->exists();
         abort_unless($visible, 404);
 
-        $communication->load('attachments', 'links');
+        $communication->load('attachments', 'links', 'owner:id,name');
 
         return view('compliance.communication-archive.show', [
             'communication' => $communication,
+            'backContact'   => $this->backContext($request), // AT-137 context-aware back
         ]);
+    }
+
+    /**
+     * AT-137 — resolve the originating contact for context-aware Back navigation.
+     * When the user opened a thread/message FROM a contact record (the contact
+     * Communications tab passes ?from=contact&contact=<id>), Back returns there
+     * instead of always dumping into the compliance archive. Returns null when the
+     * user came from the archive itself.
+     */
+    private function backContext(Request $request): ?Contact
+    {
+        if ($request->query('from') === 'contact' && ($contactId = $request->query('contact'))) {
+            return Contact::find($contactId);
+        }
+
+        return null;
     }
 }

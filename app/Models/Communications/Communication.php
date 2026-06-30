@@ -61,6 +61,22 @@ class Communication extends Model
         return $this->belongsTo(\App\Models\User::class, 'owner_user_id');
     }
 
+    /**
+     * AT-137 — direction-aware "from" for archive/thread display. An audit record
+     * must show WHO sent each message: on OUTBOUND that is the AGENT (the owner
+     * whose device/mailbox sent it), on INBOUND it is the counterpart
+     * (from_identifier). Previously every row showed from_identifier (the contact)
+     * in both directions. Eager-load `owner` to avoid N+1.
+     */
+    public function getFromDisplayAttribute(): string
+    {
+        if ($this->direction === self::DIRECTION_OUTBOUND) {
+            return $this->owner?->name ?: 'Agent';
+        }
+
+        return $this->from_identifier ?: '—';
+    }
+
     // ── Scopes ──
 
     public function scopeChannel($query, string $channel)
