@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Communications;
 
 use App\Http\Controllers\Controller;
 use App\Models\Communications\CommsAccessRequest;
+use App\Models\Communications\Communication;
 use App\Models\Contact;
 use App\Services\Communications\CommsAccessGrantService;
 use App\Services\PermissionService;
@@ -28,8 +29,12 @@ class CommsAccessRequestController extends Controller
     {
         $user = $request->user();
         $data = $request->validate([
-            'contact_id' => 'required|integer|exists:contacts,id',
-            'reason'     => 'nullable|string|max:1000',
+            'contact_id'       => 'required|integer|exists:contacts,id',
+            'reason'           => 'nullable|string|max:1000',
+            // AT-132 — the request targets a SPECIFIC thread (real thread_key) or a
+            // null-thread comm (communication_id). Both omitted = legacy whole-contact.
+            'thread_key'       => 'nullable|string|max:255',
+            'communication_id' => 'nullable|integer',
         ]);
 
         // Only a communications-capable user may request (a non-comms role such
@@ -42,12 +47,30 @@ class CommsAccessRequestController extends Controller
         // AgencyScope ensures the contact is in the user's agency (404 otherwise).
         $contact = Contact::findOrFail($data['contact_id']);
 
-        $req = $this->grants->requestAccess($user, $contact, $data['reason'] ?? null);
+        $threadKey = ($data['thread_key'] ?? '') !== '' ? $data['thread_key'] : null;
+        $commId    = $data['communication_id'] ?? null;
+
+        // The thread / comm must actually belong to THIS contact (and agency, via
+        // AgencyScope on Communication) — no requesting access to an unrelated thread.
+        if ($threadKey !== null || $commId !== null) {
+            $belongs = Communication::query()->whereNull('purged_at')
+                ->whereHas('links', fn ($q) => $q->where('linkable_type', Contact::class)
+                                                  ->where('linkable_id', $contact->id))
+                ->when($threadKey !== null, fn ($q) => $q->where('thread_key', $threadKey))
+                ->when($threadKey === null && $commId !== null, fn ($q) => $q->where('id', $commId))
+                ->exists();
+            if (!$belongs) {
+                return response()->json(['ok' => false, 'error' => 'That conversation was not found on this contact.'], 422);
+            }
+        }
+
+        $req = $this->grants->requestAccess($user, $contact, $data['reason'] ?? null, $threadKey, $commId);
 
         return response()->json([
             'ok'         => true,
             'request_id' => $req->id,
             'status'     => $req->status,
+            'thread_key' => $req->thread_key,
             'expires_at' => $req->expires_at->toIso8601String(),
         ]);
     }
@@ -66,6 +89,8 @@ class CommsAccessRequestController extends Controller
         $data = $request->validate([
             'decision'      => 'required|in:approve,decline',
             'denial_reason' => 'nullable|string|max:500',
+            // AT-132 — the approver picks the grant mode. 'otp' is Wave 2 (not accepted here).
+            'grant_mode'    => 'nullable|in:session,always',
         ]);
 
         return DB::transaction(function () use ($commsAccessRequest, $user, $data) {
@@ -79,7 +104,7 @@ class CommsAccessRequestController extends Controller
             }
 
             if ($data['decision'] === 'approve') {
-                $this->grants->approve($fresh, $user);
+                $this->grants->approve($fresh, $user, $data['grant_mode'] ?? CommsAccessRequest::MODE_SESSION);
             } else {
                 $this->grants->decline($fresh, $user, $data['denial_reason'] ?? null);
             }
@@ -128,5 +153,29 @@ class CommsAccessRequestController extends Controller
             ->values();
 
         return view('corex.communications.access-inbox', ['requests' => $pending]);
+    }
+
+    /**
+     * AT-132 — owner (or grant_access holder) toggles a thread's hide-subject.
+     * POST /api/v1/comms-access/thread-settings  {contact_id, thread_key, hide_subject}
+     */
+    public function threadSettings(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'contact_id'   => 'required|integer|exists:contacts,id',
+            'thread_key'   => 'required|string|max:255',
+            'hide_subject' => 'required|boolean',
+        ]);
+
+        // AgencyScope ensures the contact is in the user's agency (404 otherwise).
+        $contact = Contact::findOrFail($data['contact_id']);
+
+        $ok = $this->grants->setThreadHideSubject($user, $contact, $data['thread_key'], (bool) $data['hide_subject']);
+        if (!$ok) {
+            return response()->json(['ok' => false, 'error' => 'Only the owning agent or a manager can change this.'], 403);
+        }
+
+        return response()->json(['ok' => true, 'hide_subject' => (bool) $data['hide_subject']]);
     }
 }

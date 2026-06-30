@@ -329,6 +329,7 @@ Route::middleware('auth')->group(function () {
         // See .ai/specs/at118-communications-access-gate.md §3.3
         Route::prefix('comms-access')->name('comms-access.')->group(function () {
             Route::post('/request',                       [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'store'])->name('store');
+            Route::post('/thread-settings',               [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'threadSettings'])->name('thread-settings');
             Route::get('/{commsAccessRequest}/status',    [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'status'])->name('status');
             Route::post('/{commsAccessRequest}/authorize',[\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'authorize'])->name('authorize');
         });

@@ -1885,15 +1885,44 @@
                 @endphp
 
                 @if($thread->is_visible)
-                {{-- VISIBLE thread — opens to the body --}}
-                <a href="{{ $openHref }}"
-                   class="block rounded px-4 py-3 transition-all hover:opacity-90"
-                   style="background:var(--surface-2); border:1px solid var(--border); border-left:3px solid {{ $accent }};">
-                    @include('corex.contacts._comm-thread-meta', ['thread' => $thread, 'isWa' => $isWa, 'accent' => $accent])
-                    <div class="flex items-center mt-1.5">
-                        <span class="text-[11px] font-semibold ml-auto" style="color:var(--brand-icon, #0ea5e9);">Open thread</span>
+                {{-- VISIBLE thread — opens to the body; owner may toggle hide-subject --}}
+                <div class="rounded px-4 py-3"
+                     style="background:var(--surface-2); border:1px solid var(--border); border-left:3px solid {{ $accent }};">
+                    <a href="{{ $openHref }}" class="block transition-all hover:opacity-90">
+                        @include('corex.contacts._comm-thread-meta', ['thread' => $thread, 'isWa' => $isWa, 'accent' => $accent])
+                    </a>
+                    <div class="flex items-center gap-3 mt-1.5">
+                        @if($thread->can_manage_subject)
+                        <div x-data="{
+                                hidden: {{ $thread->subject_hidden_setting ? 'true' : 'false' }},
+                                busy: false,
+                                async toggle(){
+                                    this.busy = true;
+                                    try {
+                                        const r = await fetch('{{ route('api.v1.comms-access.thread-settings') }}', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type':'application/json', 'Accept':'application/json',
+                                                       'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
+                                            body: JSON.stringify({ contact_id: {{ $contact->id }}, thread_key: {{ json_encode($thread->thread_key) }}, hide_subject: !this.hidden })
+                                        });
+                                        const d = await r.json();
+                                        if (r.ok && d.ok) { this.hidden = d.hide_subject; }
+                                        else { alert(d.error || 'Could not update.'); }
+                                    } catch(e) { alert('Network error — please try again.'); }
+                                    finally { this.busy = false; }
+                                }
+                             }">
+                            <button type="button" @click="toggle()" :disabled="busy"
+                                    class="text-[11px] font-semibold rounded px-2.5 py-1"
+                                    style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
+                                <span x-show="!hidden">Hide subject from others</span>
+                                <span x-show="hidden" x-cloak>Subject hidden from others — show</span>
+                            </button>
+                        </div>
+                        @endif
+                        <a href="{{ $openHref }}" class="text-[11px] font-semibold ml-auto" style="color:var(--brand-icon, #0ea5e9);">Open thread</a>
                     </div>
-                </a>
+                </div>
                 @else
                 {{-- GATED thread — safe metadata + per-thread Request access (No Silent Locks) --}}
                 <div class="rounded px-4 py-3"

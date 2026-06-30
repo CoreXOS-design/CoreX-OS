@@ -128,16 +128,20 @@ class CommsAccessRequest extends Model
 
     // ── Transitions (the service orchestrates + logs; these are the raw flips) ──
 
-    public function markApproved(int $approverId): bool
+    public function markApproved(int $approverId, string $mode = self::MODE_SESSION): bool
     {
+        $isAlways = $mode === self::MODE_ALWAYS;
+
         return (bool) $this->update([
             'status'                     => self::STATUS_APPROVED,
+            'grant_mode'                 => $isAlways ? self::MODE_ALWAYS : self::MODE_SESSION,
             'authorized_by_user_id'      => $approverId,
             'authorized_at'              => now(),
-            // Hard cap = end of the current (agency-local) day. The 00:00 reset
-            // job revokes proactively + logs; this guarantees it can't outlive
-            // the day even if the job never runs.
-            'granted_session_expires_at' => now()->endOfDay(),
+            // AT-132 — session: end-of-day hard cap (the 00:00 reset revokes
+            // proactively + logs; this guarantees it can't outlive the day even if
+            // the job never runs). always: NO expiry — only an explicit revoke ends
+            // it (revokeAllActive/revokeForUser skip grant_mode=always, Step 2).
+            'granted_session_expires_at' => $isAlways ? null : now()->endOfDay(),
         ]);
     }
 
@@ -163,5 +167,47 @@ class CommsAccessRequest extends Model
     public function markExpired(): bool
     {
         return (bool) $this->update(['status' => self::STATUS_EXPIRED]);
+    }
+
+    /**
+     * AT-132 — a short human label for the thread this request targets, for the
+     * approver inbox + notifications. Respects the owner's hide-subject toggle: a
+     * hidden-subject (or empty-subject) thread shows "Email/WhatsApp thread (date)"
+     * instead of the subject. Legacy whole-contact requests (thread_key+comm null)
+     * read "all threads for this contact". AgencyScope applies to the lookups.
+     */
+    public function threadLabel(): string
+    {
+        if ($this->thread_key === null && $this->communication_id === null) {
+            return 'all threads for this contact';
+        }
+
+        $hidden = false;
+        if ($this->thread_key !== null) {
+            $comm = Communication::query()->whereNull('purged_at')
+                ->where('thread_key', $this->thread_key)
+                ->whereHas('links', fn ($q) => $q->where('linkable_type', Contact::class)
+                                                  ->where('linkable_id', $this->contact_id))
+                ->orderByDesc('occurred_at')->first();
+            $hidden = (bool) CommsThreadSetting::query()
+                ->where('contact_id', $this->contact_id)
+                ->where('thread_key', $this->thread_key)
+                ->value('hide_subject');
+        } else {
+            $comm = Communication::query()->whereKey($this->communication_id)->first();
+        }
+
+        if (!$comm) {
+            return 'a conversation';
+        }
+
+        $channel = $comm->channel === Communication::CHANNEL_WHATSAPP ? 'WhatsApp' : 'Email';
+        $date    = optional($comm->occurred_at)->format('d M Y') ?? '';
+
+        if ($hidden || trim((string) $comm->subject) === '') {
+            return trim("{$channel} thread ({$date})");
+        }
+
+        return "\"{$comm->subject}\" ({$channel})";
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services\Communications;
 
 use App\Models\Communications\CommsAccessAuditLog;
 use App\Models\Communications\CommsAccessRequest;
+use App\Models\Communications\CommsThreadSetting;
 use App\Models\Communications\Communication;
 use App\Models\Contact;
 use App\Models\User;
@@ -134,23 +135,34 @@ class CommsAccessGrantService
      * request from the same requester+contact. Logs 'request' + notifies the
      * owning agent and communications.grant_access holders.
      */
-    public function requestAccess(User $requester, Contact $contact, ?string $reason = null): CommsAccessRequest
+    public function requestAccess(User $requester, Contact $contact, ?string $reason = null, ?string $threadKey = null, ?int $communicationId = null): CommsAccessRequest
     {
+        $threadKey = ($threadKey === '') ? null : $threadKey;
+
+        // Reuse a still-pending request for the SAME thread / null-thread comm /
+        // (legacy) whole-contact target — never collapse distinct threads together.
         $existing = CommsAccessRequest::query()
             ->byRequester($requester->id)
             ->forContact($contact->id)
             ->pending()
             ->where('expires_at', '>', now())
+            ->when($threadKey !== null, fn ($q) => $q->where('thread_key', $threadKey))
+            ->when($threadKey === null && $communicationId !== null,
+                fn ($q) => $q->whereNull('thread_key')->where('communication_id', $communicationId))
+            ->when($threadKey === null && $communicationId === null,
+                fn ($q) => $q->whereNull('thread_key')->whereNull('communication_id'))
             ->latest()
             ->first();
         if ($existing) {
             return $existing;
         }
 
-        $req = DB::transaction(function () use ($requester, $contact, $reason) {
+        $req = DB::transaction(function () use ($requester, $contact, $reason, $threadKey, $communicationId) {
             return CommsAccessRequest::create([
                 'agency_id'         => $contact->agency_id,
                 'contact_id'        => $contact->id,
+                'thread_key'        => $threadKey,
+                'communication_id'  => $communicationId,
                 'requester_user_id' => $requester->id,
                 'status'            => CommsAccessRequest::STATUS_PENDING,
                 'reason'            => $reason,
@@ -162,10 +174,11 @@ class CommsAccessGrantService
         });
 
         CommsAccessAuditLog::record(CommsAccessAuditLog::EVENT_REQUEST, [
-            'agency_id'     => $req->agency_id,
-            'actor_user_id' => $requester->id,
-            'contact_id'    => $contact->id,
-            'detail'        => ['reason' => $reason, 'request_id' => $req->id],
+            'agency_id'        => $req->agency_id,
+            'actor_user_id'    => $requester->id,
+            'contact_id'       => $contact->id,
+            'communication_id' => $communicationId,
+            'detail'           => ['reason' => $reason, 'request_id' => $req->id, 'thread_key' => $threadKey],
         ]);
 
         $this->notifyApprovers($req, $requester, $contact);
@@ -173,19 +186,77 @@ class CommsAccessGrantService
         return $req;
     }
 
-    /** Approve — either/or (owner OR grant_access holder). Logs 'grant'. */
-    public function approve(CommsAccessRequest $req, User $approver): bool
+    /**
+     * AT-132 — set/clear a thread's hide-subject toggle (owner privacy control).
+     * Authorised for the thread's OWNING agent (owns ≥1 comm in the thread on this
+     * contact) OR a communications.grant_access holder. Returns false if not
+     * authorised. Idempotent; restores a soft-deleted settings row if present.
+     */
+    public function setThreadHideSubject(User $actor, Contact $contact, string $threadKey, bool $hide): bool
     {
-        $ok = $req->markApproved($approver->id);
+        $threadKey = trim($threadKey);
+        if ($threadKey === '') {
+            return false;
+        }
+
+        $isAuthoriser = $actor->hasPermission('communications.grant_access');
+        $ownsThread   = Communication::query()->whereNull('purged_at')
+            ->where('thread_key', $threadKey)
+            ->where('owner_user_id', $actor->id)
+            ->whereHas('links', fn ($q) => $q->where('linkable_type', Contact::class)
+                                              ->where('linkable_id', $contact->id))
+            ->exists();
+        if (!$isAuthoriser && !$ownsThread) {
+            return false;
+        }
+
+        $setting = CommsThreadSetting::withTrashed()
+            ->where('agency_id', $contact->agency_id)
+            ->where('contact_id', $contact->id)
+            ->where('thread_key', $threadKey)
+            ->first();
+
+        if ($setting) {
+            if ($setting->trashed()) {
+                $setting->restore();
+            }
+            $setting->update(['hide_subject' => $hide, 'set_by_user_id' => $actor->id]);
+        } else {
+            CommsThreadSetting::create([
+                'agency_id'      => $contact->agency_id,
+                'contact_id'     => $contact->id,
+                'thread_key'     => $threadKey,
+                'hide_subject'   => $hide,
+                'set_by_user_id' => $actor->id,
+            ]);
+        }
+
+        return true;
+    }
+
+    /**
+     * Approve — either/or (owner OR grant_access holder). $mode = session | always
+     * (AT-132). Carries the request's thread_key/communication_id onto the grant.
+     * Logs 'grant' with thread_key + grant_mode.
+     */
+    public function approve(CommsAccessRequest $req, User $approver, string $mode = CommsAccessRequest::MODE_SESSION): bool
+    {
+        $ok = $req->markApproved($approver->id, $mode);
+        $req->refresh();
 
         CommsAccessAuditLog::record(CommsAccessAuditLog::EVENT_GRANT, [
-            'agency_id'       => $req->agency_id,
-            'actor_user_id'   => $approver->id,
-            'subject_user_id' => $req->requester_user_id,
-            'contact_id'      => $req->contact_id,
-            'detail'          => [
-                'request_id'   => $req->id,
-                'granted_until' => optional($req->granted_session_expires_at)->toIso8601String(),
+            'agency_id'        => $req->agency_id,
+            'actor_user_id'    => $approver->id,
+            'subject_user_id'  => $req->requester_user_id,
+            'contact_id'       => $req->contact_id,
+            'communication_id' => $req->communication_id,
+            'detail'           => [
+                'request_id'    => $req->id,
+                'thread_key'    => $req->thread_key,
+                'grant_mode'    => $req->grant_mode,
+                'granted_until' => $req->grant_mode === CommsAccessRequest::MODE_ALWAYS
+                    ? 'always'
+                    : optional($req->granted_session_expires_at)->toIso8601String(),
             ],
         ]);
 
@@ -198,11 +269,12 @@ class CommsAccessGrantService
         $ok = $req->markDeclined($approver->id, $reason);
 
         CommsAccessAuditLog::record(CommsAccessAuditLog::EVENT_DECLINE, [
-            'agency_id'       => $req->agency_id,
+            'agency_id'        => $req->agency_id,
+            'communication_id' => $req->communication_id,
             'actor_user_id'   => $approver->id,
             'subject_user_id' => $req->requester_user_id,
             'contact_id'      => $req->contact_id,
-            'detail'          => ['request_id' => $req->id, 'reason' => $reason],
+            'detail'          => ['request_id' => $req->id, 'reason' => $reason, 'thread_key' => $req->thread_key],
         ]);
 
         return $ok;

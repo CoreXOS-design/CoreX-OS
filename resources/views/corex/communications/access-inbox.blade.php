@@ -24,16 +24,23 @@
                     <span class="font-normal" style="color:var(--text-muted);">requests access to</span>
                     {{ trim(($req->contact->first_name ?? '').' '.($req->contact->last_name ?? '')) ?: 'a contact' }}
                 </p>
+                {{-- AT-132 — name the SPECIFIC thread (subject unless the owner hid it, else channel + date). --}}
+                <p class="text-xs mt-0.5" style="color:var(--text-secondary);">Thread: {{ $req->threadLabel() }}</p>
                 @if($req->reason)
                     <p class="text-xs mt-0.5" style="color:var(--text-secondary);">“{{ $req->reason }}”</p>
                 @endif
                 <p class="text-[11px] mt-0.5" style="color:var(--text-muted);">Requested {{ $req->created_at->diffForHumans() }}</p>
             </div>
-            <div class="flex items-center gap-2 shrink-0">
-                <button type="button" @click="act({{ $req->id }}, 'approve')" :disabled="busy"
-                        class="text-xs font-semibold rounded-md px-4 py-2" style="background:#00d4aa; color:#06251f;">Approve</button>
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
+                {{-- AT-132 — approve WITH MODE: this session vs always (this thread). --}}
+                <button type="button" @click="act({{ $req->id }}, 'approve', 'session')" :disabled="busy"
+                        class="text-xs font-semibold rounded px-3 py-2" style="background:var(--ds-teal, #00d4aa); color:#06251f;"
+                        title="Grant access for this session only — ends at logout and at midnight">Approve · this session</button>
+                <button type="button" @click="act({{ $req->id }}, 'approve', 'always')" :disabled="busy"
+                        class="text-xs font-semibold rounded px-3 py-2" style="background:var(--brand-button, #0ea5e9); color:#fff;"
+                        title="Grant standing access to this thread — survives logout and midnight until revoked">Approve · always</button>
                 <button type="button" @click="act({{ $req->id }}, 'decline')" :disabled="busy"
-                        class="text-xs font-semibold rounded-md px-4 py-2" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">Decline</button>
+                        class="text-xs font-semibold rounded px-3 py-2" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">Decline</button>
                 <a href="{{ route('corex.contacts.show', $req->contact_id) }}" class="text-xs font-semibold underline" style="color:var(--brand-icon, #0ea5e9);">View contact</a>
             </div>
         </div>
@@ -51,7 +58,7 @@ function commsAccessInbox() {
     return {
         handled: [],
         busy: false,
-        async act(id, decision) {
+        async act(id, decision, grantMode = 'session') {
             if (decision === 'decline' && !confirm('Decline this access request?')) return;
             this.busy = true;
             try {
@@ -59,7 +66,7 @@ function commsAccessInbox() {
                     method: 'POST',
                     headers: { 'Content-Type':'application/json', 'Accept':'application/json',
                                'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
-                    body: JSON.stringify({ decision })
+                    body: JSON.stringify({ decision, grant_mode: grantMode })
                 });
                 const d = await r.json();
                 if (r.ok && d.ok) { this.handled.push(id); }

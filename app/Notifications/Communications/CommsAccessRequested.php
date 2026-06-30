@@ -29,14 +29,19 @@ class CommsAccessRequested extends Notification
         $contact  = $req->contact;
         $contactName = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'a contact';
 
+        // AT-132 — name the SPECIFIC thread (subject unless the owner hid it, else
+        // channel + date). threadLabel() respects hide_subject.
+        $threadLabel = $req->threadLabel();
+
         return [
-            'type'       => 'comms_access_requested',
-            'title'      => "{$reqName} requests communications access",
-            'body'       => "for {$contactName}" . ($req->reason ? " — {$req->reason}" : ''),
-            'action_url' => route('corex.comms-access.inbox'),
-            'icon'       => 'lock-open',
-            'request_id' => $req->id,
-            'contact_id' => $req->contact_id,
+            'type'        => 'comms_access_requested',
+            'title'       => "{$reqName} requests communications access",
+            'body'        => "{$threadLabel} — {$contactName}" . ($req->reason ? " — {$req->reason}" : ''),
+            'action_url'  => route('corex.comms-access.inbox'),
+            'icon'        => 'lock-open',
+            'request_id'  => $req->id,
+            'contact_id'  => $req->contact_id,
+            'thread_key'  => $req->thread_key,
         ];
     }
 }

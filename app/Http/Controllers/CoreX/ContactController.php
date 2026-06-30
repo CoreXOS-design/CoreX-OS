@@ -399,19 +399,31 @@ class ContactController extends Controller
                 ? in_array((int) $latest->id, $pendingCommIds, true)
                 : in_array($tk, $pendingThreadKeys, true);
 
+            // The owner of the thread (or a grant_access holder) may toggle the
+            // hide-subject control. Only meaningful for real threads (the settings
+            // table keys on a non-null thread_key).
+            $ownerId        = $latest->owner_user_id;
+            $canManageSubj  = $tk !== null && ($isAuthoriser || ($viewer && (int) $ownerId === (int) $viewer->id));
+
             $contactThreads->push((object) [
-                'row_key'          => $key,
-                'thread_key'       => $tk,
-                'communication_id' => $isNull ? (int) $latest->id : null,
-                'channel'          => $latest->channel,
-                'latest_at'        => $latest->occurred_at,
-                'message_count'    => count($msgs),
-                'owner_name'       => $latest->owner?->name,
-                'has_attachments'  => collect($msgs)->contains(fn ($m) => (bool) $m->has_attachments),
-                'subject'          => $hideSubject ? null : $subject,
-                'subject_hidden'   => $hideSubject,
-                'is_visible'       => $visible,
-                'pending'          => $pending,
+                'row_key'            => $key,
+                'thread_key'         => $tk,
+                'communication_id'   => $isNull ? (int) $latest->id : null,
+                'channel'            => $latest->channel,
+                'latest_at'          => $latest->occurred_at,
+                'message_count'      => count($msgs),
+                'owner_name'         => $latest->owner?->name,
+                'has_attachments'    => collect($msgs)->contains(fn ($m) => (bool) $m->has_attachments),
+                // hide_subject protects the subject from viewers who CAN'T read the
+                // thread (the gated list). A viewer who can see the body still sees
+                // the subject. subject_hidden = effective-for-this-row; the raw
+                // setting drives the owner's toggle state + "hidden from others" note.
+                'subject'                => ($hideSubject && !$visible) ? null : $subject,
+                'subject_hidden'         => ($hideSubject && !$visible),
+                'subject_hidden_setting' => $hideSubject,
+                'is_visible'             => $visible,
+                'pending'                => $pending,
+                'can_manage_subject'     => $canManageSubj,
             ]);
         }
 
