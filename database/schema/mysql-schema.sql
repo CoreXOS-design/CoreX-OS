@@ -2398,6 +2398,33 @@ CREATE TABLE `commission_settings` (
   CONSTRAINT `commission_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `comms_access_audit_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `comms_access_audit_log` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `event_type` enum('request','grant','decline','session_expired','midnight_reset','ownership_transfer') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `subject_user_id` bigint unsigned DEFAULT NULL,
+  `contact_id` bigint unsigned DEFAULT NULL,
+  `communication_id` bigint unsigned DEFAULT NULL,
+  `detail` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `comms_audit_actor_fk` (`actor_user_id`),
+  KEY `comms_audit_subject_fk` (`subject_user_id`),
+  KEY `comms_audit_comm_fk` (`communication_id`),
+  KEY `comms_audit_agency_created_idx` (`agency_id`,`created_at`),
+  KEY `comms_audit_contact_idx` (`contact_id`),
+  KEY `comms_audit_event_idx` (`event_type`),
+  CONSTRAINT `comms_access_audit_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `comms_audit_actor_fk` FOREIGN KEY (`actor_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `comms_audit_comm_fk` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `comms_audit_contact_fk` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `comms_audit_subject_fk` FOREIGN KEY (`subject_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_attachments`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12375,3 +12402,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (901,'2026_07_07_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (902,'2026_07_08_000001_add_outreach_queue_settings_to_agencies_table',185);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (903,'2026_07_09_000001_make_outreach_queue_due_at_nullable',186);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (904,'2026_07_10_000001_add_branch_id_to_outreach_queue_table',187);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (906,'2026_07_12_000001_create_comms_access_audit_log_table',188);

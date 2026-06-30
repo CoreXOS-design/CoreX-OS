@@ -130,6 +130,18 @@ return [
         // '*' wildcard; explicitly EXCLUDED from admin (admin is exclude-based, so
         // it would otherwise inherit this) and never added to any other role.
         ['key' => 'reveal_mailbox_credential',      'label' => 'Reveal Mailbox Password (audited, principal only)',     'section' => 'compliance', 'type' => 'action', 'module' => 'communication_archive', 'sort_order' => 21],
+        // ── AT-118 Communications Access Gate ──
+        // `communications.view` is the SCOPED per-contact gate (own/branch/all via
+        //   scope_defaults + Role Manager) — same mechanism as deals.view / outreach_queue.view.
+        //   Module prefix `communications` → getDataScope($user, 'communications') reads this
+        //   key's scope. This is the per-CONTACT comms gate, distinct from the agency-wide
+        //   `access_communication_archive` (AT-33) which still governs the compliance archive.
+        // `communications.grant_access` is the AUTHORISER capability (who may approve a
+        //   non-owner's request to see a contact's threads — the locked model's "role-manager",
+        //   implemented as an agency-reconfigurable capability, NOT a hardcoded role).
+        //   Default owner/admin only (admin via the all-minus-exclude default; owner via '*').
+        ['key' => 'communications.view',         'label' => 'View Contact Communications (owner/scoped)', 'section' => 'compliance', 'type' => 'action', 'module' => 'communications', 'sort_order' => 22],
+        ['key' => 'communications.grant_access',  'label' => 'Authorise Communications Access Requests',   'section' => 'compliance', 'type' => 'action', 'module' => 'communications', 'sort_order' => 23],
 
         // ── RMCP ──
         ['key' => 'access_rmcp',                 'label' => 'View RMCP',                       'section' => 'compliance',       'type' => 'access',  'module' => 'rmcp',             'sort_order' => 20],
@@ -590,6 +602,7 @@ return [
                 'verify_user_documents', 'access_compliance_dashboard',
                 'access_communication_archive',
                 'triage_communications', 'view_communication_flag_register',
+                'communications.view', // AT-118 per-contact comms gate — branch scope (via scope_defaults)
                 'access_rmcp', 'edit_rmcp', 'manage_compliance_officer', 'manage_information_officer',
                 'access_policy', 'edit_policy',
                 'manage_activity_mappings',
@@ -686,6 +699,7 @@ return [
                 'access_communication', 'send_messages',
                 'communication.view', 'communication.send',
                 'triage_communications',
+                'communications.view', // AT-118 per-contact comms gate — own scope (via scope_defaults)
                 'access_client_portal',
                 'access_docuperfect', 'create_docuperfect_docs',
                 'access_docuperfect_packs', 'access_clause_library',
