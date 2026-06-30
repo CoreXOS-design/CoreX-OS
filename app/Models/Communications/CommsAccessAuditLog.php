@@ -112,13 +112,22 @@ class CommsAccessAuditLog extends Model
             throw new \InvalidArgumentException("Unknown comms access audit event_type: {$eventType}");
         }
 
+        // AT-118 — under switch-user the actor_user_id reads as the impersonated
+        // user; stamp the real acting admin into detail so the trail is honest.
+        $detail = $attributes['detail'] ?? null;
+        $actingAdminId = \App\Support\Impersonation::actingAdminId();
+        if ($actingAdminId !== null) {
+            $detail = (array) $detail;
+            $detail['acting_as_admin_id'] = $actingAdminId;
+        }
+
         $row = [
             'event_type'       => $eventType,
             'actor_user_id'    => $attributes['actor_user_id'] ?? null,
             'subject_user_id'  => $attributes['subject_user_id'] ?? null,
             'contact_id'       => $attributes['contact_id'] ?? null,
             'communication_id' => $attributes['communication_id'] ?? null,
-            'detail'           => $attributes['detail'] ?? null,
+            'detail'           => $detail,
             'created_at'       => $attributes['created_at'] ?? now(),
         ];
 
