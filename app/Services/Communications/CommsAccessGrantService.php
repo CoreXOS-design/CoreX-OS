@@ -8,6 +8,8 @@ use App\Models\Communications\Communication;
 use App\Models\Contact;
 use App\Models\User;
 use App\Notifications\Communications\CommsAccessRequested;
+use App\Services\PermissionService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
@@ -67,6 +69,64 @@ class CommsAccessGrantService
                 }
             })
             ->exists();
+    }
+
+    /**
+     * AT-132 — contact ids the user holds a LIVE legacy whole-contact grant for
+     * (thread_key AND communication_id both null — pre-AT-132 / the 2 staging rows).
+     * Such a grant opens EVERY thread on that contact. Used to honour legacy grants
+     * in the archive body surface (the contact tab honours them via the 2-arg
+     * hasActiveGrant); per-thread grants are NOT here (scopeVisibleTo handles those).
+     */
+    public function legacyGrantedContactIds(User $user): array
+    {
+        return CommsAccessRequest::query()
+            ->byRequester($user->id)
+            ->liveGrant()
+            ->whereNull('thread_key')
+            ->whereNull('communication_id')
+            ->pluck('contact_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()->values()->all();
+    }
+
+    /**
+     * AT-132 — THE one source of truth for which communications a user may see.
+     * Shared by the contact tab and the compliance archive body surface so the two
+     * can never drift. access_communication_archive remains the ENTRY gate (route
+     * middleware); this filters WHICH rows are returned inside it. A user sees a
+     * comm iff:
+     *   - they hold communications.grant_access (authoriser must see to authorise)
+     *     OR their communications.view scope is 'all'  → the full archive; else
+     *   - Communication::scopeVisibleTo (owner OR own/branch scope OR AT-127
+     *     participant OR a live per-thread / per-comm grant), OR
+     *   - they hold a live LEGACY whole-contact grant for the comm's linked contact.
+     * Mirrors ContactController::show's gate composition exactly (parity).
+     */
+    public function applyArchiveVisibility(Builder $query, User $user): Builder
+    {
+        $scope        = PermissionService::getDataScope($user, 'communications');
+        $isAuthoriser = $user->hasPermission('communications.grant_access');
+
+        // Authoriser / 'all' scope → the full archive (compliance), unchanged.
+        if ($isAuthoriser || $scope === 'all') {
+            return $query;
+        }
+
+        $legacyContactIds = $this->legacyGrantedContactIds($user);
+
+        return $query->where(function (Builder $w) use ($user, $scope, $legacyContactIds) {
+            // owner / scope / AT-127 participant / per-thread+per-comm grant (Step 2).
+            $w->visibleTo($user, $scope);
+
+            // legacy whole-contact grant → every comm linked to that contact.
+            if (!empty($legacyContactIds)) {
+                $w->orWhereHas('links', function ($l) use ($legacyContactIds) {
+                    $l->where('linkable_type', Contact::class)
+                      ->whereIn('linkable_id', $legacyContactIds);
+                });
+            }
+        });
     }
 
     /**
