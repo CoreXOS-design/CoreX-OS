@@ -825,6 +825,40 @@ CREATE TABLE `agent_cap_periods` (
   CONSTRAINT `agent_cap_periods_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agent_capture_consent`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_capture_consent` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `agent_user_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `reason` text COLLATE utf8mb4_unicode_ci,
+  `decided_at` timestamp NULL DEFAULT NULL,
+  `decided_by_user_id` bigint unsigned DEFAULT NULL,
+  `admin_flagged` tinyint(1) NOT NULL DEFAULT '0',
+  `admin_flag_note` text COLLATE utf8mb4_unicode_ci,
+  `admin_flag_by_user_id` bigint unsigned DEFAULT NULL,
+  `admin_flagged_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `acc_agency_agent_contact_uq` (`agency_id`,`agent_user_id`,`contact_id`),
+  KEY `acc_agent_fk` (`agent_user_id`),
+  KEY `acc_contact_fk` (`contact_id`),
+  KEY `acc_decided_by_fk` (`decided_by_user_id`),
+  KEY `acc_flag_by_fk` (`admin_flag_by_user_id`),
+  KEY `acc_agent_status_idx` (`agency_id`,`agent_user_id`,`status`),
+  KEY `acc_agency_status_idx` (`agency_id`,`status`),
+  CONSTRAINT `acc_agent_fk` FOREIGN KEY (`agent_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `acc_contact_fk` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`),
+  CONSTRAINT `acc_decided_by_fk` FOREIGN KEY (`decided_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `acc_flag_by_fk` FOREIGN KEY (`admin_flag_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `agent_capture_consent_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agent_mentors`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12537,3 +12571,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (919,'2026_07_16_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (922,'2026_06_30_120000_generalise_client_otps_into_canonical_otp_store',194);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (924,'2026_07_16_000003_add_revoke_to_comms_access_audit_event_type',195);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (926,'2026_07_17_000001_add_body_status_to_communications_table',196);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (928,'2026_07_18_000001_create_agent_capture_consent_table',197);

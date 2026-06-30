@@ -1721,6 +1721,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{waDevice}', [\App\Http\Controllers\Communications\WaDeviceController::class, 'destroy'])->name('destroy');
     });
 
+    // ── AT-136 — per-agent WhatsApp capture consent (controls body INGESTION;
+    //    SEPARATE from the AT-125 contact marketing opt-out). ──
+    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/capture')->name('communications.capture.')->group(function () {
+        Route::get('/my', [\App\Http\Controllers\Communications\AgentCaptureConsentController::class, 'myCapture'])->name('my');
+        Route::post('/decide', [\App\Http\Controllers\Communications\AgentCaptureConsentController::class, 'decide'])->name('decide');
+        // Admin/CO review — capability-checked inside (communications.capture_review).
+        Route::get('/review', [\App\Http\Controllers\Communications\AgentCaptureConsentController::class, 'review'])->name('review');
+        Route::post('/{consent}/flag', [\App\Http\Controllers\Communications\AgentCaptureConsentController::class, 'flag'])->name('flag');
+    });
+
     // ── Communication Archive — pending triage (AT-36, staff-facing) ──
     Route::middleware(['permission:triage_communications', 'agency.required'])->prefix('communications/triage')->name('communications.triage.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'index'])->name('index');

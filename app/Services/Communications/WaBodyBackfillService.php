@@ -61,6 +61,20 @@ class WaBodyBackfillService
                       $w->where(fn ($b) => $b->whereNull('body_text')->orWhere('body_text', ''))
                         ->where(fn ($s) => $s->whereNull('body_status')->orWhere('body_status', '!=', 'captured'));
                   });
+            })
+            // AT-136 — only chats the OWNING agent has OPTED IN to: the backfill
+            // sweep must never open / scrape a pending or opted-out contact's chat.
+            ->whereExists(function ($q) {
+                $q->selectRaw('1')
+                  ->from('communication_links as cl')
+                  ->join('agent_capture_consent as acc', function ($j) {
+                      $j->on('acc.contact_id', '=', 'cl.linkable_id')
+                        ->on('acc.agent_user_id', '=', 'communications.owner_user_id');
+                  })
+                  ->whereColumn('cl.communication_id', 'communications.id')
+                  ->where('cl.linkable_type', \App\Models\Contact::class)
+                  ->where('acc.status', 'opted_in')
+                  ->whereNull('acc.deleted_at');
             });
     }
 

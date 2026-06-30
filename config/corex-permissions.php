@@ -142,6 +142,9 @@ return [
         //   Default owner/admin only (admin via the all-minus-exclude default; owner via '*').
         ['key' => 'communications.view',         'label' => 'View Contact Communications (owner/scoped)', 'section' => 'compliance', 'type' => 'action', 'module' => 'communications', 'sort_order' => 22],
         ['key' => 'communications.grant_access',  'label' => 'Authorise Communications Access Requests',   'section' => 'compliance', 'type' => 'action', 'module' => 'communications', 'sort_order' => 23],
+        // AT-136 — review agent WhatsApp-capture opt-outs (declaration + reason, NEVER
+        // message content) + flag a contact for opt-in. Admin/CO; no hardcoded roles.
+        ['key' => 'communications.capture_review', 'label' => 'Review WhatsApp Capture Opt-outs (admin/CO)', 'section' => 'compliance', 'type' => 'action', 'module' => 'communications', 'sort_order' => 24],
 
         // ── RMCP ──
         ['key' => 'access_rmcp',                 'label' => 'View RMCP',                       'section' => 'compliance',       'type' => 'access',  'module' => 'rmcp',             'sort_order' => 20],
