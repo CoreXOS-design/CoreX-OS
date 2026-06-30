@@ -14,6 +14,19 @@ return [
     'disk' => env('COMMUNICATIONS_DISK', 'local'),
 
     /*
+    |--------------------------------------------------------------------------
+    | WA dropped-payload debug probe (AT-133, TEMPORARY)
+    |--------------------------------------------------------------------------
+    | When ON, WaArchiveIngestor dumps the ENTIRE raw payload of every inbound
+    | WhatsApp message dropped as no_contact_match (chat_id, sender, author, any
+    | @-jid fields, the counterpart it tried, and what normalizePhone returned)
+    | to Log::debug. OFF by default — normal operation logs nothing extra. Used
+    | once on staging to decide AT-133 fix (1) extension vs (2) server. Safe to
+    | leave flag-gated for future WA identifier debugging.
+    */
+    'debug_dropped_wa' => (bool) env('COMMUNICATIONS_DEBUG_DROPPED_WA', false),
+
+    /*
     | Inbound grace window (calendar days) before an unmatched inbound item
     | prunes. Clamped to a maximum of 5 by CommunicationPending::graceDays().
     */

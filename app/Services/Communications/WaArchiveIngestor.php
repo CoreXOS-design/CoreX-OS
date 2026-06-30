@@ -78,6 +78,32 @@ class WaArchiveIngestor
                 'dropped_at'  => now()->toIso8601String(),
             ]);
 
+            // AT-133 — TEMPORARY, flag-gated probe. Dropped payloads are never
+            // persisted, so to decide the fix (extension vs server) we log ONE
+            // full raw payload: does any field carry the real …@c.us phone jid,
+            // or is everything a @lid / display name? OFF by default; enabled on
+            // staging for the probe only. Behaviour unchanged — this only reads.
+            if (config('communications.debug_dropped_wa', false)) {
+                $jidFields = [];
+                array_walk_recursive($msg, function ($v, $k) use (&$jidFields) {
+                    if (is_string($v) && str_contains($v, '@')) {
+                        $jidFields[] = $k . '=' . $v;
+                    }
+                });
+                Log::debug('AT-133 WA dropped payload probe', [
+                    'device_id'           => $device->id,
+                    'direction'           => $direction,
+                    'chat_id'             => $chatId,
+                    'sender_raw'          => $sender,
+                    'author'              => $msg['author'] ?? null,
+                    'counterpart_raw'     => $counterpartRaw,
+                    'counterpart_number'  => $counterpartNumber,
+                    'normalize_returned'  => app(\App\Services\ContactDuplicateService::class)->normalizePhone($counterpartNumber),
+                    'jid_like_fields'     => $jidFields, // every value containing '@' (…@c.us vs …@lid)
+                    'raw_payload'         => $msg,       // ENTIRE inbound message as received
+                ]);
+            }
+
             return self::RESULT_DROPPED;
         }
 
