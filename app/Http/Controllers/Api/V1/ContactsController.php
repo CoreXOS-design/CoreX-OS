@@ -13,15 +13,13 @@ class ContactsController extends Controller
     {
         $perPage = min((int) $request->input('per_page', 25), 100);
 
-        $query = Contact::query()->latest('id');
+        $query = Contact::query();
 
         if ($search = $request->input('q')) {
-            $query->where(function ($q) use ($search) {
-                $q->where('first_name', 'like', "%{$search}%")
-                  ->orWhere('last_name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%");
-            });
+            // AT-131 canonical (all identifiers + relevance + newest-first tiebreak).
+            $query->search($search);
+        } else {
+            $query->latest('id');
         }
 
         return response()->json($query->paginate($perPage));

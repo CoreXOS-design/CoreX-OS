@@ -250,20 +250,17 @@ class DealV2Controller extends Controller
             return response()->json([]);
         }
 
-        $contacts = Contact::where(function ($q) use ($search) {
-            $q->where('first_name', 'like', "%{$search}%")
-              ->orWhere('last_name', 'like', "%{$search}%")
-              ->orWhere('email', 'like', "%{$search}%")
-              ->orWhere('phone', 'like', "%{$search}%");
-        })
+        // AT-131 canonical contact search (all identifiers + relevance + newest-first).
+        $contacts = Contact::query()
+            ->with(['phones', 'emails', 'type', 'agent'])
+            ->search($search)
             ->limit(15)
             ->get()
-            ->map(fn ($c) => [
-                'id' => $c->id,
-                'name' => $c->full_name,
+            ->map(fn (Contact $c) => $c->toSearchResult($search, [
+                'name'  => $c->full_name,
                 'email' => $c->email,
                 'phone' => $c->phone,
-            ]);
+            ]));
 
         return response()->json($contacts);
     }

@@ -71,16 +71,10 @@ class ContactController extends Controller
         }
 
         if ($request->filled('search')) {
-            $words = array_filter(explode(' ', trim($request->search)));
-            foreach ($words as $word) {
-                $query->where(function ($q) use ($word) {
-                    $q->where('first_name', 'like', "%{$word}%")
-                      ->orWhere('last_name',  'like', "%{$word}%")
-                      ->orWhere('phone',      'like', "%{$word}%")
-                      ->orWhere('email',      'like', "%{$word}%")
-                      ->orWhere('id_number',  'like', "%{$word}%");
-                });
-            }
+            // AT-131 — canonical contact search: matches name + id_number + ALL
+            // identifiers (child phones/emails, not just the mirror), relevance-
+            // ordered + newest-first. Closes the AT-125 secondary-identifier gap.
+            $query->search($request->search);
         }
 
         if ($request->filled('type')) {

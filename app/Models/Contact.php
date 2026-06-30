@@ -316,6 +316,120 @@ class Contact extends Model
         return $this->hasOne(ContactEmail::class)->where('is_primary', true);
     }
 
+    // ── AT-131 — THE canonical contact search/result pair (mirrors AT-128's
+    //    Property::scopeSearchAddress + toSearchResult). Every contact picker uses
+    //    these so the search can never drift bespoke again. ──
+
+    /**
+     * Canonical contact search: multi-term token AND across name + id_number + ALL
+     * identifiers (the AT-125 child tables contact_phones/contact_emails, not just
+     * the mirror) — so a contact reachable only by a SECONDARY phone/email is now
+     * findable. Each whitespace token must match SOME field; relevance-ordered
+     * (exact > prefix > contains on name) with newest-first as the tiebreak.
+     * AgencyScope + SoftDeletes apply via the relations (multi-tenant safe).
+     */
+    public function scopeSearch($query, ?string $term)
+    {
+        $term = trim((string) $term);
+        if ($term === '') {
+            return $query;
+        }
+
+        foreach (preg_split('/\s+/', $term, -1, PREG_SPLIT_NO_EMPTY) as $token) {
+            $like   = '%' . $token . '%';
+            $lcLike = '%' . mb_strtolower($token) . '%';
+            $digits = preg_replace('/\D/', '', $token);
+
+            $query->where(function ($q) use ($like, $lcLike, $digits) {
+                $q->where('first_name', 'like', $like)
+                  ->orWhere('last_name', 'like', $like)
+                  ->orWhere('id_number', 'like', $like)
+                  // mirror columns — fast path / belt
+                  ->orWhere('phone', 'like', $like)
+                  ->orWhere('email', 'like', $like)
+                  // ALL emails (child table) — closes the AT-125 secondary-identifier gap
+                  ->orWhereHas('emails', fn ($e) => $e->where('email', 'like', $like)
+                                                      ->orWhere('email_normalised', 'like', $lcLike))
+                  // ALL phones (child table): match as-typed + the normalised key on
+                  // the typed digits (strip leading 0 so "082…" finds last-9 "82…").
+                  ->orWhereHas('phones', function ($p) use ($like, $digits) {
+                      $p->where('phone', 'like', $like);
+                      if ($digits !== '') {
+                          $p->orWhere('phone_normalised', 'like', '%' . ltrim($digits, '0') . '%');
+                      }
+                  });
+            });
+        }
+
+        $lower    = mb_strtolower($term);
+        $prefix   = $lower . '%';
+        $fullName = "LOWER(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))";
+        $query->orderByRaw(
+            "CASE
+                WHEN LOWER(first_name) = ? OR LOWER(last_name) = ? OR {$fullName} = ? THEN 0
+                WHEN LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR {$fullName} LIKE ? THEN 1
+                ELSE 2
+            END",
+            [$lower, $lower, $lower, $prefix, $prefix, $prefix]
+        )->orderByDesc('created_at'); // newest-first tiebreak (CoreX never deletes)
+
+        return $query;
+    }
+
+    /**
+     * Canonical contact-picker result row: name + the identifier that MATCHED the
+     * query (so a secondary phone/email match is shown, not the primary) + contact
+     * type + assigned agent. $extra merges surface-specific fields (e.g. ESign bank
+     * data) without re-implementing the base. Eager-load phones/emails/type/agent.
+     */
+    public function toSearchResult(?string $term = null, array $extra = []): array
+    {
+        $name = trim((string) $this->first_name . ' ' . (string) $this->last_name);
+
+        return array_merge([
+            'id'         => $this->id,
+            'label'      => $name !== '' ? $name : '(no name)',
+            'identifier' => $this->matchedIdentifier($term),
+            'type'       => $this->type?->name,
+            'agent'      => $this->agent?->name,
+        ], $extra);
+    }
+
+    /**
+     * The identifier that matched the search term (id_number / phone / email),
+     * falling back to the primary phone then primary email then the mirror. Lets a
+     * picker show WHICH secondary identifier hit, so disambiguation is obvious.
+     */
+    public function matchedIdentifier(?string $term = null): ?string
+    {
+        $term = trim((string) $term);
+        if ($term !== '') {
+            $lc     = mb_strtolower($term);
+            $digits = preg_replace('/\D/', '', $term);
+
+            if ($this->id_number && str_contains(mb_strtolower((string) $this->id_number), $lc)) {
+                return 'ID ' . $this->id_number;
+            }
+            if ($digits !== '') {
+                foreach ($this->phones as $p) {
+                    if (str_contains(preg_replace('/\D/', '', (string) $p->phone), $digits)) {
+                        return (string) $p->phone;
+                    }
+                }
+            }
+            foreach ($this->emails as $e) {
+                if (str_contains(mb_strtolower((string) $e->email), $lc)) {
+                    return (string) $e->email;
+                }
+            }
+        }
+
+        return $this->primaryPhone?->phone
+            ?? $this->primaryEmail?->email
+            ?? $this->phone
+            ?? $this->email;
+    }
+
     /**
      * AT-74 — does this buyer have at least one COUNTABLE wishlist (AT-71
      * isCountable())? A pipeline buyer with zero countable wishlists (criteria
