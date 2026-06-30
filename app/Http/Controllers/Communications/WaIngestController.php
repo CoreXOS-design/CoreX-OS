@@ -108,6 +108,18 @@ class WaIngestController extends Controller
             }
         }
 
+        // AT-137 — batch-stats visibility (FICA): a history backfill pass shows up as
+        // body_filled/duplicate/archived counts, so it's verifiable from the log
+        // (previously only drops were logged → backfill activity was invisible).
+        if (($stats['archived'] ?? 0) + ($stats['duplicate'] ?? 0) + ($stats['body_filled'] ?? 0) + ($stats['reconciled'] ?? 0) > 0) {
+            \Log::info('Communication archive: WA ingest batch', [
+                'device_id' => $device->id,
+                'agency_id' => $device->agency_id,
+                'count'     => count($validated['messages']),
+                'stats'     => $stats,
+            ]);
+        }
+
         return response()->json(['success' => true, 'stats' => $stats]);
     }
 
