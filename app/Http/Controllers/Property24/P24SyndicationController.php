@@ -28,7 +28,7 @@ class P24SyndicationController extends Controller
     {
         $this->authorizeProperty($property);
         $nowEnabled = !((bool) $property->p24_syndication_enabled);
-        if ($nowEnabled) { $this->enforceMarketingReadiness($property); }
+        if ($nowEnabled) { $this->enforceListingNotDraft($property, 'Property24'); $this->enforceMarketingReadiness($property); }
         $updateData = ['p24_syndication_enabled' => $nowEnabled];
 
         if ($nowEnabled && $property->p24_syndication_status === null) {
@@ -54,6 +54,7 @@ class P24SyndicationController extends Controller
     public function submit(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        $this->enforceListingNotDraft($property, 'Property24');
         $this->enforceMarketingReadiness($property);
 
         $missing = $this->mapper->checkReadiness($property);
@@ -115,6 +116,7 @@ class P24SyndicationController extends Controller
     public function reactivate(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        $this->enforceListingNotDraft($property, 'Property24');
         $this->enforceMarketingReadiness($property);
         $result = $this->syndicationService->reactivateListing($property);
         return response()->json(['success' => $result['success'], 'message' => $result['message'], 'p24_syndication_status' => $property->fresh()->p24_syndication_status], $result['success'] ? 200 : 422);

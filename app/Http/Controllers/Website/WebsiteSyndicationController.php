@@ -21,6 +21,8 @@ use Illuminate\Http\Request;
  */
 class WebsiteSyndicationController extends Controller
 {
+    use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+
     public function __construct(private WebsiteSyndicationService $service)
     {
     }
@@ -40,6 +42,10 @@ class WebsiteSyndicationController extends Controller
             ->first();
 
         $nowEnabled = !($current && $current->enabled);
+        // A draft is never publishable — only guard when turning the website ON.
+        if ($nowEnabled) {
+            $this->enforceListingNotDraft($property, $apiKey->name ?: 'this website');
+        }
         $row = $this->service->setEnabled($property, $apiKey, $nowEnabled);
 
         return $this->state($apiKey, $row);
@@ -50,6 +56,7 @@ class WebsiteSyndicationController extends Controller
     {
         $this->authorizeProperty($property);
         $this->ensureBelongs($apiKey, $property);
+        $this->enforceListingNotDraft($property, $apiKey->name ?: 'this website');
 
         $row = $this->service->setEnabled($property, $apiKey, true);
 

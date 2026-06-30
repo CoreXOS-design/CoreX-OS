@@ -338,8 +338,9 @@ class Phase2WebsiteApiTest extends TestCase
             ->assertJsonPath('data.costs.levy', 1500)
             ->assertJsonPath('data.costs.special_levy', 200)
             ->assertJsonPath('data.pet_friendly', true)
-            ->assertJsonPath('data.complex_name', 'Sea Breeze')
-            ->assertJsonPath('data.floor_number', 4)
+            // Suburb-level location only — street/complex/unit/floor are NEVER
+            // syndicated (see test_listing_never_exposes_street_address_or_coordinates).
+            ->assertJsonPath('data.suburb', 'Uvongo')
             ->assertJsonPath('data.video.youtube_id', 'abc123')
             ->assertJsonPath('data.video.youtube_url', 'https://www.youtube.com/watch?v=abc123')
             ->assertJsonPath('data.video.virtual_tour_url', 'https://tour.example/1');
@@ -370,6 +371,46 @@ class Phase2WebsiteApiTest extends TestCase
         $this->assertContains('https://img.example/k1.jpg', $data['gallery']['Kitchen']);
         $this->assertCount(1, $data['show_days']);
         $this->assertSame('Open house', $data['show_days'][0]['note']);
+    }
+
+    public function test_listing_never_exposes_street_address_or_coordinates(): void
+    {
+        // Privacy guarantee: the public website payload is suburb-level only.
+        // Even when a property carries a full street address + GPS internally,
+        // NONE of the sub-suburb location fields may cross the public boundary —
+        // this holds for both the pull API and the webhook (same resource).
+        $p = Property::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'external_id' => (string) Str::uuid(), 'title' => 'Located unit', 'status' => 'active',
+            'property_type' => 'house', 'listing_type' => 'sale', 'price' => 2000000,
+            // Full internal location — all of this must be withheld publicly.
+            'address' => '12 Marina Drive, Uvongo', 'street_number' => '12', 'street_name' => 'Marina Drive',
+            'complex_name' => 'Sea Breeze', 'unit_number' => '4B', 'floor_number' => 4, 'stand_number' => '778',
+            'latitude' => -30.84321, 'longitude' => 30.39871,
+            // Only these may surface.
+            'suburb' => 'Uvongo', 'town' => 'Margate', 'city' => 'Ray Nkonyeni', 'province' => 'KwaZulu-Natal',
+            'published_at' => now(),
+        ]);
+        $this->syndicate($p, true);
+
+        $data = $this->withToken($this->token)->getJson("/api/v1/website/listings/{$p->id}")->assertOk()->json('data');
+
+        // Suburb-level location IS present.
+        $this->assertSame('Uvongo', $data['suburb']);
+        $this->assertSame('Margate', $data['town']);
+        $this->assertSame('Ray Nkonyeni', $data['city']);
+        $this->assertSame('KwaZulu-Natal', $data['province']);
+
+        // Everything more granular than suburb is absent from the payload entirely.
+        foreach ([
+            'address', 'street_number', 'street_name', 'complex_name',
+            'unit_number', 'floor_number', 'stand_number', 'latitude', 'longitude',
+        ] as $forbidden) {
+            $this->assertArrayNotHasKey($forbidden, $data, "Public listing leaked '{$forbidden}'.");
+        }
+
+        // And the literal street string never appears anywhere in the JSON body.
+        $this->assertStringNotContainsString('Marina Drive', json_encode($data));
     }
 
     public function test_listing_images_do_not_double_the_storage_prefix(): void
@@ -485,6 +526,123 @@ class Phase2WebsiteApiTest extends TestCase
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
             'role' => 'agent', 'name' => $name, 'show_on_website' => true, 'website_order' => $order,
         ]);
+    }
+
+    public function test_index_pagination_is_stable_and_returns_every_listing(): void
+    {
+        // Reproduces the live bug: a collection where EVERY row has a NULL
+        // published_at (imported/promoted stock never stamps it). Ordering by
+        // that all-NULL column under LIMIT/OFFSET with no unique tiebreaker
+        // duplicated rows across pages and dropped others off every page —
+        // silently hiding live listings. The deterministic order must page
+        // through ALL of them exactly once.
+        $ids = [];
+        for ($i = 0; $i < 35; $i++) {
+            $p = Property::withoutGlobalScope(AgencyScope::class)->create([
+                'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+                'external_id' => (string) Str::uuid(), 'title' => "Listing {$i}", 'suburb' => 'Uvongo',
+                'property_type' => 'house', 'listing_type' => 'sale', 'status' => 'active', 'price' => 1000000 + $i,
+                'published_at' => null, // the crux — no publish timestamp, like real stock.
+            ]);
+            $this->syndicate($p, true);
+            $ids[] = $p->id;
+        }
+
+        $collected = [];
+        for ($page = 1; $page <= 4; $page++) {
+            $resp = $this->withToken($this->token)
+                ->getJson("/api/v1/website/listings?per_page=10&page={$page}")->assertOk();
+            $collected = array_merge($collected, collect($resp->json('data'))->pluck('id')->all());
+            $this->assertSame(35, $resp->json('meta.total'));
+        }
+
+        // No row appears twice, and every syndicated listing is reachable.
+        $this->assertCount(count($collected), array_unique($collected), 'A listing was duplicated across pages.');
+        sort($ids);
+        $got = array_unique($collected);
+        sort($got);
+        $this->assertSame($ids, $got, 'Some syndicated listing was missing from every page.');
+    }
+
+    public function test_status_filter_narrows_the_result_set(): void
+    {
+        $active = $this->makeProperty('Live one', 'active', 1500000);
+        $sold   = $this->makeProperty('Sold one', 'sold', 2500000);
+        $this->syndicate($active, true);
+        $this->syndicate($sold, true);
+
+        // No filter → both (sold is showcased by default, per Johan's call).
+        $all = $this->withToken($this->token)->getJson('/api/v1/website/listings')->assertOk();
+        $this->assertEqualsCanonicalizing(['Live one', 'Sold one'], collect($all->json('data'))->pluck('title')->all());
+
+        // ?status=active → only the active one.
+        $only = $this->withToken($this->token)->getJson('/api/v1/website/listings?status=active')->assertOk();
+        $this->assertSame(['Live one'], collect($only->json('data'))->pluck('title')->all());
+        $this->assertSame(1, $only->json('meta.total'));
+
+        // CSV honours multiple states.
+        $both = $this->withToken($this->token)->getJson('/api/v1/website/listings?status=active,sold')->assertOk();
+        $this->assertSame(2, $both->json('meta.total'));
+    }
+
+    public function test_status_filter_cannot_surface_a_never_public_status(): void
+    {
+        // A status the guard forbids (expired/withdrawn/draft) must not be
+        // reachable even when requested explicitly — the whitelist wins.
+        $expired = $this->makeProperty('Dead mandate', 'expired', 999000);
+        $this->syndicate($expired, true);
+
+        $this->withToken($this->token)->getJson('/api/v1/website/listings?status=expired')
+            ->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_draft_listing_never_appears_even_with_enabled_pivot(): void
+    {
+        // Legacy data: a draft whose website pivot was enabled before the draft
+        // guard existed must be invisible on BOTH index and detail.
+        $draft = $this->makeProperty('Half-built draft', 'draft', 1200000);
+        $this->syndicate($draft, true);
+
+        $this->withToken($this->token)->getJson('/api/v1/website/listings')
+            ->assertOk()->assertJsonCount(0, 'data');
+        $this->withToken($this->token)->getJson("/api/v1/website/listings/{$draft->id}")
+            ->assertStatus(404);
+    }
+
+    public function test_listing_type_filter(): void
+    {
+        $sale   = $this->makeProperty('A sale', 'active', 2000000);
+        $rental = $this->makeProperty('A rental', 'active', 0);
+        $rental->forceFill(['listing_type' => 'rental'])->save();
+        $sale->forceFill(['listing_type' => 'sale'])->save();
+        $this->syndicate($sale, true);
+        $this->syndicate($rental, true);
+
+        $r = $this->withToken($this->token)->getJson('/api/v1/website/listings?listing_type=rental')->assertOk();
+        $this->assertSame(['A rental'], collect($r->json('data'))->pluck('title')->all());
+    }
+
+    public function test_sort_param_changes_the_order(): void
+    {
+        // Three listings created out of id/price order; ?sort must reorder them.
+        $a = $this->makeProperty('Cheapest', 'active', 500000);
+        $b = $this->makeProperty('Dearest', 'active', 9000000);
+        $c = $this->makeProperty('Middle', 'active', 3000000);
+        foreach ([$a, $b, $c] as $p) {
+            $this->syndicate($p, true);
+        }
+
+        $byPriceAsc = collect($this->withToken($this->token)
+            ->getJson('/api/v1/website/listings?sort=price')->json('data'))->pluck('id')->all();
+        $this->assertSame([$a->id, $c->id, $b->id], $byPriceAsc);
+
+        $byPriceDesc = collect($this->withToken($this->token)
+            ->getJson('/api/v1/website/listings?sort=-price')->json('data'))->pluck('id')->all();
+        $this->assertSame([$b->id, $c->id, $a->id], $byPriceDesc);
+
+        $byIdDesc = collect($this->withToken($this->token)
+            ->getJson('/api/v1/website/listings?sort=-id')->json('data'))->pluck('id')->all();
+        $this->assertSame([$c->id, $b->id, $a->id], $byIdDesc);
     }
 
     // ---- helpers -----------------------------------------------------------

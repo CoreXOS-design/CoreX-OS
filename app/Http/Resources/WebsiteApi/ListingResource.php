@@ -80,20 +80,19 @@ class ListingResource extends JsonResource
             // {spaces:[...], features:{...}} editor shape (see mapSpaces()).
             'spaces'  => $this->mapSpaces(),
 
-            // Location.
-            'address'       => $this->address,
-            'street_number' => $this->street_number,
-            'street_name'   => $this->street_name,
-            'complex_name'  => $this->complex_name,
-            'unit_number'   => $this->unit_number,
-            'floor_number'  => $this->floor_number !== null ? (int) $this->floor_number : null,
-            'stand_number'  => $this->stand_number,
+            // Location — SUBURB-LEVEL ONLY. CoreX deliberately never syndicates a
+            // property's exact location to agency websites: no street address,
+            // no street number/name, no complex/unit/floor/stand, and no GPS
+            // coordinates. The most granular location the public ever sees is the
+            // suburb. This is a privacy/security guarantee for sellers (the street
+            // address is owner PII), enforced here at the single public boundary
+            // so it holds for BOTH the pull API (GET /api/v1/website/listings) and
+            // the webhook payload (DispatchAgencyWebhooks resolves this resource).
+            // Internal CoreX keeps the full address — only the public shape is cut.
             'suburb'        => $this->suburb,
             'town'          => $this->town,
             'city'          => $this->city,
             'province'      => $this->province,
-            'latitude'      => $this->latitude !== null ? (float) $this->latitude : null,
-            'longitude'     => $this->longitude !== null ? (float) $this->longitude : null,
 
             // Flat feature list — kept for backward compatibility.
             'features' => array_values(array_filter((array) ($this->features_json ?? []))),
