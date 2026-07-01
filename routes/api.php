@@ -4,6 +4,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Http\Controllers\Api\CommandCenterApiController;
+use App\Http\Controllers\CommandCenter\CalendarController as CommandCenterCalendarController;
 use App\Http\Controllers\Api\NotificationController as ApiNotificationController;
 use App\Http\Controllers\Api\NotificationPreferenceController;
 use App\Http\Controllers\Api\DeviceTokenController;
@@ -424,12 +425,21 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/calendar',                                       [CommandCenterApiController::class, 'calendarIndex'])->name('v1.command-center.calendar.index');
             Route::post('/calendar',                                      [CommandCenterApiController::class, 'calendarStore'])->name('v1.command-center.calendar.store');
+            // Static-segment GETs MUST precede the /calendar/{calendarEvent}
+            // wildcard below, or "options"/"search"/"properties" would bind as
+            // an event id and 404 on model resolution.
+            Route::get('/calendar/options',                               [CommandCenterApiController::class, 'calendarOptions'])->name('v1.command-center.calendar.options');
             Route::get('/calendar/conflicts',                             [CommandCenterApiController::class, 'calendarConflicts'])->name('v1.command-center.calendar.conflicts');
             Route::get('/calendar/invitations',                           [CommandCenterApiController::class, 'invitationsIndex'])->name('v1.command-center.calendar.invitations.index');
             Route::post('/calendar/invitations/{invitation}/respond',     [CommandCenterApiController::class, 'invitationRespond'])->name('v1.command-center.calendar.invitations.respond');
             Route::post('/calendar/invitations/{invitation}/acknowledge', [CommandCenterApiController::class, 'invitationAcknowledge'])->name('v1.command-center.calendar.invitations.acknowledge');
+            // Create-form data — reuse the web cockpit methods verbatim so the
+            // mobile create screen and the cockpit share one implementation.
+            Route::get('/calendar/search/attendees',                      [CommandCenterCalendarController::class, 'searchAttendees'])->name('v1.command-center.calendar.search.attendees');
+            Route::get('/calendar/properties/{property}/owners',          [CommandCenterCalendarController::class, 'propertyOwners'])->name('v1.command-center.calendar.property-owners');
             Route::post('/calendar/{calendarEvent}/complete',             [CommandCenterApiController::class, 'calendarComplete'])->name('v1.command-center.calendar.complete');
             Route::post('/calendar/{calendarEvent}/dismiss',              [CommandCenterApiController::class, 'calendarDismiss'])->name('v1.command-center.calendar.dismiss');
+            Route::get('/calendar/{calendarEvent}',                       [CommandCenterCalendarController::class, 'show'])->name('v1.command-center.calendar.show');
             Route::put('/calendar/{calendarEvent}',                       [CommandCenterApiController::class, 'calendarUpdate'])->name('v1.command-center.calendar.update');
             Route::delete('/calendar/{calendarEvent}',                    [CommandCenterApiController::class, 'calendarDestroy'])->name('v1.command-center.calendar.destroy');
 

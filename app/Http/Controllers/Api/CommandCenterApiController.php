@@ -10,6 +10,7 @@ use App\Models\CommandCenter\PropertyHealthScore;
 use App\Models\CommandCenter\UserDashboardSetting;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Services\CandidatePractitionerService;
+use App\Services\CommandCenter\Calendar\CalendarEventCreator;
 use App\Services\CommandCenter\CalendarEventService;
 use App\Services\CommandCenter\CommandCentreService;
 use App\Services\CommandCenter\PropertyHealthCalculator;
@@ -20,6 +21,17 @@ use Illuminate\Support\Facades\DB;
 
 class CommandCenterApiController extends Controller
 {
+    /**
+     * Classes an agent may create manually from the mobile app — mirrors
+     * CalendarController::MANUAL_CREATABLE_CLASSES. Surfaced verbatim by
+     * calendarOptions() so the app never offers (or POSTs) a class the web
+     * cockpit would reject.
+     */
+    private const MANUAL_CREATABLE_CLASSES = [
+        'viewing', 'property_evaluation', 'listing_presentation',
+        'meeting', 'task', 'other',
+    ];
+
     // ── Today (full card stream — mirrors web /command-center/today) ──
 
     public function today(Request $request): JsonResponse
@@ -184,28 +196,84 @@ class CommandCenterApiController extends Controller
         ]);
     }
 
-    public function calendarStore(Request $request): JsonResponse
+    /**
+     * Create a calendar event from the mobile app.
+     *
+     * Full parity with the web cockpit create: accepts multi-property
+     * (property_ids[]) and multi-attendee (attendees[]) payloads and routes
+     * them through the shared CalendarEventCreator so property/contact links
+     * are filed and agent invitations are sent. The previous implementation
+     * validated only singular property_id/contact_id and dropped attendees[]
+     * / property_ids[] silently — a 201 with no invitations and no links.
+     */
+    public function calendarStore(Request $request, CalendarEventCreator $creator): JsonResponse
     {
-        $request->validate([
-            'title'         => 'required|string|max:255',
-            'event_date'    => 'required|date',
-            'end_date'      => 'nullable|date|after_or_equal:event_date',
-            'event_type'    => 'nullable|string|max:50',
-            'priority'      => 'nullable|in:low,normal,high,critical',
-            'all_day'       => 'nullable|boolean',
-            'send_reminder' => 'nullable|boolean',
-            'description'   => 'nullable|string',
-            'property_id'   => 'nullable|exists:properties,id',
-            'contact_id'    => 'nullable|exists:contacts,id',
+        // The app historically sends the class under `category`; tolerate
+        // `event_type` as the class too so an older build still resolves. The
+        // resolved value must be a manually-creatable class — identical
+        // whitelist to the web cockpit.
+        $category = $request->input('category') ?: $request->input('event_type');
+        $request->merge(['category' => $category]);
+
+        $data = $request->validate([
+            'title'             => 'required|string|max:255',
+            'category'          => 'required|string|in:' . implode(',', self::MANUAL_CREATABLE_CLASSES),
+            'event_date'        => 'required|date',
+            'end_date'          => 'nullable|date|after_or_equal:event_date',
+            'description'       => 'nullable|string|max:2000',
+            'priority'          => 'nullable|in:low,normal,high,critical',
+            'all_day'           => 'nullable|boolean',
+            'send_reminder'     => 'nullable|boolean',
+            'event_type'        => 'nullable|string|max:50',
+            'property_id'       => 'nullable|integer|exists:properties,id',
+            'property_ids'      => 'nullable|array',
+            'property_ids.*'    => 'integer|exists:properties,id',
+            'contact_id'        => 'nullable|integer|exists:contacts,id',
+            'contact_ids'       => 'nullable|array',
+            'contact_ids.*'     => 'integer|exists:contacts,id',
+            'attendees'         => 'nullable|array',
+            'attendees.*.id'    => 'required_with:attendees|integer',
+            'attendees.*.type'  => 'required_with:attendees|string|in:contact,agent',
+            'attendees.*.role'  => 'nullable|string|in:attendee,buyer_contact,seller_contact,agent_contact',
+            'deal_id'           => 'nullable|integer',
         ]);
 
-        $data = $request->all();
-        $data['send_reminder'] = $request->boolean('send_reminder', true);
+        $event = $creator->create($data, $request->user());
 
-        $service = new CalendarEventService();
-        $event   = $service->createManual($data, $request->user());
+        return response()->json($this->formatEvent($event->fresh()->load(['property', 'contact'])), 201);
+    }
 
-        return response()->json($this->formatEvent($event->load('property')), 201);
+    /**
+     * Form options for the mobile calendar create screen — the manually-
+     * creatable classes (with labels + multi-property capability) and the
+     * priority enum. No web equivalent existed; the app needs this to build a
+     * create form that only ever POSTs values the cockpit accepts.
+     */
+    public function calendarOptions(Request $request): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $settings = \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()
+            ->whereIn('event_class', self::MANUAL_CREATABLE_CLASSES)
+            ->where(fn ($q) => $q->where('agency_id', $agencyId)->orWhereNull('agency_id'))
+            ->orderByRaw('agency_id IS NULL')
+            ->get()
+            ->keyBy('event_class');
+
+        $categories = collect(self::MANUAL_CREATABLE_CLASSES)->map(function ($class) use ($settings) {
+            $cfg = $settings->get($class);
+            return [
+                'value'                     => $class,
+                'label'                     => $cfg?->label ?? ucwords(str_replace('_', ' ', $class)),
+                'allow_multiple_properties' => (bool) ($cfg?->allow_multiple_properties ?? false),
+                'actor_role'                => $cfg?->actor_role ?? 'both',
+            ];
+        })->values();
+
+        return response()->json([
+            'categories' => $categories,
+            'priorities' => ['low', 'normal', 'high', 'critical'],
+        ]);
     }
 
     public function calendarComplete(CalendarEvent $calendarEvent): JsonResponse
