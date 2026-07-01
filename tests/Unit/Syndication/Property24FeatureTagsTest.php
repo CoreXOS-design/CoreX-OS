@@ -42,6 +42,55 @@ class Property24FeatureTagsTest extends TestCase
         return $this->buildPropertyFeatures($features);
     }
 
+    /** buildPropertyFeatures for a property with structured spaces. */
+    private function featuresWithSpaces(array $spaces): array
+    {
+        $property = new Property();
+        $property->features_json = [];
+        $property->spaces_json   = ['spaces' => $spaces];
+
+        $method = new ReflectionMethod(Property24ListingMapper::class, 'buildPropertyFeatures');
+        $method->setAccessible(true);
+
+        return $method->invoke(new Property24ListingMapper(), $property);
+    }
+
+    public function test_lounge_and_dining_do_not_create_reception_rooms(): void
+    {
+        // Property 6049 regression: Lounge + Dining Room were aggregated into a
+        // "Reception Rooms 2" the agent never entered. They must not feed the
+        // receptionRooms count (they surface as their own named rooms instead).
+        $features = $this->featuresWithSpaces([
+            ['type' => 'Lounge', 'count' => 1],
+            ['type' => 'Dining Room', 'count' => 1],
+            ['type' => 'TV Room', 'count' => 1],
+        ]);
+
+        $this->assertSame(0, $features['receptionRooms']);
+    }
+
+    public function test_explicit_reception_room_space_sets_reception_rooms(): void
+    {
+        $features = $this->featuresWithSpaces([
+            ['type' => 'Reception Room', 'count' => 2],
+            ['type' => 'Lounge', 'count' => 1],
+        ]);
+
+        $this->assertSame(2, $features['receptionRooms']);
+    }
+
+    public function test_reception_rooms_always_emitted_so_stale_value_clears(): void
+    {
+        // Emitted unconditionally (incl. 0) — P24 keeps fields absent from the
+        // payload, so 0 is required to clear a stale count from a prior push.
+        $features = $this->featuresWithSpaces([
+            ['type' => 'Bedroom', 'count' => 3],
+        ]);
+
+        $this->assertArrayHasKey('receptionRooms', $features);
+        $this->assertSame(0, $features['receptionRooms']);
+    }
+
     public function test_fast_internet_does_not_imply_fibre_on_p24(): void
     {
         // Regression: a listing with "Fast Internet" (and "TV Port") but NOT

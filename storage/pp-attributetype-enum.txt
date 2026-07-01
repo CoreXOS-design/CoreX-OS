@@ -1,0 +1,74 @@
+# PP AgentImport — AttributeType enum (authoritative, from production WSDL 2026-07-01)
+# Source: https://services.privateproperty.co.za/AgentImport/AgentImport.asmx?WSDL
+# 70 valid values. CoreX currently sends only 8 (marked [USED]).
+
+  1. Bedrooms   [USED]
+  2. Bathrooms   [USED]
+  3. HomeType   [USED]
+  4. FloorArea   [USED]
+  5. LandArea   [USED]
+  6. EnSuite
+  7. Lounges
+  8. DiningAreas
+  9. Garages   [USED]
+ 10. StaffQuarters
+ 11. Study
+ 12. Pool
+ 13. Flatlet
+ 14. Carports
+ 15. Storeys
+ 16. FarmName
+ 17. BusinessType   [USED]
+ 18. Parking
+ 19. LeviesAndRates
+ 20. PetsAllowed
+ 21. WaterIncluded
+ 22. ElectrictyIncluded
+ 23. Satelite
+ 24. TV
+ 25. Aircon
+ 26. Alarm
+ 27. ScenicView
+ 28. SeaView
+ 29. WalkInCloset
+ 30. BuiltInCupboards
+ 31. Furnished
+ 32. HandicapAvailable
+ 33. Balcony
+ 34. Deck
+ 35. AccessGate
+ 36. SecurityPost
+ 37. TennisCourt
+ 38. SquashCourt
+ 39. Clubhouse
+ 40. Gym
+ 41. Golf
+ 42. Jaccuzzi
+ 43. Patio
+ 44. Storage
+ 45. Fence
+ 46. Laundry
+ 47. Kitchen
+ 48. Lapa
+ 49. Electric_Fencing
+ 50. Built_in_Braai
+ 51. Fireplace
+ 52. Garden_Cottage
+ 53. Jetty_Berth
+ 54. Scullery
+ 55. Pantry
+ 56. Guest_Toilet
+ 57. Entrance_hall
+ 58. Borehole
+ 59. Irrigation_System
+ 60. Paving
+ 61. RoofType
+ 62. Finishes
+ 63. Garden
+ 64. Intercom
+ 65. Family_TV_Room
+ 66. IrrigationSystem
+ 67. Rates   [USED]
+ 68. Levies   [USED]
+ 69. FarmType   [USED]
+ 70. LandType   [USED]

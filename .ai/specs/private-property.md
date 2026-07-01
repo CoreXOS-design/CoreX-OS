@@ -131,12 +131,55 @@ Retry policy: `call()` retries once on timeout-style faults (`Error Fetching htt
 | `ListingType` | `Sale\|Rental` | |
 | `PropertyStatus` | `ForSale\|ToLet` (derived from listing type) | |
 | `ShowdayEvents` | from `$p->activeShowdays` | ArrayOfShowdayEvent |
-| `Attributes` | `Bedrooms,Bathrooms,Garages,FloorArea,LandArea,HomeType\|BusinessType\|FarmType\|LandType,Rates,Levies` | category-specific type attribute |
+| `Attributes` | structural: `Bedrooms,Bathrooms,Garages,FloorArea,LandArea,HomeType\|BusinessType\|FarmType\|LandType,Rates,Levies` **+ feature attributes** (see §Feature Attributes) | category-specific type attribute; features from `features_json`/`spaces_json` |
 | `HideStreetName/No/ComplexName/UnitNumber` | bool, `pp_hide_*` columns | |
 | `RentalPriceType` | `mapRentalPriceType()` → `PerMonth\|PerWeek\|PerDay\|PerM2` | legacy "PerSquareMeter" mapped to `PerM2` |
 | `SoleMandateExclusiveDays` | derived from listed_date↔expiry_date for FullMandate Sale | 1-92 only; else 0 |
 
 `validate($payload): array` enforces all of the above. `checkReadiness(Property $p): array` returns user-facing missing-field list before submission is even attempted.
+
+### Feature Attributes (added 2026-07-01 — property 6049 fix)
+
+PP's `AttributeType` is a **strict enum of 70 values** (confirmed from the live
+production WSDL — full list in `storage/pp-attributetype-enum.txt`, WSDL cached
+at `storage/pp-agentimport.wsdl`). Before this fix `buildAttributes()` sent only
+the ~8 structural attributes, so **no amenity feature reached PP** — the bug on
+property 6049 (features present in CoreX, absent on the PP listing).
+
+`buildAttributes()` now also maps CoreX features to the enum:
+
+- **Room counts** from the structured spaces list (`spaces_json`): `Lounges`,
+  `DiningAreas`, `Family_TV_Room`, `Study` (Study+Office), `Parking`, `Carports`,
+  `StaffQuarters` (Domestic Room), `Kitchen`, `Entrance_hall`. Emitted only when > 0.
+- **Presence flags** from the **global** feature set (`ResolvesPropertyFeatures::globalFeatures()`
+  — room-only features never flip a property-level flag) plus matching-space
+  presence: `Pool, Garden, Flatlet, Patio, Balcony, Lapa, Scullery, Pantry,
+  Guest_Toilet, Laundry, Garden_Cottage, Fireplace, Built_in_Braai, Deck, Storage,
+  Borehole, IrrigationSystem, PetsAllowed, Furnished, Aircon, Alarm, Intercom,
+  Satelite, TV, SeaView, ScenicView, WalkInCloset, BuiltInCupboards,
+  HandicapAvailable, AccessGate, Electric_Fencing, Fence, SecurityPost, TennisCourt,
+  SquashCourt, Clubhouse, Gym, Golf, Jaccuzzi, Jetty_Berth, WaterIncluded,
+  ElectrictyIncluded`.
+
+Rules (mirror the P24 mapper discipline):
+
+- **Enum spelling is verbatim, incl. PP's own misspellings** — `Satelite`,
+  `Jaccuzzi`, `ElectrictyIncluded`. An unrecognised type is rejected by the feed.
+- **No guessing.** A CoreX feature with no clean PP attribute (e.g. Armed Response,
+  Safe, ADSL/Fibre, 24 Hour Access) is skipped, not mapped to a near-miss.
+- **Present-only.** A flag is emitted only when the feature is present; absent
+  features send no attribute (so only the "yes" value is ever transmitted).
+- **Boolean value = `PrivatePropertyListingMapper::ATTR_PRESENT` (`"true"`)** —
+  the WSDL types `Value` as a plain string. Verified against the live feed on
+  2026-07-01: property 6049 submitted with `Value="true"` on every flag returned
+  `UpdateListingResult: "Successful"` (strict enum ⇒ all types + value accepted).
+  This constant is the single source of truth if PP's accepted value ever changes.
+
+Feature resolution is shared with the portal layer via the
+`App\Services\Syndication\Concerns\ResolvesPropertyFeatures` trait
+(`globalFeatures()` / `countSpaces()`), so PP and P24 derive the same feature set.
+**Follow-up:** the P24 mapper still keeps its own private copy of this logic and
+should adopt the trait (no behaviour change — the trait is a verbatim extraction).
 
 ---
 
