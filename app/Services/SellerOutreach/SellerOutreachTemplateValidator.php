@@ -13,7 +13,8 @@ use App\Support\SellerOutreach\TemplateValidationResult;
  *  - body MUST contain '{tracking_link}'
  *  - body MUST contain '{opt_out_link}' (AT-49 — per-send self-service opt-out;
  *    mandatory on EVERY outreach template, independent of the tracking-link flag)
- *  - body MUST contain 'STOP' (opt-out clause keyword)
+ *  - body MUST contain an opt-out keyword — 'STOP' OR 'OPT OUT' (the newer
+ *    consent templates use "reply OPT OUT"; STOP kept for back-compat)
  *  - if channel is email, subject MUST be non-empty
  *
  * Soft rules (warnings; do not block save):
@@ -22,9 +23,11 @@ use App\Support\SellerOutreach\TemplateValidationResult;
 final class SellerOutreachTemplateValidator
 {
     public const KNOWN_MERGE_FIELDS = [
-        'seller_name', 'property_address', 'property_suburb', 'property_town',
+        'seller_name', 'seller_surname', 'property_address', 'property_suburb', 'property_town',
         'property_type', 'property_beds',
         'agent_name', 'agent_phone',
+        // AT-142 — admin-managed PPRA designation (users.designation).
+        'agent_designation',
         'agency_name', 'agency_ppra_no', 'agency_contact',
         // AT-48 — company FFC, sending-agent FFC, branch-then-company tel.
         'agency_ffc', 'agent_ffc', 'branch_or_company_tel',
@@ -60,8 +63,11 @@ final class SellerOutreachTemplateValidator
             $errors['opt_out_link_missing'] = 'Body must contain the {opt_out_link} merge field (mandatory one-tap opt-out on every marketing message).';
         }
 
-        if (!preg_match('/\bSTOP\b/i', $body)) {
-            $errors['opt_out_missing'] = 'Body must contain an opt-out instruction (the word "STOP" in an opt-out sentence).';
+        // Opt-out keyword — accept "STOP" (legacy) OR "OPT OUT"/"OPT-OUT" (the
+        // newer POPIA consent templates use "reply OPT OUT"). Backward-compatible:
+        // every existing STOP template still passes.
+        if (!preg_match('/\b(?:STOP|OPT[\s-]?OUT)\b/i', $body)) {
+            $errors['opt_out_missing'] = 'Body must contain an opt-out instruction (the word "STOP" or "OPT OUT" in an opt-out sentence).';
         }
 
         return new TemplateValidationResult($errors);

@@ -9,6 +9,7 @@ use App\Models\Property;
 use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Models\SellerOutreach\SellerOutreachTemplate;
 use App\Models\User;
+use App\Services\CandidatePractitionerService;
 use App\Services\Prospecting\ProspectingConfigurationService;
 use App\Services\Prospecting\ProspectingIntelligenceService;
 use App\Support\SellerOutreach\OutreachAddress;
@@ -31,6 +32,7 @@ final class SellerOutreachComposerService
         private readonly ProspectingIntelligenceService $intelligence,
         private readonly ProspectingConfigurationService $config,
         private readonly MarketingConsentService $marketingConsent,
+        private readonly CandidatePractitionerService $practitioners,
     ) {}
 
     public function composeContext(
@@ -95,6 +97,58 @@ final class SellerOutreachComposerService
         // template default to requiring it (true).
         $includeTrackingLink = (bool) ($template?->include_tracking_link ?? true);
         $validationIssues = $this->buildValidationIssues($channel, $recipientPhone, $recipientEmail, $bodyTemplate, $includeTrackingLink);
+
+        // Blank-address send-gate (BUILD_STANDARD whole-input-space; one check for
+        // the whole template library, not a per-template patch). Every consent
+        // template opens with "your property at {property_address}". A linked
+        // Property (or a captured contact address) whose street/suburb columns are
+        // all empty would otherwise render OutreachAddress' "(address unavailable)"
+        // stand-in and send a pitch with a blank anchor. Refuse it here: this one
+        // issue is honoured by the sender (isSendable()) AND by both controller
+        // surfaces (submit()/queue() already hard-block on validationIssues), so
+        // no send path can slip a blank/placeholder address through.
+        //
+        // Preserves AT-61: OutreachAddress::isEmpty() is false whenever EITHER a
+        // linked property OR the contact's structured address yields a real
+        // street/suburb — only a genuinely empty address (no usable component from
+        // either source) blocks. The controller still blocks the "no property and
+        // no address at all" case earlier; this catches the subtler "has a
+        // property/address record but its address fields are blank" case.
+        if ($address->isEmpty()) {
+            $validationIssues['no_address'] = 'No property address to reference — link a property with a complete address (street and suburb) before sending.';
+        }
+
+        // Never send a consent message with a blank/impersonal greeting. The
+        // {seller_surname} token falls back surname → first name; when BOTH are
+        // empty the composer no longer invents a "there" — it BLOCKS, so no send
+        // ever goes out addressed to nobody ("Good day, ."). Fires only for the
+        // templates that actually greet by surname (the 5 new consent variations).
+        if (str_contains($bodyTemplate, '{seller_surname}') && ($mergeFields['seller_surname'] ?? '') === '') {
+            $validationIssues['no_recipient_name'] = 'This contact has no name captured — the greeting would be blank. Add a first name or surname before sending.';
+        }
+
+        // PPRA designation send-gate (compliance-critical, AT-142). The consent
+        // templates state the agent's PPRA designation to the consumer via the
+        // {agent_designation} token (admin-managed users.designation) — so the
+        // message is always TRUTHFUL (it prints their real designation, not a
+        // hardcoded "Full Status" claim). Two guards, both content-driven on the
+        // token's presence (a template that omits it, e.g. D, is unaffected):
+        //   1. Blank designation → BLOCK. Never send a registration statement with
+        //      an empty/placeholder designation ("... , a  (PPRA registered) ...").
+        //   2. Agency policy `restrict_consent_outreach_to_full_status` (default
+        //      off) → when ON, only full-status practitioners/principals may send
+        //      these; a candidate is blocked even though the token would render
+        //      truthfully. Uses the canonical CandidatePractitionerService so it
+        //      never drifts from the rest of the system's full-vs-candidate call.
+        // Same mechanism as no_address — one validationIssue, honoured by the
+        // sender (isSendable) AND both controller surfaces (submit/queue).
+        if (str_contains($bodyTemplate, '{agent_designation}')) {
+            if (($mergeFields['agent_designation'] ?? '') === '') {
+                $validationIssues['no_designation'] = 'Your PPRA designation is not set on your profile — this template states your designation to the seller, so it cannot be sent blank. Ask an admin to set your designation (My Portal → Profile → Admin Managed → Designation).';
+            } elseif ($this->agencyRestrictsToFullStatus($agencyId) && !$this->agentMayClaimFullStatus($agent)) {
+                $validationIssues['designation_not_full_status'] = 'Your agency restricts consent outreach to full-status practitioners. Your designation is not full-status, so this template cannot be sent under your name — ask a full-status practitioner to send it.';
+            }
+        }
 
         // AT-49 — block on the opt-out flag OR an identifier-level suppression
         // (the latter catches a re-imported contact with no flag set yet).
@@ -226,6 +280,8 @@ final class SellerOutreachComposerService
 
         return [
             'seller_name' => $this->sellerDisplayName($contact),
+            // Surname for the formal greeting ("Good day, {seller_surname}.").
+            'seller_surname' => $this->sellerSurname($contact),
             'property_address' => $propertyAddress,
             'property_suburb' => $propertySuburb,
             'property_town' => $town?->name ?? ($propertySuburb !== '' ? $propertySuburb : 'your area'),
@@ -235,6 +291,10 @@ final class SellerOutreachComposerService
             'property_type' => $property !== null ? ($propertyType ?? 'property') : '',
             'property_beds' => $propertyBeds !== null ? (string) $propertyBeds : '',
             'agent_name' => $this->agentDisplayName($agent),
+            // AT-142 — admin-managed PPRA designation (users.designation), printed
+            // truthfully in the consent templates. '' when unset → the send-gate
+            // blocks (no_designation) so a blank designation never ships.
+            'agent_designation' => $this->agentDesignation($agent),
             'agent_phone' => $this->agentDisplayPhone($agent) ?? '',
             'agency_name' => $this->agencyName($agencyId),
             'agency_ppra_no' => $this->agencyPpraNo($agencyId),
@@ -333,6 +393,58 @@ final class SellerOutreachComposerService
         }
         $full = trim(((string) ($contact->first_name ?? '')) . ' ' . ((string) ($contact->last_name ?? '')));
         return $full !== '' ? $full : 'there';
+    }
+
+    /**
+     * Surname for the formal greeting ("Good day, {seller_surname}."). There is
+     * no salutation/title column on contacts, so the templates greet by surname
+     * only. Fallback chain: surname → first name → '' (EMPTY). It deliberately
+     * does NOT invent a "there": an empty return signals "no name", which the
+     * composeContext gate turns into a hard block (no_recipient_name) so a
+     * consent message never goes out with a blank greeting ("Good day, .").
+     */
+    private function sellerSurname(Contact $contact): string
+    {
+        $last = trim((string) ($contact->last_name ?? ''));
+        if ($last !== '') {
+            return $last;
+        }
+        // First-name fallback; '' when neither is captured → gate blocks the send.
+        return trim((string) ($contact->first_name ?? ''));
+    }
+
+    /**
+     * The agent's admin-managed PPRA designation (users.designation), trimmed.
+     * '' when unset — the {agent_designation} send-gate turns that into a block.
+     */
+    private function agentDesignation(User $agent): string
+    {
+        return trim((string) ($agent->designation ?? ''));
+    }
+
+    /**
+     * True when the agent's PPRA designation is full-status — full-status
+     * practitioners AND principals (a principal is a senior full-status
+     * practitioner). Delegates to the canonical CandidatePractitionerService
+     * (designation-based, on users.designation) so this gate never drifts from
+     * the system's full-vs-candidate call.
+     */
+    private function agentMayClaimFullStatus(User $agent): bool
+    {
+        return $this->practitioners->isFullStatus($agent)
+            || $this->practitioners->isPrincipal($agent);
+    }
+
+    /**
+     * Agency policy — when on, consent outreach is restricted to full-status
+     * practitioners/principals. Default off (column default false); read straight
+     * off the agencies row (scope-free — the agency IS the tenant root).
+     */
+    private function agencyRestrictsToFullStatus(int $agencyId): bool
+    {
+        return (bool) DB::table('agencies')
+            ->where('id', $agencyId)
+            ->value('restrict_consent_outreach_to_full_status');
     }
 
     private function normalisePhone(Contact $contact): ?string
