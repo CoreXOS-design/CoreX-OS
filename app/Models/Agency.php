@@ -92,6 +92,21 @@ class Agency extends Model
     }
 
     /**
+     * Private Property (PP) syndication defaults. Matches the P24 photo cap
+     * (150) — PP receives image URLs and downloads them inside its SOAP
+     * transaction, so an over-large gallery can time PP out; the cap stays
+     * per-agency tunable via agencies.pp_max_photos. Migration column default
+     * is kept in lockstep with this constant.
+     */
+    public const PP_DEFAULT_MAX_PHOTOS = 150;
+
+    /** Configured PP photo cap for this agency, falling back to the default. */
+    public function ppMaxPhotos(): int
+    {
+        return (int) ($this->pp_max_photos ?? self::PP_DEFAULT_MAX_PHOTOS);
+    }
+
+    /**
      * AI monthly budget status constants. Returned by aiBudgetStatus().
      * Drives the per-agency AI budget UI banner and the AnthropicGateway
      * pre-call gate (capped = no further calls).
@@ -168,6 +183,7 @@ class Agency extends Model
         'pp_sandbox',
         'pp_image_base_url',
         'pp_webhook_secret',
+        'pp_max_photos',
         'pp_last_sync_error',
         'pp_locations_synced_at',
         'pp_locations_last_error',

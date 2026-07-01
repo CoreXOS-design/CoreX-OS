@@ -503,6 +503,15 @@
                            placeholder="{{ $agency->pp_webhook_secret ? '•••••••• (leave blank to keep)' : 'HMAC secret registered in PP Admin Portal' }}"
                            autocomplete="new-password">
                 </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Max photos per listing</label>
+                    <input type="number" name="pp_max_photos" min="1" max="200"
+                           value="{{ old('pp_max_photos', $agency->pp_max_photos) }}"
+                           class="w-full rounded-md px-3 py-2 text-sm"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="150">
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">How many photos to send to Private Property per listing. Blank = default (150). PP downloads each image during its transaction, so very high values can cause a PP timeout.</p>
+                </div>
             </div>
 
             <div class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);"

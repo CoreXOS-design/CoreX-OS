@@ -2,8 +2,10 @@
 
 namespace App\Services\PrivateProperty;
 
+use App\Models\Agency;
 use App\Models\PpSuburb;
 use App\Models\Property;
+use Illuminate\Support\Facades\Log;
 
 class PrivatePropertyListingMapper
 {
@@ -673,8 +675,35 @@ class PrivatePropertyListingMapper
 
     private function buildPhotoUrls(Property $property): array
     {
-        // PP practical limit — too many images causes their transaction to timeout
-        $allImages = array_slice($property->allImages(), 0, 20);
+        // Per-agency photo cap (default 150, matching P24). Source =
+        // syndicationImages() — the exact curated gallery the agent sees
+        // (gallery_images_json), NOT allImages(), which over-counts by merging
+        // images_json (a divergent public mirror) and the dawn/noon/dusk sets.
+        // What goes to PP must equal the CoreX gallery. PP downloads each URL
+        // inside its SOAP transaction, so the cap guards against PP timing out.
+        $maxPhotos     = $property->agency?->ppMaxPhotos() ?? Agency::PP_DEFAULT_MAX_PHOTOS;
+        $galleryImages = $property->syndicationImages();
+
+        // Never silently truncate. If the curated gallery exceeds the cap, log
+        // a warning naming the dropped count so an over-cap listing is visible
+        // rather than quietly losing photos.
+        if (count($galleryImages) > $maxPhotos) {
+            try {
+                Log::channel('private_property')->warning(
+                    'PP photo cap exceeded — photos dropped from submission',
+                    [
+                        'property_id' => $property->id,
+                        'gallery'     => count($galleryImages),
+                        'cap'         => $maxPhotos,
+                        'dropped'     => count($galleryImages) - $maxPhotos,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                // never block syndication on a log write
+            }
+        }
+
+        $allImages = array_slice($galleryImages, 0, $maxPhotos);
         // Use PP_IMAGE_BASE_URL if set (for local dev against sandbox), otherwise APP_URL
         $override  = PrivatePropertyConfig::forProperty($property)['image_base_url'];
         $baseUrl   = rtrim(!empty($override) ? $override : config('app.url'), '/');
