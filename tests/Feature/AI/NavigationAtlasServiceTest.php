@@ -78,6 +78,22 @@ final class NavigationAtlasServiceTest extends TestCase
         $this->assertStringNotContainsString('/presentations/create', $result['context']);
     }
 
+    public function test_create_intent_does_not_inject_the_browse_page(): void
+    {
+        // "create a presentation" must surface ONLY the property flow, not the
+        // weaker Presentations browse page (which would make Ellie invent a
+        // non-existent "create" button there).
+        $result = $this->service()->buildContext(
+            'where do i go to create a new presentation',
+            $this->user(true),
+            3,
+        );
+
+        $urls = array_column($result['sources'], 'url');
+        $this->assertContains('/corex/properties', $urls);
+        $this->assertNotContains('/presentations', $urls, 'The Presentations browse page must not be injected for a create request.');
+    }
+
     public function test_excludes_destinations_the_user_cannot_access(): void
     {
         // presentations.* are gated by permission:access_presentations — a user
