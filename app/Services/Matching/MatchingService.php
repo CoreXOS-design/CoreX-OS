@@ -342,8 +342,24 @@ class MatchingService
     public function score(Property $property, ContactMatch $match, float $priceBandPct = 0.0): int
     {
         $mustHaves = $match->must_have_features ?? [];
-        if (!empty($mustHaves) && !$this->propertyHasFeatures($property, $mustHaves)) {
-            return 0;
+        if (!empty($mustHaves)) {
+            // A must-have is a HARD gate — but only against a listing that
+            // actually carries structured feature data to contradict it. A
+            // listing with NO structured features (empty features_json) is
+            // "unknown", not a mismatch: hard-failing it to 0 would silently
+            // drop every good property whose feed simply didn't populate the
+            // feature list. Same rule as category/property_type below
+            // ("incomplete listings shouldn't be penalised"). See the Core
+            // Match zero-results fix — feature tokens are normalised through
+            // canonicalFeature() so `pet_friendly` matches "Pet Friendly"
+            // (P24 string arrays) and "pets_allowed" (native dict keys) alike.
+            if ($this->propertyHasStructuredFeatures($property)) {
+                foreach ($mustHaves as $mh) {
+                    if (!$this->propertyHasFeature($property, (string) $mh)) {
+                        return 0;
+                    }
+                }
+            }
         }
 
         $components = [];
@@ -496,23 +512,117 @@ class MatchingService
             return !$this->propertyHasFeature($property, $m[2]);
         }
 
-        // Read features_json (array of strings or {name:bool} dict)
+        // Canonicalise the wishlist token, then compare against the canonical
+        // tokens a property positively carries. This bridges the three real
+        // storage shapes that previously never matched each other:
+        //   • wishlist wizard  → "pet_friendly" (snake_case token)
+        //   • P24 imports      → ["Pet Friendly", ...] (Title-Case strings)
+        //   • CoreX-native     → {"pets_allowed": true} (snake_case dict keys)
+        $want = self::canonicalFeature($feature);
+        if ($want === '') return true;
+
+        if (in_array($want, $this->propertyFeatureTokens($property), true)) {
+            return true;
+        }
+
+        // Fallback: scan prose for the feature, using the spaced form of the
+        // canonical token ("sea view") as well as the token itself ("sea_view").
+        $needle = str_replace('_', ' ', $want);
+        $hay = strtolower((string) ($property->description ?? '') . ' ' . ($property->headline ?? ''));
+        return $hay !== '' && (str_contains($hay, $needle) || str_contains($hay, $want));
+    }
+
+    /**
+     * True when the listing carries any structured feature data (a non-empty
+     * features_json). Used to decide whether a must-have failure is a genuine
+     * mismatch (data present, feature absent) or merely unknown (no data).
+     */
+    protected function propertyHasStructuredFeatures(Property $property): bool
+    {
         $raw = $property->features_json ?? null;
         if (is_string($raw)) {
             $raw = json_decode($raw, true);
         }
-        if (is_array($raw)) {
-            foreach ($raw as $k => $v) {
-                if (is_int($k)) {
-                    if (strtolower((string) $v) === $key) return true;
-                } else {
-                    if (strtolower((string) $k) === $key && $v) return true;
-                }
-            }
-        }
+        return is_array($raw) && !empty($raw);
+    }
 
-        // Fallback: scan description for keyword
-        $hay = strtolower((string) ($property->description ?? '') . ' ' . ($property->headline ?? ''));
-        return $hay !== '' && str_contains($hay, $key);
+    /**
+     * The set of canonical feature tokens a property positively HAS.
+     *
+     * Handles both features_json shapes:
+     *   • array-of-strings ["Pet Friendly", "Pool"] — every entry is a present feature
+     *   • dict {"pool": true, "pets_allowed": false, "listing_visibility": "Public"}
+     *     — only truthy boolean/"yes"/"1" flags count; meta strings are skipped.
+     *
+     * @return string[]
+     */
+    protected function propertyFeatureTokens(Property $property): array
+    {
+        $raw = $property->features_json ?? null;
+        if (is_string($raw)) {
+            $raw = json_decode($raw, true);
+        }
+        if (!is_array($raw)) return [];
+
+        $out = [];
+        foreach ($raw as $k => $v) {
+            if (is_int($k)) {
+                // array-of-strings form: the value IS the feature label
+                $tok = self::canonicalFeature((string) $v);
+            } else {
+                // dict form: key is the label, value is the on/off flag. Skip
+                // anything that isn't an affirmative flag so meta keys like
+                // listing_visibility:"Public" never register as a feature.
+                $truthy = $v === true || $v === 1 || $v === '1'
+                    || (is_string($v) && in_array(strtolower(trim($v)), ['yes', 'true', 'y'], true));
+                if (!$truthy) continue;
+                $tok = self::canonicalFeature((string) $k);
+            }
+            if ($tok !== '') $out[] = $tok;
+        }
+        return $out;
+    }
+
+    /**
+     * Normalise a raw feature label (from a wishlist token OR a property's
+     * features_json / dict key) to a single canonical token, so the two sides
+     * compare correctly regardless of storage shape. Collapses case, spaces,
+     * and punctuation, then maps known synonyms onto one canonical spelling.
+     */
+    protected static function canonicalFeature(string $raw): string
+    {
+        $key = strtolower(trim($raw));
+        if ($key === '') return '';
+        // Collapse any run of non-alphanumerics to a single underscore.
+        $key = trim((string) preg_replace('/[^a-z0-9]+/', '_', $key), '_');
+        if ($key === '') return '';
+
+        // Synonym → canonical token. Keys are already normalised (snake_case).
+        static $synonyms = [
+            'pets_allowed'      => 'pet_friendly',
+            'pets'              => 'pet_friendly',
+            'pet'               => 'pet_friendly',
+            'pet_friendly'      => 'pet_friendly',
+            'sea_views'         => 'sea_view',
+            'ocean_view'        => 'sea_view',
+            'ocean_views'       => 'sea_view',
+            'air_conditioned'   => 'air_conditioning',
+            'air_conditioner'   => 'air_conditioning',
+            'aircon'            => 'air_conditioning',
+            'a_c'               => 'air_conditioning',
+            'fiber'             => 'fibre',
+            'fibre_ready'       => 'fibre',
+            'fiber_ready'       => 'fibre',
+            'swimming_pool'     => 'pool',
+            'splash_pool'       => 'pool',
+            'solar_power'       => 'solar',
+            'solar_panels'      => 'solar',
+            'solar_panel'       => 'solar',
+            'solar_geyser'      => 'solar',
+            'garages'           => 'garage',
+            'granny_flat'       => 'flatlet',
+            'cottage'           => 'flatlet',
+        ];
+        return $synonyms[$key] ?? $key;
     }
 }
