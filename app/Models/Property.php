@@ -990,11 +990,23 @@ class Property extends Model
      * We omit PP's region tier (kzn-south-coast) — we don't store PP's region
      * taxonomy and PP backfills it on redirect.
      *
-     * Returns null unless the listing is activated.
+     * Returns null unless PP has assigned this listing a reference.
+     *
+     * Gate on pp_ref presence, NOT on pp_syndication_status === 'active': PP
+     * only issues a pp_ref once the listing is published, so the ref is the
+     * durable "live on PP" signal. The status flag, by contrast, flaps —
+     * submitListing() resets it to 'submitted' on every routine re-push, and the
+     * activation-sync job only reconciles rows where pp_ref IS NULL, so a
+     * re-pushed listing stays stuck at 'submitted' and never returns to
+     * 'active'. Tying the public link to that flag made "View on PP" dead (href
+     * '#', reopening the CoreX page) for every listing that had ever been
+     * re-pushed. We still suppress the link once the listing is explicitly
+     * taken off-market (deactivated).
      */
     private function buildPpUrl(): ?string
     {
-        if (empty($this->pp_ref) || $this->pp_syndication_status !== 'active') {
+        $offMarket = ['deactivated', 'disabled', 'archived', 'removed', 'expired'];
+        if (empty($this->pp_ref) || in_array($this->pp_syndication_status, $offMarket, true)) {
             return null;
         }
         $slugify = static function (?string $s): string {
