@@ -315,6 +315,29 @@ class PropertyMatchScoringService
     }
 
     /**
+     * AT-145 — the CANONICAL count of DISTINCT active buyers (buyer_state
+     * new/warm) whose countable wishlist matches THIS property. This is the one
+     * number a seller-outreach buyer-claim may state ("I have N buyers active
+     * and looking for a property like yours"): it is the same figure the Core
+     * Matches tab and the presentation seller panel show, because it is a thin
+     * accessor over getBuyerDemandForProperty()['active']['count'] — which runs
+     * the canonical MatchingService engine, inherits the AT-71 ->countable()
+     * gate (honouring the agency's min_countable_criteria, never hardcoded),
+     * dedupes per buyer, floors at MIN_SCORE_TO_DISPLAY, and excludes cold/lost
+     * (active-vs-historic honesty). Kept as its own method so the composer never
+     * reaches into the demand array's shape, and no matching logic is
+     * reimplemented anywhere.
+     */
+    public function countableActiveBuyerCountForProperty(Property $property): int
+    {
+        if (!$property->id) {
+            return 0;
+        }
+        $demand = $this->getBuyerDemandForProperty((int) $property->id, (int) $property->agency_id);
+        return (int) ($demand['active']['count'] ?? 0);
+    }
+
+    /**
      * AT-74 hotfix — chunked upsert.
      *
      * A broad wishlist (area + price + type, no hard exclusions) can match
