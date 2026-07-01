@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\CommandCenter;
 
+use App\Mail\CommandCenter\CalendarDailyDigest;
 use App\Models\CommandCenter\NotificationDispatchLog;
 use App\Models\CommandCenter\NotificationEventType;
 use App\Models\CommandCenter\UserNotificationPreference;
@@ -11,6 +12,7 @@ use App\Models\Contact;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -59,8 +61,14 @@ final class ScanTenantScopeTest extends TestCase
             ->count(), 'agent SHOULD be notified about a property in their own agency');
     }
 
-    public function test_contact_birthday_scan_skips_a_system_owner_with_no_agency(): void
+    public function test_birthday_digest_skips_a_system_owner_with_no_agency(): void
     {
+        // Birthdays are now delivered ONLY through the daily digest. The tenant
+        // guard that ScanContactNotifications used to enforce moved into
+        // SendCalendarDigests — this locks it there: a system-owner (no agency)
+        // never receives a birthday, an in-agency agent does.
+        Mail::fake();
+
         [$agencyA, $agent] = $this->seedAgencyAgent();
 
         // System-owner account: no agency, no branch — cannot hold contacts in-app.
@@ -72,27 +80,22 @@ final class ScanTenantScopeTest extends TestCase
 
         $this->makeBirthdayType();
         // Enable the birthday pref for BOTH so the only thing that can stop the
-        // owner's email is the tenant guard, not a missing preference.
+        // owner's digest is the tenant guard, not a missing preference.
         $this->enablePref($owner, 'contact.birthday');
         $this->enablePref($agent, 'contact.birthday');
 
         // A contact the owner created (in a real agency) — owner must NOT be emailed.
-        $ownerContact = $this->insertContact($owner->id, $agencyA);
+        $this->insertContact($owner->id, $agencyA);
         // A contact the agent created in their own agency — agent SHOULD be emailed.
-        $agentContact = $this->insertContact($agent->id, $agencyA);
+        $this->insertContact($agent->id, $agencyA);
 
-        $this->artisan('notifications:scan-contacts')->assertExitCode(0);
+        $this->artisan('corex:calendar:send-digests')->assertExitCode(0);
 
-        $type = NotificationEventType::where('key', 'contact.birthday')->firstOrFail();
+        Mail::assertNotSent(CalendarDailyDigest::class, fn (CalendarDailyDigest $m) =>
+            $m->hasTo($owner->email));
 
-        $this->assertSame(0, NotificationDispatchLog::where('user_id', $owner->id)
-            ->where('notification_event_type_id', $type->id)
-            ->count(), 'system owner (no agency) must NOT receive birthday notifications');
-
-        $this->assertGreaterThan(0, NotificationDispatchLog::where('user_id', $agent->id)
-            ->where('notification_event_type_id', $type->id)
-            ->where('subject_id', $agentContact)
-            ->count(), 'agent SHOULD receive the birthday notification for their own-agency contact');
+        Mail::assertSent(CalendarDailyDigest::class, fn (CalendarDailyDigest $m) =>
+            $m->hasTo($agent->email) && $m->birthdayCount === 1);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

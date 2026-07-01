@@ -444,6 +444,24 @@ class EllieController extends Controller
             ]);
         }
 
+        // ELLIE_NAVIGATION_ATLAS_2026
+        // "Where do I go to…" questions — resolve real, permission-filtered page
+        // links from the Navigation Atlas and prepend them so Ellie answers with
+        // the actual destination + a working link. Spec: .ai/specs/ellie-navigation-atlas.md
+        $navService = app(\App\Services\AI\NavigationAtlasService::class);
+        if ($navService->isNavigationQuery($data['message'])) {
+            $nav = $navService->buildContext($data['message'], $user, 3);
+            if ($nav['context'] !== '') {
+                $knowledgeContext = trim($nav['context'] . "\n\n" . $knowledgeContext);
+                $knowledgeSources = array_merge($nav['sources'], $knowledgeSources);
+
+                \Log::info('ELLIE_NAV_RESULT', [
+                    'user_id' => (int)($user->id ?? 0),
+                    'matches' => array_map(fn($s) => $s['title'] ?? '?', $nav['sources']),
+                ]);
+            }
+        }
+
         $resp = Http::timeout(120)
             ->acceptJson()
             ->asJson()

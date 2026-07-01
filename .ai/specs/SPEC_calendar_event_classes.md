@@ -217,6 +217,38 @@ For each user:
 5. Send single email: "Today's calendar digest: 3 red items, 5 amber items across your branch"
 6. Mark digest as sent (prevent duplicates)
 
+#### Birthday consolidation (2026-07-01) — one email per user, never one per birthday
+
+Contact birthdays (RS-11) are delivered **exclusively** through this daily
+digest as a dedicated "Birthdays today" section — they no longer fire a
+per-contact email/in-app/push notification. This closes the inbox-flood failure
+class (the same one `TaskDueDigest` fixed for tasks): an agent with N birthday
+contacts today receives **one** digest email listing all N, not N emails.
+
+Mechanics:
+- The old hourly per-contact scan (`notifications:scan-contacts` →
+  `ScanContactNotifications`, which fired the `contact.birthday` pillar
+  notification) is **removed**, along with its schedule entry. Birthdays were its
+  only remaining function (FICA-missing was already retired).
+- `SendCalendarDigests` now sources birthdays directly from `contacts`
+  (`birthdaysTodayByOwner`): opted-in per contact (`birthday_reminder = true`),
+  matched on today's month/day, grouped by the **owning agent**
+  (`created_by_user_id`).
+- **Recipient widening:** because birthdays are personal (owner-scoped), not
+  role-scoped, the digest recipient set is the UNION of (a) users whose role is
+  in a class's `daily_digest_roles` and (b) any user who owns a birthday-today
+  contact. A manager who is both gets ONE combined email (calendar items +
+  birthdays); a plain agent with only birthdays still gets their single email.
+- **Tenant + opt-out guards** carried over from the old scan: the contact must
+  carry the owner's own `agency_id` (a NULL-agency system-owner never notifies),
+  and the owner's `contact.birthday` preference must still be `enabled`. The
+  per-channel toggles on that preference are now moot for birthdays (delivery is
+  the digest); the `enabled` flag is the master on/off.
+- Tests: `BirthdayDigestTest` (roll-up, opt-out/non-today exclusion, role-less
+  owner still receives, disabled-pref suppression) and
+  `ScanTenantScopeTest::test_birthday_digest_skips_a_system_owner_with_no_agency`
+  (tenant guard moved from the scan to the digest).
+
 ### Settings screen: `/command-center/settings` — extend existing page with new "Event Classes" section
 - Replace/supersede the existing "Reminder Defaults" section (which uses an offset model, not threshold model)
 - Existing `command_reminder_defaults` table (empty, 0 rows) is dropped during 0c migration

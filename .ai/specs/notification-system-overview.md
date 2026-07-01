@@ -90,7 +90,7 @@ Both pipelines deliver via the **same** Laravel notifications layer (database ta
 | **Overdue snapshot (read-only)** | `app/Services/CommandCenter/OverdueSnapshotService.php` |
 | **Generic notification class** | `app/Notifications/PillarEventNotification.php` |
 | Watcher: properties | `app/Console/Commands/CommandCenter/ScanPropertyNotifications.php` |
-| Watcher: contacts | `app/Console/Commands/CommandCenter/ScanContactNotifications.php` |
+| Watcher: contacts | _removed 2026-07-01_ — its only job (contact birthdays) now ships in the daily digest, see `SendCalendarDigests.php` |
 | Watcher: deals | `app/Console/Commands/CommandCenter/ScanDealNotifications.php` |
 | Legacy reminder (Tasks/Events) | `app/Console/Commands/CommandCenter/ProcessReminders.php` |
 | Legacy reminder (Lease) | `app/Console/Commands/CheckLeaseExpiry.php` |
@@ -121,8 +121,8 @@ Both pipelines deliver via the **same** Laravel notifications layer (database ta
 ```
 command-center:reminders          every 15 min   (legacy: Task + Event reminders)
 notifications:scan-properties     every 30 min   (new pillar pipeline)
-notifications:scan-contacts       hourly         (new pillar pipeline)
 notifications:scan-deals          every 30 min   (new pillar pipeline)
+corex:calendar:send-digests       daily 06:30    (calendar items + contact birthdays — one email/user)
 signatures:send-reminders         daily 08:00    (legacy)
 signatures:check-lease-expiry     daily 06:00    (legacy)
 OversightDigestJob                hourly         (manager oversight)
