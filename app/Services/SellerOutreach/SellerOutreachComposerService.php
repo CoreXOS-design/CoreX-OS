@@ -96,6 +96,26 @@ final class SellerOutreachComposerService
         $includeTrackingLink = (bool) ($template?->include_tracking_link ?? true);
         $validationIssues = $this->buildValidationIssues($channel, $recipientPhone, $recipientEmail, $bodyTemplate, $includeTrackingLink);
 
+        // Blank-address send-gate (BUILD_STANDARD whole-input-space; one check for
+        // the whole template library, not a per-template patch). Every consent
+        // template opens with "your property at {property_address}". A linked
+        // Property (or a captured contact address) whose street/suburb columns are
+        // all empty would otherwise render OutreachAddress' "(address unavailable)"
+        // stand-in and send a pitch with a blank anchor. Refuse it here: this one
+        // issue is honoured by the sender (isSendable()) AND by both controller
+        // surfaces (submit()/queue() already hard-block on validationIssues), so
+        // no send path can slip a blank/placeholder address through.
+        //
+        // Preserves AT-61: OutreachAddress::isEmpty() is false whenever EITHER a
+        // linked property OR the contact's structured address yields a real
+        // street/suburb — only a genuinely empty address (no usable component from
+        // either source) blocks. The controller still blocks the "no property and
+        // no address at all" case earlier; this catches the subtler "has a
+        // property/address record but its address fields are blank" case.
+        if ($address->isEmpty()) {
+            $validationIssues['no_address'] = 'No property address to reference — link a property with a complete address (street and suburb) before sending.';
+        }
+
         // AT-49 — block on the opt-out flag OR an identifier-level suppression
         // (the latter catches a re-imported contact with no flag set yet).
         $optOutBlocks = $contact->messaging_opt_out_at !== null
@@ -226,6 +246,8 @@ final class SellerOutreachComposerService
 
         return [
             'seller_name' => $this->sellerDisplayName($contact),
+            // Surname for the formal greeting ("Good day, {seller_surname}.").
+            'seller_surname' => $this->sellerSurname($contact),
             'property_address' => $propertyAddress,
             'property_suburb' => $propertySuburb,
             'property_town' => $town?->name ?? ($propertySuburb !== '' ? $propertySuburb : 'your area'),
@@ -333,6 +355,24 @@ final class SellerOutreachComposerService
         }
         $full = trim(((string) ($contact->first_name ?? '')) . ' ' . ((string) ($contact->last_name ?? '')));
         return $full !== '' ? $full : 'there';
+    }
+
+    /**
+     * Surname for the formal greeting ("Good day, {seller_surname}."). There is
+     * no salutation/title column on contacts, so the templates greet by surname
+     * only. Falls back to the first name when no last name is captured, then to a
+     * neutral "there" — the greeting is never blank or "Good day, ." on a messy
+     * record (BUILD_STANDARD input-space: the lazy-but-valid first-name-only
+     * contact still renders a clean line).
+     */
+    private function sellerSurname(Contact $contact): string
+    {
+        $last = trim((string) ($contact->last_name ?? ''));
+        if ($last !== '') {
+            return $last;
+        }
+        $first = trim((string) ($contact->first_name ?? ''));
+        return $first !== '' ? $first : 'there';
     }
 
     private function normalisePhone(Contact $contact): ?string
