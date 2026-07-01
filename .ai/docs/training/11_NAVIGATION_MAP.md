@@ -12,13 +12,13 @@ below is a real, live page — click it or paste it after your CoreX address.
 ## Presentations and CMAs
 
 **Where do I go to create a new presentation for a property?**
-Sidebar → **Presentations** → **New / Create**. Direct link: `/presentations/create`
-You can also start one straight from a property: open the property and click
-**Generate Presentation**.
+You create a presentation from the property itself — there is no standalone
+presentation builder. Go to Properties (`/corex/properties`), open the property you
+want, and click "Generate Presentation".
 
-To see presentations you've already made: Sidebar → **Presentations** (`/presentations`).
-To see how recipients engaged: **Presentations → Analytics**. To record results:
-**Presentations → Outcomes**.
+To see presentations you've already made: Sidebar → Presentations (`/presentations`).
+To see how recipients engaged: Presentations → Analytics. To record results:
+Presentations → Outcomes.
 
 ---
 

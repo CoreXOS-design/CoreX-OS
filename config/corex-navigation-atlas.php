@@ -73,8 +73,13 @@ return [
     'corex.properties.index' => [
         'label' => 'Properties (My Listings)',
         'category' => 'Properties',
-        'blurb' => 'Agency stock / mandated listings — add, edit, and manage properties you are selling.',
-        'keywords' => ['properties', 'my listings', 'listings', 'stock', 'add property', 'new listing', 'mandates', 'homes', 'houses'],
+        'blurb' => 'Agency stock / mandated listings — add, edit, and manage properties you are selling. '
+            . 'This is also where you start a presentation: open the property and click "Generate Presentation" '
+            . '(that is the only way to create a presentation / CMA — there is no standalone presentation builder).',
+        'keywords' => ['properties', 'my listings', 'listings', 'stock', 'add property', 'new listing', 'mandates', 'homes', 'houses',
+            'create a presentation', 'create presentation', 'new presentation', 'make a presentation', 'do a presentation',
+            'start a presentation', 'generate presentation', 'presentation for a property', 'presentation for a listing',
+            'cma', 'cma for a property'],
     ],
     'corex.map.index' => [
         'label' => 'Map',
@@ -120,17 +125,16 @@ return [
     ],
 
     // ── Presentations ───────────────────────────────────────────────────
-    'presentations.create' => [
-        'label' => 'Create a Presentation',
-        'category' => 'Presentations',
-        'blurb' => 'Start a new property presentation / CMA. You can also start one from any property\'s page via "Generate Presentation".',
-        'keywords' => ['new presentation', 'create presentation', 'make a presentation', 'presentation for a property', 'cma', 'cma presentation', 'listing presentation', 'proposal', 'valuation presentation', 'do a presentation'],
-    ],
+    // NOTE: presentations are created from a PROPERTY (open the property → "Generate
+    // Presentation"). There is no standalone "create presentation" page, so the
+    // create intent lives on corex.properties.index above. This entry is for
+    // browsing presentations you have already made.
     'presentations.index' => [
         'label' => 'Presentations',
         'category' => 'Presentations',
-        'blurb' => 'Browse and manage all your property presentations and CMAs.',
-        'keywords' => ['presentations', 'my presentations', 'cma', 'view presentations', 'presentation list'],
+        'blurb' => 'Browse and manage presentations you have already created. To make a NEW one, open a property under '
+            . 'Properties and click "Generate Presentation".',
+        'keywords' => ['presentations', 'my presentations', 'view presentations', 'presentation list', 'existing presentations'],
     ],
     'corex.presentations.analytics.index' => [
         'label' => 'Presentation Analytics',
