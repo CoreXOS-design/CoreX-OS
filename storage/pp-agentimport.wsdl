@@ -1,0 +1,2567 @@
+<?xml version="1.0" encoding="utf-8"?>
+<wsdl:definitions xmlns:s="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://schemas.xmlsoap.org/wsdl/soap12/" xmlns:http="http://schemas.xmlsoap.org/wsdl/http/" xmlns:mime="http://schemas.xmlsoap.org/wsdl/mime/" xmlns:tns="http://tempuri.org/" xmlns:s1="http://microsoft.com/wsdl/types/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tm="http://microsoft.com/wsdl/mime/textMatching/" xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" targetNamespace="http://tempuri.org/" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">
+  <wsdl:types>
+    <s:schema elementFormDefault="qualified" targetNamespace="http://tempuri.org/">
+      <s:import namespace="http://microsoft.com/wsdl/types/" />
+      <s:element name="UpdateUniqueListingID">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="PrivatePropertyListingId" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="PropertyId" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="ListingType" type="tns:ListingType" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:simpleType name="ListingType">
+        <s:restriction base="s:string">
+          <s:enumeration value="Unknown" />
+          <s:enumeration value="Sale" />
+          <s:enumeration value="Rental" />
+          <s:enumeration value="Both" />
+        </s:restriction>
+      </s:simpleType>
+      <s:complexType name="SecurityToken">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="Digest" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="UserName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="StampTime" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Expires" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="UID" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="UpdateUniqueListingIDResponse">
+        <s:complexType />
+      </s:element>
+      <s:element name="UpdateUniqueListingIDByPrivatePropertyRef">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="PrivatePropertyRef" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="NewUniqueListingId" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="ListingType" type="tns:ListingType" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="UpdateUniqueListingIDByPrivatePropertyRefResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="UpdateUniqueListingIDByPrivatePropertyRefResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetFullDetailsOfAllListingsByBranch">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetFullDetailsOfAllListingsByBranchResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetFullDetailsOfAllListingsByBranchResult" type="tns:ArrayOfListing" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfListing">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="Listing" nillable="true" type="tns:Listing" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="Listing">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="PropertyId" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+          <s:element minOccurs="0" maxOccurs="1" name="Category" type="tns:ArrayOfCategory" />
+          <s:element minOccurs="1" maxOccurs="1" name="MandateType" type="tns:MandateType" />
+          <s:element minOccurs="0" maxOccurs="1" name="StreetName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="StreetNumber" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="ComplexName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="UnitNumber" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Suburb" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="SuburbId" nillable="true" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="Town" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="Province" nillable="true" type="tns:Province" />
+          <s:element minOccurs="0" maxOccurs="1" name="Headline" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Description" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="Price" type="s:double" />
+          <s:element minOccurs="1" maxOccurs="1" name="Deposit" type="s:double" />
+          <s:element minOccurs="1" maxOccurs="1" name="ListingDate" type="s:dateTime" />
+          <s:element minOccurs="1" maxOccurs="1" name="ExpiryDate" type="s:dateTime" />
+          <s:element minOccurs="1" maxOccurs="1" name="AvailableFrom" type="s:dateTime" />
+          <s:element minOccurs="0" maxOccurs="1" name="AgentId" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="PhotoUrls" nillable="true" type="tns:ArrayOfString" />
+          <s:element minOccurs="0" maxOccurs="1" name="OwnerID" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="XCoordinate" type="s:double" />
+          <s:element minOccurs="1" maxOccurs="1" name="YCoordinate" type="s:double" />
+          <s:element minOccurs="1" maxOccurs="1" name="ListingType" type="tns:ListingType" />
+          <s:element minOccurs="1" maxOccurs="1" name="PropertyStatus" type="tns:PropertyStatus" />
+          <s:element minOccurs="0" maxOccurs="1" name="ShowdayEvents" type="tns:ArrayOfShowdayEvent" />
+          <s:element minOccurs="0" maxOccurs="1" name="Attributes" type="tns:ArrayOfAttribute" />
+          <s:element minOccurs="1" maxOccurs="1" name="HideStreetName" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="HideStreetNo" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="HideComplexName" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="HideUnitNumber" type="s:boolean" />
+          <s:element minOccurs="0" maxOccurs="1" name="RentalPriceType" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="SalesPricePresentation" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="OffersFromPrice" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="SoleMandateExclusiveDays" nillable="true" type="s:int" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ArrayOfCategory">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="Category" type="tns:Category" />
+        </s:sequence>
+      </s:complexType>
+      <s:simpleType name="Category">
+        <s:restriction base="s:string">
+          <s:enumeration value="Residential" />
+          <s:enumeration value="Land" />
+          <s:enumeration value="Farms" />
+          <s:enumeration value="Commercial" />
+        </s:restriction>
+      </s:simpleType>
+      <s:simpleType name="MandateType">
+        <s:restriction base="s:string">
+          <s:enumeration value="Rental" />
+          <s:enumeration value="HouseShare" />
+          <s:enumeration value="OpenMandate" />
+          <s:enumeration value="FullMandate" />
+          <s:enumeration value="FNBQuickSell" />
+          <s:enumeration value="FNBSelect" />
+          <s:enumeration value="AbsaHelpYouSell" />
+          <s:enumeration value="SAHSellAssist" />
+          <s:enumeration value="SAHSaleInExecution" />
+          <s:enumeration value="SAHPropertyinPossession" />
+          <s:enumeration value="SAHInsolvencies" />
+          <s:enumeration value="SAHDeceasedEstates" />
+          <s:enumeration value="SAHSPOA" />
+          <s:enumeration value="AuctionOnly" />
+          <s:enumeration value="AbsaNegotiable" />
+          <s:enumeration value="AbsaPoa" />
+          <s:enumeration value="AbsaSie" />
+          <s:enumeration value="AbsaDec" />
+          <s:enumeration value="AbsaLiq" />
+          <s:enumeration value="NedbankDealmakerPlatinum" />
+          <s:enumeration value="NedbankPrimeSelect" />
+          <s:enumeration value="NedbankVacantLand" />
+          <s:enumeration value="NedbankBestDeals" />
+          <s:enumeration value="NedbankSie" />
+          <s:enumeration value="NedbankAssistedSale" />
+          <s:enumeration value="StandardBankSie" />
+          <s:enumeration value="StandardBankPip" />
+          <s:enumeration value="StandardBankInsolventProperties" />
+          <s:enumeration value="SalesInExecution" />
+          <s:enumeration value="FNBSaleInExecution" />
+          <s:enumeration value="FNBPropertyInPossession" />
+          <s:enumeration value="StandardBankEasySell" />
+          <s:enumeration value="AbsaPropertyInPossession" />
+        </s:restriction>
+      </s:simpleType>
+      <s:simpleType name="Province">
+        <s:restriction base="s:string">
+          <s:enumeration value="KwaZuluNatal" />
+          <s:enumeration value="Gauteng" />
+          <s:enumeration value="WesternCape" />
+          <s:enumeration value="NorthernCape" />
+          <s:enumeration value="FreeState" />
+          <s:enumeration value="EasternCape" />
+          <s:enumeration value="Limpopo" />
+          <s:enumeration value="NorthWest" />
+          <s:enumeration value="Mpumalanga" />
+        </s:restriction>
+      </s:simpleType>
+      <s:complexType name="ArrayOfString">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="string" nillable="true" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:simpleType name="PropertyStatus">
+        <s:restriction base="s:string">
+          <s:enumeration value="ForSale" />
+          <s:enumeration value="ToLet" />
+          <s:enumeration value="PendingOffer" />
+          <s:enumeration value="Sold" />
+          <s:enumeration value="Inactive" />
+          <s:enumeration value="Archived" />
+        </s:restriction>
+      </s:simpleType>
+      <s:complexType name="ArrayOfShowdayEvent">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="ShowdayEvent" nillable="true" type="tns:ShowdayEvent" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ShowdayEvent">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="PropertyId" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="StartDate" type="s:dateTime" />
+          <s:element minOccurs="1" maxOccurs="1" name="EndDate" type="s:dateTime" />
+          <s:element minOccurs="0" maxOccurs="1" name="Description" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="Active" type="s:boolean" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ArrayOfAttribute">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="Attribute" nillable="true" type="tns:Attribute" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="Attribute">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="AttributeType" type="tns:AttributeType" />
+          <s:element minOccurs="0" maxOccurs="1" name="Value" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:simpleType name="AttributeType">
+        <s:restriction base="s:string">
+          <s:enumeration value="Bedrooms" />
+          <s:enumeration value="Bathrooms" />
+          <s:enumeration value="HomeType" />
+          <s:enumeration value="FloorArea" />
+          <s:enumeration value="LandArea" />
+          <s:enumeration value="EnSuite" />
+          <s:enumeration value="Lounges" />
+          <s:enumeration value="DiningAreas" />
+          <s:enumeration value="Garages" />
+          <s:enumeration value="StaffQuarters" />
+          <s:enumeration value="Study" />
+          <s:enumeration value="Pool" />
+          <s:enumeration value="Flatlet" />
+          <s:enumeration value="Carports" />
+          <s:enumeration value="Storeys" />
+          <s:enumeration value="FarmName" />
+          <s:enumeration value="BusinessType" />
+          <s:enumeration value="Parking" />
+          <s:enumeration value="LeviesAndRates" />
+          <s:enumeration value="PetsAllowed" />
+          <s:enumeration value="WaterIncluded" />
+          <s:enumeration value="ElectrictyIncluded" />
+          <s:enumeration value="Satelite" />
+          <s:enumeration value="TV" />
+          <s:enumeration value="Aircon" />
+          <s:enumeration value="Alarm" />
+          <s:enumeration value="ScenicView" />
+          <s:enumeration value="SeaView" />
+          <s:enumeration value="WalkInCloset" />
+          <s:enumeration value="BuiltInCupboards" />
+          <s:enumeration value="Furnished" />
+          <s:enumeration value="HandicapAvailable" />
+          <s:enumeration value="Balcony" />
+          <s:enumeration value="Deck" />
+          <s:enumeration value="AccessGate" />
+          <s:enumeration value="SecurityPost" />
+          <s:enumeration value="TennisCourt" />
+          <s:enumeration value="SquashCourt" />
+          <s:enumeration value="Clubhouse" />
+          <s:enumeration value="Gym" />
+          <s:enumeration value="Golf" />
+          <s:enumeration value="Jaccuzzi" />
+          <s:enumeration value="Patio" />
+          <s:enumeration value="Storage" />
+          <s:enumeration value="Fence" />
+          <s:enumeration value="Laundry" />
+          <s:enumeration value="Kitchen" />
+          <s:enumeration value="Lapa" />
+          <s:enumeration value="Electric_Fencing" />
+          <s:enumeration value="Built_in_Braai" />
+          <s:enumeration value="Fireplace" />
+          <s:enumeration value="Garden_Cottage" />
+          <s:enumeration value="Jetty_Berth" />
+          <s:enumeration value="Scullery" />
+          <s:enumeration value="Pantry" />
+          <s:enumeration value="Guest_Toilet" />
+          <s:enumeration value="Entrance_hall" />
+          <s:enumeration value="Borehole" />
+          <s:enumeration value="Irrigation_System" />
+          <s:enumeration value="Paving" />
+          <s:enumeration value="RoofType" />
+          <s:enumeration value="Finishes" />
+          <s:enumeration value="Garden" />
+          <s:enumeration value="Intercom" />
+          <s:enumeration value="Family_TV_Room" />
+          <s:enumeration value="IrrigationSystem" />
+          <s:enumeration value="Rates" />
+          <s:enumeration value="Levies" />
+          <s:enumeration value="FarmType" />
+          <s:enumeration value="LandType" />
+        </s:restriction>
+      </s:simpleType>
+      <s:element name="GetReferenceNumberByListing">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="UniqueListingID" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="listingType" type="tns:ListingType" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetReferenceNumberByListingResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetReferenceNumberByListingResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="FullBranchListingsDetailsWithMandateID">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="EncryptedMandateID" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="FullBranchListingsDetailsWithMandateIDResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="FullBranchListingsDetailsWithMandateIDResult" type="tns:ArrayOfListingWithMandate" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfListingWithMandate">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="ListingWithMandate" nillable="true" type="tns:ListingWithMandate" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ListingWithMandate">
+        <s:complexContent mixed="false">
+          <s:extension base="tns:Listing">
+            <s:sequence>
+              <s:element minOccurs="0" maxOccurs="1" name="EncryptedMandateID" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="Ref" type="s:string" />
+            </s:sequence>
+          </s:extension>
+        </s:complexContent>
+      </s:complexType>
+      <s:element name="GetListingsDetails">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="UniqueListingID" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetListingsDetailsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetListingsDetailsResult" type="tns:Listing" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ShowHideListingContactDetails">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="UniqueListingID" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="Type" type="tns:ListingType" />
+            <s:element minOccurs="0" maxOccurs="1" name="DetailsDisplay" type="tns:ListingContactDetailsDisplay" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ListingContactDetailsDisplay">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="ShowName" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="ShowTelCell" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="ShowTelW" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="ShowEmail" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="ShowTelH" type="s:boolean" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="ShowHideListingContactDetailsResponse">
+        <s:complexType />
+      </s:element>
+      <s:element name="UpdatePropertyAttributes">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="UniqueListingID" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="Type" type="tns:ListingType" />
+            <s:element minOccurs="0" maxOccurs="1" name="pa" type="tns:ArrayOfPropertyAttribute" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfPropertyAttribute">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="PropertyAttribute" nillable="true" type="tns:PropertyAttribute" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="PropertyAttribute">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="PropertyAttributeType" type="tns:PropertyAttributeType" />
+          <s:element minOccurs="0" maxOccurs="1" name="Value" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:simpleType name="PropertyAttributeType">
+        <s:restriction base="s:string">
+          <s:enumeration value="LightstoneID" />
+          <s:enumeration value="ERFNumber" />
+        </s:restriction>
+      </s:simpleType>
+      <s:element name="UpdatePropertyAttributesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="UpdatePropertyAttributesResult" type="s:boolean" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAllSubmittedListingsForBranch">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="1" maxOccurs="1" name="StartDate" type="s:dateTime" />
+            <s:element minOccurs="1" maxOccurs="1" name="EndDate" type="s:dateTime" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAllSubmittedListingsForBranchResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetAllSubmittedListingsForBranchResult">
+              <s:complexType>
+                <s:sequence>
+                  <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax" />
+                  <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax" />
+                </s:sequence>
+              </s:complexType>
+            </s:element>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="UpdateListing">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="ListingImport" type="tns:Listing" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="UpdateListingResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="UpdateListingResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetListingStatus">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="PropertyId" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetListingStatusResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetListingStatusResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetListingStatusVerbose">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="PropertyId" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetListingStatusVerboseResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetListingStatusVerboseResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingSummary">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="UniqueListingId" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingSummaryResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="ListingSummaryResult" type="tns:ListingSummary" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ListingSummary">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="BranchId" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="UniqueListingId" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="Active" type="s:boolean" />
+          <s:element minOccurs="0" maxOccurs="1" name="ModerationStatus" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="ExpiryDate" type="s:dateTime" />
+          <s:element minOccurs="1" maxOccurs="1" name="Duplicate" type="s:boolean" />
+          <s:element minOccurs="0" maxOccurs="1" name="ListingType" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="ActivationDate" type="s:dateTime" />
+          <s:element minOccurs="1" maxOccurs="1" name="Declined" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="Reference" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="AutomatedRejection">
+            <s:complexType>
+              <s:sequence>
+                <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax" />
+                <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax" />
+              </s:sequence>
+            </s:complexType>
+          </s:element>
+          <s:element minOccurs="0" maxOccurs="1" name="XmlFiles">
+            <s:complexType>
+              <s:sequence>
+                <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax" />
+                <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax" />
+              </s:sequence>
+            </s:complexType>
+          </s:element>
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetActiveListings">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetActiveListingsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetActiveListingsResult" type="tns:ArrayOfActiveListing" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfActiveListing">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="ActiveListing" type="tns:ActiveListing" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ActiveListing">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="ListingType" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="PrivatePropertyRef" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="UniqueId" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="ListingShowdayUpdate">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Showday" type="tns:ShowdayEvent" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingShowdayUpdateResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="ListingShowdayUpdateResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingStatusUpdate">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="PropertyId" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="ListingType" type="tns:ListingType" />
+            <s:element minOccurs="1" maxOccurs="1" name="PropertyStatus" type="tns:PropertyStatus" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingStatusUpdateResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="ListingStatusUpdateResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetExpiringListings">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetExpiringListingsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetExpiringListingsResult" type="tns:ArrayOfListingExpiry" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfListingExpiry">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="ListingExpiry" nillable="true" type="tns:ListingExpiry" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ListingExpiry">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="ListingType" type="tns:ListingType" />
+          <s:element minOccurs="0" maxOccurs="1" name="PropertyId" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="ExpiryDate" type="s:dateTime" />
+          <s:element minOccurs="0" maxOccurs="1" name="PrivatePropertyRef" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetExpiredListings">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="1" maxOccurs="1" name="DaysExpired" type="s:int" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetExpiredListingsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetExpiredListingsResult" type="tns:ArrayOfListingExpiry" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetListingEventFeedByFeedProvider">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+            <s:element minOccurs="0" maxOccurs="1" name="continuationKey" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="startDateTime" nillable="true" type="s:dateTime" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetListingEventFeedByFeedProviderResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetListingEventFeedByFeedProviderResult" type="tns:ListingEventFeedByFeedProviderDto" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ListingEventFeedByFeedProviderDto">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="ContinuationKey" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="FeedData" type="tns:ArrayOfLisitngEventFeedData" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ArrayOfLisitngEventFeedData">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="LisitngEventFeedData" nillable="true" type="tns:LisitngEventFeedData" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="LisitngEventFeedData">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="TimeStamp" type="s:dateTime" />
+          <s:element minOccurs="0" maxOccurs="1" name="ListingFeedRef" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="OfficeFeedRef" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="ListingFeedEventType" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="EventDescription" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="ListingFeedEventStatus" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetListingEventFeedByBranch">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="UniqueBranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+            <s:element minOccurs="0" maxOccurs="1" name="continuationKey" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="startDateTime" nillable="true" type="s:dateTime" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetListingEventFeedByBranchResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetListingEventFeedByBranchResult" type="tns:ListingEventFeedByOfficeDto" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ListingEventFeedByOfficeDto">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="ContinuationKey" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="OfficeFeedRef" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="FeedData" type="tns:ArrayOfLisitngEventFeedData" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="UpdateListingVideoOrMatterport">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="UniqueListingId" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="MatterportId" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="YoutubeVideoId" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="ListingType" type="tns:ListingType" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="UpdateListingVideoOrMatterportResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="UpdateListingVideoOrMatterportResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingAuctionDetailsUpdate">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="UniqueListingId" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="ReservePrice" type="s:double" />
+            <s:element minOccurs="1" maxOccurs="1" name="StartPrice" type="s:double" />
+            <s:element minOccurs="1" maxOccurs="1" name="Active" type="s:boolean" />
+            <s:element minOccurs="1" maxOccurs="1" name="StartDate" type="s:dateTime" />
+            <s:element minOccurs="1" maxOccurs="1" name="EndDate" type="s:dateTime" />
+            <s:element minOccurs="1" maxOccurs="1" name="ShowPrice" type="s:boolean" />
+            <s:element minOccurs="1" maxOccurs="1" name="SameAsAddress" type="s:boolean" />
+            <s:element minOccurs="1" maxOccurs="1" name="AuctionVenueId" type="s:int" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingAuctionDetailsUpdateResponse">
+        <s:complexType />
+      </s:element>
+      <s:element name="VenueDetailsGet">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="VenueDetailsGetResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="VenueDetailsGetResult" type="tns:ArrayOfAuctionVenues" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfAuctionVenues">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="AuctionVenues" nillable="true" type="tns:AuctionVenues" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="AuctionVenues">
+        <s:complexContent mixed="false">
+          <s:extension base="tns:DBObject">
+            <s:sequence>
+              <s:element minOccurs="1" maxOccurs="1" name="ID" type="s:int" />
+              <s:element minOccurs="0" maxOccurs="1" name="VenueName" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="VenueAddress" type="s:string" />
+              <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="ShapeId" type="s:int" />
+            </s:sequence>
+          </s:extension>
+        </s:complexContent>
+      </s:complexType>
+      <s:complexType name="DBObject" />
+      <s:element name="VenueDetailsAdd">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="VenueName" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="VenueAddress" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="Province" type="tns:Province" />
+            <s:element minOccurs="0" maxOccurs="1" name="Suburb" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="VenueDetailsAddResponse">
+        <s:complexType />
+      </s:element>
+      <s:element name="UpdateUniqueAgentID">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="PrivatePropertyAgentId" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="AgentId" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="UpdateUniqueAgentIDResponse">
+        <s:complexType />
+      </s:element>
+      <s:element name="GetAllAgentsForBranch">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAllAgentsForBranchResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetAllAgentsForBranchResult">
+              <s:complexType>
+                <s:sequence>
+                  <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax" />
+                  <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax" />
+                </s:sequence>
+              </s:complexType>
+            </s:element>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAgentImageLocation">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="Agent" type="tns:Agent" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="Agent">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="Email" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="FirstName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="LastName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="AgentId" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="Active" type="s:boolean" />
+          <s:element minOccurs="0" maxOccurs="1" name="TelCell" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="TelHome" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="TelWork" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+          <s:element minOccurs="0" maxOccurs="1" name="PrivatePropertyAgentId" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="PrivysealAlias" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetAgentImageLocationResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetAgentImageLocationResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="UpdateAgentImage">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="Agent" type="tns:Agent" />
+            <s:element minOccurs="0" maxOccurs="1" name="imgurl" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="UpdateAgentImageResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="UpdateAgentImageResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="UpdateAgent">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="Agent" type="tns:Agent" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="UpdateAgentResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="UpdateAgentResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAgents">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAgentsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetAgentsResult" type="tns:ArrayOfAgent" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfAgent">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="Agent" nillable="true" type="tns:Agent" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetAgent">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+            <s:element minOccurs="0" maxOccurs="1" name="agentID" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAgentResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetAgentResult" type="tns:Agent" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAllListingsForBranch">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAllListingsForBranchResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetAllListingsForBranchResult">
+              <s:complexType>
+                <s:sequence>
+                  <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax" />
+                  <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax" />
+                </s:sequence>
+              </s:complexType>
+            </s:element>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetBranchDetails">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetBranchDetailsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetBranchDetailsResult" type="tns:BranchData" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="BranchData">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="Email" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Name" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Address" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="ContactName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Fax" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Tel1" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Tel2" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="AgentId" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+          <s:element minOccurs="1" maxOccurs="1" name="ID" type="s:int" />
+          <s:element minOccurs="1" maxOccurs="1" name="ContactID" type="s:int" />
+          <s:element minOccurs="1" maxOccurs="1" name="Active" type="s:boolean" />
+          <s:element minOccurs="0" maxOccurs="1" name="BillingContactName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="BillingEmailAddress" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="QuickSell" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="QuickSellOnly" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="ManualBilling" type="s:boolean" />
+          <s:element minOccurs="0" maxOccurs="1" name="LightstoneCompanyID" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="PostalAddress" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="SIE" type="s:boolean" />
+          <s:element minOccurs="1" maxOccurs="1" name="VTContractor" type="s:int" />
+          <s:element minOccurs="1" maxOccurs="1" name="ProPointBalance" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="AgentsID" type="tns:ArrayOfInt" />
+          <s:element minOccurs="0" maxOccurs="1" name="BranchContracts" type="tns:ArrayOfBranchContracts" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ArrayOfInt">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="int" type="s:int" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ArrayOfBranchContracts">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="BranchContracts" nillable="true" type="tns:BranchContracts" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="BranchContracts">
+        <s:complexContent mixed="false">
+          <s:extension base="tns:DBObject">
+            <s:sequence>
+              <s:element minOccurs="1" maxOccurs="1" name="ID" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="BranchID" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="StartDate" type="s:dateTime" />
+              <s:element minOccurs="1" maxOccurs="1" name="EndDate" type="s:dateTime" />
+              <s:element minOccurs="1" maxOccurs="1" name="ProductPackageID" type="s:int" />
+              <s:element minOccurs="0" maxOccurs="1" name="ProductPackageName" type="s:string" />
+              <s:element minOccurs="1" maxOccurs="1" name="PackageFee" type="s:double" />
+              <s:element minOccurs="1" maxOccurs="1" name="SetUpFee" type="s:double" />
+              <s:element minOccurs="1" maxOccurs="1" name="PackageFeeExclVat" type="s:double" />
+              <s:element minOccurs="1" maxOccurs="1" name="FreeSaleSlots" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="SaleSlotCost" type="s:double" />
+              <s:element minOccurs="1" maxOccurs="1" name="FreeRentalSlots" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="RentalSlotCost" type="s:double" />
+              <s:element minOccurs="1" maxOccurs="1" name="Status" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="CreatedBy" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="CreatedOn" type="s:dateTime" />
+              <s:element minOccurs="1" maxOccurs="1" name="LastModifiedBy" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="LastModifiedOn" type="s:dateTime" />
+              <s:element minOccurs="1" maxOccurs="1" name="TerminationDate" type="s:dateTime" />
+              <s:element minOccurs="1" maxOccurs="1" name="LightstoneAddon" type="s:boolean" />
+              <s:element minOccurs="1" maxOccurs="1" name="LightstoneUserCreated" type="s:boolean" />
+              <s:element minOccurs="1" maxOccurs="1" name="ContractTypeID" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="LinkingID" type="s:int" />
+              <s:element minOccurs="0" maxOccurs="1" name="UidAreaShape" type="s:string" />
+              <s:element minOccurs="1" maxOccurs="1" name="DisplayAttorney" type="s:boolean" />
+              <s:element minOccurs="1" maxOccurs="1" name="CommissionPercentage" type="s:double" />
+              <s:element minOccurs="1" maxOccurs="1" name="Upgrade" type="s:boolean" />
+              <s:element minOccurs="1" maxOccurs="1" name="SignupDate" type="s:dateTime" />
+              <s:element minOccurs="1" maxOccurs="1" name="TerminationReason" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="LightstoneAgreementStatus" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="LightstoneSignupDate" type="s:dateTime" />
+              <s:element minOccurs="1" maxOccurs="1" name="NumberOfAgents" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="FeaturedListingSlots" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="FeaturedListingSlotCost" type="s:double" />
+              <s:element minOccurs="1" maxOccurs="1" name="BranchContractVersionId" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="SpotlightListingSlots" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="SpotlightListingSlotCost" type="s:double" />
+            </s:sequence>
+          </s:extension>
+        </s:complexContent>
+      </s:complexType>
+      <s:element name="UpdateBranch">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="Branch" type="tns:Branch" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="Branch">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="Email" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Name" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Address" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="ContactName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Fax" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Tel1" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Tel2" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="AgentId" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="BranchId" type="s1:guid" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="UpdateBranchResponse">
+        <s:complexType />
+      </s:element>
+      <s:element name="LeadStatSummary">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="BranchGuid" type="s1:guid" />
+            <s:element minOccurs="1" maxOccurs="1" name="StartDate" type="s:dateTime" />
+            <s:element minOccurs="1" maxOccurs="1" name="EndDate" type="s:dateTime" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="LeadStatSummaryResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="LeadStatSummaryResult">
+              <s:complexType>
+                <s:sequence>
+                  <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax" />
+                  <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax" />
+                </s:sequence>
+              </s:complexType>
+            </s:element>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="LeadStatDetail">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="UniqueListingId" type="s:string" />
+            <s:element minOccurs="1" maxOccurs="1" name="BranchGuid" type="s1:guid" />
+            <s:element minOccurs="1" maxOccurs="1" name="StartDate" type="s:dateTime" />
+            <s:element minOccurs="1" maxOccurs="1" name="EndDate" type="s:dateTime" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="LeadStatDetailResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="LeadStatDetailResult">
+              <s:complexType>
+                <s:sequence>
+                  <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax" />
+                  <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax" />
+                </s:sequence>
+              </s:complexType>
+            </s:element>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingLeadDetailsFeed">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="StartDate" type="s:dateTime" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingLeadDetailsFeedResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="ListingLeadDetailsFeedResult" type="tns:ListingLeadDetailsFeed" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ListingLeadDetailsFeed">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="ListingLeadDetails" type="tns:ArrayOfListingLeadDetail" />
+          <s:element minOccurs="1" maxOccurs="1" name="NextStartDate" nillable="true" type="s:dateTime" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ArrayOfListingLeadDetail">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="ListingLeadDetail" nillable="true" type="tns:ListingLeadDetail" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ListingLeadDetail">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="LeadId" type="s:string" />
+          <s:element minOccurs="1" maxOccurs="1" name="Date" type="s:dateTime" />
+          <s:element minOccurs="0" maxOccurs="1" name="BranchId" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="UniqueListingId" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="PPRef" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="FromEmail" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="FromName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="FromContactNumber" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="ToEmail" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Message" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="ListingPerformanceStats">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="PropertyRefs" type="tns:ArrayOfString" />
+            <s:element minOccurs="1" maxOccurs="1" name="Date" type="s:dateTime" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ListingPerformanceStatsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="ListingPerformanceStatsResult" type="tns:ListingPerformanceStatsResult" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ListingPerformanceStatsResult">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="ListingPerformanceStats" type="tns:ArrayOfListingPerformanceStatsOnDate" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ArrayOfListingPerformanceStatsOnDate">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="ListingPerformanceStatsOnDate" nillable="true" type="tns:ListingPerformanceStatsOnDate" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ListingPerformanceStatsOnDate">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="Date" type="s:dateTime" />
+          <s:element minOccurs="1" maxOccurs="1" name="Messages" type="s:int" />
+          <s:element minOccurs="1" maxOccurs="1" name="TelLeads" type="s:int" />
+          <s:element minOccurs="1" maxOccurs="1" name="Views" type="s:int" />
+          <s:element minOccurs="1" maxOccurs="1" name="Alerts" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="PropertyRef" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetWidgetUrl">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="widget" type="tns:Widget" />
+            <s:element minOccurs="0" maxOccurs="1" name="parameters" type="tns:ArrayOfWidgetParameters" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:simpleType name="Widget">
+        <s:restriction base="s:string">
+          <s:enumeration value="AgentShopping" />
+          <s:enumeration value="ProPoints" />
+          <s:enumeration value="FeaturedListings" />
+          <s:enumeration value="FeaturedAgents" />
+          <s:enumeration value="SpotlightListings" />
+        </s:restriction>
+      </s:simpleType>
+      <s:complexType name="ArrayOfWidgetParameters">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="WidgetParameters" nillable="true" type="tns:WidgetParameters" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="WidgetParameters">
+        <s:complexContent mixed="false">
+          <s:extension base="tns:DBObject">
+            <s:sequence>
+              <s:element minOccurs="1" maxOccurs="1" name="WidgetTokenId" type="s:int" />
+              <s:element minOccurs="1" maxOccurs="1" name="ParamType" type="tns:ParameterType" />
+              <s:element minOccurs="0" maxOccurs="1" name="Parameter" type="s:string" />
+            </s:sequence>
+          </s:extension>
+        </s:complexContent>
+      </s:complexType>
+      <s:simpleType name="ParameterType">
+        <s:restriction base="s:string">
+          <s:enumeration value="BranchGUID" />
+          <s:enumeration value="MandateType" />
+          <s:enumeration value="UniqueAgentID" />
+          <s:enumeration value="UniqueListingID" />
+        </s:restriction>
+      </s:simpleType>
+      <s:element name="GetWidgetUrlResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetWidgetUrlResult" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetCountries">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetCountriesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetCountriesResult" type="tns:ArrayOfCountryModel" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfCountryModel">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="CountryModel" nillable="true" type="tns:CountryModel" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="CountryModel">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="Id" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="Name" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetProvinces">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="CountryId" type="s:int" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetProvincesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetProvincesResult" type="tns:ArrayOfProvinceModel" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfProvinceModel">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="ProvinceModel" nillable="true" type="tns:ProvinceModel" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="ProvinceModel">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="Id" type="s:int" />
+          <s:element minOccurs="1" maxOccurs="1" name="CountryId" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="Name" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetCities">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="ProvinceID" type="s:int" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetCitiesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetCitiesResult" type="tns:ArrayOfCityModel" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfCityModel">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="CityModel" nillable="true" type="tns:CityModel" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="CityModel">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="Id" type="s:int" />
+          <s:element minOccurs="1" maxOccurs="1" name="ProvinceId" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="Name" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetSuburbs">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="CityID" type="s:int" />
+            <s:element minOccurs="0" maxOccurs="1" name="Token" type="tns:SecurityToken" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetSuburbsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetSuburbsResult" type="tns:ArrayOfSuburbModel" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfSuburbModel">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="SuburbModel" nillable="true" type="tns:SuburbModel" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="SuburbModel">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="Id" type="s:int" />
+          <s:element minOccurs="1" maxOccurs="1" name="CityId" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="Name" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+    </s:schema>
+    <s:schema elementFormDefault="qualified" targetNamespace="http://microsoft.com/wsdl/types/">
+      <s:simpleType name="guid">
+        <s:restriction base="s:string">
+          <s:pattern value="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" />
+        </s:restriction>
+      </s:simpleType>
+    </s:schema>
+  </wsdl:types>
+  <wsdl:message name="UpdateUniqueListingIDSoapIn">
+    <wsdl:part name="parameters" element="tns:UpdateUniqueListingID" />
+  </wsdl:message>
+  <wsdl:message name="UpdateUniqueListingIDSoapOut">
+    <wsdl:part name="parameters" element="tns:UpdateUniqueListingIDResponse" />
+  </wsdl:message>
+  <wsdl:message name="UpdateUniqueListingIDByPrivatePropertyRefSoapIn">
+    <wsdl:part name="parameters" element="tns:UpdateUniqueListingIDByPrivatePropertyRef" />
+  </wsdl:message>
+  <wsdl:message name="UpdateUniqueListingIDByPrivatePropertyRefSoapOut">
+    <wsdl:part name="parameters" element="tns:UpdateUniqueListingIDByPrivatePropertyRefResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetFullDetailsOfAllListingsByBranchSoapIn">
+    <wsdl:part name="parameters" element="tns:GetFullDetailsOfAllListingsByBranch" />
+  </wsdl:message>
+  <wsdl:message name="GetFullDetailsOfAllListingsByBranchSoapOut">
+    <wsdl:part name="parameters" element="tns:GetFullDetailsOfAllListingsByBranchResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetReferenceNumberByListingSoapIn">
+    <wsdl:part name="parameters" element="tns:GetReferenceNumberByListing" />
+  </wsdl:message>
+  <wsdl:message name="GetReferenceNumberByListingSoapOut">
+    <wsdl:part name="parameters" element="tns:GetReferenceNumberByListingResponse" />
+  </wsdl:message>
+  <wsdl:message name="FullBranchListingsDetailsWithMandateIDSoapIn">
+    <wsdl:part name="parameters" element="tns:FullBranchListingsDetailsWithMandateID" />
+  </wsdl:message>
+  <wsdl:message name="FullBranchListingsDetailsWithMandateIDSoapOut">
+    <wsdl:part name="parameters" element="tns:FullBranchListingsDetailsWithMandateIDResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetListingsDetailsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetListingsDetails" />
+  </wsdl:message>
+  <wsdl:message name="GetListingsDetailsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetListingsDetailsResponse" />
+  </wsdl:message>
+  <wsdl:message name="ShowHideListingContactDetailsSoapIn">
+    <wsdl:part name="parameters" element="tns:ShowHideListingContactDetails" />
+  </wsdl:message>
+  <wsdl:message name="ShowHideListingContactDetailsSoapOut">
+    <wsdl:part name="parameters" element="tns:ShowHideListingContactDetailsResponse" />
+  </wsdl:message>
+  <wsdl:message name="UpdatePropertyAttributesSoapIn">
+    <wsdl:part name="parameters" element="tns:UpdatePropertyAttributes" />
+  </wsdl:message>
+  <wsdl:message name="UpdatePropertyAttributesSoapOut">
+    <wsdl:part name="parameters" element="tns:UpdatePropertyAttributesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetAllSubmittedListingsForBranchSoapIn">
+    <wsdl:part name="parameters" element="tns:GetAllSubmittedListingsForBranch" />
+  </wsdl:message>
+  <wsdl:message name="GetAllSubmittedListingsForBranchSoapOut">
+    <wsdl:part name="parameters" element="tns:GetAllSubmittedListingsForBranchResponse" />
+  </wsdl:message>
+  <wsdl:message name="UpdateListingSoapIn">
+    <wsdl:part name="parameters" element="tns:UpdateListing" />
+  </wsdl:message>
+  <wsdl:message name="UpdateListingSoapOut">
+    <wsdl:part name="parameters" element="tns:UpdateListingResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetListingStatusSoapIn">
+    <wsdl:part name="parameters" element="tns:GetListingStatus" />
+  </wsdl:message>
+  <wsdl:message name="GetListingStatusSoapOut">
+    <wsdl:part name="parameters" element="tns:GetListingStatusResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetListingStatusVerboseSoapIn">
+    <wsdl:part name="parameters" element="tns:GetListingStatusVerbose" />
+  </wsdl:message>
+  <wsdl:message name="GetListingStatusVerboseSoapOut">
+    <wsdl:part name="parameters" element="tns:GetListingStatusVerboseResponse" />
+  </wsdl:message>
+  <wsdl:message name="ListingSummarySoapIn">
+    <wsdl:part name="parameters" element="tns:ListingSummary" />
+  </wsdl:message>
+  <wsdl:message name="ListingSummarySoapOut">
+    <wsdl:part name="parameters" element="tns:ListingSummaryResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveListingsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetActiveListings" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveListingsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetActiveListingsResponse" />
+  </wsdl:message>
+  <wsdl:message name="ListingShowdayUpdateSoapIn">
+    <wsdl:part name="parameters" element="tns:ListingShowdayUpdate" />
+  </wsdl:message>
+  <wsdl:message name="ListingShowdayUpdateSoapOut">
+    <wsdl:part name="parameters" element="tns:ListingShowdayUpdateResponse" />
+  </wsdl:message>
+  <wsdl:message name="ListingStatusUpdateSoapIn">
+    <wsdl:part name="parameters" element="tns:ListingStatusUpdate" />
+  </wsdl:message>
+  <wsdl:message name="ListingStatusUpdateSoapOut">
+    <wsdl:part name="parameters" element="tns:ListingStatusUpdateResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetExpiringListingsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetExpiringListings" />
+  </wsdl:message>
+  <wsdl:message name="GetExpiringListingsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetExpiringListingsResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetExpiredListingsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetExpiredListings" />
+  </wsdl:message>
+  <wsdl:message name="GetExpiredListingsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetExpiredListingsResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetListingEventFeedByFeedProviderSoapIn">
+    <wsdl:part name="parameters" element="tns:GetListingEventFeedByFeedProvider" />
+  </wsdl:message>
+  <wsdl:message name="GetListingEventFeedByFeedProviderSoapOut">
+    <wsdl:part name="parameters" element="tns:GetListingEventFeedByFeedProviderResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetListingEventFeedByBranchSoapIn">
+    <wsdl:part name="parameters" element="tns:GetListingEventFeedByBranch" />
+  </wsdl:message>
+  <wsdl:message name="GetListingEventFeedByBranchSoapOut">
+    <wsdl:part name="parameters" element="tns:GetListingEventFeedByBranchResponse" />
+  </wsdl:message>
+  <wsdl:message name="UpdateListingVideoOrMatterportSoapIn">
+    <wsdl:part name="parameters" element="tns:UpdateListingVideoOrMatterport" />
+  </wsdl:message>
+  <wsdl:message name="UpdateListingVideoOrMatterportSoapOut">
+    <wsdl:part name="parameters" element="tns:UpdateListingVideoOrMatterportResponse" />
+  </wsdl:message>
+  <wsdl:message name="ListingAuctionDetailsUpdateSoapIn">
+    <wsdl:part name="parameters" element="tns:ListingAuctionDetailsUpdate" />
+  </wsdl:message>
+  <wsdl:message name="ListingAuctionDetailsUpdateSoapOut">
+    <wsdl:part name="parameters" element="tns:ListingAuctionDetailsUpdateResponse" />
+  </wsdl:message>
+  <wsdl:message name="VenueDetailsGetSoapIn">
+    <wsdl:part name="parameters" element="tns:VenueDetailsGet" />
+  </wsdl:message>
+  <wsdl:message name="VenueDetailsGetSoapOut">
+    <wsdl:part name="parameters" element="tns:VenueDetailsGetResponse" />
+  </wsdl:message>
+  <wsdl:message name="VenueDetailsAddSoapIn">
+    <wsdl:part name="parameters" element="tns:VenueDetailsAdd" />
+  </wsdl:message>
+  <wsdl:message name="VenueDetailsAddSoapOut">
+    <wsdl:part name="parameters" element="tns:VenueDetailsAddResponse" />
+  </wsdl:message>
+  <wsdl:message name="UpdateUniqueAgentIDSoapIn">
+    <wsdl:part name="parameters" element="tns:UpdateUniqueAgentID" />
+  </wsdl:message>
+  <wsdl:message name="UpdateUniqueAgentIDSoapOut">
+    <wsdl:part name="parameters" element="tns:UpdateUniqueAgentIDResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetAllAgentsForBranchSoapIn">
+    <wsdl:part name="parameters" element="tns:GetAllAgentsForBranch" />
+  </wsdl:message>
+  <wsdl:message name="GetAllAgentsForBranchSoapOut">
+    <wsdl:part name="parameters" element="tns:GetAllAgentsForBranchResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetAgentImageLocationSoapIn">
+    <wsdl:part name="parameters" element="tns:GetAgentImageLocation" />
+  </wsdl:message>
+  <wsdl:message name="GetAgentImageLocationSoapOut">
+    <wsdl:part name="parameters" element="tns:GetAgentImageLocationResponse" />
+  </wsdl:message>
+  <wsdl:message name="UpdateAgentImageSoapIn">
+    <wsdl:part name="parameters" element="tns:UpdateAgentImage" />
+  </wsdl:message>
+  <wsdl:message name="UpdateAgentImageSoapOut">
+    <wsdl:part name="parameters" element="tns:UpdateAgentImageResponse" />
+  </wsdl:message>
+  <wsdl:message name="UpdateAgentSoapIn">
+    <wsdl:part name="parameters" element="tns:UpdateAgent" />
+  </wsdl:message>
+  <wsdl:message name="UpdateAgentSoapOut">
+    <wsdl:part name="parameters" element="tns:UpdateAgentResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetAgentsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetAgents" />
+  </wsdl:message>
+  <wsdl:message name="GetAgentsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetAgentsResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetAgentSoapIn">
+    <wsdl:part name="parameters" element="tns:GetAgent" />
+  </wsdl:message>
+  <wsdl:message name="GetAgentSoapOut">
+    <wsdl:part name="parameters" element="tns:GetAgentResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetAllListingsForBranchSoapIn">
+    <wsdl:part name="parameters" element="tns:GetAllListingsForBranch" />
+  </wsdl:message>
+  <wsdl:message name="GetAllListingsForBranchSoapOut">
+    <wsdl:part name="parameters" element="tns:GetAllListingsForBranchResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetBranchDetailsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetBranchDetails" />
+  </wsdl:message>
+  <wsdl:message name="GetBranchDetailsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetBranchDetailsResponse" />
+  </wsdl:message>
+  <wsdl:message name="UpdateBranchSoapIn">
+    <wsdl:part name="parameters" element="tns:UpdateBranch" />
+  </wsdl:message>
+  <wsdl:message name="UpdateBranchSoapOut">
+    <wsdl:part name="parameters" element="tns:UpdateBranchResponse" />
+  </wsdl:message>
+  <wsdl:message name="LeadStatSummarySoapIn">
+    <wsdl:part name="parameters" element="tns:LeadStatSummary" />
+  </wsdl:message>
+  <wsdl:message name="LeadStatSummarySoapOut">
+    <wsdl:part name="parameters" element="tns:LeadStatSummaryResponse" />
+  </wsdl:message>
+  <wsdl:message name="LeadStatDetailSoapIn">
+    <wsdl:part name="parameters" element="tns:LeadStatDetail" />
+  </wsdl:message>
+  <wsdl:message name="LeadStatDetailSoapOut">
+    <wsdl:part name="parameters" element="tns:LeadStatDetailResponse" />
+  </wsdl:message>
+  <wsdl:message name="ListingLeadDetailsFeedSoapIn">
+    <wsdl:part name="parameters" element="tns:ListingLeadDetailsFeed" />
+  </wsdl:message>
+  <wsdl:message name="ListingLeadDetailsFeedSoapOut">
+    <wsdl:part name="parameters" element="tns:ListingLeadDetailsFeedResponse" />
+  </wsdl:message>
+  <wsdl:message name="ListingPerformanceStatsSoapIn">
+    <wsdl:part name="parameters" element="tns:ListingPerformanceStats" />
+  </wsdl:message>
+  <wsdl:message name="ListingPerformanceStatsSoapOut">
+    <wsdl:part name="parameters" element="tns:ListingPerformanceStatsResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetWidgetUrlSoapIn">
+    <wsdl:part name="parameters" element="tns:GetWidgetUrl" />
+  </wsdl:message>
+  <wsdl:message name="GetWidgetUrlSoapOut">
+    <wsdl:part name="parameters" element="tns:GetWidgetUrlResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetCountriesSoapIn">
+    <wsdl:part name="parameters" element="tns:GetCountries" />
+  </wsdl:message>
+  <wsdl:message name="GetCountriesSoapOut">
+    <wsdl:part name="parameters" element="tns:GetCountriesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetProvincesSoapIn">
+    <wsdl:part name="parameters" element="tns:GetProvinces" />
+  </wsdl:message>
+  <wsdl:message name="GetProvincesSoapOut">
+    <wsdl:part name="parameters" element="tns:GetProvincesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetCitiesSoapIn">
+    <wsdl:part name="parameters" element="tns:GetCities" />
+  </wsdl:message>
+  <wsdl:message name="GetCitiesSoapOut">
+    <wsdl:part name="parameters" element="tns:GetCitiesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetSuburbsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetSuburbs" />
+  </wsdl:message>
+  <wsdl:message name="GetSuburbsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetSuburbsResponse" />
+  </wsdl:message>
+  <wsdl:portType name="AgentImportSoap">
+    <wsdl:operation name="UpdateUniqueListingID">
+      <wsdl:input message="tns:UpdateUniqueListingIDSoapIn" />
+      <wsdl:output message="tns:UpdateUniqueListingIDSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="UpdateUniqueListingIDByPrivatePropertyRef">
+      <wsdl:input message="tns:UpdateUniqueListingIDByPrivatePropertyRefSoapIn" />
+      <wsdl:output message="tns:UpdateUniqueListingIDByPrivatePropertyRefSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetFullDetailsOfAllListingsByBranch">
+      <wsdl:input message="tns:GetFullDetailsOfAllListingsByBranchSoapIn" />
+      <wsdl:output message="tns:GetFullDetailsOfAllListingsByBranchSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetReferenceNumberByListing">
+      <wsdl:input message="tns:GetReferenceNumberByListingSoapIn" />
+      <wsdl:output message="tns:GetReferenceNumberByListingSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="FullBranchListingsDetailsWithMandateID">
+      <wsdl:input message="tns:FullBranchListingsDetailsWithMandateIDSoapIn" />
+      <wsdl:output message="tns:FullBranchListingsDetailsWithMandateIDSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetListingsDetails">
+      <wsdl:input message="tns:GetListingsDetailsSoapIn" />
+      <wsdl:output message="tns:GetListingsDetailsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="ShowHideListingContactDetails">
+      <wsdl:input message="tns:ShowHideListingContactDetailsSoapIn" />
+      <wsdl:output message="tns:ShowHideListingContactDetailsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="UpdatePropertyAttributes">
+      <wsdl:input message="tns:UpdatePropertyAttributesSoapIn" />
+      <wsdl:output message="tns:UpdatePropertyAttributesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetAllSubmittedListingsForBranch">
+      <wsdl:input message="tns:GetAllSubmittedListingsForBranchSoapIn" />
+      <wsdl:output message="tns:GetAllSubmittedListingsForBranchSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="UpdateListing">
+      <wsdl:input message="tns:UpdateListingSoapIn" />
+      <wsdl:output message="tns:UpdateListingSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetListingStatus">
+      <wsdl:input message="tns:GetListingStatusSoapIn" />
+      <wsdl:output message="tns:GetListingStatusSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetListingStatusVerbose">
+      <wsdl:input message="tns:GetListingStatusVerboseSoapIn" />
+      <wsdl:output message="tns:GetListingStatusVerboseSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="ListingSummary">
+      <wsdl:input message="tns:ListingSummarySoapIn" />
+      <wsdl:output message="tns:ListingSummarySoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveListings">
+      <wsdl:input message="tns:GetActiveListingsSoapIn" />
+      <wsdl:output message="tns:GetActiveListingsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="ListingShowdayUpdate">
+      <wsdl:input message="tns:ListingShowdayUpdateSoapIn" />
+      <wsdl:output message="tns:ListingShowdayUpdateSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="ListingStatusUpdate">
+      <wsdl:input message="tns:ListingStatusUpdateSoapIn" />
+      <wsdl:output message="tns:ListingStatusUpdateSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetExpiringListings">
+      <wsdl:input message="tns:GetExpiringListingsSoapIn" />
+      <wsdl:output message="tns:GetExpiringListingsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetExpiredListings">
+      <wsdl:input message="tns:GetExpiredListingsSoapIn" />
+      <wsdl:output message="tns:GetExpiredListingsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetListingEventFeedByFeedProvider">
+      <wsdl:input message="tns:GetListingEventFeedByFeedProviderSoapIn" />
+      <wsdl:output message="tns:GetListingEventFeedByFeedProviderSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetListingEventFeedByBranch">
+      <wsdl:input message="tns:GetListingEventFeedByBranchSoapIn" />
+      <wsdl:output message="tns:GetListingEventFeedByBranchSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="UpdateListingVideoOrMatterport">
+      <wsdl:input message="tns:UpdateListingVideoOrMatterportSoapIn" />
+      <wsdl:output message="tns:UpdateListingVideoOrMatterportSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="ListingAuctionDetailsUpdate">
+      <wsdl:input message="tns:ListingAuctionDetailsUpdateSoapIn" />
+      <wsdl:output message="tns:ListingAuctionDetailsUpdateSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="VenueDetailsGet">
+      <wsdl:input message="tns:VenueDetailsGetSoapIn" />
+      <wsdl:output message="tns:VenueDetailsGetSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="VenueDetailsAdd">
+      <wsdl:input message="tns:VenueDetailsAddSoapIn" />
+      <wsdl:output message="tns:VenueDetailsAddSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="UpdateUniqueAgentID">
+      <wsdl:input message="tns:UpdateUniqueAgentIDSoapIn" />
+      <wsdl:output message="tns:UpdateUniqueAgentIDSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetAllAgentsForBranch">
+      <wsdl:input message="tns:GetAllAgentsForBranchSoapIn" />
+      <wsdl:output message="tns:GetAllAgentsForBranchSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetAgentImageLocation">
+      <wsdl:input message="tns:GetAgentImageLocationSoapIn" />
+      <wsdl:output message="tns:GetAgentImageLocationSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="UpdateAgentImage">
+      <wsdl:input message="tns:UpdateAgentImageSoapIn" />
+      <wsdl:output message="tns:UpdateAgentImageSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="UpdateAgent">
+      <wsdl:input message="tns:UpdateAgentSoapIn" />
+      <wsdl:output message="tns:UpdateAgentSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetAgents">
+      <wsdl:input message="tns:GetAgentsSoapIn" />
+      <wsdl:output message="tns:GetAgentsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetAgent">
+      <wsdl:input message="tns:GetAgentSoapIn" />
+      <wsdl:output message="tns:GetAgentSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetAllListingsForBranch">
+      <wsdl:input message="tns:GetAllListingsForBranchSoapIn" />
+      <wsdl:output message="tns:GetAllListingsForBranchSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetBranchDetails">
+      <wsdl:input message="tns:GetBranchDetailsSoapIn" />
+      <wsdl:output message="tns:GetBranchDetailsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="UpdateBranch">
+      <wsdl:input message="tns:UpdateBranchSoapIn" />
+      <wsdl:output message="tns:UpdateBranchSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="LeadStatSummary">
+      <wsdl:input message="tns:LeadStatSummarySoapIn" />
+      <wsdl:output message="tns:LeadStatSummarySoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="LeadStatDetail">
+      <wsdl:input message="tns:LeadStatDetailSoapIn" />
+      <wsdl:output message="tns:LeadStatDetailSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="ListingLeadDetailsFeed">
+      <wsdl:input message="tns:ListingLeadDetailsFeedSoapIn" />
+      <wsdl:output message="tns:ListingLeadDetailsFeedSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="ListingPerformanceStats">
+      <wsdl:input message="tns:ListingPerformanceStatsSoapIn" />
+      <wsdl:output message="tns:ListingPerformanceStatsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetWidgetUrl">
+      <wsdl:input message="tns:GetWidgetUrlSoapIn" />
+      <wsdl:output message="tns:GetWidgetUrlSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetCountries">
+      <wsdl:input message="tns:GetCountriesSoapIn" />
+      <wsdl:output message="tns:GetCountriesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetProvinces">
+      <wsdl:input message="tns:GetProvincesSoapIn" />
+      <wsdl:output message="tns:GetProvincesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetCities">
+      <wsdl:input message="tns:GetCitiesSoapIn" />
+      <wsdl:output message="tns:GetCitiesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetSuburbs">
+      <wsdl:input message="tns:GetSuburbsSoapIn" />
+      <wsdl:output message="tns:GetSuburbsSoapOut" />
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="AgentImportSoap" type="tns:AgentImportSoap">
+    <soap:binding transport="http://schemas.xmlsoap.org/soap/http" />
+    <wsdl:operation name="UpdateUniqueListingID">
+      <soap:operation soapAction="http://tempuri.org/UpdateUniqueListingID" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateUniqueListingIDByPrivatePropertyRef">
+      <soap:operation soapAction="http://tempuri.org/UpdateUniqueListingIDByPrivatePropertyRef" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetFullDetailsOfAllListingsByBranch">
+      <soap:operation soapAction="http://tempuri.org/GetFullDetailsOfAllListingsByBranch" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetReferenceNumberByListing">
+      <soap:operation soapAction="http://tempuri.org/GetReferenceNumberByListing" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="FullBranchListingsDetailsWithMandateID">
+      <soap:operation soapAction="http://tempuri.org/FullBranchListingsDetailsWithMandateID" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingsDetails">
+      <soap:operation soapAction="http://tempuri.org/GetListingsDetails" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ShowHideListingContactDetails">
+      <soap:operation soapAction="http://tempuri.org/ShowHideListingContactDetails" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdatePropertyAttributes">
+      <soap:operation soapAction="http://tempuri.org/UpdatePropertyAttributes" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAllSubmittedListingsForBranch">
+      <soap:operation soapAction="http://tempuri.org/GetAllSubmittedListingsForBranch" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateListing">
+      <soap:operation soapAction="http://tempuri.org/UpdateListing" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingStatus">
+      <soap:operation soapAction="http://tempuri.org/GetListingStatus" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingStatusVerbose">
+      <soap:operation soapAction="http://tempuri.org/GetListingStatusVerbose" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingSummary">
+      <soap:operation soapAction="http://tempuri.org/ListingSummary" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveListings">
+      <soap:operation soapAction="http://tempuri.org/GetActiveListings" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingShowdayUpdate">
+      <soap:operation soapAction="http://tempuri.org/ListingShowdayUpdate" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingStatusUpdate">
+      <soap:operation soapAction="http://tempuri.org/ListingStatusUpdate" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetExpiringListings">
+      <soap:operation soapAction="http://tempuri.org/GetExpiringListings" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetExpiredListings">
+      <soap:operation soapAction="http://tempuri.org/GetExpiredListings" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingEventFeedByFeedProvider">
+      <soap:operation soapAction="http://tempuri.org/GetListingEventFeedByFeedProvider" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingEventFeedByBranch">
+      <soap:operation soapAction="http://tempuri.org/GetListingEventFeedByBranch" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateListingVideoOrMatterport">
+      <soap:operation soapAction="http://tempuri.org/UpdateListingVideoOrMatterport" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingAuctionDetailsUpdate">
+      <soap:operation soapAction="http://tempuri.org/ListingAuctionDetailsUpdate" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="VenueDetailsGet">
+      <soap:operation soapAction="http://tempuri.org/VenueDetailsGet" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="VenueDetailsAdd">
+      <soap:operation soapAction="http://tempuri.org/VenueDetailsAdd" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateUniqueAgentID">
+      <soap:operation soapAction="http://tempuri.org/UpdateUniqueAgentID" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAllAgentsForBranch">
+      <soap:operation soapAction="http://tempuri.org/GetAllAgentsForBranch" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAgentImageLocation">
+      <soap:operation soapAction="http://tempuri.org/GetAgentImageLocation" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateAgentImage">
+      <soap:operation soapAction="http://tempuri.org/UpdateAgentImage" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateAgent">
+      <soap:operation soapAction="http://tempuri.org/UpdateAgent" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAgents">
+      <soap:operation soapAction="http://tempuri.org/GetAgents" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAgent">
+      <soap:operation soapAction="http://tempuri.org/GetAgent" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAllListingsForBranch">
+      <soap:operation soapAction="http://tempuri.org/GetAllListingsForBranch" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetBranchDetails">
+      <soap:operation soapAction="http://tempuri.org/GetBranchDetails" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateBranch">
+      <soap:operation soapAction="http://tempuri.org/UpdateBranch" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="LeadStatSummary">
+      <soap:operation soapAction="http://tempuri.org/LeadStatSummary" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="LeadStatDetail">
+      <soap:operation soapAction="http://tempuri.org/LeadStatDetail" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingLeadDetailsFeed">
+      <soap:operation soapAction="http://tempuri.org/ListingLeadDetailsFeed" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingPerformanceStats">
+      <soap:operation soapAction="http://tempuri.org/ListingPerformanceStats" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetWidgetUrl">
+      <soap:operation soapAction="http://tempuri.org/GetWidgetUrl" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetCountries">
+      <soap:operation soapAction="http://tempuri.org/GetCountries" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetProvinces">
+      <soap:operation soapAction="http://tempuri.org/GetProvinces" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetCities">
+      <soap:operation soapAction="http://tempuri.org/GetCities" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSuburbs">
+      <soap:operation soapAction="http://tempuri.org/GetSuburbs" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:binding name="AgentImportSoap12" type="tns:AgentImportSoap">
+    <soap12:binding transport="http://schemas.xmlsoap.org/soap/http" />
+    <wsdl:operation name="UpdateUniqueListingID">
+      <soap12:operation soapAction="http://tempuri.org/UpdateUniqueListingID" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateUniqueListingIDByPrivatePropertyRef">
+      <soap12:operation soapAction="http://tempuri.org/UpdateUniqueListingIDByPrivatePropertyRef" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetFullDetailsOfAllListingsByBranch">
+      <soap12:operation soapAction="http://tempuri.org/GetFullDetailsOfAllListingsByBranch" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetReferenceNumberByListing">
+      <soap12:operation soapAction="http://tempuri.org/GetReferenceNumberByListing" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="FullBranchListingsDetailsWithMandateID">
+      <soap12:operation soapAction="http://tempuri.org/FullBranchListingsDetailsWithMandateID" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingsDetails">
+      <soap12:operation soapAction="http://tempuri.org/GetListingsDetails" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ShowHideListingContactDetails">
+      <soap12:operation soapAction="http://tempuri.org/ShowHideListingContactDetails" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdatePropertyAttributes">
+      <soap12:operation soapAction="http://tempuri.org/UpdatePropertyAttributes" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAllSubmittedListingsForBranch">
+      <soap12:operation soapAction="http://tempuri.org/GetAllSubmittedListingsForBranch" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateListing">
+      <soap12:operation soapAction="http://tempuri.org/UpdateListing" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingStatus">
+      <soap12:operation soapAction="http://tempuri.org/GetListingStatus" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingStatusVerbose">
+      <soap12:operation soapAction="http://tempuri.org/GetListingStatusVerbose" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingSummary">
+      <soap12:operation soapAction="http://tempuri.org/ListingSummary" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveListings">
+      <soap12:operation soapAction="http://tempuri.org/GetActiveListings" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingShowdayUpdate">
+      <soap12:operation soapAction="http://tempuri.org/ListingShowdayUpdate" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingStatusUpdate">
+      <soap12:operation soapAction="http://tempuri.org/ListingStatusUpdate" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetExpiringListings">
+      <soap12:operation soapAction="http://tempuri.org/GetExpiringListings" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetExpiredListings">
+      <soap12:operation soapAction="http://tempuri.org/GetExpiredListings" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingEventFeedByFeedProvider">
+      <soap12:operation soapAction="http://tempuri.org/GetListingEventFeedByFeedProvider" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetListingEventFeedByBranch">
+      <soap12:operation soapAction="http://tempuri.org/GetListingEventFeedByBranch" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateListingVideoOrMatterport">
+      <soap12:operation soapAction="http://tempuri.org/UpdateListingVideoOrMatterport" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingAuctionDetailsUpdate">
+      <soap12:operation soapAction="http://tempuri.org/ListingAuctionDetailsUpdate" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="VenueDetailsGet">
+      <soap12:operation soapAction="http://tempuri.org/VenueDetailsGet" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="VenueDetailsAdd">
+      <soap12:operation soapAction="http://tempuri.org/VenueDetailsAdd" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateUniqueAgentID">
+      <soap12:operation soapAction="http://tempuri.org/UpdateUniqueAgentID" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAllAgentsForBranch">
+      <soap12:operation soapAction="http://tempuri.org/GetAllAgentsForBranch" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAgentImageLocation">
+      <soap12:operation soapAction="http://tempuri.org/GetAgentImageLocation" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateAgentImage">
+      <soap12:operation soapAction="http://tempuri.org/UpdateAgentImage" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateAgent">
+      <soap12:operation soapAction="http://tempuri.org/UpdateAgent" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAgents">
+      <soap12:operation soapAction="http://tempuri.org/GetAgents" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAgent">
+      <soap12:operation soapAction="http://tempuri.org/GetAgent" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAllListingsForBranch">
+      <soap12:operation soapAction="http://tempuri.org/GetAllListingsForBranch" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetBranchDetails">
+      <soap12:operation soapAction="http://tempuri.org/GetBranchDetails" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="UpdateBranch">
+      <soap12:operation soapAction="http://tempuri.org/UpdateBranch" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="LeadStatSummary">
+      <soap12:operation soapAction="http://tempuri.org/LeadStatSummary" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="LeadStatDetail">
+      <soap12:operation soapAction="http://tempuri.org/LeadStatDetail" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingLeadDetailsFeed">
+      <soap12:operation soapAction="http://tempuri.org/ListingLeadDetailsFeed" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ListingPerformanceStats">
+      <soap12:operation soapAction="http://tempuri.org/ListingPerformanceStats" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetWidgetUrl">
+      <soap12:operation soapAction="http://tempuri.org/GetWidgetUrl" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetCountries">
+      <soap12:operation soapAction="http://tempuri.org/GetCountries" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetProvinces">
+      <soap12:operation soapAction="http://tempuri.org/GetProvinces" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetCities">
+      <soap12:operation soapAction="http://tempuri.org/GetCities" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSuburbs">
+      <soap12:operation soapAction="http://tempuri.org/GetSuburbs" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="AgentImport">
+    <wsdl:port name="AgentImportSoap" binding="tns:AgentImportSoap">
+      <soap:address location="https://services.privateproperty.co.za/AgentImport/AgentImport.asmx" />
+    </wsdl:port>
+    <wsdl:port name="AgentImportSoap12" binding="tns:AgentImportSoap12">
+      <soap12:address location="https://services.privateproperty.co.za/AgentImport/AgentImport.asmx" />
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>

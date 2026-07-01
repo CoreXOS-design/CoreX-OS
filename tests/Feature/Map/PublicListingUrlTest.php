@@ -16,23 +16,62 @@ use Tests\TestCase;
  */
 final class PublicListingUrlTest extends TestCase
 {
-    /** M17 — both syndication statuses inactive → all URLs null. */
+    /** M17 — no live signal → all URLs null. P24: status != active. PP: off-market. */
     public function test_m17_inactive_statuses_yield_null_urls(): void
     {
         $p = new Property();
         $p->forceFill([
             'p24_ref'                => 'P24-123',
             'p24_syndication_status' => 'pending',
+            // PP gates on pp_ref, but suppresses the link once off-market.
             'pp_ref'                 => 'PP-456',
-            'pp_syndication_status'  => 'submitted',
+            'pp_syndication_status'  => 'deactivated',
             'suburb' => 'Uvongo', 'city' => 'Margate', 'province' => 'KZN',
             'listing_type' => 'sale',
         ]);
 
         $urls = $p->publicListingUrls();
         $this->assertNull($urls['p24'], 'P24 url null when status != active');
-        $this->assertNull($urls['pp'],  'PP url null when status != active');
+        $this->assertNull($urls['pp'],  'PP url null when listing is deactivated');
         $this->assertNull($urls['hfc']);
+    }
+
+    /**
+     * Regression — the "View on PP" button was dead (href '#', reopening the
+     * CoreX page) for every listing that had ever been re-pushed: submitListing()
+     * resets pp_syndication_status to 'submitted', and the activation-sync job
+     * skips rows that already have a pp_ref, so the status never returns to
+     * 'active'. The PP URL now gates on pp_ref (PP's durable "published" signal),
+     * not on the flapping status — suppressed only once explicitly off-market.
+     */
+    public function test_pp_url_built_from_ref_regardless_of_submitted_status(): void
+    {
+        $mk = function (string $status): Property {
+            return (new Property())->forceFill([
+                'pp_ref'                => 'T5538118',
+                'pp_syndication_status' => $status,
+                'suburb' => 'Uvongo', 'city' => 'Margate', 'province' => 'kwazulu-natal',
+                'listing_type' => 'sale',
+            ]);
+        };
+
+        foreach (['submitted', 'pending', 'active', ''] as $status) {
+            $this->assertSame(
+                'https://www.privateproperty.co.za/for-sale/kwazulu-natal/margate/uvongo/T5538118',
+                $mk($status)->publicListingUrls()['pp'],
+                "PP url should build for a listing with a pp_ref (status '{$status}')",
+            );
+        }
+
+        // Off-market states suppress the link even with a ref.
+        foreach (['deactivated', 'disabled', 'archived', 'removed', 'expired'] as $status) {
+            $this->assertNull($mk($status)->publicListingUrls()['pp'], "off-market '{$status}' → null");
+        }
+
+        // No ref at all → null (nothing to resolve on PP yet).
+        $this->assertNull(
+            (new Property())->forceFill(['pp_syndication_status' => 'submitted'])->publicListingUrls()['pp'],
+        );
     }
 
     /** M18 — P24-only-active returns P24, PP-only-active returns PP, both-active prefers P24. */
@@ -42,7 +81,8 @@ final class PublicListingUrlTest extends TestCase
         $p24Only = new Property();
         $p24Only->forceFill([
             'p24_ref' => '12345', 'p24_syndication_status' => 'active',
-            'pp_ref'  => 'PP-9', 'pp_syndication_status'  => 'submitted',
+            // No pp_ref → PP has not published this one, so PP url stays null.
+            'pp_ref'  => null, 'pp_syndication_status'  => 'submitted',
             'suburb'  => 'Uvongo', 'city' => 'Margate', 'province' => 'kwazulu-natal',
             'pp_suburb_id' => 999, 'listing_type' => 'sale',
         ]);

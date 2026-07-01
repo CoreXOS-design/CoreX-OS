@@ -22,6 +22,22 @@ class PrivatePropertySyndicationService
     /**
      * Submit a property listing to Private Property.
      */
+    /**
+     * The pp_syndication_status to record after a SUCCESSFUL UpdateListing.
+     *
+     * A listing PP has already published (pp_ref present) stays live on an
+     * update → 'active'; a first-ever submit, before PP has issued a ref, is
+     * 'submitted' (awaiting publish + ref). Regressing an already-published
+     * listing to 'submitted' stranded its status forever, because the
+     * activation-sync job only reconciles rows with NO pp_ref. Public + static
+     * so the decision is unit-testable without the SOAP path (cf. PP-7
+     * PrivatePropertyListingMapper::resolveListingType()).
+     */
+    public static function postSubmitStatus(Property $property): string
+    {
+        return $property->pp_ref ? 'active' : 'submitted';
+    }
+
     public function submitListing(Property $property): array
     {
         $this->client->forAgency($property->agency);
@@ -82,13 +98,21 @@ class PrivatePropertySyndicationService
             ];
         }
 
-        // Success — update property state
+        // Success — update property state. A listing PP has ALREADY published
+        // (pp_ref present) stays live when we UpdateListing it, so it must remain
+        // 'active' — regressing it to 'submitted' stranded the status permanently:
+        // the activation-sync job only reconciles rows with NO pp_ref, so it never
+        // promoted a re-pushed listing back to 'active'. Only a first-ever submit,
+        // before PP has issued a ref, is 'submitted' (awaiting publish + ref).
         $updateData = [
-            'pp_syndication_status'    => 'submitted',
+            'pp_syndication_status'    => self::postSubmitStatus($property),
             'pp_last_submitted_at'     => now(),
             'pp_last_error'            => null,
             'pp_listing_last_synced_at' => now(),
         ];
+        if ($property->pp_ref && empty($property->pp_activated_at)) {
+            $updateData['pp_activated_at'] = now();
+        }
 
         // Check if images were sent (not skipped)
         $hasImages = isset($payload['PhotoUrls']) && is_array($payload['PhotoUrls']) && !empty($payload['PhotoUrls']);

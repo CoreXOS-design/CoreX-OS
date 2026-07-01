@@ -250,9 +250,16 @@ class Property24ListingMapper
         $studies = $countSpaces('Study') + $countSpaces('Office');
         if ($studies > 0) $features['studies'] = (int) $studies;
 
-        // Reception rooms (lounge + dining)
-        $reception = $countSpaces('Lounge') + $countSpaces('Dining Room') + $countSpaces('TV Room');
-        if ($reception > 0) $features['receptionRooms'] = (int) $reception;
+        // Reception rooms — ONLY explicit "Reception Room" spaces. Lounge,
+        // Dining Room and TV Room are deliberately NOT aggregated here: each
+        // already surfaces as its own NAMED room via featureTags (Lounge /
+        // DiningRoom / FamilyTVRoom), so also counting them as "reception rooms"
+        // double-represented them and produced a "Reception Rooms N" the agent
+        // never entered (property 6049: Lounge×1 + Dining×1 → phantom "Reception
+        // Rooms 2"). Emitted UNCONDITIONALLY (incl. 0) so a re-push CLEARS a
+        // stale count left by the old lounge+dining aggregation — P24 retains any
+        // field absent from the payload (same reason internetAccess is always sent).
+        $features['receptionRooms'] = (int) $countSpaces('Reception Room');
 
         // Domestic rooms
         $domestic = $countSpaces('Domestic Room');

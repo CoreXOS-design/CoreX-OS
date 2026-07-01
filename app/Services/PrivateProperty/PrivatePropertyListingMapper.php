@@ -5,10 +5,24 @@ namespace App\Services\PrivateProperty;
 use App\Models\Agency;
 use App\Models\PpSuburb;
 use App\Models\Property;
+use App\Services\Syndication\Concerns\ResolvesPropertyFeatures;
 use Illuminate\Support\Facades\Log;
 
 class PrivatePropertyListingMapper
 {
+    use ResolvesPropertyFeatures;
+
+    /**
+     * PP `Attribute.Value` string for a boolean amenity that is PRESENT.
+     * The WSDL types Value as a plain string, so the on/off representation is
+     * not encoded in the contract. Amenity flags are emitted PRESENT-ONLY (the
+     * attribute is included only when the property has the feature; absent
+     * features are omitted entirely), so only the "yes" value is ever sent.
+     * VERIFIED against the live feed on 2026-07-01 (property 6049). Change here
+     * if PP's accepted value ever differs — it is the single source of truth.
+     */
+    private const ATTR_PRESENT = 'true';
+
     /**
      * Map a CoreX Property to a PP Listing struct matching the WSDL exactly.
      *
@@ -403,6 +417,91 @@ class PrivatePropertyListingMapper
         foreach ($map as $type => $value) {
             if ($value !== '' && $value !== '0' || in_array($type, ['Bedrooms', 'Bathrooms', 'Garages'])) {
                 $attrs[] = ['AttributeType' => $type, 'Value' => $value];
+            }
+        }
+
+        // --- Feature attributes -------------------------------------------
+        // Every value on the LEFT is a verified member of the PP `AttributeType`
+        // enum (storage/pp-attributetype-enum.txt, 70 values, from the live
+        // WSDL). PP's own misspellings are preserved verbatim (Satelite,
+        // Jaccuzzi, ElectrictyIncluded) — an unrecognised type is rejected by
+        // the feed. Anything CoreX carries with NO clean PP attribute is skipped,
+        // never guessed (mirrors the P24 mapper discipline).
+
+        // Room-count attributes, sourced from the structured spaces list.
+        $counts = [
+            'Lounges'        => $this->countSpaces($property, 'Lounge'),
+            'DiningAreas'    => $this->countSpaces($property, 'Dining Room'),
+            'Family_TV_Room' => $this->countSpaces($property, 'TV Room'),
+            'Study'          => $this->countSpaces($property, 'Study') + $this->countSpaces($property, 'Office'),
+            'Parking'        => $this->countSpaces($property, 'Parking'),
+            'Carports'       => $this->countSpaces($property, 'Carport'),
+            'StaffQuarters'  => $this->countSpaces($property, 'Domestic Room'),
+            'Kitchen'        => $this->countSpaces($property, 'Kitchen'),
+            'Entrance_hall'  => $this->countSpaces($property, 'Entrance Hall'),
+        ];
+        foreach ($counts as $type => $n) {
+            if ($n > 0) {
+                $attrs[] = ['AttributeType' => $type, 'Value' => (string) (int) $n];
+            }
+        }
+
+        // Presence flags, sourced from the GLOBAL feature set (never room-only)
+        // plus, for a few amenities, the presence of a matching space.
+        $feats = $this->globalFeatures($property);
+        $has = fn (string ...$names) => !empty(array_intersect(
+            array_map('strtolower', $feats),
+            array_map('strtolower', $names)
+        ));
+        $hasSpace = fn (string $type) => $this->countSpaces($property, $type) > 0;
+
+        $flags = [
+            'Pool'             => $has('Pool', 'Communal Pool', 'Indoor Pool', 'Splash Pool') || $hasSpace('Pool'),
+            'Garden'           => $has('Garden', 'Landscaped', 'Garden Services') || $hasSpace('Garden'),
+            'Flatlet'          => $has('Flatlet') || $hasSpace('Flatlet'),
+            'Patio'            => $has('Patio') || $hasSpace('Patio'),
+            'Balcony'          => $has('Balcony') || $hasSpace('Balcony'),
+            'Lapa'             => $has('Lapa') || $hasSpace('Lapa'),
+            'Scullery'         => $has('Scullery') || $hasSpace('Scullery'),
+            'Pantry'           => $has('Pantry') || $hasSpace('Pantry'),
+            'Guest_Toilet'     => $has('Guest Toilet') || $hasSpace('Guest Toilet'),
+            'Laundry'          => $has('Laundry') || $hasSpace('Laundry'),
+            'Garden_Cottage'   => $has('Garden Cottage', 'Wendy House') || $hasSpace('Wendy House'),
+            'Fireplace'        => $has('Fireplace'),
+            'Built_in_Braai'   => $has('Built-In Braai', 'Built-in Braai'),
+            'Deck'             => $has('Deck'),
+            'Storage'          => $has('Storage', 'Storeroom'),
+            'Borehole'         => $has('Borehole'),
+            'IrrigationSystem' => $has('Irrigation', 'Sprinklers', 'Irrigation System'),
+            'PetsAllowed'      => $has('Pet Friendly', 'Pets Allowed'),
+            'Furnished'        => $has('Furnished'),
+            'Aircon'           => $has('Air Conditioned', 'Aircon', 'Air Conditioning'),
+            'Alarm'            => $has('Alarm System', 'Alarm'),
+            'Intercom'         => $has('Intercom'),
+            'Satelite'         => $has('Satellite Dish', 'Satellite'),
+            'TV'               => $has('TV Port', 'TV'),
+            'SeaView'          => $has('Sea View'),
+            'ScenicView'       => $has('Scenic View', 'Mountain View', 'Bush View', 'Garden View', 'City View', 'River View'),
+            'WalkInCloset'     => $has('Walk in Closet', 'Walk-in Closet'),
+            'BuiltInCupboards' => $has('Built-in Cupboards', 'Built-In Cupboards'),
+            'HandicapAvailable' => $has('Wheelchair Friendly', 'Handicap Access'),
+            'AccessGate'       => $has('Electric Gate', 'Security Gate', 'Access Gate', 'Boomed Area', 'Gated Community'),
+            'Electric_Fencing' => $has('Electric Fence', 'Electric Fencing'),
+            'Fence'            => $has('Totally Fenced', 'Partially Fenced', 'Fenced', 'Totally Walled', 'Perimeter Wall'),
+            'SecurityPost'     => $has('Guard House', '24 Hour Guard', 'Security Post', 'Security Complex', 'Security Estate'),
+            'TennisCourt'      => $has('Tennis Court'),
+            'SquashCourt'      => $has('Squash Court'),
+            'Clubhouse'        => $has('Clubhouse'),
+            'Gym'              => $has('Gym'),
+            'Golf'             => $has('Golf', 'Golf Estate'),
+            'Jaccuzzi'         => $has('Jacuzzi', 'Jacuzzi Bath', 'Jaccuzzi'),
+            'Jetty_Berth'      => $has('Jetty', 'Berth', 'Jetty/Berth'),
+            'WaterIncluded'    => $has('Water Included'),
+            'ElectrictyIncluded' => $has('Electricity Included', 'Electricty Included'),
+        ];
+        foreach ($flags as $type => $present) {
+            if ($present) {
+                $attrs[] = ['AttributeType' => $type, 'Value' => self::ATTR_PRESENT];
             }
         }
 
