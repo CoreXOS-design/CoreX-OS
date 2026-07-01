@@ -201,8 +201,10 @@ Three new console commands, all queued, all idempotent via `notification_dispatc
    - For each Property with mandate_expires_at within `property.mandate_expiring` threshold → fire.
    - One pass, walks all active properties, batched by listing agent.
 
-2. **`notifications:scan-contacts`** — hourly.
-   - FICA-missing, FICA-expiring, no-follow-up, birthday-today.
+2. **`notifications:scan-contacts`** — REMOVED (2026-07-01).
+   - Its only remaining job (birthday-today) now ships as a "Birthdays today"
+     section in the 06:30 daily digest (`corex:calendar:send-digests`) so users
+     get one email, not one per birthday. FICA-missing was retired earlier.
 
 3. **`notifications:scan-deals`** — every 30 min.
    - Stalled-stage detection uses `deals.status_changed_at` (must exist; if not, add migration — small, additive).

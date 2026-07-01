@@ -168,8 +168,10 @@ Schedule::job(new \App\Jobs\OversightDigestJob())->hourly()->withoutOverlapping(
 
 // ── Pillar Notifications (notification-preferences spec) ──
 Schedule::command('notifications:scan-properties')->everyThirtyMinutes()->withoutOverlapping();
-Schedule::command('notifications:scan-contacts')->hourly()->withoutOverlapping();
 Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOverlapping();
+// Contact birthdays are no longer scanned per-contact — they are delivered as a
+// single "Birthdays today" section in the 06:30 daily digest below (one email
+// per user, never one email per birthday). See SendCalendarDigests.
 
 // ── Calendar Event Classes ──
 Schedule::command('corex:calendar:send-digests')->dailyAt('06:30')->withoutOverlapping()->onOneServer();

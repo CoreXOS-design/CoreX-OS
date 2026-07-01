@@ -7,22 +7,31 @@
 <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
 
     <div style="background-color: #1a365d; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 20px;">Calendar Digest</h1>
+        <h1 style="color: #ffffff; margin: 0; font-size: 20px;">Daily Digest</h1>
         <p style="color: #a0aec0; margin: 4px 0 0; font-size: 13px;">{{ $dateLine }}</p>
     </div>
+
+    @php $calTotal = $redCount + $amberCount + $greenCount; @endphp
 
     <div style="padding: 24px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p style="margin: 0 0 16px;">Hi {{ $greeting }},</p>
 
-        <p style="margin: 0 0 20px;">
-            Your calendar digest:
-            @if($redCount)<strong style="color: #e53e3e;">{{ $redCount }} red</strong>@endif
-            @if($redCount && ($amberCount || $greenCount)), @endif
-            @if($amberCount)<strong style="color: #d69e2e;">{{ $amberCount }} amber</strong>@endif
-            @if($amberCount && $greenCount), @endif
-            @if($greenCount)<strong style="color: #38a169;">{{ $greenCount }} green</strong>@endif
-            {{ ($redCount + $amberCount + $greenCount) === 1 ? 'item' : 'items' }} requiring attention.
-        </p>
+        @if($calTotal)
+            <p style="margin: 0 0 20px;">
+                Your calendar digest:
+                @if($redCount)<strong style="color: #e53e3e;">{{ $redCount }} red</strong>@endif
+                @if($redCount && ($amberCount || $greenCount)), @endif
+                @if($amberCount)<strong style="color: #d69e2e;">{{ $amberCount }} amber</strong>@endif
+                @if($amberCount && $greenCount), @endif
+                @if($greenCount)<strong style="color: #38a169;">{{ $greenCount }} green</strong>@endif
+                {{ $calTotal === 1 ? 'item' : 'items' }} requiring attention.@if($birthdayCount)
+                Plus <strong style="color: #805ad5;">{{ $birthdayCount }} {{ $birthdayCount === 1 ? 'birthday' : 'birthdays' }}</strong> today.@endif
+            </p>
+        @elseif($birthdayCount)
+            <p style="margin: 0 0 20px;">
+                You have <strong style="color: #805ad5;">{{ $birthdayCount }} {{ $birthdayCount === 1 ? 'birthday' : 'birthdays' }}</strong> to celebrate today.
+            </p>
+        @endif
 
         @foreach(['red' => ['#e53e3e', '#fff5f5', '#feb2b2'], 'amber' => ['#d69e2e', '#fffff0', '#fefcbf'], 'green' => ['#38a169', '#f0fff4', '#c6f6d5']] as $colour => [$textColour, $bgColour, $borderColour])
             @if(!empty($groupedEvents[$colour]))
@@ -51,6 +60,22 @@
                 </div>
             @endif
         @endforeach
+
+        @if($birthdayCount)
+            <div style="margin-bottom: 20px;">
+                <div style="background-color: #805ad5; color: #fff; padding: 8px 14px; border-radius: 4px 4px 0 0; font-size: 13px; font-weight: bold; text-transform: uppercase;">
+                    &#127874; Birthdays today &mdash; {{ $birthdayCount }} {{ $birthdayCount === 1 ? 'contact' : 'contacts' }}
+                </div>
+                <div style="background-color: #faf5ff; border: 1px solid #e9d8fd; border-top: none; border-radius: 0 0 4px 4px;">
+                    @foreach($birthdays as $b)
+                        <div style="padding: 10px 14px; border-bottom: 1px solid #e9d8fd; font-size: 13px;">
+                            <a href="{{ url($b['action_url']) }}" style="font-weight: 600; color: #553c9a; text-decoration: none;">{{ $b['name'] }}</a>
+                            <span style="color: #718096; font-size: 12px;"> &bull; wish them a happy birthday</span>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
 
         <div style="text-align: center; margin: 24px 0 16px;">
             <a href="{{ url('/corex/command-center/calendar') }}" style="display: inline-block; background-color: #1a365d; color: #ffffff; padding: 12px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px;">
