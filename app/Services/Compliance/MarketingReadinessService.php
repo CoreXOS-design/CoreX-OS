@@ -535,7 +535,12 @@ class MarketingReadinessService
             'province' => $property->province,
             'price' => $property->price,
             'property_type' => $property->property_type,
-            'erf_size' => $property->erf_size_m2,
+            // erf_size is NEVER compulsory. Sectional-title units (e.g. a flat
+            // in a complex) legitimately have no erf size, and even freehold
+            // stock must not be blocked from marketing on a missing erf figure.
+            // It was falsely blocking sectional-title marketing ("Missing: erf
+            // size" on the Listing details gate). Erf size is optional for ALL
+            // property types — do not re-add it to this required set.
         ];
 
         $missing = [];

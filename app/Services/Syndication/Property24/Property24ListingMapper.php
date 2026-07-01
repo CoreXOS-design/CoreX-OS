@@ -14,6 +14,17 @@ use Illuminate\Support\Facades\Storage;
 class Property24ListingMapper
 {
     /**
+     * P24 rejects a single submit whose images together exceed 60MB of data.
+     * We pack to a budget below that hard cap, measured on the base64-encoded
+     * size (the bytes actually transmitted) so the request stays under the cap
+     * regardless of whether P24 counts raw or encoded bytes — with headroom for
+     * the rest of the JSON payload. Only large galleries ever hit this; a set
+     * that already fits is sent untouched at full quality.
+     */
+    private const P24_MAX_IMAGE_PAYLOAD_BYTES     = 60 * 1024 * 1024;
+    private const P24_IMAGE_PAYLOAD_BUDGET_BYTES   = 57 * 1024 * 1024;
+
+    /**
      * Map a CoreX Property to a P24 Listing payload matching the v53 API schema.
      *
      * @throws Property24ConfigurationException when the property's branch/agency
@@ -864,6 +875,9 @@ class Property24ListingMapper
 
         $images = array_slice($allImages, 0, $maxPhotos);
 
+        // Read the raw bytes for every resolvable image first (one disk read
+        // each) so the payload can be size-checked before base64 encoding.
+        $raw = [];
         foreach ($images as $imagePath) {
             if (empty($imagePath)) continue;
 
@@ -873,16 +887,144 @@ class Property24ListingMapper
                 $bytes = Storage::disk('public')->get($diskPath);
                 if (empty($bytes)) continue;
 
-                $photos[] = [
-                    'bytes'           => base64_encode($bytes),
-                    'mimeContentType' => Storage::disk('public')->mimeType($diskPath) ?: 'image/jpeg',
-                    'caption'         => $captionMap[$imagePath] ?? null,
-                    'isFloorPlan'     => false,
+                $raw[] = [
+                    'bytes'   => $bytes,
+                    'mime'    => Storage::disk('public')->mimeType($diskPath) ?: 'image/jpeg',
+                    'caption' => $captionMap[$imagePath] ?? null,
                 ];
             }
         }
 
+        // P24 hard-caps a submit at 60MB of image data. If the set overflows
+        // the budget, downscale the oversized images to their fair share so the
+        // whole gallery fits — never drop a photo, never fail the submit.
+        $raw = $this->fitPhotosToPayloadBudget($raw, $property);
+
+        foreach ($raw as $entry) {
+            $photos[] = [
+                'bytes'           => base64_encode($entry['bytes']),
+                'mimeContentType' => $entry['mime'],
+                'caption'         => $entry['caption'],
+                'isFloorPlan'     => false,
+            ];
+        }
+
         return $photos;
+    }
+
+    /**
+     * Keep a property's combined photo payload under the P24 60MB cap. Budgets
+     * on the base64-encoded size (what is actually transmitted); when the set
+     * already fits, returns it untouched (the common case — no re-encoding, full
+     * quality). When it overflows, gives every photo an equal share of the
+     * budget and re-encodes only those over their share, so all photos survive.
+     *
+     * @param array<int,array{bytes:string,mime:string,caption:?string}> $raw
+     * @return array<int,array{bytes:string,mime:string,caption:?string}>
+     */
+    private function fitPhotosToPayloadBudget(array $raw, Property $property): array
+    {
+        if (empty($raw)) {
+            return $raw;
+        }
+
+        // Exact standard-base64 encoded length of a raw byte string.
+        $b64Len = static fn(string $b): int => intdiv(strlen($b) + 2, 3) * 4;
+
+        $total = array_sum(array_map(fn($e) => $b64Len($e['bytes']), $raw));
+        if ($total <= self::P24_IMAGE_PAYLOAD_BUDGET_BYTES) {
+            return $raw;
+        }
+
+        // Fair per-image share of the budget (in base64 bytes), converted to a
+        // raw-byte target the GD encoder packs to.
+        $perImageB64 = intdiv(self::P24_IMAGE_PAYLOAD_BUDGET_BYTES, count($raw));
+        $rawTarget   = intdiv($perImageB64 * 3, 4);
+        $compressed  = 0;
+
+        foreach ($raw as $i => $entry) {
+            if ($b64Len($entry['bytes']) <= $perImageB64) {
+                continue; // already within its share — leave at full quality
+            }
+
+            $shrunk = $this->compressImageToBytes($entry['bytes'], $rawTarget);
+            if ($shrunk !== null) {
+                $raw[$i]['bytes'] = $shrunk;
+                $raw[$i]['mime']  = 'image/jpeg';
+                $compressed++;
+            }
+        }
+
+        $after = array_sum(array_map(fn($e) => $b64Len($e['bytes']), $raw));
+
+        try {
+            Log::channel('property24')->warning(
+                'P24 image payload exceeded 60MB cap — photos downscaled to fit',
+                [
+                    'property_id'      => $property->id,
+                    'photos'           => count($raw),
+                    'compressed'       => $compressed,
+                    'before_b64_bytes' => $total,
+                    'after_b64_bytes'  => $after,
+                    'budget_bytes'     => self::P24_IMAGE_PAYLOAD_BUDGET_BYTES,
+                ]
+            );
+        } catch (\Throwable $e) {
+            // never block syndication on a log write
+        }
+
+        return $raw;
+    }
+
+    /**
+     * Re-encode an image via GD to at most $maxBytes (raw JPEG). Steps quality
+     * down at full resolution first, then progressively downscales, until it
+     * fits. Returns the smallest result achieved (guaranteed under budget for
+     * any real photo); returns null only when GD cannot decode the source, in
+     * which case the caller keeps the original bytes.
+     */
+    private function compressImageToBytes(string $bytes, int $maxBytes): ?string
+    {
+        if ($maxBytes < 1 || ! function_exists('imagecreatefromstring')) {
+            return null;
+        }
+
+        $src = @imagecreatefromstring($bytes);
+        if (! $src instanceof \GdImage) {
+            return null;
+        }
+
+        $w = imagesx($src);
+        $h = imagesy($src);
+        $best = null;
+
+        foreach ([1.0, 0.8, 0.6, 0.45, 0.33, 0.25] as $scale) {
+            $tw = max(1, (int) round($w * $scale));
+            $th = max(1, (int) round($h * $scale));
+
+            $dst = ($scale === 1.0) ? $src : imagecreatetruecolor($tw, $th);
+            if ($dst !== $src) {
+                imagecopyresampled($dst, $src, 0, 0, 0, 0, $tw, $th, $w, $h);
+            }
+
+            for ($q = 80; $q >= 40; $q -= 10) {
+                ob_start();
+                imagejpeg($dst, null, $q);
+                $out = (string) ob_get_clean();
+                $best = $out; // each step is smaller than the last
+
+                if (strlen($out) <= $maxBytes) {
+                    if ($dst !== $src) imagedestroy($dst);
+                    imagedestroy($src);
+                    return $out;
+                }
+            }
+
+            if ($dst !== $src) imagedestroy($dst);
+        }
+
+        imagedestroy($src);
+        return $best; // smallest achievable — still far below the original
     }
 
     /**

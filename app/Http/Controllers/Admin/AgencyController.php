@@ -227,6 +227,7 @@ class AgencyController extends Controller
             'pp_sandbox'       => 'nullable|boolean',
             'pp_image_base_url' => 'nullable|string|max:255',
             'pp_webhook_secret' => 'nullable|string|max:255',
+            'pp_max_photos'     => 'nullable|integer|min:1|max:200',
             'logo'            => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             'remove_logo'     => 'nullable|boolean',
         ]);

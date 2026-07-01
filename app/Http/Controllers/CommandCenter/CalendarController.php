@@ -8,6 +8,7 @@ use App\Models\CommandCenter\CalendarEventClassSetting;
 use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Contact;
 use App\Models\Property;
+use App\Services\CommandCenter\Calendar\CalendarEventCreator;
 use App\Services\CommandCenter\Calendar\CalendarThresholdResolver;
 use App\Services\CommandCenter\Calendar\CalendarVisibilityResolver;
 use App\Services\CommandCenter\CalendarEventService;
@@ -29,6 +30,7 @@ class CalendarController extends Controller
         private CalendarEventService $service,
         private CalendarThresholdResolver $thresholdResolver,
         private CalendarVisibilityResolver $visibilityResolver,
+        private CalendarEventCreator $creator,
     ) {}
 
     public function index(Request $request)
@@ -994,52 +996,9 @@ class CalendarController extends Controller
             'deal_id'           => 'nullable|integer',
         ]);
 
-        // Resolve property_ids from either property_ids[] array or single property_id
-        $propertyIds = $data['property_ids'] ?? ($data['property_id'] ? [$data['property_id']] : []);
-        $data['_resolved_property_ids'] = $propertyIds;
-
-        // Class-config cap enforcement: reject multiple properties for single-property classes
-        if (count($propertyIds) > 1) {
-            $classConfig = CalendarEventClassSetting::withoutGlobalScopes()
-                ->where('event_class', $data['category'])
-                ->where(fn($q) => $q->where('agency_id', $user->effectiveAgencyId())->orWhereNull('agency_id'))
-                ->orderByRaw('agency_id IS NULL')
-                ->first();
-            if ($classConfig && !$classConfig->allow_multiple_properties) {
-                $propertyIds = [array_shift($propertyIds)]; // Keep only first
-                $data['_resolved_property_ids'] = $propertyIds;
-            }
-        }
-
-        // For multi-property events: append count to title if user didn't already
-        if (count($propertyIds) > 1 && !str_contains($data['title'], 'properties')) {
-            $data['title'] = $data['title'] . ' — ' . count($propertyIds) . ' properties';
-        }
-
-        $event = DB::transaction(function () use ($data, $user, $propertyIds) {
-            $event = CalendarEvent::create([
-                'event_type'    => 'manual',
-                'category'      => $data['category'],
-                'title'         => $data['title'],
-                'description'   => ($data['description'] ?? '') ?: null,
-                'event_date'    => $data['event_date'],
-                'end_date'      => $data['end_date'] ?: null,
-                'all_day'       => Carbon::parse($data['event_date'])->format('H:i:s') === '00:00:00',
-                'status'        => 'pending',
-                'priority'      => 'normal',
-                'source_type'   => 'manual',
-                'user_id'       => $user->id,
-                'created_by_id' => $user->id,
-                'agency_id'     => $user->agency_id ?: 1,
-                'branch_id'     => $user->branch_id,
-                'property_id'   => $data['property_id'] ?? null,
-                'contact_id'    => ($data['contact_ids'] ?? [])[0] ?? null,
-            ]);
-
-            $this->service->syncManualEventLinks($event, $data, $user);
-
-            return $event;
-        });
+        // Create + link + invite through the shared CalendarEventCreator so the
+        // web cockpit and the v1 mobile API build events identically.
+        $event = $this->creator->create($data, $user);
 
         if ($request->wantsJson()) {
             return response()->json($event, 201);
@@ -1138,7 +1097,7 @@ class CalendarController extends Controller
 
             // Re-sync pivot links
             if (array_key_exists('property_id', $data) || array_key_exists('contact_ids', $data) || array_key_exists('attendees', $data) || array_key_exists('deal_id', $data)) {
-                $this->service->syncManualEventLinks($calendarEvent, $data, $user);
+                $this->creator->syncEventLinks($calendarEvent, $data, $user);
             }
 
             // Audit log for non-reschedule edits
@@ -1500,20 +1459,6 @@ class CalendarController extends Controller
     }
 
     /**
-     * Sync calendar_event_links for a manual event.
-     * Deletes existing user-created links and re-inserts from provided data.
-     *
-     * @deprecated Logic moved to CalendarEventService::syncManualEventLinks
-     * so the web + mobile add-event flows share one engine. Retained only
-     * as a thin delegator for any external caller; new code calls the
-     * service directly.
-     */
-    private function syncEventLinks(CalendarEvent $event, array $data, $user): void
-    {
-        $this->service->syncManualEventLinks($event, $data, $user);
-    }
-
-    /**
      * Return ALL linked contacts for a property — used by the create-event
      * panel's property-select auto-fill.
      *
@@ -1541,17 +1486,112 @@ class CalendarController extends Controller
      */
     public function propertyOwners(Request $request, int $propertyId)
     {
-        return response()->json($this->service->propertyOwners($propertyId));
+        $property = \App\Models\Property::find($propertyId);
+        if (!$property) {
+            return response()->json([]);
+        }
+
+        // Map a free-form pivot.role to the attendee_role enum we save into
+        // calendar_event_links. The enum values are validated server-side in
+        // store()/update() (see attendees.*.role validation). Anything that
+        // doesn't fall into the seller-side or buyer-side bucket is the
+        // neutral 'attendee' — never excluded.
+        $toAttendeeRole = static function (?string $pivotRole): string {
+            $r = strtolower(trim((string) $pivotRole));
+            return match (true) {
+                in_array($r, ['seller', 'owner', 'landlord', 'lessor'], true) => 'seller_contact',
+                in_array($r, ['buyer', 'tenant', 'lessee'], true)             => 'buyer_contact',
+                default                                                       => 'attendee',
+            };
+        };
+
+        // Human-readable label for the chip. Capitalises the raw pivot.role
+        // ('owner' -> 'Owner'). Blank pivots get null so the chip can render
+        // the neutral default rather than a fabricated label.
+        $toRoleLabel = static function (?string $pivotRole): ?string {
+            $r = trim((string) $pivotRole);
+            return $r === '' ? null : ucfirst(strtolower($r));
+        };
+
+        // Raw join — every WHERE clause visible in one SELECT statement.
+        // No global scopes apply (DB::table bypasses Eloquent). The cross-
+        // agency check (c.agency_id = property.agency_id) is belt-and-
+        // braces — a single agency owns both sides of the link by
+        // construction, but the explicit predicate kills any future
+        // cross-agency pivot rows dead.
+        $rows = DB::table('contact_property as cp')
+            ->join('contacts as c', 'c.id', '=', 'cp.contact_id')
+            ->where('cp.property_id', $property->id)
+            ->whereNull('c.deleted_at')
+            ->where('c.agency_id', $property->agency_id)
+            ->orderBy('c.id')
+            ->get(['c.id', 'c.first_name', 'c.last_name', 'c.phone', 'c.email', 'cp.role']);
+
+        return response()->json($rows->map(fn ($r) => [
+            'id'         => (int) $r->id,
+            'first_name' => $r->first_name,
+            'last_name'  => $r->last_name,
+            'name'       => trim(($r->first_name ?? '') . ' ' . ($r->last_name ?? '')) ?: ('Contact #' . $r->id),
+            'phone'      => $r->phone,
+            'email'      => $r->email,
+            'type'       => 'contact',
+            'role'       => $toAttendeeRole($r->role ?? null),
+            'role_label' => $toRoleLabel($r->role ?? null),
+        ]));
     }
 
     /**
      * Search attendees — returns both contacts AND agency users (agents).
-     * Delegates to the shared engine so web + mobile search identically.
      */
     public function searchAttendees(Request $request)
     {
-        return response()->json(
-            $this->service->searchAttendees($request->user(), (string) $request->input('q', ''))
-        );
+        $user = $request->user();
+        $q = trim((string) $request->input('q', ''));
+        if (mb_strlen($q) < 2) {
+            return response()->json([]);
+        }
+
+        $agencyId = $user->agency_id ?: 1;
+
+        // Search contacts — AT-131 canonical (all identifiers via child tables +
+        // relevance + newest-first). 'type'=>'contact' is the attendee KIND
+        // (contact vs agent); the contact's classification is 'contact_type'.
+        $contacts = \App\Models\Contact::query()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->with(['phones', 'emails', 'type', 'agent'])
+            ->search($q)
+            ->limit(7)
+            ->get()
+            ->map(fn ($c) => [
+                'id'           => $c->id,
+                'name'         => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
+                'phone'        => $c->phone,
+                'email'        => $c->email,
+                'identifier'   => $c->matchedIdentifier($q),
+                'contact_type' => $c->type?->name,
+                'type'         => 'contact',
+            ]);
+
+        // Search users (agents) — exclude the current user
+        $users = \App\Models\User::query()
+            ->where('agency_id', $agencyId)
+            ->where('id', '!=', $user->id)
+            ->whereNull('deleted_at')
+            ->where(function ($query) use ($q) {
+                $query->where('name', 'like', "%{$q}%")
+                      ->orWhere('email', 'like', "%{$q}%");
+            })
+            ->limit(5)
+            ->get(['id', 'name', 'email'])
+            ->map(fn ($u) => [
+                'id'    => $u->id,
+                'name'  => $u->name,
+                'phone' => null,
+                'email' => $u->email,
+                'type'  => 'agent',
+            ]);
+
+        return response()->json($contacts->concat($users)->values());
     }
 }
