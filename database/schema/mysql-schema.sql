@@ -208,6 +208,7 @@ CREATE TABLE `agencies` (
   `communication_first_poll_days` smallint unsigned DEFAULT NULL,
   `outreach_queue_expiry_hours` smallint unsigned DEFAULT NULL,
   `outreach_queue_daily_cap_per_agent` smallint unsigned DEFAULT NULL,
+  `restrict_consent_outreach_to_full_status` tinyint(1) NOT NULL DEFAULT '0' COMMENT 'AT-142 — when on, only full-status practitioners/principals may send consent-outreach templates',
   `ai_monthly_budget_zar` decimal(10,2) NOT NULL DEFAULT '1000.00',
   `ai_budget_warning_pct` tinyint unsigned NOT NULL DEFAULT '80',
   `ai_budget_hard_cap_pct` tinyint unsigned NOT NULL DEFAULT '110',
@@ -12494,3 +12495,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (909,'2026_07_12_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (911,'2026_07_13_000001_create_comms_access_requests_table',190);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (913,'2026_07_14_000001_add_impersonator_id_to_contact_access_log',191);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (915,'2026_07_15_000001_add_communication_first_poll_days_to_agencies',192);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (916,'2026_07_20_000001_add_restrict_consent_outreach_to_full_status_to_agencies',193);

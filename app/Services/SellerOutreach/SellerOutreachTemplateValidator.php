@@ -26,6 +26,8 @@ final class SellerOutreachTemplateValidator
         'seller_name', 'seller_surname', 'property_address', 'property_suburb', 'property_town',
         'property_type', 'property_beds',
         'agent_name', 'agent_phone',
+        // AT-142 — admin-managed PPRA designation (users.designation).
+        'agent_designation',
         'agency_name', 'agency_ppra_no', 'agency_contact',
         // AT-48 — company FFC, sending-agent FFC, branch-then-company tel.
         'agency_ffc', 'agent_ffc', 'branch_or_company_tel',

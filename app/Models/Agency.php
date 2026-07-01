@@ -156,6 +156,7 @@ class Agency extends Model
         'communication_first_poll_days', // AT-122 — first-poll IMAP backfill window override (days)
         'outreach_queue_expiry_hours', // AT-117 §8 — surfaced-row lifetime (null = end of day)
         'outreach_queue_daily_cap_per_agent', // AT-117 §8 — per-agent daily queue cap (null = none)
+        'restrict_consent_outreach_to_full_status', // AT-142 — restrict consent outreach to full-status practitioners (default off)
         'prospecting_pitch_temp_lock_minutes',
         'is_active',
         'is_demo',
@@ -307,6 +308,7 @@ class Agency extends Model
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
         'outreach_send_window' => 'array', // AT-117 §4a — send-window config (null => defaults)
+        'restrict_consent_outreach_to_full_status' => 'boolean', // AT-142 — consent-outreach full-status restriction (default off)
         'outreach_queue_expiry_hours' => 'integer', // AT-117 §8
         'outreach_queue_daily_cap_per_agent' => 'integer', // AT-117 §8
         'viewing_pack_redaction_dpi' => 'integer', // AT-107 Step 5b
