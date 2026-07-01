@@ -188,9 +188,14 @@ TXT,
             // {{agent_name}}→{agent_name}; {{property.address}}→{property_address}
             // (the mandatory linked-property anchor — the blank-address gate in
             // SellerOutreachComposerService blocks any send where this is empty);
-            // {{suburb}}→{property_suburb}. Each carries the mandatory {opt_out_link}
-            // footer (AT-49). A, B, D, E ship ACTIVE; C (buyer-led) ships INACTIVE
-            // pending a separate buyer-feed audit.
+            // {{suburb}}→{property_suburb}. AT-142: the hardcoded "Full Status
+            // Property Practitioner" is replaced by {agent_designation} (admin-
+            // managed users.designation) so the message states the agent's REAL
+            // designation truthfully; the composer blocks a send when that
+            // designation is blank (no_designation) or, if the agency restricts
+            // consent outreach to full-status, when the agent is not full-status.
+            // Each carries the mandatory {opt_out_link} footer (AT-49). A, B, D, E
+            // ship ACTIVE; C (buyer-led) ships INACTIVE pending a buyer-feed audit.
             [
                 'name' => 'Complimentary Services — Homeowner Intro',
                 'is_active' => true,
@@ -200,7 +205,7 @@ TXT,
                 'body' => <<<'TXT'
 Good day, {seller_surname}.
 
-I hope you're doing well. My name is {agent_name}, a Full Status Property Practitioner (PPRA registered) with {agency_name}. I'm reaching out regarding your property at {property_address}.
+I hope you're doing well. My name is {agent_name}, a {agent_designation} (PPRA registered) with {agency_name}. I'm reaching out regarding your property at {property_address}.
 
 From time to time I share complimentary property-related services with homeowners in {property_suburb} — market insights, a market-related valuation, professional photography and video, and guidance on selling or renting in the current market.
 
@@ -210,7 +215,7 @@ Wishing you a wonderful day.
 
 Kind regards,
 {agent_name}
-Full Status Property Practitioner | PPRA Registered
+{agent_designation} | PPRA Registered
 {agency_name}
 Manage your preferences or opt out anytime: {opt_out_link}
 TXT,
@@ -232,7 +237,7 @@ If you'd like me to be in touch by WhatsApp, SMS or email, reply OPT IN. If you'
 
 Kind regards,
 {agent_name}
-Full Status Property Practitioner | PPRA Registered
+{agent_designation} | PPRA Registered
 {agency_name}
 Manage your preferences or opt out anytime: {opt_out_link}
 TXT,
@@ -248,7 +253,7 @@ TXT,
                 'body' => <<<'TXT'
 Good day, {seller_surname}. I hope you're doing well.
 
-My name is {agent_name}, a Full Status Property Practitioner (PPRA registered) with {agency_name}. I'm reaching out regarding your property at {property_address}, as we're currently working with buyers looking in {property_suburb} — and your home is the kind some of them have in mind.
+My name is {agent_name}, a {agent_designation} (PPRA registered) with {agency_name}. I'm reaching out regarding your property at {property_address}, as we're currently working with buyers looking in {property_suburb} — and your home is the kind some of them have in mind.
 
 With your permission, I'd love to share what buyers are looking for near you, along with a market-related valuation and our marketing, photography and video services.
 
@@ -256,7 +261,7 @@ If you'd be happy for me to be in touch by WhatsApp, SMS or email, reply OPT IN.
 
 Kind regards,
 {agent_name}
-Full Status Property Practitioner | PPRA Registered
+{agent_designation} | PPRA Registered
 {agency_name}
 Manage your preferences or opt out anytime: {opt_out_link}
 TXT,
@@ -298,7 +303,7 @@ Happy to receive these by WhatsApp, SMS or email? Reply OPT IN. Prefer not to? R
 
 Kind regards,
 {agent_name}
-Full Status Property Practitioner | PPRA Registered
+{agent_designation} | PPRA Registered
 {agency_name}
 Manage your preferences or opt out anytime: {opt_out_link}
 TXT,
