@@ -10,6 +10,7 @@ use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Models\SellerOutreach\SellerOutreachTemplate;
 use App\Models\User;
 use App\Services\CandidatePractitionerService;
+use App\Services\PropertyMatchScoringService;
 use App\Services\Prospecting\ProspectingConfigurationService;
 use App\Services\Prospecting\ProspectingIntelligenceService;
 use App\Support\SellerOutreach\OutreachAddress;
@@ -33,6 +34,7 @@ final class SellerOutreachComposerService
         private readonly ProspectingConfigurationService $config,
         private readonly MarketingConsentService $marketingConsent,
         private readonly CandidatePractitionerService $practitioners,
+        private readonly PropertyMatchScoringService $buyerDemand,
     ) {}
 
     public function composeContext(
@@ -150,6 +152,27 @@ final class SellerOutreachComposerService
             }
         }
 
+        // Zero-buyer send-gate (AT-145, audit AT-144). A template that makes a
+        // per-property active-buyer claim carries the {matching_buyer_count}
+        // token; that number is the CANONICAL countable active-buyer count for
+        // the linked property (buildMergeFields). Never ship such a claim when
+        // the true count is 0 — asserting a buyer who does not exist is a CPA
+        // s41 misrepresentation (the exact live exposure the audit found on id 3).
+        //
+        // Fires ONLY in linked-property mode: in address-only mode
+        // matching_buyer_count is '' (no property type/beds/price to match), the
+        // {?matching_buyer_count} segment collapses, and no buyer claim is made —
+        // so there is nothing false to block. Content-driven on the token's
+        // presence (a template that omits it, e.g. the area-update variants, is
+        // unaffected). Same mechanism as no_address / no_designation — one
+        // validationIssue honoured by the sender (isSendable) AND both controller
+        // surfaces (submit/queue).
+        if ($property !== null
+            && str_contains($bodyTemplate, '{matching_buyer_count}')
+            && ($mergeFields['__matching_buyer_count'] ?? null) === 0) {
+            $validationIssues['no_buyers'] = 'This template states you have active buyers matching this property, but there are currently 0 matching buyers for it. Choose an area-update template, or send once a buyer matches — an active-buyer claim cannot be sent when the true count is zero.';
+        }
+
         // AT-49 — block on the opt-out flag OR an identifier-level suppression
         // (the latter catches a re-imported contact with no flag set yet).
         $optOutBlocks = $contact->messaging_opt_out_at !== null
@@ -246,37 +269,27 @@ final class SellerOutreachComposerService
                 ->activeBuyers;
         }
 
-        // matching = subset of the town buyers (when we have a town) who also
-        // match property_type AND bedroom AND price_band. Without a town we
-        // can't honestly attribute "matching" to a place — return 0.
+        // AT-145 — the per-property active-buyer CLAIM count is now the
+        // CANONICAL figure, NOT the town∩type∩beds∩price intersection this method
+        // used to compute off ProspectingIntelligenceService. That parallel path
+        // provably diverged from the buyer engine (AT-144 audit: prop #6018 read
+        // matching=0 here vs matchesForProperty=1 on the canonical engine) and it
+        // never applied the AT-71 ->countable() gate. We now source it from
+        // PropertyMatchScoringService::countableActiveBuyerCountForProperty() —
+        // the SAME engine the Core Matches tab and the seller panel use — so the
+        // outreach claim equals what every other surface shows, is countable-
+        // gated (honours the agency's min_countable_criteria, never hardcoded),
+        // and stays active-state-only (buyer_state new/warm; cold/lost excluded).
         //
         // AT-61 — address-only mode ($property === null): there is no
         // property_type/beds/price to match against, so we make NO per-property
         // claim. null here → '' in the merge map → the {?matching_buyer_count}
-        // segment collapses, leaving only the honest area-level statement.
-        if ($property === null) {
-            $matchingBuyerCount = null;
-        } elseif ($townBuyerIds === null) {
-            $matchingBuyerCount = 0;
-        } else {
-            $matchingIds = $townBuyerIds;
-            if ($propertyTypeOpt && $matchingIds->isNotEmpty()) {
-                $matchingIds = $matchingIds->intersect(
-                    $this->intelligence->buyersForSegment($agencyId, 'property_type', $propertyTypeOpt->id, $baseFilters)
-                )->values();
-            }
-            if ($bedroomSeg && $matchingIds->isNotEmpty()) {
-                $matchingIds = $matchingIds->intersect(
-                    $this->intelligence->buyersForSegment($agencyId, 'bedrooms', $bedroomSeg->id, $baseFilters)
-                )->values();
-            }
-            if ($priceBand && $matchingIds->isNotEmpty()) {
-                $matchingIds = $matchingIds->intersect(
-                    $this->intelligence->buyersForSegment($agencyId, 'price_band', $priceBand->id, $baseFilters)
-                )->values();
-            }
-            $matchingBuyerCount = $matchingIds->count();
-        }
+        // segment collapses, leaving only the honest area-level statement. (The
+        // town-level {buyer_count} above stays on the ProspectingIntelligence
+        // area-demand path — only the per-property CLAIM moves to canonical.)
+        $matchingBuyerCount = $property === null
+            ? null
+            : $this->buyerDemand->countableActiveBuyerCountForProperty($property);
 
         return [
             'seller_name' => $this->sellerDisplayName($contact),
@@ -304,10 +317,19 @@ final class SellerOutreachComposerService
             'agent_ffc' => $this->agentFfcNumber($agent),
             'branch_or_company_tel' => $this->branchOrCompanyTel($agencyId, $agent),
             'buyer_count' => (string) $buyerCount,
-            // AT-61 — '' (not '0') in address-only mode so the optional
-            // {?matching_buyer_count} segment collapses entirely. A real
-            // linked property always yields a numeric string (incl. '0').
-            'matching_buyer_count' => $matchingBuyerCount === null ? '' : (string) $matchingBuyerCount,
+            // AT-145 — the DISPLAY value is '' whenever there is no positive
+            // per-property claim to make: address-only mode ($matchingBuyerCount
+            // === null) AND a genuine zero ($matchingBuyerCount === 0). Both
+            // collapse the {?matching_buyer_count} segment so no "0 active
+            // buyer(s)" sentence ever renders — the claim only appears when the
+            // real count is >=1. The raw count for the send-gate + facts_snapshot
+            // is carried separately in the internal __matching_buyer_count key
+            // (0 in property-mode-zero vs null in address-only lets the no_buyers
+            // gate fire in the former and stay silent in the latter).
+            'matching_buyer_count' => ($matchingBuyerCount === null || $matchingBuyerCount === 0)
+                ? ''
+                : (string) $matchingBuyerCount,
+            '__matching_buyer_count' => $matchingBuyerCount,
             // `tracking_link` is intentionally NOT substituted into the body
             // here — `renderBody()` skips it so the agent sees the literal
             // `{tracking_link}` merge token in the composer's textarea

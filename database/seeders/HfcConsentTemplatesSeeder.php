@@ -169,13 +169,20 @@ TXT,
                 'name' => 'Buyer Demand Marketing',
                 'is_active' => true,
                 'is_default_for_channel' => false,
-                'description' => 'Consent request — specific active buyer for the seller\'s property.',
-                'email_subject' => 'A buyer for your {property_suburb} property',
+                // AT-145 — the buyer claim is no longer hardcoded prose. It now
+                // states the REAL canonical count of active buyers matching this
+                // property via the {?matching_buyer_count}…{/matching_buyer_count}
+                // conditional token; the composer's no_buyers send-gate blocks the
+                // send when that count is 0, and the segment collapses in
+                // address-only mode (no per-property claim). Subject kept
+                // demand-neutral so it never over-claims when the segment collapses.
+                'description' => 'Consent request — buyer demand. States the REAL canonical count of active buyers matching this property ({matching_buyer_count} token, AT-145); the composer blocks the send at zero (no_buyers).',
+                'email_subject' => 'About your {property_suburb} property — {agency_name}',
                 'body' => <<<'TXT'
 Hi {seller_name}, I saw your property in {property_suburb} on the market. I'm {agent_name} from {agency_name} — a registered estate agency.
-I have a buyer active in {property_suburb} and your property may suit them. With your permission, I'd like to send you the details and discuss your property with you.
+{?matching_buyer_count}I have {matching_buyer_count} active buyer(s) currently looking for a property like yours in {property_suburb}, and your property may suit them. {/matching_buyer_count}With your permission, I'd like to send you the details and discuss your property with you.
 May I contact you about this by WhatsApp, SMS or email?
-- Reply OPT IN and I'll share what my buyer is looking for
+- Reply OPT IN and I'll share what buyers near you are looking for
 - Reply OPT OUT and I won't contact you again
 Manage your preferences or opt out anytime: {opt_out_link}.
 {agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
@@ -243,17 +250,21 @@ Manage your preferences or opt out anytime: {opt_out_link}
 TXT,
             ],
             [
-                // C — BUYER-LED. Ships DISABLED (is_active=false) pending a
-                // separate buyer-feed audit. Do NOT enable without that sign-off.
+                // C — BUYER-LED. Ships DISABLED (is_active=false). The AT-144
+                // buyer-feed audit is now done and AT-145 rewired the buyer claim
+                // to the canonical count via the {?matching_buyer_count} token
+                // (blocked at zero by the composer's no_buyers gate; collapses in
+                // address-only mode). Johan RE-ENABLES manually after reviewing
+                // AT-145 — do NOT flip is_active here.
                 'name' => 'Buyer-Led — Active Buyer Match (DISABLED)',
                 'is_active' => false,
                 'is_default_for_channel' => false,
-                'description' => 'Consent request (C) — buyer-led (active buyer for the property). DISABLED pending buyer-feed audit — do not enable.',
-                'email_subject' => 'A buyer looking in {property_suburb}',
+                'description' => 'Consent request (C) — buyer-led. States the REAL canonical active-buyer count for the property ({matching_buyer_count} token, AT-145; blocked at zero). DISABLED — Johan re-enables after AT-145 review.',
+                'email_subject' => 'About your {property_suburb} property',
                 'body' => <<<'TXT'
 Good day, {seller_surname}. I hope you're doing well.
 
-My name is {agent_name}, a {agent_designation} (PPRA registered) with {agency_name}. I'm reaching out regarding your property at {property_address}, as we're currently working with buyers looking in {property_suburb} — and your home is the kind some of them have in mind.
+My name is {agent_name}, a {agent_designation} (PPRA registered) with {agency_name}. I'm reaching out regarding your property at {property_address}.{?matching_buyer_count} We're currently working with {matching_buyer_count} active buyer(s) looking for a property like yours in {property_suburb} — and your home is the kind they have in mind.{/matching_buyer_count}
 
 With your permission, I'd love to share what buyers are looking for near you, along with a market-related valuation and our marketing, photography and video services.
 
