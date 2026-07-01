@@ -9,78 +9,40 @@
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800,900&display=swap" rel="stylesheet">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    {{-- Agency brand tokens (UI_DESIGN_SYSTEM.md §1.4) — standalone page; declare
-         the brand vars so the header + accents use the agency colour. --}}
-    @php
-        $_brandAgency = ($property?->agency)
-            ?? (auth()->user()?->effectiveAgencyId() ? \App\Models\Agency::find(auth()->user()->effectiveAgencyId()) : null);
-    @endphp
-    <style id="agency-brand">
-        :root {
-            --brand-icon:    {{ $_brandAgency->icon_color    ?? '#0ea5e9' }};
-            --brand-default: {{ $_brandAgency->default_color ?? '#0b2a4a' }};
-            --brand-button:  {{ $_brandAgency->button_color  ?? '#0ea5e9' }};
-        }
-    </style>
-    {{-- Follow the user's theme (UI_DESIGN_SYSTEM.md §7). Apply before paint. --}}
-    <script>
-        (function(){
-            var theme = @json(auth()->user()->theme ?? 'dark');
-            if (theme === 'dark') document.documentElement.classList.add('dark');
-            try { localStorage.setItem('corex-theme', theme); } catch (e) {}
-        })();
-    </script>
-    {{-- Chrome palette — dark values equal the original look (dark unchanged); light
-         values added so the builder is usable in the light theme. The canvas itself
-         (the artwork being designed) keeps its own colours. --}}
-    <style>
-        :root {
-            --chrome-bg:#eef1f7; --chrome-surface:#ffffff; --chrome-surface-2:#f2f4f9; --chrome-input:#ffffff;
-            --chrome-border:rgba(0,0,0,0.10); --chrome-border-2:rgba(0,0,0,0.06);
-            --chrome-text:#111827; --chrome-text-soft:rgba(17,24,39,0.62); --chrome-text-mute:rgba(17,24,39,0.42);
-            --chrome-hover:rgba(0,0,0,0.05); --workspace:#dde3ec;
-        }
-        html.dark {
-            --chrome-bg:#060f1c; --chrome-surface:#07111e; --chrome-surface-2:rgba(255,255,255,0.06); --chrome-input:#0b1726;
-            --chrome-border:rgba(255,255,255,0.10); --chrome-border-2:rgba(255,255,255,0.06);
-            --chrome-text:#f1f5f9; --chrome-text-soft:rgba(255,255,255,0.6); --chrome-text-mute:rgba(255,255,255,0.4);
-            --chrome-hover:rgba(255,255,255,0.06); --workspace:#040c15;
-        }
-    </style>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; overflow: hidden; }
-        body { font-family: 'Figtree', sans-serif; background: var(--chrome-bg); color: var(--chrome-text); display: flex; flex-direction: column; }
+        body { font-family: 'Figtree', sans-serif; background: #060f1c; color: #f1f5f9; display: flex; flex-direction: column; }
         [x-cloak] { display: none !important; }
 
         /* ─── TOOLBAR ─── */
         #toolbar {
             flex-shrink: 0; min-height: 52px;
-            background: var(--chrome-surface); border-bottom: 1px solid var(--chrome-border);
+            background: #07111e; border-bottom: 1px solid rgba(255,255,255,0.07);
             display: flex; align-items: center; gap: 8px; padding: 0 14px; flex-wrap: wrap;
         }
         .tb-btn {
             display: inline-flex; align-items: center; gap: 4px;
             padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
-            cursor: pointer; border: 1.5px solid var(--chrome-border);
-            background: var(--chrome-surface-2); color: var(--chrome-text-soft);
+            cursor: pointer; border: 1.5px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55);
             font-family: inherit; transition: all 0.12s; text-decoration: none;
         }
-        .tb-btn:hover { border-color: var(--brand-button,#00b4d8); color: var(--chrome-text); }
-        .tb-btn.primary { background: var(--brand-button,#00b4d8); border-color: var(--brand-button,#00b4d8); color: #fff; }
-        .tb-btn.primary:hover { filter: brightness(0.92); }
+        .tb-btn:hover { border-color: rgba(255,255,255,0.25); color: #fff; }
+        .tb-btn.primary { background: #00b4d8; border-color: #00b4d8; color: #fff; }
+        .tb-btn.primary:hover { background: #0090b0; border-color: #0090b0; }
         .tb-btn.danger { background: rgba(230,57,70,0.15); border-color: rgba(230,57,70,0.35); color: #e63946; }
         .tb-btn.danger:hover { background: #e63946; border-color: #e63946; color: #fff; }
         #tpl-name-input {
-            background: var(--chrome-input); border: 1.5px solid var(--chrome-border);
-            color: var(--chrome-text); border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 600;
+            background: rgba(255,255,255,0.06); border: 1.5px solid rgba(255,255,255,0.1);
+            color: #fff; border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 600;
             font-family: inherit; width: 200px; outline: none;
         }
-        #tpl-name-input:focus { border-color: var(--brand-button,#00b4d8); }
+        #tpl-name-input:focus { border-color: #00b4d8; }
         .ctx-chip {
             display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 7px;
-            font-size: 11px; font-weight: 600; background: color-mix(in srgb, var(--brand-button,#00b4d8) 14%, transparent); color: var(--brand-button,#00b4d8);
-            border: 1px solid color-mix(in srgb, var(--brand-button,#00b4d8) 28%, transparent);
+            font-size: 11px; font-weight: 600; background: rgba(0,180,216,0.12); color: #5fd2ec;
+            border: 1px solid rgba(0,180,216,0.25);
         }
 
         /* ─── 3-COLUMN LAYOUT ─── */
@@ -89,34 +51,34 @@
         /* ─── LEFT SIDEBAR: field catalogue ─── */
         #sidebar {
             width: 208px; flex-shrink: 0;
-            background: var(--chrome-surface); border-right: 1px solid var(--chrome-border);
+            background: #07111e; border-right: 1px solid rgba(255,255,255,0.07);
             overflow-y: auto; padding: 12px 8px;
         }
         .sb-group { margin-bottom: 14px; }
-        .sb-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--chrome-text-mute); padding: 0 6px; margin-bottom: 6px; }
+        .sb-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: rgba(255,255,255,0.3); padding: 0 6px; margin-bottom: 6px; }
         .sb-field {
             display: flex; align-items: center; gap: 8px;
             padding: 6px 10px; border-radius: 8px; cursor: grab;
-            font-size: 12px; font-weight: 500; color: var(--chrome-text-soft);
+            font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.7);
             border: 1px solid transparent; margin-bottom: 3px;
             transition: all 0.12s; user-select: none;
         }
-        .sb-field:hover { background: var(--chrome-hover); border-color: var(--chrome-border); color: var(--chrome-text); }
+        .sb-field:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.08); color: #fff; }
         .sb-field:active { cursor: grabbing; }
         .sb-icon { width: 22px; height: 22px; border-radius: 5px; display:flex; align-items:center; justify-content:center; font-size: 11px; flex-shrink: 0; }
 
         /* ─── CANVAS AREA ─── */
         #canvas-area {
             flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center;
-            background: var(--workspace); padding: 32px;
+            background: #040c15; padding: 32px;
         }
         #canvas-wrapper { position: relative; flex-shrink: 0; box-shadow: 0 24px 80px rgba(0,0,0,0.8); }
         #canvas { width: 1200px; height: 628px; background: #071325; position: relative; overflow: hidden; cursor: default; }
         .canvas-el { position: absolute; cursor: move; user-select: none; outline: none; }
-        .canvas-el.selected { outline: 2px solid var(--brand-button,#00b4d8); }
+        .canvas-el.selected { outline: 2px solid #00b4d8; }
         .canvas-el .resize-handle {
             position: absolute; right: -5px; bottom: -5px;
-            width: 10px; height: 10px; background: var(--brand-button,#00b4d8);
+            width: 10px; height: 10px; background: #00b4d8;
             border: 2px solid #fff; border-radius: 2px; cursor: se-resize; z-index: 999;
         }
         .img-placeholder {
@@ -133,20 +95,20 @@
         /* ─── RIGHT PANEL: properties ─── */
         #prop-panel {
             width: 248px; flex-shrink: 0;
-            background: var(--chrome-surface); border-left: 1px solid var(--chrome-border);
+            background: #07111e; border-left: 1px solid rgba(255,255,255,0.07);
             overflow-y: auto; padding: 14px 12px;
         }
-        #prop-panel h3 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--chrome-text-mute); margin-bottom: 12px; }
+        #prop-panel h3 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(255,255,255,0.3); margin-bottom: 12px; }
         .pp-row { margin-bottom: 10px; }
-        .pp-row label { display: block; font-size: 11px; color: var(--chrome-text-soft); margin-bottom: 4px; }
+        .pp-row label { display: block; font-size: 11px; color: rgba(255,255,255,0.45); margin-bottom: 4px; }
         .pp-row input[type=text], .pp-row input[type=number], .pp-row select, .pp-row textarea {
-            width: 100%; background: var(--chrome-input); border: 1.5px solid var(--chrome-border);
-            color: var(--chrome-text); border-radius: 7px; padding: 6px 9px; font-size: 12px; font-family: inherit; outline: none;
+            width: 100%; background: rgba(255,255,255,0.06); border: 1.5px solid rgba(255,255,255,0.1);
+            color: #fff; border-radius: 7px; padding: 6px 9px; font-size: 12px; font-family: inherit; outline: none;
         }
-        .pp-row input:focus, .pp-row select:focus, .pp-row textarea:focus { border-color: var(--brand-button,#00b4d8); }
-        .pp-row input[type=color] { width: 100%; height: 30px; border: 1.5px solid var(--chrome-border); border-radius: 7px; cursor: pointer; padding: 2px; background: var(--chrome-input); }
-        .pp-row select option { background: var(--chrome-surface); color: var(--chrome-text); }
-        .pp-sep { border: none; border-top: 1px solid var(--chrome-border); margin: 14px 0; }
+        .pp-row input:focus, .pp-row select:focus, .pp-row textarea:focus { border-color: #00b4d8; }
+        .pp-row input[type=color] { width: 100%; height: 30px; border: 1.5px solid rgba(255,255,255,0.1); border-radius: 7px; cursor: pointer; padding: 2px; background: rgba(255,255,255,0.06); }
+        .pp-row select option { background: #07111e; }
+        .pp-sep { border: none; border-top: 1px solid rgba(255,255,255,0.07); margin: 14px 0; }
         .pp-row .pp-inline { display:flex; gap:6px; }
         .pp-row .pp-inline input { flex:1; }
         #no-selection { display:flex; flex-direction:column; align-items:center; justify-content:center; height:200px; gap:10px; opacity:0.3; font-size:12px; }
@@ -154,38 +116,11 @@
         .canvas-el:not(.selected) .resize-handle { display: none; }
 
         /* ─── Status toast ─── */
-        #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--brand-button,#00b4d8); color:#fff; font-size:13px; font-weight:700; padding:10px 22px; border-radius:10px; opacity:0; pointer-events:none; transition:opacity 0.3s; z-index:9999; }
+        #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#00b4d8; color:#fff; font-size:13px; font-weight:700; padding:10px 22px; border-radius:10px; opacity:0; pointer-events:none; transition:opacity 0.3s; z-index:9999; }
         #toast.show { opacity:1; }
-        .el-toolbar { display:flex; gap:2px; background:#0b1220; border:1px solid rgba(255,255,255,0.14); border-radius:8px; padding:3px; margin-bottom:6px; box-shadow:0 6px 20px rgba(0,0,0,0.5); }
-        .el-toolbar button { display:flex; align-items:center; justify-content:center; width:28px; height:28px; border:none; background:transparent; color:rgba(255,255,255,0.75); border-radius:5px; cursor:pointer; }
-        .el-toolbar button svg { width:15px; height:15px; }
-        .el-toolbar button:hover { background:rgba(255,255,255,0.1); color:#fff; }
-        .el-toolbar button.danger:hover { background:#e63946; color:#fff; }
     </style>
 </head>
 <body x-data="builder()" @mouseup.window="dragEnd($event)" @mousemove.window="dragMove($event)">
-
-{{-- ═══ BRANDED HEADER (UI_DESIGN_SYSTEM.md §2.4 Pattern A) — full width ═══ --}}
-<header style="flex-shrink:0;background:var(--brand-default,#0b2a4a);padding:11px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
-    <div style="display:flex;align-items:center;gap:12px;min-width:0;">
-        <a href="{{ $property ? route('corex.properties.ad', $property) : route('corex.properties.index') }}" title="Back"
-           style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.12);color:#fff;text-decoration:none;flex-shrink:0;transition:background 0.15s;"
-           onmouseover="this.style.background='rgba(255,255,255,0.22)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
-            <svg style="width:15px;height:15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-        </a>
-        <div style="min-width:0;">
-            <h1 style="font-size:18px;font-weight:700;color:#fff;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $template ? 'Edit Ad Template' : 'Ad Builder' }}</h1>
-            <p style="font-size:12px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $property ? $property->title : 'Design a reusable marketing template' }}</p>
-        </div>
-    </div>
-    @if($property)
-    <a href="{{ route('corex.properties.ad', $property) }}"
-       style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;color:#fff;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);text-decoration:none;flex-shrink:0;transition:background 0.15s;"
-       onmouseover="this.style.background='rgba(255,255,255,0.22)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
-        Property ad page
-    </a>
-    @endif
-</header>
 
 {{-- ═══ TOOLBAR ═══ --}}
 <div id="toolbar">
@@ -208,27 +143,15 @@
 
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
 
-        {{-- Canvas size (theme-aware; option colours set so the native dropdown is readable) --}}
-        <select x-model="canvasPreset" @change="applyPreset()" class="tb-btn" style="padding:5px 8px;font-size:11px;background:var(--chrome-input);color:var(--chrome-text);">
-            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="facebook">1200×628 (Facebook)</option>
-            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="instagram">1080×1080 (Instagram)</option>
-            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="story">1080×1920 (Story)</option>
-            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="whatsapp">900×900 (WhatsApp)</option>
-            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="linkedin">1200×627 (LinkedIn)</option>
-            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="pinterest">1000×1500 (Pinterest)</option>
-            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="custom">Custom size…</option>
+        {{-- Canvas size --}}
+        <select x-model="canvasPreset" @change="applyPreset()" class="tb-btn" style="padding:5px 8px;font-size:11px;color:rgba(255,255,255,0.65);">
+            <option value="facebook">1200×628 (Facebook)</option>
+            <option value="instagram">1080×1080 (Instagram)</option>
+            <option value="story">1080×1920 (Story)</option>
+            <option value="whatsapp">900×900 (WhatsApp)</option>
+            <option value="linkedin">1200×627 (LinkedIn)</option>
+            <option value="pinterest">1000×1500 (Pinterest)</option>
         </select>
-        {{-- Custom W×H --}}
-        <template x-if="canvasPreset==='custom'">
-            <span style="display:inline-flex;align-items:center;gap:4px;background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:8px;padding:3px 7px;">
-                <input type="number" min="200" max="4000" step="10" x-model.number="canvasW" title="Width (px)"
-                       style="width:58px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:11px;font-weight:600;font-family:inherit;padding:4px 5px;outline:none;">
-                <span style="color:var(--chrome-text-mute);font-size:11px;">×</span>
-                <input type="number" min="200" max="4000" step="10" x-model.number="canvasH" title="Height (px)"
-                       style="width:58px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:11px;font-weight:600;font-family:inherit;padding:4px 5px;outline:none;">
-                <span style="color:var(--chrome-text-mute);font-size:10px;">px</span>
-            </span>
-        </template>
 
         {{-- Clear all --}}
         <button class="tb-btn danger" @click="if(confirm('Clear all elements?')) { elements = []; selectedIndex = -1; }">
@@ -250,7 +173,7 @@
         </template>
         {{-- Generic use (saved, no property context) --}}
         <template x-if="savedId && !propertyId">
-            <a :href="useOnPropertyUrl" class="tb-btn" style="color:var(--chrome-text-soft);">
+            <a :href="useOnPropertyUrl" class="tb-btn" style="color:rgba(255,255,255,0.6);">
                 Use on Property →
             </a>
         </template>
@@ -285,10 +208,7 @@
 
     {{-- ── CENTRE: CANVAS AREA ── --}}
     <div id="canvas-area" @dragover.prevent @drop="canvasDrop($event)">
-        {{-- Wrapper occupies the SCALED footprint (transform:scale doesn't shrink the
-             layout box) so the canvas stays centred at any size instead of pinning
-             to the top-left with a giant empty box around it. --}}
-        <div id="canvas-wrapper" :style="'width:'+(canvasW*canvasScale)+'px;height:'+(canvasH*canvasScale)+'px;'">
+        <div id="canvas-wrapper">
             <div id="canvas-scale" :style="'transform:scale('+canvasScale+');width:'+canvasW+'px;height:'+canvasH+'px;'">
 
                 <div id="canvas"
@@ -336,39 +256,9 @@
                                 </div>
                             </template>
 
-                            {{-- SHAPE (rectangle / rounded / circle / pill / clip-path geometry) --}}
+                            {{-- SHAPE --}}
                             <template x-if="el.field === 'shape'">
-                                <div :style="shapeCss(el)"></div>
-                            </template>
-
-                            {{-- CUSTOM IMAGE (uploaded) --}}
-                            <template x-if="el.field === 'custom_image'">
-                                <div style="width:100%;height:100%;">
-                                    <template x-if="el.src">
-                                        <img :src="el.src" :style="'width:100%;height:100%;object-fit:'+(el.objectFit||'cover')+';display:block;'">
-                                    </template>
-                                    <template x-if="!el.src">
-                                        <div class="img-placeholder">
-                                            <svg style="width:26px;height:26px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
-                                            <span>Upload an image →</span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
-
-                            {{-- CUSTOM VIDEO (uploaded) --}}
-                            <template x-if="el.field === 'custom_video'">
-                                <div style="width:100%;height:100%;">
-                                    <template x-if="el.src">
-                                        <video :src="el.src" autoplay muted loop playsinline :style="'width:100%;height:100%;object-fit:'+(el.objectFit||'cover')+';display:block;'"></video>
-                                    </template>
-                                    <template x-if="!el.src">
-                                        <div class="img-placeholder">
-                                            <svg style="width:26px;height:26px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="14" height="16" rx="2"/><path d="m16 9 6-3v12l-6-3z"/></svg>
-                                            <span>Upload a video →</span>
-                                        </div>
-                                    </template>
-                                </div>
+                                <div :style="'width:100%;height:100%;background:'+(el.bg||'#00b4d8')+';opacity:'+(el.opacity ?? 1)+';border-radius:'+(el.borderRadius ?? 50)+'%;'"></div>
                             </template>
 
                             {{-- LOGO (agency logo image, else CoreX wordmark) --}}
@@ -397,21 +287,6 @@
                                 </div>
                             </template>
 
-                        </div>
-                    </template>
-
-                    {{-- Floating action toolbar on the selected element: duplicate / rotate / delete --}}
-                    <template x-if="selectedIndex >= 0 && selectedIndex < elements.length">
-                        <div class="el-toolbar" :style="toolbarStyle()">
-                            <button title="Duplicate" @click.stop="duplicateSelected()">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                            </button>
-                            <button title="Rotate 45°" @click.stop="rotateSelected()">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-                            </button>
-                            <button title="Delete" class="danger" @click.stop="deleteSelected()">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m5 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>
-                            </button>
                         </div>
                     </template>
 
@@ -515,58 +390,6 @@
                     </div>
                 </template>
 
-                {{-- Custom image / video — upload + fit --}}
-                <template x-if="elements[selectedIndex].field === 'custom_image' || elements[selectedIndex].field === 'custom_video'">
-                    <div>
-                        <div class="pp-row">
-                            <label x-text="elements[selectedIndex].field === 'custom_video' ? 'Video file' : 'Image file'"></label>
-                            <input type="file" :accept="elements[selectedIndex].field === 'custom_video' ? 'video/*' : 'image/*'" @change="uploadMedia($event)"
-                                   style="font-size:11px;color:var(--chrome-text-soft);">
-                        </div>
-                        <template x-if="elements[selectedIndex].src">
-                            <div style="font-size:10px;color:#19c37d;margin:-4px 0 8px;">✓ Uploaded — drag to resize on the canvas.</div>
-                        </template>
-                        <template x-if="elements[selectedIndex].field === 'custom_video'">
-                            <div style="font-size:10px;color:var(--chrome-text-mute);margin:-2px 0 8px;line-height:1.5;">Video plays in the live preview. A downloaded PNG captures a single still frame.</div>
-                        </template>
-                        <div class="pp-row">
-                            <label>Object Fit</label>
-                            <select :value="elements[selectedIndex].objectFit" @input="mutate('objectFit', $event.target.value)">
-                                <option value="cover">Cover</option>
-                                <option value="contain">Contain</option>
-                                <option value="fill">Fill</option>
-                            </select>
-                        </div>
-                        <div class="pp-row">
-                            <label>Border Radius (px)</label>
-                            <input type="number" :value="elements[selectedIndex].borderRadius" @input="mutate('borderRadius', +$event.target.value)" min="0">
-                        </div>
-                    </div>
-                </template>
-
-                {{-- Features — pick which amenities to display --}}
-                <template x-if="elements[selectedIndex].field === 'features'">
-                    <div>
-                        <div class="pp-row" style="align-items:flex-start;">
-                            <label>Show features</label>
-                            <template x-if="featuresList.length === 0">
-                                <div style="font-size:11px;color:var(--chrome-text-mute);line-height:1.5;">This property has no listed features. The element falls back to the summary (e.g. beds · baths).</div>
-                            </template>
-                            <template x-if="featuresList.length > 0">
-                                <div style="display:flex;flex-direction:column;gap:5px;max-height:200px;overflow-y:auto;width:100%;">
-                                    <template x-for="f in featuresList" :key="f">
-                                        <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--chrome-text);cursor:pointer;font-weight:500;">
-                                            <input type="checkbox" :checked="isFeatureOn(elements[selectedIndex], f)" @change="toggleFeature(f)" style="accent-color:var(--brand-button,#00b4d8);cursor:pointer;">
-                                            <span x-text="f"></span>
-                                        </label>
-                                    </template>
-                                </div>
-                            </template>
-                        </div>
-                        <hr class="pp-sep">
-                    </div>
-                </template>
-
                 {{-- Editable literal text (custom_text, badge) --}}
                 <template x-if="elements[selectedIndex].field === 'custom_text' || elements[selectedIndex].field === 'badge' || elements[selectedIndex].field === 'watermark'">
                     <div class="pp-row">
@@ -578,7 +401,7 @@
                 {{-- Text fields --}}
                 <template x-if="isTextField(elements[selectedIndex].field) || elements[selectedIndex].field === 'watermark'">
                     <div>
-                        <template x-if="isTextField(elements[selectedIndex].field) && elements[selectedIndex].field !== 'custom_text' && elements[selectedIndex].field !== 'badge' && elements[selectedIndex].field !== 'features'">
+                        <template x-if="isTextField(elements[selectedIndex].field) && elements[selectedIndex].field !== 'custom_text' && elements[selectedIndex].field !== 'badge'">
                             <div class="pp-row">
                                 <label>Preview override</label>
                                 <input type="text" :value="elements[selectedIndex].preview || ''" @input="mutate('preview', $event.target.value)" placeholder="(uses property value)">
@@ -643,39 +466,8 @@
                     </div>
                 </template>
 
-                {{-- Shape — pick from the shape list, fill + opacity --}}
-                <template x-if="elements[selectedIndex].field === 'shape'">
-                    <div>
-                        <div class="pp-row" style="align-items:flex-start;">
-                            <label>Shape</label>
-                            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;width:100%;">
-                                <template x-for="s in shapes" :key="s.type">
-                                    <button type="button" @click="mutate('shapeType', s.type)" :title="s.label"
-                                            :style="'aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:6px;background:'+(elements[selectedIndex].shapeType===s.type?'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)':'var(--chrome-surface-2)')+';border:1.5px solid '+(elements[selectedIndex].shapeType===s.type?'var(--brand-button,#00b4d8)':'var(--chrome-border)')+';'">
-                                        <span :style="shapeCss({ shapeType:s.type, bg:'#9fb4c9', opacity:1, borderRadius:9 })+'width:100%;height:100%;'"></span>
-                                    </button>
-                                </template>
-                            </div>
-                        </div>
-                        <div class="pp-row">
-                            <label>Fill colour</label>
-                            <input type="color" :value="elements[selectedIndex].bg" @input="mutate('bg', $event.target.value)">
-                        </div>
-                        <div class="pp-row">
-                            <label>Opacity (0–1)</label>
-                            <input type="number" step="0.05" min="0" max="1" :value="elements[selectedIndex].opacity" @input="mutate('opacity', +$event.target.value)">
-                        </div>
-                        <template x-if="elements[selectedIndex].shapeType === 'rounded'">
-                            <div class="pp-row">
-                                <label>Corner radius (px)</label>
-                                <input type="number" min="0" :value="elements[selectedIndex].borderRadius ?? 24" @input="mutate('borderRadius', +$event.target.value)">
-                            </div>
-                        </template>
-                    </div>
-                </template>
-
-                {{-- Colour block (legacy — kept so existing templates still edit) --}}
-                <template x-if="elements[selectedIndex].field === 'color_block'">
+                {{-- Color block / shape --}}
+                <template x-if="elements[selectedIndex].field === 'color_block' || elements[selectedIndex].field === 'shape'">
                     <div>
                         <div class="pp-row">
                             <label>Fill colour</label>
@@ -686,7 +478,7 @@
                             <input type="number" step="0.05" min="0" max="1" :value="elements[selectedIndex].opacity" @input="mutate('opacity', +$event.target.value)">
                         </div>
                         <div class="pp-row">
-                            <label>Border Radius (px)</label>
+                            <label x-text="elements[selectedIndex].field === 'shape' ? 'Roundness (%)' : 'Border Radius (px)'"></label>
                             <input type="number" :value="elements[selectedIndex].borderRadius" @input="mutate('borderRadius', +$event.target.value)" min="0">
                         </div>
                     </div>
@@ -796,12 +588,6 @@ const FIELD_DEFAULTS = {
     agent_phone:      { w: 220, h: 30,  fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '082 000 0000' },
     agent_designation:{ w: 260, h: 28,  fontSize: 11, fontWeight: '500', color: '#00b4d8', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.1, padding: 6 },
     agent_avatar:     { w: 80,  h: 80,  objectFit: 'cover', borderRadius: 50 },
-    // Agent 2 — the co-listing agent, for building dual-agent templates.
-    agent_2_name:        { w: 280, h: 40,  fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.06, padding: 6, preview: 'CO-AGENT NAME' },
-    agent_2_email:       { w: 300, h: 30,  fontSize: 12, fontWeight: '400', color: 'rgba(255,255,255,0.55)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: 'co.agent@agency.co.za' },
-    agent_2_phone:       { w: 220, h: 30,  fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '082 000 0000' },
-    agent_2_designation: { w: 260, h: 28,  fontSize: 11, fontWeight: '500', color: '#00b4d8', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.1, padding: 6, preview: 'PROPERTY PRACTITIONER' },
-    agent_2_avatar:      { w: 80,  h: 80,  objectFit: 'cover', borderRadius: 50 },
     agency_name:      { w: 280, h: 32,  fontSize: 15, fontWeight: '800', color: '#ffffff', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.06, padding: 6 },
     website:          { w: 260, h: 26,  fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.12, padding: 4, preview: 'WWW.AGENCY.CO.ZA' },
     logo:             { w: 180, h: 56,  fontSize: 28, color: '#ffffff', padding: 0 },
@@ -809,39 +595,14 @@ const FIELD_DEFAULTS = {
     custom_text:      { w: 300, h: 50,  fontSize: 20, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 8, text: 'Your text' },
     badge:            { w: 180, h: 44,  fontSize: 16, fontWeight: '800', color: '#ffffff', textTransform: 'uppercase', textAlign: 'center', letterSpacing: 0.08, padding: 8, bgColor: '#00b4d8', bgOpacity: 1, borderRadius: 22, text: 'JUST LISTED' },
     line:             { w: 300, h: 12,  color: '#00b4d8', borderWidth: 3 },
-    shape:            { w: 160, h: 160, bg: '#00b4d8', opacity: 1, shapeType: 'rounded', borderRadius: 24 },
+    shape:            { w: 120, h: 120, bg: '#00b4d8', opacity: 1, borderRadius: 50 },
     color_block:      { w: 400, h: 100, bg: '#07111e', opacity: 1, borderRadius: 0 },
     gradient:         { w: 600, h: 300, gradFrom: '#071325', gradTo: 'rgba(7,19,37,0)', gradAngle: 0, opacity: 1 },
-    custom_image:     { w: 400, h: 300, objectFit: 'cover', borderRadius: 0, src: '' },
-    custom_video:     { w: 480, h: 270, objectFit: 'cover', borderRadius: 0, src: '' },
     watermark:        { w: 600, h: 120, fontSize: 60, color: '#ffffff', opacity: 0.06, text: '' },
 };
 
-// Shape catalogue — label + the geometry shapeCss() applies. Rounded carries an
-// editable corner radius; clip-path shapes are scale-independent.
-const SHAPES = [
-    { type:'rectangle', label:'Rectangle' },
-    { type:'rounded',   label:'Rounded'   },
-    { type:'circle',    label:'Circle'    },
-    { type:'pill',      label:'Pill'      },
-    { type:'triangle',  label:'Triangle'  },
-    { type:'diamond',   label:'Diamond'   },
-    { type:'pentagon',  label:'Pentagon'  },
-    { type:'hexagon',   label:'Hexagon'   },
-    { type:'star',      label:'Star'      },
-    { type:'chevron',   label:'Chevron'   },
-];
-const SHAPE_CLIPS = {
-    triangle: 'polygon(50% 0,100% 100%,0 100%)',
-    diamond:  'polygon(50% 0,100% 50%,50% 100%,0 50%)',
-    pentagon: 'polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)',
-    hexagon:  'polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)',
-    star:     'polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)',
-    chevron:  'polygon(0 0,75% 0,100% 50%,75% 100%,0 100%,25% 50%)',
-};
-
-const IMAGE_FIELDS = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agent_2_avatar','agency_logo'];
-const NON_TEXT_FIELDS = [...IMAGE_FIELDS, 'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape', 'custom_image', 'custom_video'];
+const IMAGE_FIELDS = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agency_logo'];
+const NON_TEXT_FIELDS = [...IMAGE_FIELDS, 'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape'];
 
 function builder() {
     const existingTemplate = @json($template ? $template->toArray() : null);
@@ -923,27 +684,21 @@ function builder() {
                 { type:'reference',     group:'property',  label:'Reference',    iconBg:'#475569' },
                 { type:'address',       group:'property',  label:'Address',      iconBg:'#475569' },
                 { type:'status_badge',  group:'property',  label:'Status Badge', iconBg:'#e63946' },
-                { type:'agent_name',        group:'agent', label:'Agent 1 · Name',  iconBg:'#7c3aed' },
-                { type:'agent_email',       group:'agent', label:'Agent 1 · Email', iconBg:'#7c3aed' },
-                { type:'agent_phone',       group:'agent', label:'Agent 1 · Phone', iconBg:'#7c3aed' },
-                { type:'agent_designation', group:'agent', label:'Agent 1 · Designation', iconBg:'#7c3aed' },
-                { type:'agent_avatar',      group:'agent', label:'Agent 1 · Avatar',      iconBg:'#7c3aed' },
-                { type:'agent_2_name',        group:'agent', label:'Agent 2 · Name',  iconBg:'#9333ea' },
-                { type:'agent_2_email',       group:'agent', label:'Agent 2 · Email', iconBg:'#9333ea' },
-                { type:'agent_2_phone',       group:'agent', label:'Agent 2 · Phone', iconBg:'#9333ea' },
-                { type:'agent_2_designation', group:'agent', label:'Agent 2 · Designation', iconBg:'#9333ea' },
-                { type:'agent_2_avatar',      group:'agent', label:'Agent 2 · Avatar',      iconBg:'#9333ea' },
+                { type:'agent_name',        group:'agent', label:'Agent Name',  iconBg:'#7c3aed' },
+                { type:'agent_email',       group:'agent', label:'Agent Email', iconBg:'#7c3aed' },
+                { type:'agent_phone',       group:'agent', label:'Agent Phone', iconBg:'#7c3aed' },
+                { type:'agent_designation', group:'agent', label:'Designation', iconBg:'#7c3aed' },
+                { type:'agent_avatar',      group:'agent', label:'Avatar',      iconBg:'#7c3aed' },
                 { type:'logo',          group:'branding',  label:'CoreX / Agency Logo', iconBg:'#00b4d8' },
                 { type:'agency_logo',   group:'branding',  label:'Agency Logo (image)', iconBg:'#00b4d8' },
                 { type:'agency_name',   group:'branding',  label:'Agency Name', iconBg:'#0b2a4a' },
                 { type:'website',       group:'branding',  label:'Website',     iconBg:'#0b2a4a' },
                 { type:'watermark',     group:'branding',  label:'Watermark',   iconBg:'#334155' },
-                { type:'custom_image',  group:'image',     label:'Custom Image', iconBg:'#2563eb' },
-                { type:'custom_video',  group:'image',     label:'Custom Video', iconBg:'#2563eb' },
                 { type:'custom_text',   group:'decorative',label:'Custom Text', iconBg:'#6d28d9' },
                 { type:'badge',         group:'decorative',label:'Badge / Pill',iconBg:'#00b4d8' },
                 { type:'line',          group:'decorative',label:'Divider Line',iconBg:'#334155' },
                 { type:'shape',         group:'decorative',label:'Shape',       iconBg:'#334155' },
+                { type:'color_block',   group:'decorative',label:'Colour Block',iconBg:'#334155' },
                 { type:'gradient',      group:'decorative',label:'Gradient',    iconBg:'#334155' },
             ];
         },
@@ -953,7 +708,6 @@ function builder() {
 
         // Live preview: real property value > preview override > label
         textValue(el) {
-            if (el.field === 'features') return this.featuresValue(el);
             if (el.field === 'custom_text' || el.field === 'badge') return el.text || el.label;
             const pd = this.propertyData;
             if (pd && pd[el.field] !== undefined && pd[el.field] !== null && pd[el.field] !== '') return pd[el.field];
@@ -987,9 +741,7 @@ function builder() {
         },
 
         applyPreset() {
-            // "custom" keeps the current W/H — the W×H inputs drive the size.
             const p = CANVAS_PRESETS[this.canvasPreset];
-            if (!p) return;
             this.canvasW = p.w;
             this.canvasH = p.h;
         },
@@ -1022,10 +774,6 @@ function builder() {
                 borderRadius:  d.borderRadius ?? 0,
                 bg:            d.bg || '#07111e',
                 opacity:       d.opacity ?? 1,
-                shapeType:     d.shapeType || 'rounded',
-                src:           d.src || '',
-                mediaKind:     d.mediaKind || '',
-                selectedFeatures: d.selectedFeatures || null,
                 gradFrom:      d.gradFrom || '#071325',
                 gradTo:        d.gradTo || 'rgba(7,19,37,0)',
                 gradAngle:     d.gradAngle ?? 180,
@@ -1041,11 +789,7 @@ function builder() {
         },
 
         elStyle(el) {
-            // Shapes own their geometry via shapeCss() on the inner div — the outer
-            // container must stay square (radius 0) or it clips a rectangle's corners
-            // round and the clip-path shapes get a stray rounded bounding box.
-            const radius = el.field === 'shape' ? 0 : (el.borderRadius || 0);
-            let s = `left:${el.x}px;top:${el.y}px;width:${el.w}px;height:${el.h}px;z-index:${el.zIndex};overflow:hidden;border-radius:${radius}px;`;
+            let s = `left:${el.x}px;top:${el.y}px;width:${el.w}px;height:${el.h}px;z-index:${el.zIndex};overflow:hidden;border-radius:${el.borderRadius || 0}px;`;
             if (el.rotation) s += `transform:rotate(${el.rotation}deg);`;
             if (el.frameBorderWidth) s += `border:${el.frameBorderWidth}px solid ${el.frameBorderColor || '#fff'};`;
             return s;
@@ -1067,81 +811,6 @@ function builder() {
             const copy = { ...this.elements[this.selectedIndex], id: Date.now() + Math.random(), x: this.elements[this.selectedIndex].x + 16, y: this.elements[this.selectedIndex].y + 16, zIndex: this.elements.length + 1 };
             this.elements.push(copy);
             this.selectedIndex = this.elements.length - 1;
-        },
-
-        rotateSelected() {
-            if (this.selectedIndex < 0) return;
-            const cur = this.elements[this.selectedIndex].rotation || 0;
-            this.mutate('rotation', (Math.round(cur / 45) * 45 + 45) % 360);
-        },
-
-        // ── Shapes ───────────────────────────────────────────────────────────
-        get shapes() { return SHAPES; },
-        shapeCss(el) {
-            let s = `width:100%;height:100%;background:${el.bg || '#00b4d8'};opacity:${el.opacity ?? 1};`;
-            // Legacy shapes (saved before the shape list) used borderRadius as a %.
-            if (!el.shapeType) return s + `border-radius:${el.borderRadius ?? 50}%;`;
-            const t = el.shapeType;
-            if (SHAPE_CLIPS[t]) s += `clip-path:${SHAPE_CLIPS[t]};border-radius:0;`;
-            else if (t === 'circle') s += 'border-radius:50%;';
-            else if (t === 'pill')   s += 'border-radius:9999px;';
-            else if (t === 'rounded') s += `border-radius:${el.borderRadius ?? 24}px;`;
-            else s += 'border-radius:0;';   // rectangle
-            return s;
-        },
-
-        // ── Custom image / video upload ──────────────────────────────────────
-        async uploadMedia(e) {
-            const file = e.target.files?.[0];
-            if (!file || this.selectedIndex < 0) return;
-            const fd = new FormData();
-            fd.append('file', file);
-            fd.append('_token', document.querySelector('meta[name="csrf-token"]').content);
-            this.toast('Uploading…');
-            try {
-                const res = await fetch(@json(route('corex.ad-templates.upload-media')), {
-                    method: 'POST',
-                    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, 'Accept': 'application/json' },
-                    body: fd,
-                });
-                const json = await res.json();
-                if (!res.ok || !json.ok) throw new Error(json.message || json.error || 'Upload failed');
-                this.mutate('src', json.url);
-                this.mutate('mediaKind', json.kind);
-                this.toast('Uploaded');
-            } catch (err) {
-                this.toast('Upload failed: ' + (err?.message || 'unknown'));
-            } finally {
-                e.target.value = '';
-            }
-        },
-
-        // ── Features chooser ─────────────────────────────────────────────────
-        get featuresList() { return (this.propertyData && this.propertyData.features_list) || []; },
-        isFeatureOn(el, f) {
-            // null selection = show all (default); otherwise only the chosen ones.
-            return el.selectedFeatures === null ? true : el.selectedFeatures.includes(f);
-        },
-        toggleFeature(f) {
-            if (this.selectedIndex < 0) return;
-            const el = this.elements[this.selectedIndex];
-            let sel = el.selectedFeatures === null ? [...this.featuresList] : [...el.selectedFeatures];
-            sel = sel.includes(f) ? sel.filter(x => x !== f) : [...sel, f];
-            this.mutate('selectedFeatures', sel);
-        },
-        featuresValue(el) {
-            const all = this.featuresList;
-            const chosen = el.selectedFeatures === null ? all : all.filter(f => el.selectedFeatures.includes(f));
-            return chosen.length ? chosen.join('  ·  ') : (el.preview || el.label);
-        },
-
-        // Floating action toolbar pinned above the selected element. Counter-scales
-        // the canvas zoom so the buttons stay a constant on-screen size.
-        toolbarStyle() {
-            if (this.selectedIndex < 0 || this.selectedIndex >= this.elements.length) return 'display:none;';
-            const el = this.elements[this.selectedIndex];
-            const inv = 1 / (this.canvasScale || 1);
-            return `position:absolute;left:${el.x}px;top:${el.y}px;transform:translateY(-100%) scale(${inv});transform-origin:bottom left;z-index:99999;`;
         },
 
         sidebarDragStart(e, field) {

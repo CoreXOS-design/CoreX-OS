@@ -139,43 +139,20 @@
     {{-- ── 7. Footer — agent (left) + QR (right) ── --}}
     <div style="padding:18px 32px 0;">
         <table style="width:100%;border-collapse:collapse;"><tr>
-            @php
-                // Co-branded brochure: two agents → compact side-by-side blocks
-                // (smaller photos / type) so the footer stays on the single A4 page.
-                $hasAgent2 = !empty($b['agent2Name'] ?? '');
-                $photoPx   = $hasAgent2 ? 62 : 78;
-                $namePx    = $hasAgent2 ? 16 : 20;
-                $phonePx   = $hasAgent2 ? 13 : 14;
-                $emailPx   = $hasAgent2 ? 12 : 13;
-            @endphp
             <td style="vertical-align:middle;">
                 <table style="border-collapse:collapse;"><tr>
                     <td style="vertical-align:middle;padding-right:14px;">
                         @if(!empty($b['agentPhoto']))
-                            <div style="width:{{ $photoPx }}px;height:{{ $photoPx }}px;border-radius:6px;{{ $coverBg($b['agentPhoto'], '#e5eaf0') }}"></div>
+                            <div style="width:78px;height:78px;border-radius:6px;{{ $coverBg($b['agentPhoto'], '#e5eaf0') }}"></div>
                         @else
-                            <div style="width:{{ $photoPx }}px;height:{{ $photoPx }}px;border-radius:6px;background-color:#1a2a6c;"></div>
-                        @endif
-                    </td>
-                    <td style="vertical-align:middle;{{ $hasAgent2 ? 'padding-right:22px;' : '' }}">
-                        <div style="font-size:{{ $namePx }}px;font-weight:700;color:#2b2b2b;">{{ $b['agentName'] }}</div>
-                        @if($b['agentPhone'] !== '')<div style="font-size:{{ $phonePx }}px;color:#2b2b2b;margin-top:3px;">{{ $b['agentPhone'] }}</div>@endif
-                        @if($b['agentEmail'] !== '')<div style="font-size:{{ $emailPx }}px;color:#6b6b6b;margin-top:1px;">{{ $b['agentEmail'] }}</div>@endif
-                    </td>
-                    @if($hasAgent2)
-                    <td style="vertical-align:middle;padding-right:14px;">
-                        @if(!empty($b['agent2Photo']))
-                            <div style="width:{{ $photoPx }}px;height:{{ $photoPx }}px;border-radius:6px;{{ $coverBg($b['agent2Photo'], '#e5eaf0') }}"></div>
-                        @else
-                            <div style="width:{{ $photoPx }}px;height:{{ $photoPx }}px;border-radius:6px;background-color:#1a2a6c;"></div>
+                            <div style="width:78px;height:78px;border-radius:6px;background-color:#1a2a6c;"></div>
                         @endif
                     </td>
                     <td style="vertical-align:middle;">
-                        <div style="font-size:{{ $namePx }}px;font-weight:700;color:#2b2b2b;">{{ $b['agent2Name'] }}</div>
-                        @if(($b['agent2Phone'] ?? '') !== '')<div style="font-size:{{ $phonePx }}px;color:#2b2b2b;margin-top:3px;">{{ $b['agent2Phone'] }}</div>@endif
-                        @if(($b['agent2Email'] ?? '') !== '')<div style="font-size:{{ $emailPx }}px;color:#6b6b6b;margin-top:1px;">{{ $b['agent2Email'] }}</div>@endif
+                        <div style="font-size:20px;font-weight:700;color:#2b2b2b;">{{ $b['agentName'] }}</div>
+                        @if($b['agentPhone'] !== '')<div style="font-size:14px;color:#2b2b2b;margin-top:3px;">{{ $b['agentPhone'] }}</div>@endif
+                        @if($b['agentEmail'] !== '')<div style="font-size:13px;color:#6b6b6b;margin-top:1px;">{{ $b['agentEmail'] }}</div>@endif
                     </td>
-                    @endif
                 </tr></table>
             </td>
             <td style="vertical-align:middle;text-align:right;width:110px;">

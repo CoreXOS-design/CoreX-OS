@@ -29,69 +29,6 @@
         }
         return '<div style="font-family:Figtree,sans-serif;font-weight:900;font-size:' . $emHeight . ';line-height:1;color:' . $wordColor . ';' . $style . '">corex<span style="color:#33c4e0">os</span></div>';
     };
-
-    // ── Agent identity (single OR co-listed two-agent split) ─────────────────
-    // ad-manager.md §10d. Agent 2 is the co-listing agent: empty unless co-listed.
-    // The generator JS swaps slot-1 nodes (js-ad-*) and slot-2 nodes (js-ad-*-2),
-    // and shows/hides the slot-2 wrapper (js-ad-agent2). For a co-listed ad the two
-    // agents render as SEPARATE blocks, never a merged "A & B" line.
-    $agentName    = $agentName    ?? '';
-    $agentEmail   = $agentEmail   ?? '';
-    $agentDesig   = $agentDesig   ?? '';
-    $initial      = $initial      ?? '';
-    $agent2Name    = $agent2Name    ?? '';
-    $agent2Email   = $agent2Email   ?? '';
-    $agent2Desig   = $agent2Desig   ?? '';
-    $agent2Initial = $agent2Initial ?? '';
-
-    // Avatar + name + (email) chip. $slot 1 = listing (always shown), 2 = co-agent
-    // (server-renders hidden; JS reveals only in "both"). $o keys: avatarEm,
-    // avatarFsEm, nameEm, emailEm, nameColor, emailColor, avatarBg, avatarBorder,
-    // align ('left'|'right'), showEmail.
-    $agentChip = function ($slot, $name, $email, $initial, $o = []) {
-        $is2  = $slot === 2;
-        $av   = $o['avatarEm']    ?? '2.3em';
-        $avFs = $o['avatarFsEm']  ?? '0.95em';
-        $nEm  = $o['nameEm']      ?? '0.78em';
-        $eEm  = $o['emailEm']     ?? '0.62em';
-        $nCol = $o['nameColor']   ?? '#ffffff';
-        $eCol = $o['emailColor']  ?? 'rgba(255,255,255,0.5)';
-        $avBg = $o['avatarBg']    ?? 'linear-gradient(135deg,#00b4d8,#007fa8)';
-        $avBd = $o['avatarBorder']?? '2px solid rgba(255,255,255,0.18)';
-        $align   = $o['align']    ?? 'left';
-        $showEml = $o['showEmail'] ?? true;
-        $nc = $is2 ? 'js-ad-name-2'    : 'js-ad-name';
-        $ec = $is2 ? 'js-ad-email-2'   : 'js-ad-email';
-        $ic = $is2 ? 'js-ad-initial-2' : 'js-ad-initial';
-        $avatar = '<div style="width:' . $av . ';height:' . $av . ';border-radius:50%;background:' . $avBg . ';display:flex;align-items:center;justify-content:center;font-size:' . $avFs . ';font-weight:800;color:#fff;flex-shrink:0;border:' . $avBd . ';"><span class="' . $ic . '">' . e($initial) . '</span></div>';
-        $textAlign = $align === 'right' ? 'text-align:right;' : '';
-        $text = '<div style="min-width:0;' . $textAlign . '">'
-              . '<div style="font-size:' . $nEm . ';font-weight:800;color:' . $nCol . ';letter-spacing:0.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span class="' . $nc . '">' . e($name) . '</span></div>'
-              . ($showEml ? '<div style="font-size:' . $eEm . ';color:' . $eCol . ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span class="' . $ec . '">' . e($email) . '</span></div>' : '')
-              . '</div>';
-        $inner = $align === 'right' ? ($text . $avatar) : ($avatar . $text);
-        $wrapCls   = $is2 ? 'js-ad-agent2' : '';
-        $wrapAttr  = $is2 ? ' data-disp="flex"' : '';
-        $hidden    = $is2 ? 'display:none;' : 'display:flex;';
-        $justify   = $align === 'right' ? 'justify-content:flex-end;' : '';
-        return '<div class="' . $wrapCls . '"' . $wrapAttr . ' style="' . $hidden . 'align-items:center;gap:0.6em;min-width:0;' . $justify . '">' . $inner . '</div>';
-    };
-
-    // Inline "NAME · email" (or just NAME) for the text-footer templates. Slot 2
-    // server-renders hidden, JS reveals it in "both" — so a co-listed ad shows two
-    // separate agent lines, not a merged one.
-    $agentLine = function ($slot, $name, $email, $o = []) {
-        $is2  = $slot === 2;
-        $sep  = $o['sep'] ?? ($email !== '' ? ' · ' : '');
-        $nc = $is2 ? 'js-ad-name-2'  : 'js-ad-name';
-        $ec = $is2 ? 'js-ad-email-2' : 'js-ad-email';
-        $body = '<span class="' . $nc . '">' . e($name) . '</span>'
-              . (($o['showEmail'] ?? true) ? '<span class="ad-sep">' . e($sep) . '</span><span class="' . $ec . '">' . e($email) . '</span>' : '');
-        if (! $is2) {
-            return $body;
-        }
-        return '<span class="js-ad-agent2" data-disp="inline" style="display:none;"><span class="ad-sep"> · </span>' . $body . '</span>';
-    };
 @endphp
 
 {{-- ════════════════════════════════════════════════════════════════
@@ -168,11 +105,14 @@
             @endif
         </div>
 
-        {{-- Agent row (single, or two split blocks when co-listed) --}}
-        <div style="display:flex;align-items:center;gap:1.1em;">
-            <div style="display:flex;align-items:center;gap:1.1em;flex:1;min-width:0;">
-                {!! $agentChip(1, $agentName, $agentEmail, $initial) !!}
-                {!! $agentChip(2, $agent2Name, $agent2Email, $agent2Initial) !!}
+        {{-- Agent row --}}
+        <div style="display:flex;align-items:center;gap:0.65em;">
+            <div style="width:2.3em;height:2.3em;border-radius:50%;background:linear-gradient(135deg,#00b4d8,#007fa8);display:flex;align-items:center;justify-content:center;font-size:0.95em;font-weight:800;color:#fff;flex-shrink:0;border:2px solid rgba(255,255,255,0.18);">
+                {{ $initial }}
+            </div>
+            <div style="min-width:0;flex:1;">
+                <div style="font-size:0.78em;font-weight:800;color:#ffffff;letter-spacing:0.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $agentName }}</div>
+                <div style="font-size:0.62em;color:rgba(255,255,255,0.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $agentEmail }}</div>
             </div>
             <div style="font-size:0.52em;font-weight:700;color:rgba(255,255,255,0.18);letter-spacing:0.1em;text-transform:uppercase;flex-shrink:0;">{{ $footerTxt }}</div>
         </div>
@@ -258,10 +198,15 @@
                 @if($size)<span style="opacity:0.3;">|</span><span>{{ $size }}</span>@endif
             </div>
 
-            {{-- Agent (single, or two split blocks when co-listed) --}}
-            <div style="display:flex;align-items:center;gap:1em;flex-shrink:0;">
-                {!! $agentChip(1, $agentName, $agentEmail, $initial, ['align' => 'right', 'avatarEm' => '2.4em', 'nameEm' => '0.78em', 'emailEm' => '0.6em', 'emailColor' => 'rgba(255,255,255,0.45)', 'avatarBorder' => '2px solid rgba(255,255,255,0.3)']) !!}
-                {!! $agentChip(2, $agent2Name, $agent2Email, $agent2Initial, ['align' => 'right', 'avatarEm' => '2.4em', 'nameEm' => '0.78em', 'emailEm' => '0.6em', 'emailColor' => 'rgba(255,255,255,0.45)', 'avatarBorder' => '2px solid rgba(255,255,255,0.3)']) !!}
+            {{-- Agent --}}
+            <div style="display:flex;align-items:center;gap:0.6em;flex-shrink:0;">
+                <div style="text-align:right;">
+                    <div style="font-size:0.78em;font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:0.06em;">{{ $agentName }}</div>
+                    <div style="font-size:0.6em;color:rgba(255,255,255,0.45);">{{ $agentEmail }}</div>
+                </div>
+                <div style="width:2.4em;height:2.4em;border-radius:50%;background:linear-gradient(135deg,#00b4d8,#007fa8);display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:0.95em;border:2px solid rgba(255,255,255,0.3);flex-shrink:0;">
+                    {{ $initial }}
+                </div>
             </div>
         </div>
 
@@ -333,10 +278,14 @@
         {{-- Agent footer --}}
         <div style="position:relative;z-index:1;">
             <div style="width:100%;height:1px;background:rgba(255,255,255,0.07);margin-bottom:0.7em;"></div>
-            {{-- Agent (single, or two stacked blocks when co-listed) --}}
-            <div style="display:flex;flex-direction:column;gap:0.5em;">
-                {!! $agentChip(1, $agentName, $agentEmail, $initial, ['avatarEm' => '2.2em', 'nameEm' => '0.7em', 'emailEm' => '0.56em', 'emailColor' => 'rgba(255,255,255,0.4)', 'avatarBorder' => 'none']) !!}
-                {!! $agentChip(2, $agent2Name, $agent2Email, $agent2Initial, ['avatarEm' => '2.2em', 'nameEm' => '0.7em', 'emailEm' => '0.56em', 'emailColor' => 'rgba(255,255,255,0.4)', 'avatarBorder' => 'none']) !!}
+            <div style="display:flex;align-items:center;gap:0.55em;">
+                <div style="width:2.2em;height:2.2em;border-radius:50%;background:linear-gradient(135deg,#00b4d8,#007fa8);display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:0.95em;flex-shrink:0;">
+                    {{ $initial }}
+                </div>
+                <div style="min-width:0;">
+                    <div style="font-size:0.7em;font-weight:800;color:#fff;letter-spacing:0.05em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $agentName }}</div>
+                    <div style="font-size:0.56em;color:rgba(255,255,255,0.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $agentEmail }}</div>
+                </div>
             </div>
             <div style="font-size:0.47em;color:rgba(255,255,255,0.16);letter-spacing:0.12em;text-transform:uppercase;margin-top:0.6em;">{{ $footerTxt }}</div>
         </div>
@@ -431,7 +380,7 @@
             <div style="font-size:0.7em;color:rgba(255,255,255,0.6);margin-top:0.35em;text-transform:uppercase;letter-spacing:0.06em;">{{ $title }}</div>
             <div style="width:100%;height:1px;background:rgba(255,255,255,0.12);margin:0.9em 0;"></div>
             <div style="font-size:1.7em;font-weight:900;color:#fff;line-height:1;">{{ $price }}</div>
-            <div style="font-size:0.62em;color:rgba(255,255,255,0.5);margin-top:0.5em;">{!! $agentLine(1, $agentName, $agentEmail) !!}{!! $agentLine(2, $agent2Name, $agent2Email) !!}</div>
+            <div style="font-size:0.62em;color:rgba(255,255,255,0.5);margin-top:0.5em;">{{ $agentName }} · {{ $agentEmail }}</div>
         </div>
     </div>
 
@@ -521,7 +470,7 @@
         <div style="font-size:0.92em;font-weight:700;color:rgba(255,255,255,0.9);margin-top:0.4em;text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $title }}</div>
         <div style="font-size:0.66em;font-weight:600;color:rgba(255,255,255,0.55);margin-top:0.2em;text-transform:uppercase;letter-spacing:0.08em;">{{ $suburb }} · {{ $beds }} BED · {{ $baths }} BATH</div>
     </div>
-    <div style="position:absolute;bottom:0.9em;left:1.6em;font-size:0.55em;font-weight:700;color:rgba(255,255,255,0.4);letter-spacing:0.12em;text-transform:uppercase;">{!! $agentLine(1, $agentName, '', ['showEmail' => false]) !!}{!! $agentLine(2, $agent2Name, '', ['showEmail' => false]) !!} · {{ $footerTxt }}</div>
+    <div style="position:absolute;bottom:0.9em;left:1.6em;font-size:0.55em;font-weight:700;color:rgba(255,255,255,0.4);letter-spacing:0.12em;text-transform:uppercase;">{{ $agentName }} · {{ $footerTxt }}</div>
 </div>
 @endif
 
@@ -544,7 +493,7 @@
         <div style="font-size:0.8em;font-weight:700;letter-spacing:0.4em;text-transform:uppercase;color:#00b4d8;">Coming Soon</div>
         <div style="font-size:2.6em;font-weight:900;color:#fff;margin-top:0.3em;line-height:1;letter-spacing:-0.01em;">{{ $type }} in {{ $suburb }}</div>
         <div style="font-size:0.72em;color:rgba(255,255,255,0.6);margin-top:0.7em;max-width:80%;letter-spacing:0.04em;">An exceptional new listing is about to hit the market. Register your interest today.</div>
-        <div style="font-size:0.66em;font-weight:700;color:#fff;margin-top:1.1em;letter-spacing:0.08em;text-transform:uppercase;">{!! $agentLine(1, $agentName, $agentEmail) !!}{!! $agentLine(2, $agent2Name, $agent2Email) !!}</div>
+        <div style="font-size:0.66em;font-weight:700;color:#fff;margin-top:1.1em;letter-spacing:0.08em;text-transform:uppercase;">{{ $agentName }} · {{ $agentEmail }}</div>
     </div>
 </div>
 @endif
@@ -572,7 +521,7 @@
     <div style="position:absolute;bottom:0;left:0;right:0;padding:0 1.5em 1.2em;text-align:center;">
         <div style="font-size:0.9em;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $title }}</div>
         <div style="font-size:0.66em;font-weight:600;color:rgba(255,255,255,0.55);margin-top:0.2em;text-transform:uppercase;letter-spacing:0.08em;">{{ $suburb }}</div>
-        <div style="font-size:0.6em;font-weight:700;color:#00b4d8;margin-top:0.7em;letter-spacing:0.08em;text-transform:uppercase;">Another one closed by {!! $agentLine(1, $agentName, '', ['showEmail' => false]) !!}{!! $agentLine(2, $agent2Name, '', ['showEmail' => false]) !!}</div>
+        <div style="font-size:0.6em;font-weight:700;color:#00b4d8;margin-top:0.7em;letter-spacing:0.08em;text-transform:uppercase;">Another one closed by {{ $agentName }}</div>
     </div>
 </div>
 @endif
@@ -605,7 +554,7 @@
                 @if($garages)<span><b style="color:#19c37d;font-size:1.1em;">{{ $garages }}</b> Gar</span>@endif
             </div>
         </div>
-        <div style="font-size:0.58em;color:rgba(255,255,255,0.4);letter-spacing:0.06em;text-transform:uppercase;">{!! $agentLine(1, $agentName, '', ['showEmail' => false]) !!}{!! $agentLine(2, $agent2Name, '', ['showEmail' => false]) !!} · {{ $footerTxt }}</div>
+        <div style="font-size:0.58em;color:rgba(255,255,255,0.4);letter-spacing:0.06em;text-transform:uppercase;">{{ $agentName }} · {{ $footerTxt }}</div>
     </div>
 </div>
 @endif
@@ -626,12 +575,10 @@
     <div style="position:absolute;top:1em;right:1.1em;z-index:10;">{!! $renderLogo('', '2.2em', '#ffffff') !!}</div>
 
     <div style="position:absolute;top:50%;left:1.6em;transform:translateY(-50%);max-width:58%;">
-        <div style="width:5em;height:5em;border-radius:50%;background:linear-gradient(135deg,#00b4d8,#007fa8);display:flex;align-items:center;justify-content:center;font-size:1.8em;font-weight:900;color:#fff;border:0.18em solid rgba(255,255,255,0.25);box-shadow:0 8px 26px rgba(0,0,0,0.45);"><span class="js-ad-initial">{{ $initial }}</span></div>
-        <div style="font-size:1.5em;font-weight:900;color:#fff;margin-top:0.5em;letter-spacing:0.02em;line-height:1;"><span class="js-ad-name">{{ $agentName }}</span></div>
-        <div style="font-size:0.66em;font-weight:700;color:#00b4d8;margin-top:0.3em;text-transform:uppercase;letter-spacing:0.1em;"><span class="js-ad-desig">{{ $agentDesig }}</span></div>
-        <div style="font-size:0.62em;color:rgba(255,255,255,0.6);margin-top:0.5em;"><span class="js-ad-email">{{ $agentEmail }}</span></div>
-        {{-- Co-listing agent — a compact second profile, shown only when co-listed --}}
-        <div style="margin-top:0.7em;">{!! $agentChip(2, $agent2Name, $agent2Email, $agent2Initial, ['avatarEm' => '2.6em', 'avatarFsEm' => '1.05em', 'nameEm' => '0.82em', 'emailEm' => '0.6em', 'emailColor' => 'rgba(255,255,255,0.6)', 'avatarBorder' => '0.12em solid rgba(255,255,255,0.25)']) !!}</div>
+        <div style="width:5em;height:5em;border-radius:50%;background:linear-gradient(135deg,#00b4d8,#007fa8);display:flex;align-items:center;justify-content:center;font-size:1.8em;font-weight:900;color:#fff;border:0.18em solid rgba(255,255,255,0.25);box-shadow:0 8px 26px rgba(0,0,0,0.45);">{{ $initial }}</div>
+        <div style="font-size:1.5em;font-weight:900;color:#fff;margin-top:0.5em;letter-spacing:0.02em;line-height:1;">{{ $agentName }}</div>
+        <div style="font-size:0.66em;font-weight:700;color:#00b4d8;margin-top:0.3em;text-transform:uppercase;letter-spacing:0.1em;">{{ $agentDesig }}</div>
+        <div style="font-size:0.62em;color:rgba(255,255,255,0.6);margin-top:0.5em;">{{ $agentEmail }}</div>
         <div style="width:100%;max-width:18em;height:1px;background:rgba(255,255,255,0.15);margin:0.8em 0;"></div>
         <div style="font-size:0.7em;font-weight:600;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.04em;">Now Marketing · {{ $price }}</div>
         <div style="font-size:0.6em;color:rgba(255,255,255,0.5);margin-top:0.2em;text-transform:uppercase;letter-spacing:0.06em;">{{ $title }} · {{ $suburb }}</div>
