@@ -15,8 +15,9 @@ use Tests\TestCase;
 /**
  * Birthday reminders are opt-in per contact (contacts.birthday_reminder).
  * Default off — no agent gets unsolicited birthday emails/notifications.
- * Turning it on surfaces the birthday on the calendar AND fires an in-app
- * reminder on the day.
+ * Turning it on surfaces the birthday on the calendar AND rolls it into the
+ * owning agent's single daily digest email (SendCalendarDigests) — never a
+ * per-contact email/in-app/push (see BirthdayDigestTest).
  */
 final class BirthdayReminderTest extends TestCase
 {

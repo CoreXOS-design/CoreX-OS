@@ -159,7 +159,9 @@ async def chat(payload: dict):
     if knowledge_context:
         system += (
             "\n\nRelevant knowledge-base excerpts (use them when answering; "
-            "do not fabricate beyond them):\n" + knowledge_context
+            "do not fabricate beyond them). When an excerpt is a CoreX navigation "
+            "entry or includes a 'Direct link:' URL, tell the user exactly where "
+            "to go and give them that link verbatim:\n" + knowledge_context
         )
 
     messages = history + [{"role": "user", "content": message}]
