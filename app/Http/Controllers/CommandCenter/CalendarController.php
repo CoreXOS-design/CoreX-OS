@@ -23,7 +23,7 @@ class CalendarController extends Controller
     /** Classes that users may create manually (not system-driven). */
     private const MANUAL_CREATABLE_CLASSES = [
         'viewing', 'property_evaluation', 'listing_presentation',
-        'meeting', 'task', 'other',
+        'meeting', 'task', 'private', 'other',
     ];
 
     public function __construct(
@@ -255,6 +255,9 @@ class CalendarController extends Controller
             $filtered = $this->applyFilters(collect([$bar['event']]), $user, $typeFilter, $categoryFilter, $scope);
             if ($filtered->isNotEmpty()) {
                 $bar['event'] = $filtered->first();
+                // ITEM 4 — getMonthGrid stamped a separate 'title' before redaction;
+                // re-sync it so a redacted private bar never leaks its real title.
+                $bar['title'] = $bar['event']->title;
                 $filteredSpanningBars[] = $bar;
             }
         }
@@ -442,6 +445,39 @@ class CalendarController extends Controller
     {
         $user = $request->user();
         if (!$this->visibilityResolver->canSee($calendarEvent, $user)) { abort(403); }
+
+        // ITEM 4 — a private event opened by anyone but its creator returns ONLY
+        // the busy-slot placeholder: "Private" + the time block, no detail, not
+        // editable. Role-blind (no admin/owner override).
+        if ($calendarEvent->isPrivateHiddenFrom($user)) {
+            return response()->json([
+                'id'                => $calendarEvent->id,
+                'title'             => 'Private',
+                'description'       => null,
+                'event_date'        => $calendarEvent->event_date->toIso8601String(),
+                'end_date'          => $calendarEvent->end_date?->toIso8601String(),
+                'event_date_h'      => $calendarEvent->event_date->format('D, d M Y'),
+                'days_diff'         => (int) now()->startOfDay()->diffInDays($calendarEvent->event_date->copy()->startOfDay(), false),
+                'colour'            => $this->thresholdResolver->resolveForEvent($calendarEvent),
+                'category'          => 'private',
+                'class_label'       => 'Private',
+                'event_type'        => $calendarEvent->event_type,
+                'status'            => $calendarEvent->status,
+                'source_type'       => $calendarEvent->source_type,
+                'source_link'       => null,
+                'linked_records'    => [],
+                'metadata'          => null,
+                'is_past'           => $calendarEvent->event_date->isPast(),
+                'has_contacts'      => false,
+                'is_editable'       => false,
+                'is_actionable'     => false,
+                'is_draggable'      => false,
+                'is_private'        => true,
+                'linked_property'   => null,
+                'linked_properties' => [],
+                'attendees'         => [],
+            ]);
+        }
 
         $colour = $this->thresholdResolver->resolveForEvent($calendarEvent);
         $cfg = CalendarEventClassSetting::forAgencyAndClass($calendarEvent->agency_id, $calendarEvent->category);
@@ -1015,6 +1051,9 @@ class CalendarController extends Controller
             abort(403);
         }
 
+        // ITEM 4 — a private event may only be moved by its creator (role-blind).
+        if ($calendarEvent->isPrivateHiddenFrom($request->user())) { abort(403); }
+
         if (!in_array($calendarEvent->source_type, ['manual', 'manual:demo'])) {
             return response()->json(['error' => 'Source-driven events cannot be rescheduled.'], 422);
         }
@@ -1058,6 +1097,9 @@ class CalendarController extends Controller
     public function update(Request $request, CalendarEvent $calendarEvent)
     {
         $user = $request->user();
+
+        // ITEM 4 — a private event may only be edited by its creator (role-blind).
+        if ($calendarEvent->isPrivateHiddenFrom($user)) { abort(403); }
 
         $data = $request->validate([
             'title'             => 'sometimes|required|string|max:255',
@@ -1142,6 +1184,9 @@ class CalendarController extends Controller
 
     public function destroy(Request $request, CalendarEvent $calendarEvent)
     {
+        // ITEM 4 — a private event may only be deleted by its creator (role-blind).
+        if ($calendarEvent->isPrivateHiddenFrom($request->user())) { abort(403); }
+
         // Fix 6: Cancel cascade — notify attendees + cancel invitations
         $invitations = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
             ->whereIn('status', ['pending', 'accepted', 'tentative'])->get();
@@ -1271,6 +1316,17 @@ class CalendarController extends Controller
             $event->has_conflict = isset($conflictIds[$event->id]);
             $event->has_unack_decline = isset($unackDeclines[$event->id]);
             $event->unack_decline_count = $unackDeclines[$event->id] ?? 0;
+        }
+
+        // ITEM 4 — redact private events for everyone but their creator. Done as
+        // the LAST step so all internal computation (conflicts, scope, colour)
+        // ran on real data; only the display payload is stripped. Role-blind —
+        // no admin/owner override. This single pass covers EVERY server-rendered
+        // view (day/week/month/agenda) AND the events() JSON, because both funnel
+        // through applyFilters(); the busy block still shows (title "Private",
+        // time, colour) so others can see the slot is taken.
+        foreach ($result as $event) {
+            $event->applyPrivacyFor($user);
         }
 
         return $result;

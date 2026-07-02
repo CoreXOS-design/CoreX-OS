@@ -34,6 +34,9 @@ class CalendarEventClassSeeder extends Seeder
             'property_evaluation'  => ['actor_role' => 'seller_action', 'completion_behaviour' => 'require_feedback'],
             'meeting'              => ['actor_role' => 'both',          'completion_behaviour' => 'freeform'],
             'other'                => ['actor_role' => 'both',          'completion_behaviour' => 'freeform'],
+            // ITEM 4 — 'both' (NOT 'neither') so a private block counts as a real
+            // appointment for conflict detection (its whole purpose is busy time).
+            'private'              => ['actor_role' => 'both',          'completion_behaviour' => 'freeform'],
             'task'                 => ['actor_role' => 'neither',       'completion_behaviour' => 'freeform'],
             'leave_annual'         => ['actor_role' => 'neither',       'completion_behaviour' => 'freeform'],
             'leave_sick'           => ['actor_role' => 'neither',       'completion_behaviour' => 'freeform'],
@@ -956,6 +959,30 @@ class CalendarEventClassSeeder extends Seeder
                 'green_visibility'    => ['agent'],
                 'amber_visibility'    => ['agent'],
                 'red_visibility'      => ['agent'],
+                'green_notifications' => [],
+                'amber_notifications' => [],
+                'red_notifications'   => [],
+                'daily_digest_enabled'=> false,
+                'daily_digest_roles'  => null,
+            ],
+
+            // #44b private (ITEM 4 — personal time-block)
+            [
+                'event_class'         => 'private',
+                'label'               => 'Private',
+                'description'         => 'Personal time block. Only the creator sees the details; everyone else sees a "Private" busy slot so they know the time is taken.',
+                'is_active'           => true,
+                'green_days'          => 7,
+                'amber_days'          => 2,
+                'red_days'            => 0,
+                // null = always show — a personal block can be booked any distance out.
+                'show_days'           => null,
+                // Everyone in scope sees the BUSY block; CalendarController redacts
+                // the content (title/detail) for anyone but the creator (role-blind).
+                'green_visibility'    => ['all'],
+                'amber_visibility'    => ['all'],
+                'red_visibility'      => ['all'],
+                // No notifications — a private block is personal, not an alert.
                 'green_notifications' => [],
                 'amber_notifications' => [],
                 'red_notifications'   => [],

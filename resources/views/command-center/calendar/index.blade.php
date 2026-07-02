@@ -44,9 +44,64 @@
         $h = (int) $e->event_date->format('H');
         return ($h >= $hourGridStart && $h < $hourGridEnd) ? $h : null;
     };
+
+    // ITEM 1 — start–end time label for a tile. Empty for all-day events;
+    // "HH:MM" when there is no distinct end; "HH:MM–HH:MM" for a same-day range.
+    $timeRange = function ($e) {
+        if (!empty($e->all_day)) return '';
+        $start = $e->event_date->format('H:i');
+        if ($e->end_date && $e->end_date->gt($e->event_date) && $e->end_date->isSameDay($e->event_date)) {
+            return $start . '–' . $e->end_date->format('H:i');
+        }
+        return $start;
+    };
+
+    // ITEM 3 — lay out a day-column's timed events by DURATION (Google/Outlook
+    // style). Returns rects with grid-minute offsets (s/en) + overlap lanes so a
+    // tile spans the correct number of hour rows. Cluster-based greedy lane
+    // packing keeps overlapping events side by side instead of one hiding another.
+    $layoutDayColumn = function ($events, int $gridStart, int $gridCount) {
+        $gridMinutes = max(1, $gridCount * 60);
+        $items = collect($events)->filter()->map(function ($e) use ($gridStart, $gridMinutes) {
+            $startMin = ($e->event_date->hour - $gridStart) * 60 + $e->event_date->minute;
+            $endDt = ($e->end_date && $e->end_date->gt($e->event_date))
+                ? $e->end_date
+                : $e->event_date->copy()->addMinutes(60);
+            // End on a later day → clamp to the bottom of the visible grid.
+            $endMin = $endDt->isSameDay($e->event_date)
+                ? ($endDt->hour - $gridStart) * 60 + $endDt->minute
+                : $gridMinutes;
+            $s  = max(0, min($startMin, $gridMinutes));
+            $en = max($s + 30, min($endMin, $gridMinutes)); // 30-min floor keeps short events clickable
+            return ['e' => $e, 's' => $s, 'en' => $en, 'lane' => 0, 'lanes' => 1];
+        })->sortBy('s')->values()->all();
+
+        // Cluster-based lane packing: within each run of overlapping events,
+        // greedily assign the first free lane; the whole cluster shares the
+        // lane count so widths line up.
+        $i = 0; $n = count($items);
+        while ($i < $n) {
+            $clusterEnd = $items[$i]['en'];
+            $laneEnds = [];
+            $j = $i;
+            while ($j < $n && $items[$j]['s'] < $clusterEnd) {
+                $placed = false;
+                foreach ($laneEnds as $lane => $end) {
+                    if ($items[$j]['s'] >= $end) { $items[$j]['lane'] = $lane; $laneEnds[$lane] = $items[$j]['en']; $placed = true; break; }
+                }
+                if (!$placed) { $items[$j]['lane'] = count($laneEnds); $laneEnds[] = $items[$j]['en']; }
+                $clusterEnd = max($clusterEnd, $items[$j]['en']);
+                $j++;
+            }
+            $laneCount = max(1, count($laneEnds));
+            for ($k = $i; $k < $j; $k++) { $items[$k]['lanes'] = $laneCount; }
+            $i = $j;
+        }
+        return $items;
+    };
 @endphp
 
-<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
+<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (open) { this.showCreateEvent = false; } if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
     {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
     <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-4 lg:pt-6" style="background: var(--bg);">
@@ -454,7 +509,7 @@
                                                     class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
                                                     style="{{ $chipStyle }}"
                                                     title="{{ $evt->title }}{{ $isTentative ? ' (Tentative)' : '' }}{{ $isPending ? ' (Pending — accept to confirm)' : '' }}">
-                                                <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>@if($isPending)<span class="text-[9px] font-bold uppercase mr-0.5" style="opacity:0.7;">PENDING</span> @endif{{ $evt->all_day ? '' : $evt->event_date->format('H:i') . ' ' }}{{ \Illuminate\Support\Str::limit($evt->title, $isPending ? 14 : 20) }}
+                                                <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>@if($isPending)<span class="text-[9px] font-bold uppercase mr-0.5" style="opacity:0.7;">PENDING</span> @endif{{ $timeRange($evt) ? $timeRange($evt) . ' ' : '' }}{{ \Illuminate\Support\Str::limit($evt->title, $isPending ? 14 : 20) }}
                                             </button>
                                         @endforeach
                                     </div>
@@ -623,37 +678,48 @@
                                      @mousemove="dragMove({{ $hour }}, 1)"
                                      @dragover.prevent
                                      @drop.prevent="rescheduleDrop('{{ $day['date']->toDateString() }}', {{ $hour }}, 1)"></div>
-                                {{-- Event chips (above drag layers, pass-through for drop) --}}
-                                <div class="relative z-[2] px-0.5 py-0.5 space-y-0.5"
-                                     :class="{ 'pointer-events-none': reschedule.dragging }"
-                                     @dragover.prevent>
-                                    @foreach($day['timed'][$hour] ?? [] as $evt)
-                                        @php
-                                            $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip;
-                                            $isDraggable = in_array($evt->source_type, ['manual', 'manual:demo']);
-                                        @endphp
-                                        <button type="button"
-                                                data-event-id="{{ $evt->id }}"
-                                                @click.stop="openEventPanel({{ $evt->id }})"
-                                                @mousedown.stop
-                                                @if($isDraggable)
-                                                    draggable="true"
-                                                    @dragstart="rescheduleStart({{ $evt->id }}, '{{ $day['date']->toDateString() }}', $event)"
-                                                    @dragend="rescheduleEnd()"
-                                                    style="cursor: grab; {{ $chipStyle }}"
-                                                @else
-                                                    style="{{ $chipStyle }}"
-                                                @endif
-                                                class="block w-full text-left px-1.5 py-0.5 rounded text-[10px] truncate transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
-                                                title="{{ $evt->event_date->format('H:i') }} {{ $evt->title }}">
-                                            <span class="opacity-70">{{ $evt->event_date->format('H:i') }}</span>
-                                            <span class="font-medium ml-0.5">{{ \Illuminate\Support\Str::limit($evt->title, 14) }}</span>
-                                        </button>
-                                    @endforeach
-                                </div>
+                                {{-- ITEM 3 — timed events are no longer rendered per-hour-cell;
+                                     they are positioned by duration in the absolute overlay
+                                     below (keeps each hour cell a fixed height so the % math aligns). --}}
                             </div>
                         @endforeach
                     </div>
+                @endforeach
+
+                {{-- ITEM 3 — timed events, absolutely positioned by start + duration
+                     (same %-geometry as the now-line above). Overlapping events are
+                     lane-split side by side. Empty grid space still falls through to the
+                     per-cell drag layers (click-to-create + drag-to-reschedule). --}}
+                @php $gridMinutesWk = max(1, count($gridHours) * 60); @endphp
+                @foreach($weekDaySplits as $dIdx => $day)
+                    @foreach($layoutDayColumn(collect($day['timed'] ?? [])->flatMap(fn($c) => is_iterable($c) ? collect($c)->all() : []), $hourGridStart, count($gridHours)) as $r)
+                        @php
+                            $evt = $r['e'];
+                            $topPct = $r['s'] / $gridMinutesWk * 100;
+                            $heightPct = ($r['en'] - $r['s']) / $gridMinutesWk * 100;
+                            $lane = $r['lane']; $lanes = $r['lanes'];
+                            $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip;
+                            $isDraggable = in_array($evt->source_type, ['manual', 'manual:demo']);
+                            $tr = $timeRange($evt);
+                            $isDone = in_array($evt->status, ['completed', 'dismissed'], true);
+                        @endphp
+                        <button type="button"
+                                data-event-id="{{ $evt->id }}"
+                                @click.stop="openEventPanel({{ $evt->id }})"
+                                @mousedown.stop
+                                @if($isDraggable)
+                                    draggable="true"
+                                    @dragstart="rescheduleStart({{ $evt->id }}, '{{ $day['date']->toDateString() }}', $event)"
+                                    @dragend="rescheduleEnd()"
+                                @endif
+                                :class="{ 'pointer-events-none': reschedule.dragging }"
+                                class="absolute text-left rounded overflow-hidden z-[3] transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
+                                style="{{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 14px; left: calc(56px + (100% - 56px) * {{ $dIdx * $lanes + $lane }} / {{ 7 * $lanes }}); width: calc((100% - 56px) / {{ 7 * $lanes }} - 2px);"
+                                title="{{ $tr }} {{ $evt->title }}">
+                            <span class="block px-1 pt-0.5 text-[9px] opacity-80 leading-none">{{ $tr }}</span>
+                            <span class="block px-1 text-[10px] font-medium leading-tight truncate">{{ \Illuminate\Support\Str::limit($evt->title, 16) }}</span>
+                        </button>
+                    @endforeach
                 @endforeach
 
                 {{-- Drag overlay per day-column --}}
@@ -765,38 +831,46 @@
                                  @mousemove="dragMove({{ $hour }}, 1)"
                                  @dragover.prevent
                                  @drop.prevent="rescheduleDrop('{{ $anchorDate->toDateString() }}', {{ $hour }}, 1)"></div>
-                            {{-- Event chips (pass-through for drop) --}}
-                            <div class="relative z-[2] p-1.5 space-y-1"
-                                 :class="{ 'pointer-events-none': reschedule.dragging }"
-                                 @dragover.prevent>
-                                @foreach($dayTimedByHour[$hour] ?? [] as $evt)
-                                    @php
-                                        $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip;
-                                        $isDraggable = in_array($evt->source_type, ['manual', 'manual:demo']);
-                                    @endphp
-                                    <button type="button"
-                                            data-event-id="{{ $evt->id }}"
-                                            @click.stop="openEventPanel({{ $evt->id }})"
-                                            @mousedown.stop
-                                            @if($isDraggable)
-                                                draggable="true"
-                                                @dragstart="rescheduleStart({{ $evt->id }}, '{{ $anchorDate->toDateString() }}', $event)"
-                                                @dragend="rescheduleEnd()"
-                                                style="cursor: grab; {{ $chipStyle }}"
-                                            @else
-                                                style="{{ $chipStyle }}"
-                                            @endif
-                                            class="block w-full text-left px-3 py-2 rounded transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}">
-                                        <div class="flex items-center gap-2">
-                                            <span class="text-xs opacity-80">{{ $evt->event_date->format('H:i') }}</span>
-                                            <span class="font-medium text-sm">{{ $evt->title }}</span>
-                                        </div>
-                                        <div class="text-[11px] opacity-70 mt-0.5">{{ $evt->category }}</div>
-                                    </button>
-                                @endforeach
-                            </div>
+                            {{-- ITEM 3 — timed events positioned by duration in the overlay below. --}}
                         </div>
                     </div>
+                @endforeach
+
+                {{-- ITEM 3 — timed events positioned by start + duration (single column). --}}
+                @php
+                    $gridMinutesDay = max(1, count($gridHours) * 60);
+                    $dayTimedFlat = collect($dayTimedByHour)->flatMap(fn($c) => is_iterable($c) ? collect($c)->all() : []);
+                @endphp
+                @foreach($layoutDayColumn($dayTimedFlat, $hourGridStart, count($gridHours)) as $r)
+                    @php
+                        $evt = $r['e'];
+                        $topPct = $r['s'] / $gridMinutesDay * 100;
+                        $heightPct = ($r['en'] - $r['s']) / $gridMinutesDay * 100;
+                        $lane = $r['lane']; $lanes = $r['lanes'];
+                        $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip;
+                        $isDraggable = in_array($evt->source_type, ['manual', 'manual:demo']);
+                        $tr = $timeRange($evt);
+                        $isDone = in_array($evt->status, ['completed', 'dismissed'], true);
+                    @endphp
+                    <button type="button"
+                            data-event-id="{{ $evt->id }}"
+                            @click.stop="openEventPanel({{ $evt->id }})"
+                            @mousedown.stop
+                            @if($isDraggable)
+                                draggable="true"
+                                @dragstart="rescheduleStart({{ $evt->id }}, '{{ $anchorDate->toDateString() }}', $event)"
+                                @dragend="rescheduleEnd()"
+                            @endif
+                            :class="{ 'pointer-events-none': reschedule.dragging }"
+                            class="absolute text-left rounded overflow-hidden z-[3] transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
+                            style="{{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
+                            title="{{ $tr }} {{ $evt->title }}">
+                        <div class="flex items-center gap-2 px-2 pt-1">
+                            <span class="text-[11px] opacity-80">{{ $tr }}</span>
+                            <span class="font-medium text-xs truncate">{{ $evt->title }}</span>
+                        </div>
+                        <div class="text-[10px] opacity-70 px-2">{{ $evt->category }}</div>
+                    </button>
                 @endforeach
 
                 {{-- Drag overlay --}}
@@ -916,7 +990,7 @@
                                          @click="openEventPanel({{ $evt->id }})">
                                         <div class="w-1.5 h-6 rounded flex-shrink-0" style="background: {{ $dotColour }};"></div>
                                         <span class="text-xs font-mono flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted); min-width: 3rem;">
-                                            {{ $evt->all_day ? 'All day' : $evt->event_date->format('H:i') }}
+                                            {{ $evt->all_day ? 'All day' : $timeRange($evt) }}
                                         </span>
                                         @if($evt->property_id)
                                             <a href="{{ route('corex.properties.show', $evt->property_id) }}" class="text-sm flex-1 truncate hover:underline {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}" style="color: var(--text-primary);">
@@ -3361,6 +3435,10 @@ function calendarPage() {
         },
 
         openEventPanel(eventId) {
+            // ITEM 2 \u2014 only one side panel at a time. Opening a detail panel
+            // always closes the create panel (the $watch('panelOpen') below is
+            // the reactive backstop; this makes the intent explicit at the call).
+            this.showCreateEvent = false;
             this.panelOpen = true;
             this.panelData = { title: 'Loading\u2026', colour: null, days_diff: 0 };
 

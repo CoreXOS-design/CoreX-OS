@@ -288,4 +288,66 @@ class CalendarEvent extends Model
     {
         $this->update(['status' => 'dismissed']);
     }
+
+    // ── Private event redaction (view-time; ITEM 4) ──────────────────────────
+
+    /** Runtime flag: this in-memory instance has been redacted for a non-creator. */
+    public bool $isPrivacyRedacted = false;
+
+    /** A personal time-block whose detail only its creator may see. */
+    public function isPrivateClass(): bool
+    {
+        return $this->category === 'private';
+    }
+
+    /** The creator — the only user who sees a private event in full. */
+    public function privateOwnerId(): ?int
+    {
+        return $this->created_by_id ?: $this->user_id;
+    }
+
+    /**
+     * True when this is a private event and $viewer is NOT its creator.
+     * Deliberately role-blind: admins, owners, branch managers and super_admins
+     * are all "someone else" — a private block never reveals detail to anyone
+     * but its creator (no override).
+     */
+    public function isPrivateHiddenFrom(?User $viewer): bool
+    {
+        if (!$this->isPrivateClass()) {
+            return false;
+        }
+        if (!$viewer) {
+            return true;
+        }
+        return (int) $viewer->id !== (int) $this->privateOwnerId();
+    }
+
+    /**
+     * Redact a private event IN MEMORY for a non-creator viewer: the time slot,
+     * colour and class stay (so the block still shows as busy) but the title
+     * becomes "Private" and every detail/link is stripped so nothing leaks.
+     * Idempotent; a display transform only — never persisted.
+     */
+    public function applyPrivacyFor(?User $viewer): static
+    {
+        if (!$this->isPrivateHiddenFrom($viewer)) {
+            return $this;
+        }
+        $this->title         = 'Private';
+        $this->description   = null;
+        $this->metadata      = null;
+        $this->property_id   = null;
+        $this->contact_id    = null;
+        $this->created_by_ai = false;
+        // Pre-set relations to empty so a blade/JSON lazy-load cannot re-fetch detail.
+        $this->setRelation('property', null);
+        $this->setRelation('contact', null);
+        $this->setRelation('linkedProperties', collect());
+        $this->setRelation('linkedContacts', collect());
+        $this->setRelation('linkedDeals', collect());
+        $this->setRelation('links', collect());
+        $this->isPrivacyRedacted = true;
+        return $this;
+    }
 }
