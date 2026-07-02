@@ -1585,11 +1585,16 @@ class CalendarController extends Controller
             ->limit(5)
             ->get(['id', 'name', 'email'])
             ->map(fn ($u) => [
-                'id'    => $u->id,
-                'name'  => $u->name,
-                'phone' => null,
-                'email' => $u->email,
-                'type'  => 'agent',
+                'id'           => $u->id,
+                'name'         => $u->name,
+                'phone'        => null,
+                'email'        => $u->email,
+                // Agents have no contact classification, but the mobile
+                // contract lists `contact_type` on every attendee row — emit
+                // it as null so the app can read a uniform shape for contacts
+                // and agents alike rather than a missing-key branch.
+                'contact_type' => null,
+                'type'         => 'agent',
             ]);
 
         return response()->json($contacts->concat($users)->values());

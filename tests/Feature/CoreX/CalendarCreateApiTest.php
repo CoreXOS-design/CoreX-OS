@@ -147,12 +147,32 @@ class CalendarCreateApiTest extends TestCase
 
         $res->assertOk();
         $res->assertJsonStructure([
+            // Backward-compat shape (older Flutter builds).
             'categories' => [['value', 'label', 'allow_multiple_properties', 'actor_role']],
             'priorities',
+            // Aligned mobile contract — `classes` mirrors categories with the
+            // class under `event_class` + `completion_behaviour`, plus the
+            // attendee-role picker options.
+            'classes' => [['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour']],
+            'attendee_roles' => [['key', 'label']],
         ]);
         $values = collect($res->json('categories'))->pluck('value');
         $this->assertTrue($values->contains('viewing'));
         $this->assertTrue($values->contains('listing_presentation'));
+
+        // `classes` covers the same set under the new key.
+        $classKeys = collect($res->json('classes'))->pluck('event_class');
+        $this->assertTrue($classKeys->contains('viewing'));
+        $this->assertTrue($classKeys->contains('listing_presentation'));
+
+        // attendee_roles = create validator enum MINUS agent_contact
+        // (agent role is auto-assigned, never user-pickable).
+        $roleKeys = collect($res->json('attendee_roles'))->pluck('key');
+        $this->assertEqualsCanonicalizing(
+            ['attendee', 'buyer_contact', 'seller_contact'],
+            $roleKeys->all()
+        );
+        $this->assertFalse($roleKeys->contains('agent_contact'));
     }
 
     public function test_rejects_non_creatable_category(): void
