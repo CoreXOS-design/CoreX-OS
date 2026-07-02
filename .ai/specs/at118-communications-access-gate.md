@@ -298,3 +298,42 @@ governs WHO sees it.
 - Switching email ingestion ON (separate go-live step AFTER this lands + promotes).
 - Per-identifier opt-out, AT-112 pack gating (separate tickets in the same permission family).
 - Programmatic send / any ingestion behaviour change (AT-122 owns ingestion).
+
+---
+
+# 13. AS-BUILT ADDENDUM — AT-153 access-request flow fix (2026-07-02, AT-155)
+
+The gate above (Flow A) shipped, and then broke in the field the first time a real WhatsApp thread was owned by the **platform** account. This section records the fix, verified against branch `spec-remediation-calendar-comms` (origin/Staging `740b9c18`). Audit: `.ai/audits/2026-07-02-comms-access-request-flow-broken.md`. **STAGING, HELD — not promoted to live.**
+
+## 13.1 Root cause
+The Elize `@lid` thread (contact 10298, all 22 comms `owner_user_id = 46`) was owned by the platform **super_admin (user 46, `agency_id = NULL`)** because the WhatsApp capture device had been registered under the platform account. The original `canAuthorize` did a raw agency-equality check (`(int) $user->agency_id !== (int) $req->agency_id` → `0 !== 1`) **before** the owner/grant branch, so the System Owner — who legitimately owns the thread — was rejected and saw an empty approver inbox. Nobody could approve a request for a thread the owner himself held.
+
+## 13.2 Policy decisions (Johan)
+- **A = YES:** a null-agency / platform **owner** may authorise, as an **audited break-glass**.
+- **B = YES:** show the owning agent's **name** on the gated row (bodies stay gated).
+
+## 13.3 Fix A — owner-role break-glass in `canAuthorize` / `canRevoke`
+`app/Services/Communications/CommsAccessGrantService.php`. The break-glass is evaluated **first**, before the agency-equality gate:
+- `canAuthorize()` — `if ($this->isPlatformAuthoriser($user)) return true;` then the non-platform agency gate `if ((int) $this->effectiveAgencyId($user) !== (int) $req->agency_id) return false;` then `grant_access` / owner-of-thread checks.
+- `canRevoke()` — self-revoke first, then the same platform break-glass, then the non-platform effective-agency gate.
+- Predicate: `isPlatformAuthoriser($user)` = `method_exists($user, 'isOwnerRole') && $user->isOwnerRole()`.
+
+**Tenancy is NOT weakened.** Only `isOwnerRole()` bypasses the equality. Ordinary cross-agency users — **including cross-agency `communications.grant_access` holders** — stay blocked on `effectiveAgencyId()`. This refines the §3.3 "either/or" authorisation model: the authoriser set is now `{owning agent} ∪ {grant_access holders in the same agency} ∪ {platform owner (break-glass, audited)}`.
+
+## 13.4 Fix B — owner NAME on the gated row (bodies still gated)
+`app/Http/Controllers/CoreX/ContactController.php` resolves the owning agent's **name only** via `User::withoutGlobalScope(AgencyScope)->whereIn('id', $ownerUserIds)->pluck('name','id')` and renders "Private to {agent} — request access" (fallback "routes to a communications manager"). This is name-only — **no bodies, no identifiers** — bodies stay behind `applyArchiveVisibility`. Satisfies req 2 (clear agent attribution) without weakening the gate.
+
+## 13.5 Fix D — `communications:reassign-capture-owner` command + device precondition
+- **Command** `app/Console/Commands/Communications/ReassignCaptureOwner.php` · `communications:reassign-capture-owner {--from=} {--to=} {--dry-run}`. Re-owns WhatsApp threads captured under a wrong account:
+  - `--to` is loaded `withoutGlobalScope(AgencyScope)` and **rejected unless it has an effective agency AND is not `isOwnerRole()`** — the new owner must be a real agency agent.
+  - Scope: `channel = whatsapp`, `purged_at IS NULL`, `owner_user_id = <from>`, `agency_id = <to's agency>` (never crosses tenancy). Updates **only** `owner_user_id` — bodies/links untouched, no hard delete, wrapped in a transaction.
+  - **Audited:** one immutable `CommsAccessAuditLog::record(EVENT_OWNERSHIP_TRANSFER, …)` per distinct `thread_key` before the update (`from_user_id` / `to_user_id` / `thread_key` / reason `reassign_platform_capture_owner`).
+  - Ran on staging: re-owned **80 messages across 3 threads, user 46 → 22**.
+  - This required a new audit-log event type: `CommsAccessAuditLog::EVENT_OWNERSHIP_TRANSFER` (extends the §3.5 action set).
+- **Precondition (device registration)** — `app/Http/Controllers/Communications/WaDeviceController::store()` now refuses a platform/owner-role **or** agency-less registrant: *"WhatsApp capture devices must be registered by the agency agent whose WhatsApp will be captured — not a platform/owner account."* This makes the root cause structurally unrepeatable.
+
+## 13.6 Live-cutover precondition (flagged)
+Every WhatsApp capture device — the Chrome extension **or** the AT-149 WAHA `waha_session` row — MUST belong to a real agency agent, never the platform super_admin. If any live rows were captured under a platform account, re-run `communications:reassign-capture-owner` before/at cutover. (Cross-ref: `claude_communication_capture_setup_spec.md` §9 — capture session ≠ outreach account.)
+
+## 13.7 Verification
+Deployed staging (branch `AT-153-comms-access-fix` → Staging merge `dfad1b18`): `canAuthorize(System Owner user 46)` = TRUE and `canAuthorize(agency admin user 22)` = TRUE for the same request; Elize thread re-owned to user 22 (3 `ownership_transfer` audit rows); gated row names the owning agent with body still gated; cross-agency + cross-agency grant holder still blocked; device guard refuses platform registration both directions. Test `CommsAccessRequestFlowFixTest` 9/9. No migration.

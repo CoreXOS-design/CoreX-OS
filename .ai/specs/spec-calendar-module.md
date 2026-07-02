@@ -2,6 +2,8 @@
 > Monday.com calendar on steroids, purpose-built for real estate
 > Version: 1.0 — 2026-03-30
 
+> **⚠ PARTIALLY SUPERSEDED (2026-07-02, AT-155).** This is the original **design** doc. The **interactive calendar as-built** — tiles (times + duration overlay/lane-packing), panel stacking, private events, `occupies_time` marker-vs-appointment, `event_nature`/requires-feedback, double-booking/self-conflict warnings, the **recurring-events model** (materialise-on-view, synthetic occurrence ids, this/this-and-future/all edit+delete, exception children, tombstones, soft-delete), the delete action, and AT-154 attendee auto-fill — now lives in **`.ai/specs/calendar-interactive.md`**, which is the current truth where the two overlap. See that file's §0 for the exact sections it supersedes. The reminder engine, auto-generation observers, iCal, and dashboard-widget vision below remain valid.
+
 ---
 
 ## What Monday.com Does Well (and where we beat it)
@@ -237,10 +239,12 @@ branch_id           foreignId nullable
 reminder_offsets    json nullable
 reminders_sent      json nullable (tracks which offsets have been sent)
 
--- Recurrence
+-- Recurrence  [AS-BUILT: these columns are now ACTIVE — see calendar-interactive.md §7.
+--  Note: the shipped RecurrenceRule is a hand-rolled RFC-5545 SUBSET (FREQ=DAILY|WEEKLY|MONTHLY,
+--  INTERVAL, UNTIL/COUNT; NO BYDAY/BYMONTHDAY) — not the YEARLY;BYMONTH example below.]
 is_recurring        boolean default false
-recurrence_rule     string nullable (RRULE format: FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15)
-parent_event_id     bigint nullable (links recurring instances to parent)
+recurrence_rule     string nullable (RRULE subset: e.g. FREQ=WEEKLY;INTERVAL=2;COUNT=10)
+parent_event_id     bigint nullable (links recurring instances/exceptions to parent)
 
 -- Metadata
 metadata            json nullable (extra data: deal amount, lease rental, etc.)

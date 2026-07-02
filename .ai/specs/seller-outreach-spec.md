@@ -1,6 +1,6 @@
 # Seller Outreach — Module Spec
 
-> Status: Draft pending Johan approval — 2026-05-13 (late evening)
+> Status: Draft pending Johan approval — 2026-05-13 (late evening) · **AS-BUILT ADDENDUM (2026-07-02, AT-155)** — Section 11 documents AT-142 (consent template library), AT-144/AT-145 (canonical buyer-count repoint + `no_buyers` send-gate). AT-142 and AT-145 are **LIVE** on `main`; the template-library seeder + composer send-gates are also on Staging. Verified against branch `spec-remediation-calendar-comms` (origin/Staging `740b9c18`).
 > Owner: Johan / Andre
 > Pillars: Contact (record-keeping spine) + Property (the pitch's subject)
 > Depends on (Phase 1 already shipped):
@@ -135,13 +135,11 @@ Template:
 - `{agent_phone}` — agent's phone in display format.
 - `{agency_name}` — agency's display name.
 - `{buyer_count}` — live count: distinct active buyers (new/warm + active wishlist) in the property's town.
-- `{matching_buyer_count}` — live count: subset who match by property type, beds, price band.
+- `{matching_buyer_count}` — live count: subset who match this property. **AS-BUILT (AT-144/145):** now sourced from the **canonical** `PropertyMatchScoringService::countableActiveBuyerCountForProperty($property)`, **not** `ProspectingIntelligenceService` (which provably diverged — see §11). Emitted blank when null (address-only) or 0; guarded by the `no_buyers` send-gate.
 - `{tracking_link}` — the unique short URL per send. **MANDATORY in every template** — system rejects template save if missing.
+- **AS-BUILT (AT-142) additional tokens:** `{seller_surname}`, `{agent_designation}`, and the collapsing optional-segment form `{?matching_buyer_count}…{/matching_buyer_count}`. See §11.
 
-HFC seeded with 3 default templates:
-1. "Initial outreach — sale" — full pitch with buyer counts + tracking link.
-2. "Follow-up after 7 days" — softer reminder, references previous message.
-3. "Expired mandate re-pitch" — references the property's mandate history.
+> **SUPERSEDED — template seeding.** The original "HFC seeded with 3 default templates" (Initial outreach / Follow-up / Expired re-pitch) is replaced by the **AT-142 consent template library**: model `SellerOutreachTemplate` + seeder `HfcConsentTemplatesSeeder` seed **7** templates (one held INACTIVE). See §11 for the current list and the send-gates.
 
 ### S5. Snapshot at send time (PPRA defensibility)
 
@@ -361,7 +359,7 @@ public function composeContext(int $agencyId, Contact $contact, Property $proper
 - The contact, property, agent (current auth user).
 - The resolved template (or default for channel).
 - The full merge-field value map.
-- The live facts (buyer_count, matching_buyer_count, etc. — pulled from `ProspectingIntelligenceService`).
+- The live facts. **AS-BUILT (AT-144/145):** `matching_buyer_count` is pulled from `PropertyMatchScoringService::countableActiveBuyerCountForProperty()` (canonical), NOT `ProspectingIntelligenceService`. `buyer_count` (area-level demand) is unchanged. `composeContext()` also returns the send-gate `validationIssues` map (§11.3).
 - The rendered subject + body (template applied to fields).
 - Validation status (e.g. "contact has no phone — cannot send WhatsApp").
 - Cooldown signal (last contact date from this agency, if any).
@@ -539,6 +537,49 @@ If a send goes wrong post-deploy, the send record is soft-deleted (the body_snap
 5. **Bulk send.** Not in v1. One pitch at a time. v2 could add a "send to all matching sellers in this town" workflow with per-contact agent-review steps.
 6. **A/B testing of templates.** Not in v1. Templates support is_active toggle but no rotation/randomisation. v2 enhancement.
 7. **Geo-IP service for click tracking.** Out of v1 scope — `geo_country` column stays NULL initially. v2 enhancement: free-tier MaxMind GeoLite2 lookup.
+
+---
+
+# Section 11 — AS-BUILT ADDENDUM (2026-07-02, AT-155): consent template library, canonical buyer-count, send-gates
+
+Documents AT-142 / AT-144 / AT-145 as shipped. Verified against branch `spec-remediation-calendar-comms` (origin/Staging `740b9c18`). **AT-142 and AT-145 are LIVE** (cherry-picked to `main`, live-verified); the same code is on Staging.
+
+## 11.1 Canonical `{matching_buyer_count}` (AT-144 → AT-145)
+AT-144 found `ProspectingIntelligenceService` and the real matching engine **diverged** (audit prop #6018 — the outreach claim disagreed with the property's actual matched-buyer count). AT-145 repointed the outreach merge field to the single source of truth:
+- `SellerOutreachComposerService::buildMergeFields()` computes `matching_buyer_count` via injected `PropertyMatchScoringService::countableActiveBuyerCountForProperty($property)` — a thin accessor over `getBuyerDemandForProperty()['active']['count']`, the canonical `MatchingService` engine with the AT-71 `countable()` gate.
+- Address-only mode (no linked Property) → `null` → the claim collapses (no per-property buyer number emitted), consistent with §S2.1.
+- `ProspectingIntelligenceService` is **left untouched** (no collateral change); it still serves area-level `buyer_count` and the landing-page live demand.
+
+## 11.2 Send-gates in `composeContext()` (AT-142 + AT-145)
+`composeContext()` returns a `validationIssues` map; a non-empty gate blocks send with a plain-English reason (BUILD_STANDARD "prevent" — the composer refuses rather than send an indefensible or malformed claim). The gate keys, as built:
+
+| Gate key | Fires when |
+|---|---|
+| `no_address` | no pitch subject address resolvable (neither Property nor captured contact address) |
+| `no_recipient_name` | template uses `{seller_surname}` but it is blank (surname → first-name → **block**) |
+| `no_designation` | template uses `{agent_designation}` but the agent's designation is blank |
+| `designation_not_full_status` | agency toggle on (§11.4) **and** the agent may not claim full status |
+| `no_buyers` (AT-145) | linked-property mode **and** template contains `{matching_buyer_count}` **and** the canonical count is exactly `0` (blocks a buyer-claim when there are no matching buyers) |
+
+(Opt-out / pending / cooldown remain separate flags per §S9–S10 — opt-out is a hard block, cooldown a soft warning.)
+
+## 11.3 AT-142 consent template library
+- Model `App\Models\SellerOutreach\SellerOutreachTemplate` — `BelongsToAgency` + `SoftDeletes`; fillable includes `is_active`, `is_default_for_channel`, `include_tracking_link`; scopes `active()` / `forChannel()` / `default()`.
+- Seeder `database/seeders/HfcConsentTemplatesSeeder.php` seeds **7** templates (idempotent `updateOrCreate` on name; a config change fires the `TemplateConfigured`/`TemplateUpdated` event per §S11):
+  1. General Marketing — Area Updates *(active, default)*
+  2. Buyer Demand Marketing *(active)* — uses `{?matching_buyer_count}…{/matching_buyer_count}`
+  3. Complimentary Services — Homeowner Intro *(active)*
+  4. Soft Introduction — Future Seller *(active)*
+  5. **Buyer-Led — Active Buyer Match — `is_active = false` (INACTIVE, "template C" / id9)** — held disabled; **Johan re-enables after AT-145 review. Do NOT flip `is_active` in the seeder.**
+  6. Short Introduction — Services Overview *(active)*
+  7. Area Updates — Market & Buyer Demand *(active)*
+- **Single-brace `{token}` convention.** Token set extends §S4 with `{seller_surname}` and `{agent_designation}`, plus the collapsing optional segment `{?token}…{/token}` used for the buyer-count claim so a template can safely omit the claim when the value is absent.
+
+## 11.4 `restrict_consent_outreach_to_full_status` agency toggle
+Column on `agencies` (default `false`). When on, and a template uses `{agent_designation}` with a non-blank designation, `SellerOutreachComposerService::agencyRestrictsToFullStatus()` + `agentMayClaimFullStatus()` (delegating to the canonical `CandidatePractitionerService::isFullStatus() || isPrincipal()`) gate the send with `designation_not_full_status` — a candidate/intern practitioner cannot broadcast a full-status designation claim.
+
+## 11.5 Status / deploy
+AT-142: LIVE (`main` `65f9c70b`, cherry-pick; Staging `d3336b15`). AT-145: LIVE (`main` `41698917`; Staging `50855048`). AT-144 is the divergence audit that drove AT-145 (no separate feature commit). Template 5 stays `is_active = false` pending Johan. No migration in AT-145; AT-142 adds the template table + `restrict_consent_outreach_to_full_status` column.
 
 ---
 

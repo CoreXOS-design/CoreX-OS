@@ -1,9 +1,11 @@
 # CoreX — Communication Capture Setup Spec (SSOT)
 
 **File:** `.ai/specs/claude_communication_capture_setup_spec.md`
-**Status:** Draft for build. Extends `claude_communication_archive_spec.md`. Grounded in the capture-attachment as-built investigation (CC, 2026-06-15).
+**Status:** Draft for build + **AS-BUILT ADDENDUM (2026-07-02, AT-155)** — §8 documents the WAHA **server-side WhatsApp capture** path (AT-149, built on the AT-138/143 decisions) shipped to Staging (HELD from live). Extends `claude_communication_archive_spec.md`. Grounded in the capture-attachment as-built investigation (CC, 2026-06-15).
 **Owner:** Johan (domain/BA) · Build: Johan + Andre
 **One-line purpose:** Give every agency a way to provision a user's email + WhatsApp capture under whatever credential model fits their mail setup — agency-wide OAuth, agency-set-per-user, user-self-set, or dual — with credentials write-only by default and reveal a separately-permissioned, audited action.
+
+> **AS-BUILT NOTE (AT-155).** §§1–7 describe the original credential-provisioning design. §8 records the WhatsApp capture **transport** that actually shipped: a server-side WAHA session replaces the foreground Chrome-extension DOM-scrape as the primary WhatsApp capture path. Verified against branch `spec-remediation-calendar-comms` (origin/Staging `740b9c18`). STAGING, HELD from live.
 
 ---
 
@@ -88,6 +90,62 @@ Each phase is independently shippable and feeds the same archive.
 
 ---
 
-## 7. Done-criteria (every build prompt)
+# AS-BUILT ADDENDUM (2026-07-02, AT-155)
+
+## 8. WhatsApp capture transport — server-side WAHA session (AT-149; decisions from AT-138/143)
+
+### 8.1 Why the transport changed (AT-138 doctrine — recorded decisions)
+The original WhatsApp adapter (§6 of the archive spec) reads the rendered `web.whatsapp.com` DOM from a **foreground** Chrome tab. That inverts the CoreX founding principle — it needs an agent to keep a tab open and idle, and it scroll-scrapes. The AT-138 investigation (`.ai/audits/2026-06-30-at138-wa-server-side-session.md`) and the AT-149 build audit (`.ai/audits/2026-07-02-at149-waha-webhook-adapter.md`) locked these decisions:
+
+1. **Move capture to a server-held WhatsApp session.** The agent links once via QR; capture then runs 24/7 on the Hetzner box — no tab, no foreground, no idle-watching, no DOM scrape.
+2. **Engine = WAHA (self-hosted Docker) on the GOWS engine (whatsmeow / Go).** GOWS gives **native `@lid` ↔ phone-number resolution** (retiring the hand-rolled AT-133 JS resolver to a fallback), a history head-start on link, and owns session storage / reconnection / multi-session. Deployed as WAHA Core `gows-arm-2026.6.2`, isolated Docker, bound to `127.0.0.1:3111`, API-key ON (AT-143).
+3. **Only the transport changes.** A thin Laravel webhook adapter maps the session payload into the **existing** `WaArchiveIngestor` contract — AT-122/132/133/135/136/137 + the tz fix, the known-contact gate, per-agent consent, and media download all reused unchanged. Bodies arrive cleartext, which retires the DOM-scrape / IndexedDB backfill / `body_status=unreadable` churn.
+4. **Read-only, never send** (ban-risk mitigation — §8.5). History **accrues forward** from link date; it is **not** a retroactive 5-year pull (WhatsApp serves only a bounded recent window to a newly-linked device — true 5-year FICA retention is achieved by archiving forward).
+5. **Migrate via a transitional hybrid** — run the WAHA session alongside the extension behind a per-agent flag, prove parity via `external_id` dedup, then retire the extension.
+
+### 8.2 Webhook endpoint + verifier
+- Route: `POST /communications/wa/webhook` · name **`communications.wa.webhook`** · middleware alias **`waha.webhook`** → `App\Http\Middleware\VerifyWahaWebhook`. Placed in `web.php` beside the extension `wa/*` machine endpoints (same doctrine as the existing capture routes), not under `/api/v1/*`.
+- `VerifyWahaWebhook` is **fail-closed**, keyed off `config('communications.waha.webhook_secret')` (`WAHA_WEBHOOK_SECRET`):
+  - No secret configured → `401 {"error":"Webhook not configured"}` (never accepts an unauthenticated POST).
+  - **HMAC** — reads `X-Webhook-Hmac`; algorithm from `X-Webhook-Hmac-Algorithm` or `config('communications.waha.webhook_hmac_algo', 'sha512')`; `hash_hmac($algo, $rawBody, $secret)` over the **raw request body**; constant-time `hash_equals`.
+  - **Shared secret** — `X-Webhook-Secret` header or `Bearer` token, constant-time compared.
+  - Neither → `401`. This is the **only** non-200 the endpoint ever returns (§8.4).
+
+### 8.3 `WahaWebhookAdapter::map()` — thin mapper, reimplements nothing
+`app/Services/Communications/WahaWebhookAdapter.php` · `map(array $payload): ?array`. One WAHA payload → one ingestor item; it only reshapes fields, then `WaSessionWebhookController@handle` hands the result to the existing `WaArchiveIngestor::ingest($device, $item)`.
+- **`SenderAlt` → phone PRIMARY, `@lid` FALLBACK:** inbound counterpart chat = `payload.from` (the `@lid`), phone = `phoneFromJid(_data.Info.SenderAlt)` (returns `''` for empty/`@lid`, requires ≥9 digits). Emits `counterpart_phone` (primary, blank when no real number) + `counterpart_lid` (fallback) — the ingestor's AT-133 `@lid` resolver only fires when the real phone is absent. Outbound (`fromMe`) takes the counterpart from `payload.to`.
+- **Media → the AT-148 seam:** maps `payload.media {url, mimetype, filename}` + `_data.Message.audioMessage.seconds` → a `media[]` item with `url` — the exact download seam §12 of the archive spec consumes.
+- Other keys: `message_id` (`payload.id`), `chat_id` (thread = counterpart `@lid`), `direction`, `sender`, `timestamp`, `text` (`body ?? _data.Message.conversation`), `name` (`_data.Info.PushName`), `is_group` (always false — groups already dropped).
+
+### 8.4 WAHA delivers ONE message per webhook + robust 200-skip
+- WAHA (GOWS) posts **one message per webhook** (envelope `{event, session, payload}`), **not** a `messages[]` batch — the controller unwraps a single `payload`. (Contrast: the extension path validated a `messages[]` array.)
+- **Never 500 (retry-storm guard):** anything that is not a clean attributable message is logged and skipped with a **200** — non-JSON body, event not in `{message, message.any}`, missing session/payload, no matching device, adapter throw, adapter-returned-null (noise/malformed), or ingest throw. The only non-200 is the middleware `401`.
+
+### 8.5 Session → agent binding
+- Migration `2026_07_02_000002_add_waha_session_to_communication_wa_devices`: makes `device_token` **nullable** (a session link has no bearer token) and adds `waha_session` (string, nullable, **unique** `comm_wa_session_uq`). A `communication_wa_devices` row is now **either** an extension device (`device_token` set) **or** a WAHA session link (`waha_session` set).
+- Resolution: `CommunicationWaDevice::withoutGlobalScope(AgencyScope)->forWahaSession($session)->first()` (the machine webhook has no auth context, mirroring extension-capture middleware). The device yields the owning agent (`user_id`) + `agency_id`; **no matching device → skip** (never archives to a wrong agency).
+
+### 8.6 Noise filter (shared with §14 of the archive spec)
+`status@broadcast` / `@g.us` / `IsGroup` are dropped in **two layers**: `WahaWebhookAdapter::isNoise()` (first, in `map()`) and `WaArchiveIngestor::isNoiseChat()` (defence-in-depth at ingest entry). The `communications:purge-wa-noise` soft-purge command remediates any that predate the filter.
+
+### 8.7 Config reference
+`config/communications.php` `waha` block: `base_url` (`WAHA_BASE_URL`, default `http://127.0.0.1:3111`), `api_key` (`WAHA_API_KEY`, `X-Api-Key`), `webhook_secret` (`WAHA_WEBHOOK_SECRET`), `webhook_hmac_algo` (default `sha512`), `download_timeout_seconds` (30), `max_media_bytes` (50 MB), `allowed_media_hosts` (`WAHA_ALLOWED_MEDIA_HOSTS`, default `127.0.0.1,localhost`).
+
+### 8.8 Go-live prerequisites (pending Johan — not done in the build)
+The webhook path is built and tested (`WaSessionWebhookTest` 8/8) but **no number is linked**. To go live Johan must: set `WAHA_WEBHOOK_SECRET`, point WAHA's webhook at `/communications/wa/webhook`, and set `communication_wa_devices.waha_session` for the linked agent's device.
+
+## 9. DOCTRINE — the capture session must NEVER be the same WhatsApp account as outreach sending
+
+**Rule.** The WhatsApp number a WAHA capture session links must be a **capture-only** number, distinct from any number an agent uses to **send** outreach. Capture is read-only evidence collection; outreach is deliberate outbound. Mixing them raises WhatsApp ban risk (bulk/robotic-send patterns are the primary ban trigger) and muddies the FICA evidence trail.
+
+**How CoreX honours it today (as-built):**
+- **Structurally enforced (capture never sends):** the WAHA session is read-only — there is **no** WAHA `sendText`/send call anywhere in `app/`. Outreach WhatsApp delivery is done by the **agent's own device via a `wa.me` deep link** after `SellerOutreachSenderService` redirects the agent — CoreX itself never transmits through the captured session. So the *capture channel* and the *send channel* are already different code paths.
+- **Ownership enforced (AT-153):** `WaDeviceController::store()` refuses a platform/owner-role or agency-less registrant, so a capture device always belongs to a real agency agent (attributable `owner_user_id`). See `at118-communications-access-gate.md` §13.
+
+**What is convention-only (NOT yet a coded invariant) — flagged honestly per BUILD_STANDARD:** there is currently **no validation** asserting that a session's WhatsApp number differs from an agent's outreach number — `communication_wa_devices.wa_number` is free-text and never compared against any outreach identity. The "separate account" rule is an operational convention recorded here and in the AT-138 audit, enforced structurally (read-only capture) rather than by a rejecting check. A future hardening could add that comparison; until then it is a documented setup discipline for whoever links the session.
+
+---
+
+## 10. Done-criteria (every build prompt)
 
 `php -l` · `php artisan migrate` + `schema:dump` · `view:clear` · documented test command, full-suite failures stay at the 220 baseline (no new) · explicit short FK names · BelongsToAgency + SoftDeletes on new models · permissions added + granted (`reveal_mailbox_credential` owner-only default) · `corex:sync-permissions --merge-defaults` · nav present · **security tests: stored password never returned by any endpoint/view; reveal blocked without `reveal_mailbox_credential`; every reveal writes a `mailbox_credential_reveals` row; a user can only set their own credentials.** Report results, files, line counts. Update Jira.
