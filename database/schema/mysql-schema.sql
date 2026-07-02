@@ -1669,6 +1669,8 @@ CREATE TABLE `calendar_event_class_settings` (
   `allow_multiple_properties` tinyint(1) NOT NULL DEFAULT '0',
   `buyer_facing` tinyint(1) NOT NULL DEFAULT '0',
   `actor_role` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'neither',
+  `autofill_buyers` tinyint(1) NOT NULL DEFAULT '0',
+  `occupies_time` tinyint(1) NOT NULL DEFAULT '0',
   `completion_behaviour` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'freeform',
   `feedback_mode` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'per_contact',
   `label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -12587,3 +12589,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (931,'2026_07_20_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (932,'2026_07_02_000001_add_media_state_to_communication_attachments',200);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (933,'2026_07_15_000002_add_pp_max_photos_to_agencies',200);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (934,'2026_07_02_000002_add_waha_session_to_communication_wa_devices',201);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (935,'2026_07_02_000001_add_occupies_time_to_calendar_event_class_settings',202);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (936,'2026_07_02_000003_add_autofill_buyers_to_calendar_event_class_settings',202);

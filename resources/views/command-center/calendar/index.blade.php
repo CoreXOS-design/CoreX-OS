@@ -2027,10 +2027,13 @@
                  (DOM-lookup, not Alpine scope). --}}
             @php
                 $classConfigMap = $manualCreatableClasses->mapWithKeys(fn($c) => [$c->event_class => [
-                    'multi'      => (bool) $c->allow_multiple_properties,
-                    'actor_role' => $c->actor_role ?? 'neither',
-                    'completion' => $c->completion_behaviour ?? 'freeform',
-                    'nature'     => $c->event_nature ?? 'actionable',
+                    'multi'           => (bool) $c->allow_multiple_properties,
+                    'actor_role'      => $c->actor_role ?? 'neither',
+                    'completion'      => $c->completion_behaviour ?? 'freeform',
+                    'nature'          => $c->event_nature ?? 'actionable',
+                    // AT-154 — buyers auto-fill only for buyer-driven classes; the
+                    // server (propertyOwners) is authoritative, this is informational.
+                    'autofill_buyers' => (bool) ($c->autofill_buyers ?? false),
                 ]])->toArray();
             @endphp
             <script type="application/json" id="classConfigMap">{!! json_encode($classConfigMap) !!}</script>
@@ -3658,11 +3661,20 @@ function propertySearch() {
         get selected() { return this.chosen.length > 0 ? this.chosen[0] : null; },
         async autoPopulateOwners(propertyId) {
             const config = this.getClassConfig();
-            // Only auto-populate sellers for seller_action or both events
-            if (config.actor_role !== 'seller_action' && config.actor_role !== 'both') return;
+            // AT-154 — SELLERS auto-fill for EVERY property appointment; only
+            // reminder/marker classes (actor_role 'neither') never auto-fill.
+            // The SERVER decides whether the linked property's BUYER is included
+            // (per the class's autofill_buyers flag), so we pass the category and
+            // add whatever it returns. Previously this skipped buyer_action
+            // classes (a viewing auto-filled NOBODY) and, for seller/both classes,
+            // added EVERY contact — so a listing_presentation pulled the buyer.
+            if (config.actor_role === 'neither') return;
             const form = this.$el?.closest?.('form');
+            const category = form?.querySelector('[name="category"]')?.value || '';
             try {
-                const r = await fetch('/corex/command-center/calendar/properties/' + propertyId + '/owners', {
+                const ownersUrl = '/corex/command-center/calendar/properties/' + propertyId + '/owners'
+                    + (category ? ('?category=' + encodeURIComponent(category)) : '');
+                const r = await fetch(ownersUrl, {
                     headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
                 });
                 if (!r.ok) return;

@@ -84,6 +84,20 @@ class CalendarEventClassSeeder extends Seeder
             ->where(function ($q) { $q->where('actor_role', '<>', 'neither')->orWhereNull('actor_role'); })
             ->update(['occupies_time' => true]);
 
+        // AT-154 — autofill_buyers: buyers auto-fill ONLY for buyer-driven
+        // appointment classes (viewing). Sellers auto-fill for every property
+        // appointment (enforced at owner-fetch time); buyers are gated here so
+        // listing_presentation / property_evaluation / meeting / other never
+        // pull the linked property's buyer. By actor_role (not a hardcoded
+        // class list) so it stays correct for any buyer-driven class; global
+        // rows only (agency rows override via SettingsController). Agency-configurable.
+        CalendarEventClassSetting::withoutGlobalScopes()
+            ->whereNull('agency_id')
+            ->update(['autofill_buyers' => false]);
+        CalendarEventClassSetting::withoutGlobalScopes()
+            ->whereNull('agency_id')->where('actor_role', 'buyer_action')
+            ->update(['autofill_buyers' => true]);
+
         $this->command->info('Seeded ' . count($this->classes()) . ' calendar event class settings.');
     }
 

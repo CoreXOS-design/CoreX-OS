@@ -401,7 +401,7 @@ class CalendarController extends Controller
                 ->where('is_active', true)
                 ->whereIn('event_class', self::MANUAL_CREATABLE_CLASSES)
                 ->orderBy('label')
-                ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour', 'event_nature']),
+                ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour', 'event_nature', 'autofill_buyers']),
         ];
     }
 
@@ -1605,7 +1605,7 @@ class CalendarController extends Controller
             ->orderBy('c.id')
             ->get(['c.id', 'c.first_name', 'c.last_name', 'c.phone', 'c.email', 'cp.role']);
 
-        return response()->json($rows->map(fn ($r) => [
+        $owners = $rows->map(fn ($r) => [
             'id'         => (int) $r->id,
             'first_name' => $r->first_name,
             'last_name'  => $r->last_name,
@@ -1615,7 +1615,38 @@ class CalendarController extends Controller
             'type'       => 'contact',
             'role'       => $toAttendeeRole($r->role ?? null),
             'role_label' => $toRoleLabel($r->role ?? null),
-        ]));
+        ]);
+
+        // AT-154 — SELLER-always / BUYER-conditional auto-fill. Sellers (and the
+        // neutral attendee bucket) auto-fill for every property appointment; the
+        // linked property's BUYER auto-fills ONLY for classes that opt in
+        // (autofill_buyers — viewing / buyer-driven). So a listing_presentation /
+        // property_evaluation / meeting / other never pulls the buyer as an
+        // attendee. The buyer-CONTEXT override (scheduling FROM a buyer) is a
+        // separate explicit prefill and is unaffected. When no category is passed
+        // (older callers) everyone is returned — back-compat.
+        $category = trim((string) $request->query('category', ''));
+        if ($category !== '' && ! $this->classAutofillsBuyers($category, (int) $property->agency_id)) {
+            $owners = $owners->reject(fn ($o) => $o['role'] === 'buyer_contact')->values();
+        }
+
+        return response()->json($owners->values());
+    }
+
+    /**
+     * AT-154 — does this event class auto-fill the linked property's BUYER?
+     * Agency row (if any) overrides the global template; an unknown class defaults
+     * to false (never auto-fill a buyer for a class we can't classify).
+     */
+    private function classAutofillsBuyers(string $eventClass, int $agencyId): bool
+    {
+        $cfg = \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()
+            ->where('event_class', $eventClass)
+            ->where(fn ($q) => $q->where('agency_id', $agencyId)->orWhereNull('agency_id'))
+            ->orderByRaw('agency_id IS NULL') // agency-specific row first, global last
+            ->first();
+
+        return $cfg ? (bool) $cfg->autofill_buyers : false;
     }
 
     /**

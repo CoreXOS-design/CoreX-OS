@@ -643,13 +643,14 @@ class CalendarEventService
             ->where('is_active', true)
             ->whereIn('event_class', self::MANUAL_CREATABLE_CLASSES)
             ->orderBy('label')
-            ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour'])
+            ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour', 'autofill_buyers'])
             ->map(fn ($c) => [
                 'event_class'               => $c->event_class,
                 'label'                     => $c->label,
                 'allow_multiple_properties' => (bool) $c->allow_multiple_properties,
                 'actor_role'                => $c->actor_role,
                 'completion_behaviour'      => $c->completion_behaviour,
+                'autofill_buyers'           => (bool) $c->autofill_buyers, // AT-154
             ])
             ->values();
     }
