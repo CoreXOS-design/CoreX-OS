@@ -1986,7 +1986,7 @@
     <form id="createEventFormV2" method="POST"
           :action="editMode ? '/corex/command-center/calendar/' + editingEventId : '{{ route('command-center.calendar.store') }}'"
           class="flex-1 overflow-y-auto px-6 py-4 space-y-4"
-          @submit="submitting = true; sessionStorage.removeItem('corex.calendar.createEventState'); clearStalePickerState();">
+          @submit="onFormSubmit($event)">
         @csrf
         <template x-if="editMode"><input type="hidden" name="_method" value="PUT"></template>
 
@@ -2112,6 +2112,55 @@
         {{-- Hidden datetime fields for backend (assembled from split pickers) --}}
         <input type="hidden" name="event_date" :value="computedEventDate">
         <input type="hidden" name="end_date" :value="computedEndDate">
+
+        {{-- Recurrence (repeat) + edit-scope. recur_scope/occurrence_date are set by
+             the scope modal on an "edit all/this/future" save; empty on plain create. --}}
+        <input type="hidden" name="recur_scope" :value="form.recurScope">
+        <input type="hidden" name="occurrence_date" :value="form.occurrenceDate">
+        <div class="rounded-md p-3 space-y-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Repeat</label>
+                <select name="recur_freq" x-model="form.recurFreq"
+                        class="w-full rounded-md px-3 py-2 text-sm"
+                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <option value="">Does not repeat</option>
+                    <option value="DAILY">Daily</option>
+                    <option value="WEEKLY">Weekly</option>
+                    <option value="MONTHLY">Monthly</option>
+                </select>
+            </div>
+            <div x-show="form.recurFreq" x-cloak class="space-y-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs" style="color: var(--text-secondary);">Every</span>
+                    <input type="number" name="recur_interval" x-model.number="form.recurInterval" min="1" max="99"
+                           class="w-16 rounded-md px-2 py-1.5 text-sm"
+                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <span class="text-xs" style="color: var(--text-secondary);" x-text="recurIntervalUnit()"></span>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Ends</label>
+                    <select name="recur_end_type" x-model="form.recurEndType"
+                            class="w-full rounded-md px-3 py-2 text-sm"
+                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <option value="never">Never</option>
+                        <option value="until">On date</option>
+                        <option value="count">After a number of times</option>
+                    </select>
+                </div>
+                <div x-show="form.recurEndType === 'until'" x-cloak>
+                    <input type="date" name="recur_until" x-model="form.recurUntil" :min="form.startDate"
+                           class="w-full rounded-md px-3 py-2 text-sm"
+                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div x-show="form.recurEndType === 'count'" x-cloak class="flex items-center gap-2">
+                    <input type="number" name="recur_count" x-model.number="form.recurCount" min="1" max="1000"
+                           class="w-20 rounded-md px-2 py-1.5 text-sm"
+                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <span class="text-xs" style="color: var(--text-secondary);">occurrences</span>
+                </div>
+                <p class="text-[11px]" style="color: var(--text-muted);" x-text="recurSummary()"></p>
+            </div>
+        </div>
 
         {{-- Part B — organizer self double-booking SOFT warning. Same amber ⚠
              language as the invited-agent conflict badge. Non-blocking: it lists
@@ -2327,6 +2376,12 @@
             <h2 class="text-xl font-semibold leading-tight" style="color: var(--text-primary);" x-text="panelData.title"></h2>
             <p class="text-sm mt-1.5" style="color: var(--text-secondary);" x-text="panelData.event_date_h"></p>
             <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="panelDaysDiffLabel(panelData.days_diff)"></p>
+            <template x-if="panelData.recurrence_label">
+                <p class="text-xs mt-1 inline-flex items-center gap-1" style="color: var(--text-secondary);">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                    <span x-text="panelData.recurrence_label"></span>
+                </p>
+            </template>
         </div>
 
         {{-- Linked property --}}
@@ -2435,7 +2490,7 @@
     {{-- Sticky footer action bar --}}
     <div class="px-5 py-2.5 flex items-center gap-4 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
         <template x-if="panelData.is_editable">
-            <button type="button" @click="openEditModal(panelData.id)"
+            <button type="button" @click="editFromPanel()"
                     class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                     style="color: var(--text-primary); background: none; border: none; cursor: pointer;">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"/></svg>
@@ -2481,8 +2536,58 @@
                 Dismiss
             </button>
         </template>
+        {{-- Recurring series delete — asks this/future/all via the scope modal. Only
+             surfaced for recurring events (occurrences); plain events keep Dismiss. --}}
+        <template x-if="panelData.is_editable && panelData.is_recurring">
+            <button type="button" @click="openRecurScopeModal('delete')"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: #ef4444; background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
+                Delete…
+            </button>
+        </template>
     </div>
 </aside>
+
+{{-- ══════ RECURRING EDIT/DELETE SCOPE MODAL ══════
+     Shown when saving an edit to (or deleting) a recurring series. The user must
+     pick this / this-and-future / all. For edit it sets the hidden recur_scope +
+     occurrence_date and submits the create/edit form; for delete it issues a
+     scoped DELETE. No hard deletes — see RecurrenceEditService. --}}
+<div x-show="recurScopeModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50" @click="recurScopeModalOpen = false"></div>
+    <div class="relative w-full max-w-sm rounded-md shadow-2xl p-5" style="background: var(--surface); border: 1px solid var(--border);">
+        <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);"
+            x-text="recurScopeMode === 'delete' ? 'Delete recurring event' : 'Edit recurring event'"></h3>
+        <p class="text-xs mb-4" style="color: var(--text-muted);"
+           x-text="'This event repeats. Apply the ' + (recurScopeMode === 'delete' ? 'deletion' : 'change') + ' to:'"></p>
+        <div class="space-y-2 mb-4">
+            <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
+                   style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
+                <input type="radio" name="recurScopeChoice" value="this" x-model="recurScopeChoice">
+                This event only
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
+                   style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
+                <input type="radio" name="recurScopeChoice" value="future" x-model="recurScopeChoice">
+                This and following events
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
+                   style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
+                <input type="radio" name="recurScopeChoice" value="all" x-model="recurScopeChoice">
+                All events in the series
+            </label>
+        </div>
+        <div class="flex justify-end gap-2">
+            <button type="button" @click="recurScopeModalOpen = false"
+                    class="text-xs px-3 py-1.5 rounded" style="color: var(--text-muted);">Cancel</button>
+            <button type="button" @click="confirmRecurScope()"
+                    class="text-xs font-medium px-3 py-1.5 rounded text-white"
+                    :style="recurScopeMode === 'delete' ? 'background:#ef4444;' : 'background: var(--brand-button);'"
+                    x-text="recurScopeMode === 'delete' ? 'Delete' : 'Save'"></button>
+        </div>
+    </div>
+</div>
 
 </div>{{-- END flex row (grid + panel) --}}
 </div>{{-- END outer x-data wrapper --}}
@@ -2495,7 +2600,14 @@ function calendarPage() {
         currentUserId: {{ auth()->id() ?? 'null' }},
         selfConflicts: [],
         _selfConflictTimer: null,
-        form: { title: '', category: '', startDate: '', startTime: '', endDate: '', endTime: '', description: '', allDay: false, eventNature: 'actionable' },
+        form: { title: '', category: '', startDate: '', startTime: '', endDate: '', endTime: '', description: '', allDay: false, eventNature: 'actionable',
+                recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '' },
+        // Recurring edit/delete scope modal state.
+        recurScopeModalOpen: false,
+        recurScopeMode: 'edit',        // 'edit' | 'delete'
+        recurScopeChoice: 'this',
+        editIsRecurring: false,        // the event being edited is a recurring series/occurrence
+        editOccurrenceDate: '',        // the clicked occurrence's date (Y-m-d)
         endManuallyEdited: false,
         selectedDate: '{{ $anchorDate->toDateString() }}',
         // CAL-2 — explicit "user actively clicked this day to seed a new
@@ -2765,10 +2877,13 @@ function calendarPage() {
             // prior context).
             const dateToUse = this.pendingCreateDate || this.selectedDate || today;
             const nextQ = this.nextQuarterHour();
-            this.form = { title: '', category: '', startDate: dateToUse, startTime: nextQ, endDate: dateToUse, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable' };
+            this.form = { title: '', category: '', startDate: dateToUse, startTime: nextQ, endDate: dateToUse, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable',
+                          recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '' };
             this.endManuallyEdited = false;
             this.editMode = false;
             this.editingEventId = null;
+            this.editIsRecurring = false;
+            this.editOccurrenceDate = '';
             this.submitting = false;
             this.showCreateEvent = true;
             this.clearStalePickerState();
@@ -3106,7 +3221,13 @@ function calendarPage() {
         },
 
         async openEditModal(eventId) {
-            const r = await fetch('/corex/command-center/calendar/' + eventId, {
+            // A synthetic occurrence id (>= 1e8) decodes to a real parent id + the
+            // clicked occurrence's date; we edit the PARENT (so recur_scope applies)
+            // and load the occurrence view via ?occurrence=.
+            const occ = this.decodeOccurrenceId(eventId);
+            const fetchId = occ ? occ.parentId : eventId;
+            const url = '/corex/command-center/calendar/' + fetchId + (occ ? ('?occurrence=' + occ.date) : '');
+            const r = await fetch(url, {
                 headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
             });
             if (!r.ok) return;
@@ -3119,6 +3240,7 @@ function calendarPage() {
             const toTime = (dt) => dt ? String(dt.getHours()).padStart(2,'0') + ':' + String(Math.floor(dt.getMinutes()/15)*15).padStart(2,'0') : '';
 
             const isAllDay = ed && ed.getHours() === 0 && ed.getMinutes() === 0 && !endD;
+            const rc = d.recurrence || null;
             this.form = {
                 title: d.title || '',
                 category: d.category || '',
@@ -3133,10 +3255,22 @@ function calendarPage() {
                 // form assignment (not the @change handler) so it isn't reset to
                 // the class default on edit.
                 eventNature: d.event_nature || 'actionable',
+                // Prefill recurrence controls so an "edit all" round-trips the series.
+                recurFreq: rc ? rc.freq : '',
+                recurInterval: rc ? (rc.interval || 1) : 1,
+                recurEndType: rc ? (rc.end_type || 'never') : 'never',
+                recurUntil: rc ? (rc.until || '') : '',
+                recurCount: rc ? (rc.count || 10) : 10,
+                recurScope: '',
+                occurrenceDate: '',
             };
             this.endManuallyEdited = !!endD;
             this.editMode = true;
-            this.editingEventId = eventId;
+            // Edit the PARENT for a recurring occurrence; the scope modal decides
+            // how the change applies (this / future / all).
+            this.editingEventId = (occ && d.recurrence_parent_id) ? d.recurrence_parent_id : fetchId;
+            this.editIsRecurring = !!(d.is_recurring || d.is_occurrence);
+            this.editOccurrenceDate = d.occurrence_date || (occ ? occ.date : '');
             this.submitting = false;
             this.panelOpen = false;
             this.showCreateEvent = true;
@@ -3541,7 +3675,13 @@ function calendarPage() {
             this.panelOpen = true;
             this.panelData = { title: 'Loading\u2026', colour: null, days_diff: 0 };
 
-            fetch('/corex/command-center/calendar/' + eventId, {
+            // Synthetic occurrence id (>= 1e8) \u2192 real parent id + ?occurrence=date,
+            // so the panel shows THIS occurrence and can offer the scope prompt.
+            const occ = this.decodeOccurrenceId(eventId);
+            const fetchId = occ ? occ.parentId : eventId;
+            const url = '/corex/command-center/calendar/' + fetchId + (occ ? ('?occurrence=' + occ.date) : '');
+
+            fetch(url, {
                 headers: { 'Accept': 'application/json' },
                 credentials: 'same-origin',
             })
@@ -3550,6 +3690,89 @@ function calendarPage() {
             .catch(err => {
                 this.panelData = { title: 'Could not load event', colour: null, days_diff: 0 };
                 console.warn('Calendar event load failed:', err);
+            });
+        },
+
+        // \u2500\u2500 Recurrence helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        // Mirror of RecurrenceExpander::syntheticId \u2014 parentId*1e8 + YYYYMMDD.
+        // Any id >= 1e8 is a virtual occurrence; decode it to {parentId, date}.
+        decodeOccurrenceId(id) {
+            const BASE = 100000000;
+            id = Number(id);
+            if (!Number.isFinite(id) || id < BASE) return null;
+            const parentId = Math.floor(id / BASE);
+            const ymd = id % BASE;
+            const s = String(ymd).padStart(8, '0');
+            const date = s.slice(0, 4) + '-' + s.slice(4, 6) + '-' + s.slice(6, 8);
+            return { parentId, date };
+        },
+        recurIntervalUnit() {
+            const n = this.form.recurInterval || 1;
+            const u = { DAILY: 'day', WEEKLY: 'week', MONTHLY: 'month' }[this.form.recurFreq] || 'day';
+            return n === 1 ? u : (u + 's');
+        },
+        recurSummary() {
+            if (!this.form.recurFreq) return '';
+            let s = 'Repeats every ' + (this.form.recurInterval || 1) + ' ' + this.recurIntervalUnit();
+            if (this.form.recurEndType === 'count') s += ', ' + (this.form.recurCount || 1) + ' times';
+            else if (this.form.recurEndType === 'until' && this.form.recurUntil) s += ', until ' + this.form.recurUntil;
+            return s;
+        },
+        onFormSubmit(e) {
+            // Editing a recurring series needs a scope decision first. Intercept the
+            // native submit, open the scope modal; confirmRecurScope re-submits with
+            // recur_scope set so this guard passes through the second time.
+            if (this.editMode && this.editIsRecurring && !this.form.recurScope) {
+                e.preventDefault();
+                this.openRecurScopeModal('edit');
+                return;
+            }
+            this.submitting = true;
+            sessionStorage.removeItem('corex.calendar.createEventState');
+            this.clearStalePickerState();
+        },
+        openRecurScopeModal(mode) {
+            this.recurScopeMode = mode;
+            this.recurScopeChoice = 'this';
+            this.recurScopeModalOpen = true;
+        },
+        // The panel loads an occurrence as its parent (id = parent id) + occurrence_date;
+        // reconstruct the synthetic id so openEditModal takes the occurrence path.
+        editFromPanel() {
+            if (this.panelData.is_occurrence && this.panelData.recurrence_parent_id && this.panelData.occurrence_date) {
+                const synth = this.panelData.recurrence_parent_id * 100000000 + Number(this.panelData.occurrence_date.replace(/-/g, ''));
+                this.openEditModal(synth);
+            } else {
+                this.openEditModal(this.panelData.id);
+            }
+        },
+        confirmRecurScope() {
+            const scope = this.recurScopeChoice;
+            const token = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            if (this.recurScopeMode === 'delete') {
+                const parentId = this.panelData.recurrence_parent_id || this.panelData.id;
+                const occ = this.panelData.occurrence_date || '';
+                fetch('/corex/command-center/calendar/' + parentId, {
+                    method: 'DELETE',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': token },
+                    body: JSON.stringify({ recur_scope: scope, occurrence_date: occ, _token: token }),
+                    credentials: 'same-origin',
+                }).then(r => {
+                    if (r.ok || r.status === 302) {
+                        this.recurScopeModalOpen = false;
+                        this.panelOpen = false;
+                        window.location.reload();
+                    }
+                }).catch(err => console.warn('Recurring delete failed:', err));
+                return;
+            }
+            // Edit: stamp the hidden fields and re-submit the form.
+            this.form.recurScope = scope;
+            this.form.occurrenceDate = this.editOccurrenceDate || '';
+            this.recurScopeModalOpen = false;
+            this.$nextTick(() => {
+                const form = document.getElementById('createEventFormV2');
+                if (form) form.requestSubmit();
             });
         },
 
