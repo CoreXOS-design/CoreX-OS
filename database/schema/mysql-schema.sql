@@ -2722,7 +2722,8 @@ CREATE TABLE `communication_wa_devices` (
   `agency_id` bigint unsigned NOT NULL,
   `user_id` bigint unsigned NOT NULL,
   `wa_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `device_token` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `waha_session` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `device_token` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `last_seen_at` timestamp NULL DEFAULT NULL,
   `active` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT NULL,
@@ -2730,6 +2731,7 @@ CREATE TABLE `communication_wa_devices` (
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `comm_wa_token_uq` (`device_token`),
+  UNIQUE KEY `comm_wa_session_uq` (`waha_session`),
   KEY `comm_wa_user_fk` (`user_id`),
   KEY `comm_wa_agency_active_idx` (`agency_id`,`active`),
   CONSTRAINT `comm_wa_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
@@ -12584,3 +12586,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (930,'2026_07_19_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (931,'2026_07_20_000001_add_restrict_consent_outreach_to_full_status_to_agencies',199);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (932,'2026_07_02_000001_add_media_state_to_communication_attachments',200);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (933,'2026_07_15_000002_add_pp_max_photos_to_agencies',200);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (934,'2026_07_02_000002_add_waha_session_to_communication_wa_devices',201);

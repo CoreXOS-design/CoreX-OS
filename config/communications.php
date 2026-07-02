@@ -151,6 +151,14 @@ return [
     'waha' => [
         'base_url' => rtrim((string) env('WAHA_BASE_URL', 'http://127.0.0.1:3111'), '/'),
         'api_key'  => env('WAHA_API_KEY'),
+        // AT-149 — inbound webhook authentication. The WAHA container is
+        // configured with a webhook HMAC key (WAHA signs each POST body,
+        // header `X-Webhook-Hmac`, algo `X-Webhook-Hmac-Algorithm` default
+        // sha512) OR a custom header carrying this same secret. CoreX rejects
+        // any webhook that does not verify. FAIL CLOSED: if this is unset, the
+        // endpoint refuses every POST (never accept an unauthenticated webhook).
+        'webhook_secret'    => env('WAHA_WEBHOOK_SECRET'),
+        'webhook_hmac_algo' => env('WAHA_WEBHOOK_HMAC_ALGO', 'sha512'),
         'download_timeout_seconds' => (int) env('WAHA_MEDIA_DOWNLOAD_TIMEOUT', 30),
         'max_media_bytes' => (int) env('WAHA_MEDIA_MAX_BYTES', 50 * 1024 * 1024),
         'allowed_media_hosts' => array_values(array_filter(array_map('trim', explode(

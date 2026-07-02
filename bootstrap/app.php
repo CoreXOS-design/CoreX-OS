@@ -46,6 +46,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'admin_or_bm' => \App\Http\Middleware\AdminOrBranchManager::class,
                 'auth.portal_capture' => \App\Http\Middleware\AuthenticatePortalCapture::class,
                 'auth.wa_capture' => \App\Http\Middleware\AuthenticateWaCapture::class,
+                'waha.webhook' => \App\Http\Middleware\VerifyWahaWebhook::class,
                 'permission' => \App\Http\Middleware\CheckPermission::class,
                 'owner_only' => \App\Http\Middleware\OwnerOnly::class,
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
@@ -63,6 +64,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'communications/wa/ingest',
             'communications/wa/contact-check',
             'communications/wa/ping',
+            'communications/wa/webhook', // AT-149 — WAHA server-session webhook (HMAC/secret authed)
             // ── Public, unauthenticated seller-outreach recipient actions (AT-49/AT-50).
             // The per-send 48-char opt_out_token (≈2^286 entropy) IS the credential;
             // these anonymous pages have NO authenticated session to protect, so CSRF
