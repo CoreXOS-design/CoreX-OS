@@ -446,9 +446,13 @@ class PrivatePropertyListingMapper
             }
         }
 
-        // Presence flags, sourced from the GLOBAL feature set (never room-only)
-        // plus, for a few amenities, the presence of a matching space.
-        $feats = $this->globalFeatures($property);
+        // Presence flags, sourced from the FULL feature set (flat ∪ every
+        // space/unit). globalFeatures() strips features entered in the room editor
+        // (Fireplace, Built-in Braai, Built-in Cupboards, Walk-in Closet, TV,
+        // En-suite, Aircon-on-a-room, …), so sourcing flags from it meant almost
+        // no amenities reached PP. These are "does the property have X anywhere"
+        // flags → allFeatures() is the correct source.
+        $feats = $this->allFeatures($property);
         $has = fn (string ...$names) => !empty(array_intersect(
             array_map('strtolower', $feats),
             array_map('strtolower', $names)
@@ -456,6 +460,7 @@ class PrivatePropertyListingMapper
         $hasSpace = fn (string $type) => $this->countSpaces($property, $type) > 0;
 
         $flags = [
+            'EnSuite'          => $has('En-suite', 'En Suite', 'Ensuite', 'Main en-suite'),
             'Pool'             => $has('Pool', 'Communal Pool', 'Indoor Pool', 'Splash Pool') || $hasSpace('Pool'),
             'Garden'           => $has('Garden', 'Landscaped', 'Garden Services') || $hasSpace('Garden'),
             'Flatlet'          => $has('Flatlet') || $hasSpace('Flatlet'),
@@ -503,6 +508,13 @@ class PrivatePropertyListingMapper
             if ($present) {
                 $attrs[] = ['AttributeType' => $type, 'Value' => self::ATTR_PRESENT];
             }
+        }
+
+        // Storeys — CoreX only models "Single Storey" explicitly (theProperty
+        // group); emit Storeys=1 when set. Multi-storey has no CoreX feature, so
+        // it is omitted rather than guessed.
+        if ($has('Single Storey')) {
+            $attrs[] = ['AttributeType' => 'Storeys', 'Value' => '1'];
         }
 
         return ['Attribute' => $attrs]; // ArrayOfAttribute wrapper
