@@ -54,13 +54,13 @@ class PpFeatureAttributesTest extends TestCase
         $attrs = $this->attributesFor($p);
 
         // Feature flags present (PP's exact enum spelling, incl. its misspelling).
-        $this->assertSame('true', $attrs['Alarm'] ?? null);
-        $this->assertSame('true', $attrs['Electric_Fencing'] ?? null);
-        $this->assertSame('true', $attrs['AccessGate'] ?? null);
-        $this->assertSame('true', $attrs['Fence'] ?? null);
-        $this->assertSame('true', $attrs['Satelite'] ?? null);
-        $this->assertSame('true', $attrs['Garden'] ?? null);
-        $this->assertSame('true', $attrs['Patio'] ?? null);
+        $this->assertSame('Yes', $attrs['Alarm'] ?? null);
+        $this->assertSame('Yes', $attrs['Electric_Fencing'] ?? null);
+        $this->assertSame('Yes', $attrs['AccessGate'] ?? null);
+        $this->assertSame('Yes', $attrs['Fence'] ?? null);
+        $this->assertSame('Yes', $attrs['Satelite'] ?? null);
+        $this->assertSame('Yes', $attrs['Garden'] ?? null);
+        $this->assertSame('Yes', $attrs['Patio'] ?? null);
 
         // Room counts from spaces.
         $this->assertSame('1', $attrs['Lounges'] ?? null);
@@ -119,7 +119,7 @@ class PpFeatureAttributesTest extends TestCase
 
         $attrs = $this->attributesFor($p);
 
-        $this->assertSame('true', $attrs['BuiltInCupboards'] ?? null);
+        $this->assertSame('Yes', $attrs['BuiltInCupboards'] ?? null);
     }
 
     /**
@@ -142,10 +142,10 @@ class PpFeatureAttributesTest extends TestCase
 
         $attrs = $this->attributesFor($p);
 
-        $this->assertSame('true', $attrs['Fireplace'] ?? null);
-        $this->assertSame('true', $attrs['Built_in_Braai'] ?? null);
-        $this->assertSame('true', $attrs['WalkInCloset'] ?? null);
-        $this->assertSame('true', $attrs['Aircon'] ?? null);
+        $this->assertSame('Yes', $attrs['Fireplace'] ?? null);
+        $this->assertSame('Yes', $attrs['Built_in_Braai'] ?? null);
+        $this->assertSame('Yes', $attrs['WalkInCloset'] ?? null);
+        $this->assertSame('Yes', $attrs['Aircon'] ?? null);
         // EnSuite is a COUNT (one en-suite bathroom here), not a flag.
         $this->assertSame('1', $attrs['EnSuite'] ?? null);
     }

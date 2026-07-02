@@ -14,14 +14,19 @@ class PrivatePropertyListingMapper
 
     /**
      * PP `Attribute.Value` string for a boolean amenity that is PRESENT.
-     * The WSDL types Value as a plain string, so the on/off representation is
-     * not encoded in the contract. Amenity flags are emitted PRESENT-ONLY (the
-     * attribute is included only when the property has the feature; absent
-     * features are omitted entirely), so only the "yes" value is ever sent.
-     * VERIFIED against the live feed on 2026-07-01 (property 6049). Change here
-     * if PP's accepted value ever differs — it is the single source of truth.
+     *
+     * MUST be "Yes" — verified against PP's own stored data via
+     * GetFullDetailsOfAllListingsByBranch (2026-07-02). PP stores/displays every
+     * boolean amenity as "Yes"; a value of "true" is ACCEPTED by UpdateListing
+     * (returns "Successful") but SILENTLY DROPPED — so the feature never appears
+     * on the portal. That was the "almost no features show on PP" bug: property
+     * 6049 pushed with "true" had ZERO amenities stored; re-pushed with "Yes",
+     * all of them (Electric_Fencing, Alarm, Fence, Satelite, TV, …) appeared.
+     * Amenity flags are emitted PRESENT-ONLY (absent features send no attribute),
+     * so only "Yes" is ever transmitted. Single source of truth — change here if
+     * PP's accepted value ever differs.
      */
-    private const ATTR_PRESENT = 'true';
+    private const ATTR_PRESENT = 'Yes';
 
     /**
      * Map a CoreX Property to a PP Listing struct matching the WSDL exactly.
