@@ -51,6 +51,20 @@ class WaArchiveIngestor
             return self::RESULT_INVALID;
         }
 
+        // AT-151 — GROUP / BROADCAST NOISE FILTER (server-side authoritative gate;
+        // runs for EVERY capture path that calls ingest — extension or the future
+        // WAHA adapter). WhatsApp status broadcasts (status@broadcast) and group
+        // chats (…@g.us / IsGroup) are never 1:1 contact communications — they must
+        // never enter the compliance archive. Without this, a group message whose
+        // sender resolves to a contact was archived under the GROUP's chat-id,
+        // surfacing every group a contact is in as a separate "thread" on their
+        // record (the Elize 10298 four-thread fragmentation — see
+        // .ai/audits/2026-07-02-elize-four-thread-fragmentation.md). Empirically
+        // required per the AT-138 server-session validation.
+        if ($this->isNoiseChat($chatId, $msg)) {
+            return self::RESULT_DROPPED;
+        }
+
         // AT-135 — BODY BACKFILL: if this message was already archived with an
         // unreadable body (envelope captured by AT-133; body not yet rendered) and
         // we now have the rendered text, fill it IN PLACE (enrichment of a known
@@ -381,6 +395,21 @@ class WaArchiveIngestor
             return '';
         }
         return str_contains($jid, '@') ? substr($jid, 0, strpos($jid, '@')) : $jid;
+    }
+
+    /**
+     * AT-151 — a chat that must never enter the archive: WhatsApp status broadcasts
+     * and group chats. status@broadcast is the fixed status jid; a group is flagged
+     * either by the capture path (is_group) or by the …@g.us chat-id suffix.
+     */
+    private function isNoiseChat(string $chatId, array $msg): bool
+    {
+        $chat = strtolower(trim($chatId));
+        if (str_contains($chat, 'status@broadcast') || str_ends_with($chat, '@g.us')) {
+            return true;
+        }
+
+        return (bool) ($msg['is_group'] ?? false);
     }
 
     /**
