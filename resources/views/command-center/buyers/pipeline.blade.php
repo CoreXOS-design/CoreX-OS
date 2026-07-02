@@ -114,7 +114,7 @@
                                     </div>
                                     <div class="min-w-0 flex-1">
                                         <div class="text-xs font-semibold truncate" style="color: var(--text-primary);">{{ $buyer->full_name }}</div>
-                                        <div class="text-[10px]" style="color: var(--text-muted);">{{ $buyer->createdBy?->name ?? 'Unassigned' }}</div>
+                                        <div class="text-[10px]" style="color: var(--text-muted);">{{ $buyer->agent?->name ?? 'Unassigned' }}</div>
                                     </div>
                                 </div>
                                 @unless($buyer->hasCountableWishlist())
@@ -182,7 +182,7 @@
                                     {{ ucfirst($buyer->buyer_state ?? 'unknown') }}
                                 </span>
                             </td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $buyer->createdBy?->name ?? '—' }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $buyer->agent?->name ?? 'Unassigned' }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ number_format($coreMatchCounts->get($buyer->id, 0)) }}</td>
                         </tr>

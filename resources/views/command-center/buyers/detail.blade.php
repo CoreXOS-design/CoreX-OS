@@ -105,7 +105,7 @@
                         @endunless
                         <span class="text-xs text-white/60">Since {{ $buyer->buyer_pipeline_entered_at?->format('d M Y') ?? 'Unknown' }}</span>
                         <span class="text-xs text-white/60">· Last activity {{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</span>
-                        <span class="text-xs text-white/60">· Agent: {{ $buyer->createdBy?->name ?? 'Unassigned' }}</span>
+                        <span class="text-xs text-white/60">· Agent: {{ $buyer->agent?->name ?? 'Unassigned' }}</span>
                     </div>
                 </div>
             </div>
