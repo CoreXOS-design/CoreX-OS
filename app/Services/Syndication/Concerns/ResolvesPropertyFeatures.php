@@ -104,4 +104,36 @@ trait ResolvesPropertyFeatures
             return !$roomOnly; // keep global + both-set; drop room-only
         }));
     }
+
+    /**
+     * The COMPLETE feature set a property carries: flat features_json UNION every
+     * space-level featuresAll UNION every per-unit feature — nothing stripped.
+     *
+     * This is the correct source for "does the property have amenity X anywhere"
+     * presence flags/attributes. globalFeatures() deliberately strips features that
+     * live only on a room/space (to keep phantom room-fabric out of listing-level
+     * tags), but that same stripping hides genuine amenities entered in the room
+     * editor (Fireplace, Built-in Braai, Built-in Cupboards, Walk-in Closet, TV,
+     * En-suite, …) from every portal that keys amenities off features — so those
+     * amenity flags must source from here, not globalFeatures().
+     *
+     * @return string[]
+     */
+    protected function allFeatures(Property $property): array
+    {
+        $all = array_map('strval', (array) ($property->features_json ?? []));
+
+        foreach ($this->spacesList($property) as $sp) {
+            foreach (($sp['featuresAll'] ?? []) as $f) {
+                $all[] = (string) $f;
+            }
+            foreach (($sp['units'] ?? []) as $u) {
+                foreach (($u['features'] ?? []) as $f) {
+                    $all[] = (string) $f;
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($all, fn ($v) => trim($v) !== '')));
+    }
 }

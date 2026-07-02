@@ -123,6 +123,16 @@ class NavigationAtlasService
             return ['context' => '', 'sources' => []];
         }
 
+        // Dominance filter: keep only destinations close to the best match, so a
+        // clear winner (e.g. the property-based presentation flow) isn't diluted
+        // by weak also-rans (e.g. the Presentations browse page) that make the
+        // model blend answers and invent steps. Always keep at least the top one.
+        $topScore = $matches[0]['score'];
+        $matches = array_values(array_filter(
+            $matches,
+            fn ($m) => $m['score'] >= $topScore * 0.6
+        ));
+
         $parts = [];
         $sources = [];
 

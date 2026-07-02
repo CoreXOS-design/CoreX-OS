@@ -45,19 +45,21 @@ final class NavigationAtlasServiceTest extends TestCase
         $this->assertFalse($svc->isNavigationQuery('Summarise this OTP clause for me'));
     }
 
-    public function test_finds_presentation_create_for_permitted_user(): void
+    public function test_presentation_creation_points_at_the_property_flow(): void
     {
+        // Presentations are created FROM a property (Generate Presentation) — there
+        // is no standalone builder — so the create intent must land on Properties.
         $matches = $this->service()->search(
             'Where do I go to do a new presentation for a property?',
             $this->user(true),
             3,
         );
 
-        $this->assertNotEmpty($matches, 'Expected a navigation match for presentations.');
+        $this->assertNotEmpty($matches, 'Expected a navigation match for presentation creation.');
 
         $top = $matches[0];
-        $this->assertSame('presentations.create', $top['route']);
-        $this->assertSame('/presentations/create', $top['url']);
+        $this->assertSame('corex.properties.index', $top['route']);
+        $this->assertSame('/corex/properties', $top['url']);
     }
 
     public function test_build_context_embeds_the_direct_link(): void
@@ -68,10 +70,28 @@ final class NavigationAtlasServiceTest extends TestCase
             3,
         );
 
-        $this->assertStringContainsString('/presentations/create', $result['context']);
+        $this->assertStringContainsString('/corex/properties', $result['context']);
         $this->assertStringContainsString('Direct link:', $result['context']);
         $this->assertNotEmpty($result['sources']);
-        $this->assertSame('/presentations/create', $result['sources'][0]['url']);
+        $this->assertSame('/corex/properties', $result['sources'][0]['url']);
+        // The old standalone builder must never be surfaced again.
+        $this->assertStringNotContainsString('/presentations/create', $result['context']);
+    }
+
+    public function test_create_intent_does_not_inject_the_browse_page(): void
+    {
+        // "create a presentation" must surface ONLY the property flow, not the
+        // weaker Presentations browse page (which would make Ellie invent a
+        // non-existent "create" button there).
+        $result = $this->service()->buildContext(
+            'where do i go to create a new presentation',
+            $this->user(true),
+            3,
+        );
+
+        $urls = array_column($result['sources'], 'url');
+        $this->assertContains('/corex/properties', $urls);
+        $this->assertNotContains('/presentations', $urls, 'The Presentations browse page must not be injected for a create request.');
     }
 
     public function test_excludes_destinations_the_user_cannot_access(): void

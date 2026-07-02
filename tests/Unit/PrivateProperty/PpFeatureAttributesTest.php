@@ -95,10 +95,16 @@ class PpFeatureAttributesTest extends TestCase
         $this->assertSame('2', $attrs['Bedrooms'] ?? null);
     }
 
-    public function test_room_only_feature_does_not_flip_a_property_level_flag(): void
+    /**
+     * AT-146 — a room-editor amenity DOES reach PP. Previously buildAttributes()
+     * sourced flags from globalFeatures(), which strips features entered on a
+     * room/space (not the global feature screen), so "almost no features went to
+     * PP". A PP amenity flag answers "does the property have X anywhere", so a
+     * bedroom's built-in cupboards must set BuiltInCupboards. (This reverses the
+     * pre-AT-146 assertion, which encoded the very bug being fixed.)
+     */
+    public function test_room_level_amenity_reaches_pp(): void
     {
-        // 'Built-in Cupboards' lives only inside a bedroom unit and is NOT in the
-        // explicit property-screen selection → it must not set BuiltInCupboards.
         $p = (new Property())->forceFill([
             'beds' => 1, 'property_type' => 'House',
             'features_json' => ['Built-in Cupboards'],
@@ -113,6 +119,70 @@ class PpFeatureAttributesTest extends TestCase
 
         $attrs = $this->attributesFor($p);
 
-        $this->assertArrayNotHasKey('BuiltInCupboards', $attrs);
+        $this->assertSame('true', $attrs['BuiltInCupboards'] ?? null);
+    }
+
+    /**
+     * AT-146 — the full set of room-editor amenities (entered on a space's
+     * featuresAll or a unit's features, never the global screen) now reach PP.
+     * These were the bulk of what silently vanished before the fix.
+     */
+    public function test_room_editor_amenities_reach_pp(): void
+    {
+        $p = (new Property())->forceFill([
+            'beds' => 2, 'baths' => 1, 'property_type' => 'House',
+            'features_json' => ['Fireplace', 'Built-In Braai', 'Walk in Closet', 'Air Conditioned', 'Main en-suite'],
+            'spaces_json' => ['features' => ['security' => [], 'connectivity' => []], 'spaces' => [
+                ['type' => 'Lounge', 'count' => 1, 'featuresAll' => ['Fireplace', 'Built-In Braai', 'Air Conditioned'],
+                 'units' => [['label' => 'Lounge 1', 'features' => []]]], // empty unit + featuresAll
+                ['type' => 'Bedroom', 'count' => 1, 'units' => [['label' => 'Bedroom 1', 'features' => ['Walk in Closet']]]],
+                ['type' => 'Bathroom', 'count' => 1, 'units' => [['label' => 'Bathroom 1', 'features' => ['Main en-suite']]]],
+            ]],
+        ]);
+
+        $attrs = $this->attributesFor($p);
+
+        $this->assertSame('true', $attrs['Fireplace'] ?? null);
+        $this->assertSame('true', $attrs['Built_in_Braai'] ?? null);
+        $this->assertSame('true', $attrs['WalkInCloset'] ?? null);
+        $this->assertSame('true', $attrs['Aircon'] ?? null);
+        // EnSuite is a COUNT (one en-suite bathroom here), not a flag.
+        $this->assertSame('1', $attrs['EnSuite'] ?? null);
+    }
+
+    /**
+     * AT-146 — En-suite / Main en-suite map to the PP EnSuite attribute (was
+     * unmapped). EnSuite is a COUNT in PP's Appendix A (sits among the room-count
+     * attributes), so it is emitted as an integer, NOT the boolean 'true' — a
+     * 'true' value triggers PP106 "match attribute datatypes" and rejects the
+     * whole listing.
+     */
+    public function test_ensuite_maps_to_pp_ensuite_count(): void
+    {
+        $p = (new Property())->forceFill([
+            'beds' => 2, 'baths' => 2, 'property_type' => 'Apartment',
+            'features_json' => ['En-suite', 'Main en-suite'],
+            'spaces_json' => ['spaces' => [
+                ['type' => 'Bathroom', 'count' => 1, 'units' => [
+                    ['label' => 'Bathroom 1', 'features' => ['Main en-suite']],
+                    ['label' => 'Bathroom 2', 'features' => ['En-suite']],
+                ]],
+            ]],
+        ]);
+
+        // Two en-suite bathrooms → EnSuite=2 (integer count).
+        $this->assertSame('2', $this->attributesFor($p)['EnSuite'] ?? null);
+    }
+
+    /** AT-146 — "Single Storey" maps to PP Storeys=1; multi-storey is omitted (no CoreX feature). */
+    public function test_single_storey_maps_to_pp_storeys(): void
+    {
+        $p = (new Property())->forceFill([
+            'beds' => 3, 'property_type' => 'House',
+            'features_json' => ['Single Storey'],
+            'spaces_json' => ['spaces' => []],
+        ]);
+
+        $this->assertSame('1', $this->attributesFor($p)['Storeys'] ?? null);
     }
 }

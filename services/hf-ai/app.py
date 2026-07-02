@@ -26,6 +26,7 @@ Environment (systemd EnvironmentFile=/etc/hf-ai/openai.env + unit Environment=):
 """
 
 import os
+import re
 import sys
 import time
 import tempfile
@@ -51,7 +52,14 @@ SYSTEM_PROMPT = (
     "Use South African context: currency is ZAR (format like 'R 1,250,000'), the "
     "regulator is the PPRA (never the EAAB). "
     "You ADVISE — humans decide. Never claim to have taken an action you cannot take. "
-    "If you are unsure or lack data, say so plainly rather than inventing detail."
+    "If you are unsure or lack data, say so plainly rather than inventing detail. "
+    "Reply in PLAIN TEXT only — the chat does not render Markdown. Do NOT use asterisks "
+    "for bold or italics, do not use backticks, and do not use '#' headings. For lists, "
+    "start each line with a hyphen and a space, or use plain '1.' numbering. Write links "
+    "as the bare path, e.g. /corex/properties. "
+    "When navigation excerpts describe how to reach or do something, follow them EXACTLY. "
+    "Do NOT invent buttons, pages, menu items, or steps that are not stated in the "
+    "provided context. If a task is done from one place, give only that place."
 )
 
 # --- Anthropic client (lazy singleton) --------------------------------------
@@ -112,6 +120,26 @@ def health():
 
 
 # --- Helpers ----------------------------------------------------------------
+
+def _strip_markdown(text: str) -> str:
+    """
+    The CoreX chat UI renders replies as plain text, so Markdown syntax shows up
+    literally (**bold**, `code`, ### headings). The system prompt asks the model
+    to avoid it, but that is not guaranteed — so we strip it here as a hard
+    backstop. Deliberately conservative: only unwrap the constructs that actually
+    leak (bold, inline code, headings), leaving ordinary text untouched.
+    """
+    if not text:
+        return text
+    # **bold** / __bold__ -> bold
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text, flags=re.S)
+    text = re.sub(r"__(.+?)__", r"\1", text, flags=re.S)
+    # `inline code` -> inline code
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    # leading #, ##, ### headings -> plain line
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)
+    return text.strip()
+
 
 def _coerce_history(history):
     """
@@ -176,6 +204,7 @@ async def chat(payload: dict):
         reply = "".join(
             block.text for block in resp.content if getattr(block, "type", None) == "text"
         ).strip()
+        reply = _strip_markdown(reply)
         if not reply:
             reply = "Sorry, I could not respond."
         return {"reply": reply, "mode": "kb" if knowledge_context else "chat", "sources": []}

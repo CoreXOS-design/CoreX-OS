@@ -20,7 +20,11 @@ class PpFaultTranslator
     /** Known PP error codes → short, agent-friendly message. */
     private const FRIENDLY = [
         'PP60'  => 'Complex/Scheme name is required for this listing.',
-        'PP106' => 'Location is invalid — provide either the PP suburb or the suburb/town/province, not both.',
+        // PP106 is a DATATYPE error, not a location error (verified from the live
+        // fault: "PP106 - Please match attribute datatypes to Appendix A of API").
+        // It fires when an attribute's Value type is wrong — e.g. a count-type
+        // attribute (EnSuite/Lounges/Storeys) sent as the boolean flag 'true'.
+        'PP106' => 'A listing attribute was sent with the wrong data type (PP Appendix A) — e.g. a count attribute sent as a yes/no flag.',
         'PP119' => 'A street number and street name are required.',
     ];
 

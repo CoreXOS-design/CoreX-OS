@@ -92,8 +92,9 @@ class PrivatePropertyListingMapper
         ];
 
         // Resolve the property's suburb against the cached PP suburb list
-        // (populated by `php artisan pp:sync-locations`). If we find a single
-        // unambiguous match, persist it and switch to Mode A.
+        // (populated by `php artisan pp:sync-locations`) and persist it as useful
+        // metadata for other call paths. It is NOT used to switch the submission
+        // into SuburbId mode — see below.
         if (!$property->pp_suburb_id && !empty($property->suburb)) {
             $resolvedId = $this->resolvePpSuburbId($property);
             if ($resolvedId !== null) {
@@ -101,13 +102,18 @@ class PrivatePropertyListingMapper
             }
         }
 
-        // PP106: SuburbId is mutually exclusive with Suburb, Town AND Province.
-        // PP rejects the call if a SuburbId is sent alongside any of the three
-        // name fields — even an empty Suburb/Town or a populated Province.
-        if ($property->pp_suburb_id) {
-            $listing['SuburbId'] = (int) $property->pp_suburb_id;
-            unset($listing['Suburb'], $listing['Town'], $listing['Province']);
-        }
+        // LOCATION MODE — always name mode (Suburb + Town + Province).
+        //
+        // SuburbId mode is DISABLED: PP106 requires SuburbId to be sent WITHOUT
+        // Suburb/Town/Province, but PHP's SoapClient serialises the WSDL-required
+        // `Province` element as <Province xsi:nil="true"/> even when we omit the
+        // array key (Suburb/Town are minOccurs=0 and drop cleanly; Province is
+        // minOccurs=1 nillable and cannot be suppressed via the array). PP treats
+        // that nil element as "Province provided" and rejects the SuburbId call
+        // with PP106 — so SuburbId mode never actually succeeded through this
+        // client. Name mode is the proven-working path (verified live on 6049).
+        // If SuburbId mode is ever needed, the fix is to send ListingImport as a
+        // pre-rendered SoapVar so Province can be omitted entirely.
 
         // SoleMandateExclusiveDays — auto-calculated from listed_date and expiry_date for sole mandates
         if ($mandateType === 'FullMandate' && $listingType === 'Sale' && $property->listed_date && $property->expiry_date) {
@@ -446,9 +452,13 @@ class PrivatePropertyListingMapper
             }
         }
 
-        // Presence flags, sourced from the GLOBAL feature set (never room-only)
-        // plus, for a few amenities, the presence of a matching space.
-        $feats = $this->globalFeatures($property);
+        // Presence flags, sourced from the FULL feature set (flat ∪ every
+        // space/unit). globalFeatures() strips features entered in the room editor
+        // (Fireplace, Built-in Braai, Built-in Cupboards, Walk-in Closet, TV,
+        // En-suite, Aircon-on-a-room, …), so sourcing flags from it meant almost
+        // no amenities reached PP. These are "does the property have X anywhere"
+        // flags → allFeatures() is the correct source.
+        $feats = $this->allFeatures($property);
         $has = fn (string ...$names) => !empty(array_intersect(
             array_map('strtolower', $feats),
             array_map('strtolower', $names)
@@ -503,6 +513,38 @@ class PrivatePropertyListingMapper
             if ($present) {
                 $attrs[] = ['AttributeType' => $type, 'Value' => self::ATTR_PRESENT];
             }
+        }
+
+        // Storeys — CoreX only models "Single Storey" explicitly (theProperty
+        // group); emit Storeys=1 when set. Multi-storey has no CoreX feature, so
+        // it is omitted rather than guessed.
+        if ($has('Single Storey')) {
+            $attrs[] = ['AttributeType' => 'Storeys', 'Value' => '1'];
+        }
+
+        // EnSuite is a COUNT in PP's Appendix A (it sits among Bedrooms/Bathrooms/
+        // Lounges/Garages), NOT a boolean flag — emitting 'true' triggers PP106
+        // "Please match attribute datatypes to Appendix A of API" and rejects the
+        // whole listing. Count the rooms carrying an en-suite feature.
+        $enSuiteNames = ['en-suite', 'en suite', 'ensuite', 'main en-suite'];
+        $roomHasEnSuite = fn ($fs) => !empty(array_intersect(
+            array_map('strtolower', array_map('trim', array_map('strval', (array) $fs))),
+            $enSuiteNames
+        ));
+        $enSuiteCount = 0;
+        foreach ($this->spacesList($property) as $sp) {
+            if ($roomHasEnSuite($sp['featuresAll'] ?? [])) {
+                $enSuiteCount += (int) ($sp['count'] ?? 1);
+                continue;
+            }
+            foreach (($sp['units'] ?? []) as $u) {
+                if ($roomHasEnSuite($u['features'] ?? [])) {
+                    $enSuiteCount++;
+                }
+            }
+        }
+        if ($enSuiteCount > 0) {
+            $attrs[] = ['AttributeType' => 'EnSuite', 'Value' => (string) $enSuiteCount];
         }
 
         return ['Attribute' => $attrs]; // ArrayOfAttribute wrapper

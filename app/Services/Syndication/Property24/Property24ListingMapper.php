@@ -206,7 +206,7 @@ class Property24ListingMapper
 
     private function buildPropertyFeatures(Property $property): array
     {
-        // AT-103/AT-102 — property-level booleans (hasFeature) must source from
+        // AT-103/AT-102 — most property-level booleans (hasFeature) source from
         // GLOBAL-ONLY features (the property feature screen = spaces_json['features']),
         // NOT the flat features_json which also carries per-room unit features. A
         // feature that exists only on a room must not flip a property-level boolean.
@@ -215,6 +215,19 @@ class Property24ListingMapper
         $spacesList = $spacesData['spaces'] ?? (isset($spacesData[0]) ? $spacesData : []);
         $hasFeature = fn(string ...$names) => !empty(array_intersect(array_map('strtolower', $feats), array_map('strtolower', $names)));
         $countSpaces = fn(string $type) => collect($spacesList)->where('type', $type)->sum(fn($s) => (float) ($s['count'] ?? 1));
+
+        // AT-146 (property 6049) — DEDICATED-SPACE amenities (parking, kitchen
+        // fittings, outside areas) are entered on their own space, never on the
+        // global feature screen (parking/kitchen are not one of the 4 global
+        // categories), so globalFeatures() ALWAYS strips them and their structured
+        // PropertyFeatures booleans (parking.visitorsParking, kitchens.dishwasher,
+        // outsideArea.balcony, …) could never be true for any property with
+        // structured spaces. These booleans answer "does the property have X
+        // anywhere", so they source from the FULL feature set (flat features_json
+        // ∪ every space/unit). globalFeatures() is unchanged for tags[] (phantom-
+        // room-sensitive) and for the genuinely-global booleans above.
+        $allFeats = $this->allFeatures($property);
+        $hasAny = fn(string ...$names) => !empty(array_intersect(array_map('strtolower', $allFeats), array_map('strtolower', $names)));
 
         $features = [
             'garages'         => (float) ($property->garages ?? 0),
@@ -228,21 +241,23 @@ class Property24ListingMapper
         if ($property->beds) $features['bedrooms'] = (float) $property->beds;
         if ($property->baths) $features['bathrooms'] = ['bathrooms' => (float) $property->baths];
 
-        // Parking details from spaces/features
+        // Parking details from spaces/features. Amenity booleans use $hasAny —
+        // parking amenities are entered on the Parking/Garage space, which
+        // globalFeatures() strips (AT-146: property 6049 "Visitors Parking").
         $parkingSpaces = $countSpaces('Parking');
-        if ($parkingSpaces > 0 || $hasFeature('Carport', 'Secure Parking', 'Street Parking', 'Underground Parking', 'Visitors Parking')) {
+        if ($parkingSpaces > 0 || $hasAny('Carport', 'Secure Parking', 'Street Parking', 'Underground Parking', 'Visitors Parking', 'Shade Net Covered Parking', 'Double Parking', 'Single Parking', 'Tandem Parking', 'Triple Parking')) {
             $features['parking'] = [
                 'parkingSpaces'        => $parkingSpaces > 0 ? (int) $parkingSpaces : null,
-                'carport'              => $hasFeature('Carport'),
-                'secureParking'        => $hasFeature('Secure Parking'),
-                'onStreetParking'      => $hasFeature('Street Parking'),
-                'undergroundParking'   => $hasFeature('Underground Parking'),
-                'visitorsParking'      => $hasFeature('Visitors Parking'),
-                'shadeNetCoveredParking' => $hasFeature('Shade Net Covered Parking'),
-                'doubleParking'        => $hasFeature('Double Parking'),
-                'singleParking'        => $hasFeature('Single Parking'),
-                'tandemParking'        => $hasFeature('Tandem Parking'),
-                'tripleParking'        => $hasFeature('Triple Parking'),
+                'carport'              => $hasAny('Carport'),
+                'secureParking'        => $hasAny('Secure Parking'),
+                'onStreetParking'      => $hasAny('Street Parking'),
+                'undergroundParking'   => $hasAny('Underground Parking'),
+                'visitorsParking'      => $hasAny('Visitors Parking'),
+                'shadeNetCoveredParking' => $hasAny('Shade Net Covered Parking'),
+                'doubleParking'        => $hasAny('Double Parking'),
+                'singleParking'        => $hasAny('Single Parking'),
+                'tandemParking'        => $hasAny('Tandem Parking'),
+                'tripleParking'        => $hasAny('Triple Parking'),
             ];
         }
 
@@ -318,23 +333,25 @@ class Property24ListingMapper
         // Kitchens — emit when there's a counted Kitchen space OR a global kitchen
         // amenity that has a KitchensInfo field (so Coffee Machine / Sink /
         // Dishwasher route to PropertyFeatures, not loose tags).
+        // Kitchen fittings live on the Kitchen space → $hasAny (globalFeatures strips them).
         $kitchens = $countSpaces('Kitchen');
-        if ($kitchens > 0 || $hasFeature('Dishwasher', 'Coffee Machine', 'Sink')) {
+        if ($kitchens > 0 || $hasAny('Dishwasher', 'Coffee Machine', 'Sink')) {
             $features['kitchens'] = [
                 'kitchens'      => $kitchens > 0 ? (int) $kitchens : null,
-                'dishwasher'    => $hasFeature('Dishwasher'),
-                'coffeeMachine' => $hasFeature('Coffee Machine'),
-                'sink'          => $hasFeature('Sink'),
+                'dishwasher'    => $hasAny('Dishwasher'),
+                'coffeeMachine' => $hasAny('Coffee Machine'),
+                'sink'          => $hasAny('Sink'),
             ];
         }
 
-        // Outside areas (balcony, courtyard, patio, veranda, etc.)
+        // Outside areas (balcony, courtyard, patio, veranda, etc.) — entered on
+        // their space or a room → $hasAny (globalFeatures strips space/room copies).
         $patios = $countSpaces('Patio') + $countSpaces('Veranda') + $countSpaces('Lapa') + $countSpaces('Courtyard');
-        if ($patios > 0 || $hasFeature('Balcony', 'Courtyard')) {
+        if ($patios > 0 || $hasAny('Balcony', 'Courtyard')) {
             $features['outsideArea'] = [
                 'outsideAreas' => (int) max($patios, 1),
-                'balcony'      => $hasFeature('Balcony'),
-                'courtyard'    => $hasFeature('Courtyard') || $countSpaces('Courtyard') > 0,
+                'balcony'      => $hasAny('Balcony'),
+                'courtyard'    => $hasAny('Courtyard') || $countSpaces('Courtyard') > 0,
                 'roofArea'     => false,
             ];
         }
@@ -415,15 +432,16 @@ class Property24ListingMapper
         // bathroom / pool / floor / outdoor features. Excludes any feature already carried
         // by a dedicated propertyFeatures field (Carport/Secure/Underground/Visitors
         // Parking → parking{}, Landscaped/Garden Services → garden) per the rule above.
-        // Ambiguous pairings (Fibre, ADSL, Cable TV, Wi-Fi, Armed Response, Solar
-        // Panel, Inverter, …) are held for Johan — not guessed here.
+        // As of AT-146 (2026-07-02) the ONLY CoreX feature labels still unmapped
+        // are those with NO P24 Tag enum member at all: Cable TV, Wi-Fi, Washing
+        // Machine, and tenure/marketing labels (Freehold, Leasehold, Sectional
+        // Title, Investment, Serviced, Executive, In Unit, Unisex, Cleaning
+        // Service, Renovation Fixer-Upper, In Security). There is nothing to send
+        // for these — P24 has no field or tag for them.
         //
         // AT-103 follow-up — P24 Tag member verified verbatim in Tag.enum AND the
         // CoreX feature string confirmed in config/property-spaces.php: "Air
         // Conditioned" is the real label (General + theProperty groups).
-        // NOTE: Irrigation/Sprinkler were also requested, but the real CoreX feature
-        // strings are "Irrigation" / "Sprinklers" (Garden group) — NOT "Irrigation
-        // System" / "Sprinkler System" — so they are HELD for Johan, not guessed.
         'Air Conditioned' => 'AirConditioningUnit',
         'Auto Cleaning Equipment' => 'AutoCleaningEquipment',
         'Basin' => 'Basin',
@@ -480,6 +498,70 @@ class Property24ListingMapper
         'Wooden Floors' => 'WoodenFloors',
         'Zen Garden' => 'ZenGarden',
         'Zinc' => 'Zinc',
+
+        // ── AT-146 (Johan 2026-07-02) — full CoreX ↔ P24 feature coverage ─────
+        // Every remaining CoreX feature label from config/property-spaces.php
+        // that has a VERBATIM P24 Tag enum member (storage/p24_swagger.json,
+        // components.schemas.Tag.enum — each string confirmed present before
+        // wiring). These are room-fabric / room-fitting descriptors: they ride a
+        // room's featureTags[] via buildFeatureTags(), and ROOM_DETAIL_ONLY_TAGS
+        // keeps every one of them OUT of the top-level tags[] array, so a legacy
+        // global copy in features_json can never render as a phantom room (the
+        // #1322 TVPort class of bug). The ONLY exception below is ElectricGarage:
+        // "Automated Garage Doors" is a global Security-category feature in CoreX,
+        // so it stays top-level-eligible (it needs a listing-level home when it is
+        // not attached to a Garage space).
+        // Floors
+        'Carpet'                => 'Carpets',
+        // Walls
+        'Brick Wall'            => 'Brick',
+        'Concrete Wall'         => 'ConcreteWallOptions',
+        'Plaster Wall'          => 'Plaster',
+        'Wood Wall'             => 'WoodWallOptions',
+        'Stone Wall'            => 'Stone',
+        'Glass Wall'            => 'Glass',
+        // Windows & doors
+        'Aluminium Windows'     => 'AluminiumWindowOptions',
+        'Bay Windows'           => 'Bay',
+        'Blinds'                => 'Blinds',
+        'Cottage Windows'       => 'CottageWindowOptions',
+        'Curtain Rails'         => 'CurtainRails',
+        'Double Glazed Windows' => 'DoubleGlazed',
+        'Lead Windows'          => 'Lead',
+        'Picture Windows'       => 'Picture',
+        'Sash Windows'          => 'Sash',
+        'Skylight Window'       => 'SkylightWindowOptions',
+        'Stained Windows'       => 'Stained',
+        'Steel Windows'         => 'Steel',
+        'Wood Windows'          => 'WoodWindowOptions',
+        'Sliding Doors'         => 'SlidingDoors',
+        'Rollup Door'           => 'Rollup',
+        'Tipup Door'            => 'Tipup',
+        // Beds
+        'Double Bed'            => 'DoubleBed',
+        'King Bed'              => 'KingBed',
+        'Queen Bed'            => 'QueenBed',
+        'Single Bed'            => 'SingleBed',
+        'Twin Bed'              => 'TwinBed',
+        // Pool types (Communal Pool / Splash Pool also set pool=true via the
+        // PropertyFeatures route; here they enrich the Pool room's featureTags).
+        'Fibreglass in Ground'  => 'FibreglassinGround',
+        'Portapool'             => 'Portapool',
+        'Rock Pool'             => 'RockPool',
+        'Communal Pool'         => 'CommunalPool',
+        'Splash Pool'           => 'SplashPool',
+        // Bathroom
+        'Full Bathroom'         => 'Full',
+        // Room-context pairings — Johan-approved best-judgment enum member
+        // (2026-07-02): the room-scoped variant, not the Style/EntranceHall/
+        // TemperatureControl homonyms.
+        'Fireplace'             => 'FireplaceRoomOptions',
+        'Open Plan'             => 'OpenPlanRoomOptions',
+        // Garage size / doors — Johan-approved (2026-07-02).
+        'Double Garage'         => 'Double',
+        'Single Garage'         => 'Single',
+        'Tandem Garage'         => 'Tandem',
+        'Automated Garage Doors'=> 'ElectricGarage',
     ];
 
     /**
@@ -528,7 +610,34 @@ class Property24ListingMapper
      * rejected for these); room featureTags[] is the only correct one.
      */
     private const ROOM_DETAIL_ONLY_TAGS = [
+        // Connectivity ports (original #1322 fix).
         'InternetPort', 'TelephonePort', 'TVPort',
+
+        // AT-146 (Johan 2026-07-02) — room-fabric / room-fitting descriptors.
+        // Each is a valid Tag enum member that describes a feature INSIDE a room
+        // (a floor, wall, window, door, bed, pool type, bathroom grade, fireplace,
+        // layout, garage size). They belong in a room's featureTags[].tags, where
+        // buildFeatureTags() places them; at listing level P24 renders each as a
+        // phantom room. They are KEPT in FEATURE_TAG_MAP (the per-room path needs
+        // them) and filtered out of the top-level tags[] array here.
+        // Floors
+        'Carpets',
+        // Walls
+        'Brick', 'ConcreteWallOptions', 'Plaster', 'WoodWallOptions', 'Stone', 'Glass',
+        // Windows & doors
+        'AluminiumWindowOptions', 'Bay', 'Blinds', 'CottageWindowOptions', 'CurtainRails',
+        'DoubleGlazed', 'Lead', 'Picture', 'Sash', 'SkylightWindowOptions', 'Stained',
+        'Steel', 'WoodWindowOptions', 'SlidingDoors', 'Rollup', 'Tipup',
+        // Beds
+        'DoubleBed', 'KingBed', 'QueenBed', 'SingleBed', 'TwinBed',
+        // Pool types (not otherwise routed via PropertyFeatures)
+        'FibreglassinGround', 'Portapool', 'RockPool',
+        // Bathroom grade
+        'Full',
+        // Room-context homonyms + garage size
+        'FireplaceRoomOptions', 'OpenPlanRoomOptions', 'Double', 'Single', 'Tandem',
+        // Garden room fittings (were mapped but leaking to top-level pre-AT-146).
+        'Irrigationsystem', 'SprinklerSystem',
     ];
 
     /**
@@ -665,12 +774,44 @@ class Property24ListingMapper
     }
 
     /**
+     * AT-146 — the COMPLETE feature set a property carries: the flat features_json
+     * UNION every space-level featuresAll and every per-unit feature. Unlike
+     * globalFeatures() this does NOT strip room/space-attributable features, so it
+     * is the correct source for "does the property have amenity X anywhere"
+     * PropertyFeatures booleans (parking / kitchen fittings / outside areas) that
+     * are entered on a dedicated space and would otherwise be invisible. Never
+     * used for top-level tags[] (that stays globalFeatures() to avoid phantom rooms).
+     *
+     * @return string[]
+     */
+    private function allFeatures(Property $property): array
+    {
+        $all = array_map('strval', (array) ($property->features_json ?? []));
+
+        $sj = $property->spaces_json;
+        $spaces = is_array($sj) ? ($sj['spaces'] ?? (isset($sj[0]) ? $sj : [])) : [];
+        foreach ($spaces as $sp) {
+            foreach (($sp['featuresAll'] ?? []) as $f) {
+                $all[] = (string) $f;
+            }
+            foreach (($sp['units'] ?? []) as $u) {
+                foreach (($u['features'] ?? []) as $f) {
+                    $all[] = (string) $f;
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($all, fn ($v) => trim($v) !== '')));
+    }
+
+    /**
      * AT-102/AT-103 — build P24 featureTags[] so each room shows as a separate NAMED
-     * room with its per-room features attached (the display agents expect). One entry
-     * per unit (Bedroom 1/2/3…) carrying that unit's features mapped via FEATURE_TAG_MAP;
-     * for room-type spaces without per-unit detail, one entry carrying the space-level
-     * featuresAll. Unmapped feature labels and unmapped CoreX space types are skipped
-     * and logged — never guessed. receptionRooms count is left untouched (no regression).
+     * room with its per-room features attached (the display agents expect). When a space
+     * carries per-unit features, one entry per unit (Bedroom 1/2/3…) is emitted, each
+     * carrying that unit's own features UNION the space-level featuresAll; when it does
+     * not, one entry carries the space-level featuresAll. Both feature sources are mapped
+     * via FEATURE_TAG_MAP. Unmapped feature labels and unmapped CoreX space types are
+     * skipped and logged — never guessed. receptionRooms count is left untouched.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -713,11 +854,21 @@ class Property24ListingMapper
                 continue;
             }
 
-            $units = $sp['units'] ?? [];
-            if (!empty($units)) {
-                // One named room per individual unit, with its own features.
+            // A space carries features in two places: space-level `featuresAll`
+            // (apply to the whole space / every unit) and per-unit `features`
+            // (specific to one unit). The room's feature set is the UNION.
+            $spaceFeatures = $sp['featuresAll'] ?? [];
+            $units         = $sp['units'] ?? [];
+            $anyUnitFeatures = false;
+            foreach ($units as $u) {
+                if (!empty($u['features'] ?? [])) { $anyUnitFeatures = true; break; }
+            }
+
+            if ($anyUnitFeatures) {
+                // Per-unit detail present → one named room per unit, each carrying
+                // its OWN features PLUS the space-level featuresAll.
                 foreach ($units as $u) {
-                    $tags = $mapRoomFeatures($u['features'] ?? []);
+                    $tags = $mapRoomFeatures(array_merge($spaceFeatures, $u['features'] ?? []));
                     // A room with no mapped features is pure noise on P24
                     // ("Bedroom 1 → Bedroom 1"). Emit an entry ONLY when the room
                     // actually carries >=1 feature. The room count itself is already
@@ -733,8 +884,16 @@ class Property24ListingMapper
                     $featureTags[] = ['featureType' => $featureType, 'tags' => $tags];
                 }
             } else {
-                // Named room without per-unit detail (e.g. Lounge, Dining Room).
-                $tags = $mapRoomFeatures($sp['featuresAll'] ?? []);
+                // No per-unit detail anywhere — either the space has no units, or
+                // every unit is empty and the agent entered the features at the
+                // SPACE level (featuresAll). Emit ONE room from featuresAll.
+                //
+                // AT-146 (property 6049): this branch previously ran ONLY when a
+                // space had literally zero units, so a space with an auto-created
+                // empty unit (Kitchen/Lounge/Garage/Parking) silently DROPPED its
+                // entire featuresAll set — the agent's Kitchen (Oven & Hob, Pantry,
+                // Extractor Fan, …), Lounge and Garage features never reached P24.
+                $tags = $mapRoomFeatures($spaceFeatures);
                 if (empty($tags)) {
                     continue; // no features = no row
                 }
