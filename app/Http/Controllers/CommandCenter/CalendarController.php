@@ -1316,6 +1316,16 @@ class CalendarController extends Controller
         // ITEM 4 — a private event may only be deleted by its creator (role-blind).
         if ($calendarEvent->isPrivateHiddenFrom($request->user())) { abort(403); }
 
+        // Only user-created (manual) events are deletable from the calendar —
+        // source-driven events (deal steps, birthdays) are removed at their source,
+        // not here. Mirrors is_editable, and guards the endpoint against a crafted
+        // request soft-deleting a system-generated row.
+        if (!in_array($calendarEvent->source_type, ['manual', 'manual:demo'], true)) {
+            return $request->wantsJson()
+                ? response()->json(['error' => 'This event cannot be deleted from the calendar.'], 422)
+                : back()->with('error', 'This event cannot be deleted from the calendar.');
+        }
+
         // Recurring series delete with an explicit scope. "this" tombstones one
         // occurrence, "future" truncates the series, "all" soft-deletes the parent
         // (+ its exception children). No hard deletes on any path.
@@ -1330,6 +1340,16 @@ class CalendarController extends Controller
             } else {
                 $svc->deleteAll($calendarEvent);
             }
+            // Audit the scoped delete on the series parent.
+            \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+                'calendar_event_id'    => $calendarEvent->id,
+                'action'               => 'deleted',
+                'old_values'           => ['recur_scope' => $scope, 'occurrence_date' => $occ, 'title' => $calendarEvent->title],
+                'new_values'           => ['deleted' => true, 'scope' => $scope],
+                'performed_by_user_id' => $request->user()->id,
+                'performed_at'         => now(),
+                'notes'                => "Recurring event deleted (scope: {$scope})",
+            ]);
             return $request->wantsJson() ? response()->json(['ok' => true]) : back()->with('success', 'Event removed.');
         }
 
@@ -1351,6 +1371,17 @@ class CalendarController extends Controller
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
+
+        // Audit the soft-delete before it happens (captures the pre-delete state).
+        \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+            'calendar_event_id'    => $calendarEvent->id,
+            'action'               => 'deleted',
+            'old_values'           => $calendarEvent->only(['title', 'event_date', 'status', 'category']),
+            'new_values'           => ['deleted' => true],
+            'performed_by_user_id' => $request->user()->id,
+            'performed_at'         => now(),
+            'notes'                => 'Event soft-deleted from calendar panel',
+        ]);
 
         $this->service->delete($calendarEvent);
         return $request->wantsJson() ? response()->json(['ok' => true]) : back()->with('success', 'Event removed.');

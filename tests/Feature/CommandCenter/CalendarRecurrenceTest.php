@@ -204,7 +204,101 @@ final class CalendarRecurrenceTest extends TestCase
         }
     }
 
+    // ── Panel delete action ───────────────────────────────────────────────
+
+    public function test_one_off_event_soft_deletes_is_audited_and_leaves_view(): void
+    {
+        $id = $this->makeOneOff('Coffee with client', 'viewing', Carbon::parse('2026-07-08 10:00'));
+
+        // Visible first.
+        $before = $this->titlesByDate(Carbon::parse('2026-07-01'), Carbon::parse('2026-07-31'));
+        $this->assertSame('Coffee with client', $before['2026-07-08'] ?? null);
+
+        $this->actingAs($this->user)
+            ->deleteJson(route('command-center.calendar.destroy', $id))
+            ->assertOk();
+
+        // Soft-deleted (recoverable), audited, gone from the feed.
+        $this->assertNotNull(CalendarEvent::withoutGlobalScopes()->withTrashed()->find($id)->deleted_at);
+        $this->assertDatabaseHas('calendar_event_audit_log', [
+            'calendar_event_id' => $id, 'action' => 'deleted',
+        ]);
+        $after = $this->titlesByDate(Carbon::parse('2026-07-01'), Carbon::parse('2026-07-31'));
+        $this->assertArrayNotHasKey('2026-07-08', $after);
+    }
+
+    public function test_delete_one_occurrence_via_http_leaves_series_intact(): void
+    {
+        $parent = $this->makeRecurring('Weekly standup', 'viewing', 'FREQ=WEEKLY;INTERVAL=1',
+            Carbon::parse('2026-07-06 09:00'));
+
+        $this->actingAs($this->user)
+            ->deleteJson(route('command-center.calendar.destroy', $parent->id), [
+                'recur_scope' => 'this', 'occurrence_date' => '2026-07-13',
+            ])->assertOk();
+
+        $dates = $this->occurrenceDates('Weekly standup',
+            Carbon::parse('2026-07-01'), Carbon::parse('2026-07-31'));
+        $this->assertNotContains('2026-07-13', $dates);
+        $this->assertContains('2026-07-06', $dates);
+        $this->assertContains('2026-07-20', $dates);
+        $this->assertFalse($parent->fresh()->trashed(), 'series parent must survive a single-occurrence delete');
+    }
+
+    public function test_delete_all_via_http_removes_the_series(): void
+    {
+        $parent = $this->makeRecurring('Weekly standup', 'viewing', 'FREQ=WEEKLY;INTERVAL=1',
+            Carbon::parse('2026-07-06 09:00'));
+
+        $this->actingAs($this->user)
+            ->deleteJson(route('command-center.calendar.destroy', $parent->id), ['recur_scope' => 'all'])
+            ->assertOk();
+
+        $this->assertSame([], $this->occurrenceDates('Weekly standup',
+            Carbon::parse('2026-07-01'), Carbon::parse('2026-07-31')));
+        $this->assertTrue($parent->fresh()->trashed());
+    }
+
+    public function test_source_driven_event_cannot_be_deleted_from_the_calendar(): void
+    {
+        // A non-manual (system-generated) event is not deletable via the panel.
+        $id = (int) DB::table('calendar_events')->insertGetId([
+            'user_id' => $this->user->id, 'event_type' => 'system', 'category' => 'viewing',
+            'title' => 'Deal step', 'event_date' => '2026-07-08 10:00:00', 'all_day' => false,
+            'priority' => 'normal', 'status' => 'pending', 'source_type' => 'App\\Models\\DealV2\\DealStepInstance',
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->user)
+            ->deleteJson(route('command-center.calendar.destroy', $id))
+            ->assertStatus(422);
+
+        $this->assertFalse(CalendarEvent::withoutGlobalScopes()->find($id)->trashed());
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    /** Materialise a one-off (non-recurring) manual event; returns its id. */
+    private function makeOneOff(string $title, string $category, Carbon $start): int
+    {
+        return (int) DB::table('calendar_events')->insertGetId([
+            'user_id'     => $this->user->id,
+            'event_type'  => 'manual',
+            'category'    => $category,
+            'title'       => $title,
+            'event_date'  => $start->toDateTimeString(),
+            'end_date'    => $start->copy()->addHour()->toDateTimeString(),
+            'all_day'     => false,
+            'priority'    => 'normal',
+            'status'      => 'pending',
+            'source_type' => 'manual',
+            'is_recurring' => false,
+            'agency_id'   => $this->agencyId,
+            'branch_id'   => $this->agencyId,
+            'created_at'  => now(), 'updated_at' => now(),
+        ]);
+    }
 
     /** Materialise a recurring PARENT and return the reloaded model. */
     private function makeRecurring(string $title, string $category, string $rule, Carbon $start, ?string $nature = null): CalendarEvent

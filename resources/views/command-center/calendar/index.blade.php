@@ -2536,14 +2536,15 @@
                 Dismiss
             </button>
         </template>
-        {{-- Recurring series delete — asks this/future/all via the scope modal. Only
-             surfaced for recurring events (occurrences); plain events keep Dismiss. --}}
-        <template x-if="panelData.is_editable && panelData.is_recurring">
-            <button type="button" @click="openRecurScopeModal('delete')"
+        {{-- Delete — on EVERY editable panel (incl. private/informational events that
+             have no Complete/Dismiss). Soft-delete, audited. Recurring events branch
+             into the this/future/all scope modal; one-offs get a simple confirm. --}}
+        <template x-if="panelData.is_editable">
+            <button type="button" @click="deleteEvent()"
                     class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                     style="color: #ef4444; background: none; border: none; cursor: pointer;">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
-                Delete…
+                <span x-text="panelData.is_recurring ? 'Delete…' : 'Delete'"></span>
             </button>
         </template>
     </div>
@@ -2589,6 +2590,27 @@
     </div>
 </div>
 
+{{-- ══════ ONE-OFF DELETE CONFIRM MODAL ══════
+     Non-recurring events: a simple confirm before the audited soft-delete. --}}
+<div x-show="deleteConfirmOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50" @click="deleteConfirmOpen = false"></div>
+    <div class="relative w-full max-w-sm rounded-md shadow-2xl p-5" style="background: var(--surface); border: 1px solid var(--border);">
+        <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Delete this event?</h3>
+        <p class="text-xs mb-4" style="color: var(--text-muted);">
+            <span x-text="panelData.title"></span> will be removed from the calendar. This is a soft delete — an administrator can recover it.
+        </p>
+        <div class="flex justify-end gap-2">
+            <button type="button" @click="deleteConfirmOpen = false"
+                    class="text-xs px-3 py-1.5 rounded" style="color: var(--text-muted);">Cancel</button>
+            <button type="button" @click="confirmDeleteOneOff()" :disabled="deleteSaving"
+                    class="text-xs font-medium px-3 py-1.5 rounded text-white" style="background:#ef4444;">
+                <span x-show="!deleteSaving">Delete</span>
+                <span x-show="deleteSaving" x-cloak>Deleting…</span>
+            </button>
+        </div>
+    </div>
+</div>
+
 </div>{{-- END flex row (grid + panel) --}}
 </div>{{-- END outer x-data wrapper --}}
 
@@ -2608,6 +2630,9 @@ function calendarPage() {
         recurScopeChoice: 'this',
         editIsRecurring: false,        // the event being edited is a recurring series/occurrence
         editOccurrenceDate: '',        // the clicked occurrence's date (Y-m-d)
+        // One-off (non-recurring) delete confirm.
+        deleteConfirmOpen: false,
+        deleteSaving: false,
         endManuallyEdited: false,
         selectedDate: '{{ $anchorDate->toDateString() }}',
         // CAL-2 — explicit "user actively clicked this day to seed a new
@@ -3774,6 +3799,34 @@ function calendarPage() {
                 const form = document.getElementById('createEventFormV2');
                 if (form) form.requestSubmit();
             });
+        },
+
+        // Delete from the detail panel. Recurring → this/future/all scope modal;
+        // one-off → a simple confirm. Both end in an audited soft-delete.
+        deleteEvent() {
+            if (this.panelData.is_recurring) {
+                this.openRecurScopeModal('delete');
+                return;
+            }
+            this.deleteConfirmOpen = true;
+        },
+        confirmDeleteOneOff() {
+            const id = this.panelData.id;
+            const token = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            this.deleteSaving = true;
+            fetch('/corex/command-center/calendar/' + id, {
+                method: 'DELETE',
+                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': token },
+                body: JSON.stringify({ _token: token }),
+                credentials: 'same-origin',
+            }).then(r => {
+                this.deleteSaving = false;
+                if (r.ok || r.status === 302) {
+                    this.deleteConfirmOpen = false;
+                    this.panelOpen = false;
+                    window.location.reload();
+                }
+            }).catch(err => { this.deleteSaving = false; console.warn('Delete failed:', err); });
         },
 
         async respondInvitation(action) {
