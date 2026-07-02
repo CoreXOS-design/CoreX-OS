@@ -30,7 +30,7 @@ class CalendarCreateApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function seed(): array
+    private function seedFixtures(): array
     {
         $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-' . uniqid()]);
         $branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $agency->id]);
@@ -60,7 +60,7 @@ class CalendarCreateApiTest extends TestCase
 
     public function test_post_create_resolves_not_405(): void
     {
-        $this->seed();
+        $this->seedFixtures();
 
         $res = $this->postJson('/api/v1/command-center/calendar', [
             'title'      => 'Buyer viewing',
@@ -78,7 +78,7 @@ class CalendarCreateApiTest extends TestCase
 
     public function test_post_create_files_links_and_invites_agent_attendees(): void
     {
-        ['organizer' => $organizer, 'invitee' => $invitee, 'propertyId' => $propertyId, 'contact' => $contact] = $this->seed();
+        ['organizer' => $organizer, 'invitee' => $invitee, 'propertyId' => $propertyId, 'contact' => $contact] = $this->seedFixtures();
 
         $res = $this->postJson('/api/v1/command-center/calendar', [
             'title'        => 'Show unit + owner meet',
@@ -141,7 +141,7 @@ class CalendarCreateApiTest extends TestCase
 
     public function test_options_returns_creatable_categories(): void
     {
-        $this->seed();
+        $this->seedFixtures();
 
         $res = $this->getJson('/api/v1/command-center/calendar/options');
 
@@ -177,7 +177,7 @@ class CalendarCreateApiTest extends TestCase
 
     public function test_rejects_non_creatable_category(): void
     {
-        $this->seed();
+        $this->seedFixtures();
 
         $this->postJson('/api/v1/command-center/calendar', [
             'title'      => 'Bogus',
