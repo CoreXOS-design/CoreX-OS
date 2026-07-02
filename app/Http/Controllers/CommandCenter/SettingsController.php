@@ -127,6 +127,7 @@ class SettingsController extends Controller
             'actor_role'           => 'nullable|in:buyer_action,seller_action,both,neither',
             'completion_behaviour' => 'nullable|in:require_feedback,require_reason,freeform',
             'occupies_time'        => 'sometimes|boolean',
+            'event_nature'         => 'sometimes|in:actionable,informational',
         ]);
 
         if ($validated['red_days'] > $validated['amber_days']
@@ -182,6 +183,10 @@ class SettingsController extends Controller
                     // explicit override) so editing a class never silently resets
                     // it to the column default and breaks its conflict behaviour.
                     'occupies_time'        => $validated['occupies_time'] ?? (bool) $global->occupies_time,
+                    // Agency-configurable default nature (requires-feedback vs not)
+                    // per class; carried from global (or an explicit override) so
+                    // editing a class never silently resets it.
+                    'event_nature'         => $validated['event_nature'] ?? $global->event_nature ?? 'actionable',
                 ]
             );
 

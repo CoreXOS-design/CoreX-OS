@@ -350,4 +350,32 @@ class CalendarEvent extends Model
         $this->isPrivacyRedacted = true;
         return $this;
     }
+
+    // ── Event nature (actionable = "requires feedback" / informational) ──────
+
+    /**
+     * The EFFECTIVE actionable/informational nature for THIS event.
+     *
+     * Per-event choice wins: the create/edit form stores the user's selection in
+     * metadata['event_nature'] (no new column — extends the existing metadata
+     * JSON). When the user made no choice, fall back to the agency-configurable
+     * class default on calendar_event_class_settings.event_nature ('actionable'
+     * when even that is missing). This is the single source of truth every
+     * consumer (colour/red gate, feedback CTA, overdue marker) reads.
+     */
+    public function effectiveEventNature(): string
+    {
+        $override = is_array($this->metadata ?? null) ? ($this->metadata['event_nature'] ?? null) : null;
+        if (in_array($override, ['actionable', 'informational'], true)) {
+            return $override;
+        }
+        $cfg = CalendarEventClassSetting::forAgencyAndClass($this->agency_id, (string) ($this->category ?? ''));
+        return $cfg?->event_nature ?? 'actionable';
+    }
+
+    /** Informational = a marker/time-block: never goes red/overdue, never asks for feedback. */
+    public function isInformational(): bool
+    {
+        return $this->effectiveEventNature() === CalendarEventClassSetting::NATURE_INFORMATIONAL;
+    }
 }

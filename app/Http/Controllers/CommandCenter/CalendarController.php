@@ -401,7 +401,7 @@ class CalendarController extends Controller
                 ->where('is_active', true)
                 ->whereIn('event_class', self::MANUAL_CREATABLE_CLASSES)
                 ->orderBy('label')
-                ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour']),
+                ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour', 'event_nature']),
         ];
     }
 
@@ -518,7 +518,12 @@ class CalendarController extends Controller
             // deploy-verify hard-fails if calendar_event_class_settings is
             // empty so this branch is the runtime safety-net, not the
             // expected steady state.
-            'is_actionable' => ($cfg?->event_nature ?? 'actionable') === 'actionable',
+            // is_actionable drives the feedback CTA + completion gates. Reads the
+            // EFFECTIVE per-event nature (metadata override ?? class default), so a
+            // user's "No feedback needed" choice is honoured. event_nature is
+            // returned so the edit form can pre-select the current value.
+            'is_actionable' => !$calendarEvent->isInformational(),
+            'event_nature' => $calendarEvent->effectiveEventNature(),
             'actor_role' => $cfg?->actor_role ?? 'both',
             'completion_behaviour' => $cfg?->completion_behaviour ?? 'freeform',
             'is_draggable' => $isManual,
@@ -1030,6 +1035,9 @@ class CalendarController extends Controller
             // already maps buyer_contact => buyers correctly.
             'attendees.*.role'  => 'nullable|string|in:attendee,buyer_contact,seller_contact,agent_contact',
             'deal_id'           => 'nullable|integer',
+            // Per-event "requires feedback" choice (actionable) vs "no feedback
+            // needed" (informational). Stored in metadata; overrides the class default.
+            'event_nature'      => 'nullable|in:actionable,informational',
         ]);
 
         // Create + link + invite through the shared CalendarEventCreator so the
@@ -1119,6 +1127,9 @@ class CalendarController extends Controller
             'attendees.*.type'  => 'required_with:attendees|string|in:contact,agent',
             'attendees.*.role'  => 'nullable|string',
             'deal_id'           => 'nullable|integer',
+            // Per-event "requires feedback" choice (actionable) vs "no feedback
+            // needed" (informational). Stored in metadata; overrides the class default.
+            'event_nature'      => 'nullable|in:actionable,informational',
         ]);
 
         $oldValues = $calendarEvent->only(['title', 'category', 'event_date', 'end_date', 'description', 'property_id']);
@@ -1128,6 +1139,14 @@ class CalendarController extends Controller
                 'title', 'category', 'event_date', 'end_date', 'description',
                 'status', 'priority', 'property_id',
             ])->filter(fn ($v, $k) => $v !== null || in_array($k, ['end_date', 'description', 'property_id']))->all());
+
+            // Per-event "requires feedback" choice → metadata['event_nature'].
+            // Merge (don't clobber other metadata keys); absent input leaves it as-is.
+            if (in_array($data['event_nature'] ?? null, ['actionable', 'informational'], true)) {
+                $meta = $calendarEvent->metadata ?? [];
+                $meta['event_nature'] = $data['event_nature'];
+                $calendarEvent->update(['metadata' => $meta]);
+            }
 
             // Update direct contact FK from attendees
             if (array_key_exists('attendees', $data)) {

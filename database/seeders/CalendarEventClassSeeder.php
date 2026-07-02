@@ -29,14 +29,20 @@ class CalendarEventClassSeeder extends Seeder
         // the map here — at the canonical creation point — fixes ALL
         // event classes coherently on every fresh demo:seed. Idempotent.
         $behaviourMap = [
-            'viewing'              => ['actor_role' => 'buyer_action',  'completion_behaviour' => 'require_feedback'],
-            'listing_presentation' => ['actor_role' => 'seller_action', 'completion_behaviour' => 'require_feedback'],
-            'property_evaluation'  => ['actor_role' => 'seller_action', 'completion_behaviour' => 'require_feedback'],
-            'meeting'              => ['actor_role' => 'both',          'completion_behaviour' => 'freeform'],
-            'other'                => ['actor_role' => 'both',          'completion_behaviour' => 'freeform'],
+            // event_nature = the DEFAULT "requires feedback" (actionable) vs "no
+            // feedback needed" (informational). Agency-overridable via settings;
+            // the create/edit form pre-selects it and the user can override per event.
+            // Appointments (viewing / evaluation / listing presentation) = actionable
+            // → can go overdue/red + ask for feedback. Time-blocks (meeting / other /
+            // private) = informational → never overdue/red, no feedback prompt.
+            'viewing'              => ['actor_role' => 'buyer_action',  'completion_behaviour' => 'require_feedback', 'event_nature' => 'actionable'],
+            'listing_presentation' => ['actor_role' => 'seller_action', 'completion_behaviour' => 'require_feedback', 'event_nature' => 'actionable'],
+            'property_evaluation'  => ['actor_role' => 'seller_action', 'completion_behaviour' => 'require_feedback', 'event_nature' => 'actionable'],
+            'meeting'              => ['actor_role' => 'both',          'completion_behaviour' => 'freeform',         'event_nature' => 'informational'],
+            'other'                => ['actor_role' => 'both',          'completion_behaviour' => 'freeform',         'event_nature' => 'informational'],
             // ITEM 4 — 'both' (NOT 'neither') so a private block counts as a real
             // appointment for conflict detection (its whole purpose is busy time).
-            'private'              => ['actor_role' => 'both',          'completion_behaviour' => 'freeform'],
+            'private'              => ['actor_role' => 'both',          'completion_behaviour' => 'freeform',         'event_nature' => 'informational'],
             'task'                 => ['actor_role' => 'neither',       'completion_behaviour' => 'freeform'],
             'leave_annual'         => ['actor_role' => 'neither',       'completion_behaviour' => 'freeform'],
             'leave_sick'           => ['actor_role' => 'neither',       'completion_behaviour' => 'freeform'],

@@ -26,9 +26,28 @@ class ProcessReminders extends Command
         $eventsSent = 0;
         $overdue    = 0;
 
-        // ── 1. Mark overdue events ──
+        // ── 1. Mark overdue events (actionable only) ──
+        // Informational events (markers, time-blocks, and anything the user set
+        // "No feedback needed") must NEVER go overdue. Effective nature =
+        // per-event metadata override ?? class default, so only genuinely
+        // actionable events are swept to 'overdue'.
+        $informationalClasses = \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()
+            ->where('event_nature', 'informational')
+            ->pluck('event_class')->unique()->values()->all();
+
         $overdueCount = CalendarEvent::where('status', 'pending')
             ->where('event_date', '<', now())
+            ->where(function ($q) use ($informationalClasses) {
+                // Explicit per-event override to actionable...
+                $q->where('metadata->event_nature', 'actionable')
+                  // ...OR no override and the class is not informational.
+                  ->orWhere(function ($q2) use ($informationalClasses) {
+                      $q2->whereNull('metadata->event_nature');
+                      if (!empty($informationalClasses)) {
+                          $q2->whereNotIn('category', $informationalClasses);
+                      }
+                  });
+            })
             ->update(['status' => 'overdue']);
         $overdue += $overdueCount;
 

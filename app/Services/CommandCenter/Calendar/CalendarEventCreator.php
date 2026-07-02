@@ -87,6 +87,12 @@ class CalendarEventCreator
                 'branch_id'     => $user->branch_id,
                 'property_id'   => $data['property_id'] ?? ($propertyIds[0] ?? null),
                 'contact_id'    => ($data['contact_ids'] ?? [])[0] ?? ($data['contact_id'] ?? null),
+                // Per-event "requires feedback" choice → effective event nature.
+                // Stored in metadata (no new column); resolved by
+                // CalendarEvent::effectiveEventNature(). Absent = use class default.
+                'metadata'      => in_array($data['event_nature'] ?? null, ['actionable', 'informational'], true)
+                    ? ['event_nature' => $data['event_nature']]
+                    : null,
             ]);
 
             $this->syncEventLinks($event, $data, $user);

@@ -2001,7 +2001,7 @@
         {{-- Category --}}
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type <span style="color:var(--ds-crimson)">*</span></label>
-            <select name="category" x-model="form.category" required
+            <select name="category" x-model="form.category" required @change="applyCategoryNatureDefault()"
                     class="w-full rounded-md px-3 py-2 text-sm"
                     style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">Select type…</option>
@@ -2030,9 +2030,28 @@
                     'multi'      => (bool) $c->allow_multiple_properties,
                     'actor_role' => $c->actor_role ?? 'neither',
                     'completion' => $c->completion_behaviour ?? 'freeform',
+                    'nature'     => $c->event_nature ?? 'actionable',
                 ]])->toArray();
             @endphp
             <script type="application/json" id="classConfigMap">{!! json_encode($classConfigMap) !!}</script>
+        </div>
+
+        {{-- Requires-feedback (event_nature). Pre-selected from the class default
+             when a type is chosen (applyCategoryNatureDefault), overridable per
+             event; posted as name="event_nature". Informational events never go
+             overdue/red and never prompt for feedback. --}}
+        <div x-show="form.category" x-cloak>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Feedback</label>
+            <select name="event_nature" x-model="form.eventNature"
+                    class="w-full rounded-md px-3 py-2 text-sm"
+                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <option value="actionable">Requires feedback — can go overdue</option>
+                <option value="informational">No feedback needed — time-block only</option>
+            </select>
+            <p class="text-[11px] mt-1" style="color: var(--text-muted);"
+               x-text="form.eventNature === 'informational'
+                    ? 'This event will never show as overdue and won\'t prompt for feedback.'
+                    : 'This event can go overdue and prompts for feedback after it passes.'"></p>
         </div>
 
         {{-- All day toggle --}}
@@ -2476,7 +2495,7 @@ function calendarPage() {
         currentUserId: {{ auth()->id() ?? 'null' }},
         selfConflicts: [],
         _selfConflictTimer: null,
-        form: { title: '', category: '', startDate: '', startTime: '', endDate: '', endTime: '', description: '', allDay: false },
+        form: { title: '', category: '', startDate: '', startTime: '', endDate: '', endTime: '', description: '', allDay: false, eventNature: 'actionable' },
         endManuallyEdited: false,
         selectedDate: '{{ $anchorDate->toDateString() }}',
         // CAL-2 — explicit "user actively clicked this day to seed a new
@@ -2604,7 +2623,7 @@ function calendarPage() {
 
         openForDate(dateStr) {
             const nextQ = this.nextQuarterHour();
-            this.form = { title: '', category: '', startDate: dateStr, startTime: nextQ, endDate: dateStr, endTime: this.addHour(nextQ), description: '', allDay: false };
+            this.form = { title: '', category: '', startDate: dateStr, startTime: nextQ, endDate: dateStr, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable' };
             this.endManuallyEdited = false;
             this.editMode = false;
             this.editingEventId = null;
@@ -2746,7 +2765,7 @@ function calendarPage() {
             // prior context).
             const dateToUse = this.pendingCreateDate || this.selectedDate || today;
             const nextQ = this.nextQuarterHour();
-            this.form = { title: '', category: '', startDate: dateToUse, startTime: nextQ, endDate: dateToUse, endTime: this.addHour(nextQ), description: '', allDay: false };
+            this.form = { title: '', category: '', startDate: dateToUse, startTime: nextQ, endDate: dateToUse, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable' };
             this.endManuallyEdited = false;
             this.editMode = false;
             this.editingEventId = null;
@@ -2900,6 +2919,20 @@ function calendarPage() {
                     } catch (e) { console.warn('Prefill contact failed:', e); }
                 });
             });
+        },
+
+        // When the user picks a Type, default the requires-feedback choice to that
+        // class's configured nature (classConfigMap). Fires on @change only (user
+        // action), so an edit-loaded override is never reset. Self-contained read
+        // of the JSON island — no dependency on other helpers.
+        applyCategoryNatureDefault() {
+            let nature = 'actionable';
+            try {
+                const map = JSON.parse(document.getElementById('classConfigMap')?.textContent || '{}');
+                const cfg = map[this.form.category];
+                if (cfg && (cfg.nature === 'actionable' || cfg.nature === 'informational')) nature = cfg.nature;
+            } catch (e) { /* fall back to actionable */ }
+            this.form.eventNature = nature;
         },
 
         // â”€â”€ Right Panel â”€â”€
@@ -3095,6 +3128,11 @@ function calendarPage() {
                 endTime: toTime(endD) || '',
                 description: d.description || '',
                 allDay: isAllDay,
+                // Prefill the requires-feedback choice from the loaded event's
+                // EFFECTIVE nature so an override round-trips. Set via programmatic
+                // form assignment (not the @change handler) so it isn't reset to
+                // the class default on edit.
+                eventNature: d.event_nature || 'actionable',
             };
             this.endManuallyEdited = !!endD;
             this.editMode = true;

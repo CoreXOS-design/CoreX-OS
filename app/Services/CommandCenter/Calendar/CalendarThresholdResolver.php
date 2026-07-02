@@ -71,8 +71,11 @@ class CalendarThresholdResolver
             return null;
         }
 
-        // Informational events (leave, birthdays, holidays) — always neutral, no RAG progression
-        if (($config->event_nature ?? 'actionable') === CalendarEventClassSetting::NATURE_INFORMATIONAL) {
+        // Informational events (leave, birthdays, holidays, time-blocks, and any
+        // event the user marked "No feedback needed") — always neutral, no RAG
+        // progression, never red/overdue. Reads the EFFECTIVE per-event nature
+        // (metadata override ?? class default), so a per-event choice is honoured.
+        if ($event->isInformational()) {
             return 'neutral';
         }
 
