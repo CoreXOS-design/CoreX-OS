@@ -713,8 +713,12 @@
                                     @dragend="rescheduleEnd()"
                                 @endif
                                 :class="{ 'pointer-events-none': reschedule.dragging }"
-                                class="absolute text-left rounded overflow-hidden z-[3] transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
-                                style="{{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 14px; left: calc(56px + (100% - 56px) * {{ $dIdx * $lanes + $lane }} / {{ 7 * $lanes }}); width: calc((100% - 56px) / {{ 7 * $lanes }} - 2px);"
+                                {{-- z-index is INLINE (not a z-[3] Tailwind class): the arbitrary
+                                     class was new in ITEM 3 and absent from the compiled CSS, so the
+                                     tile fell to z:auto BELOW the z-1 drag layers, which swallowed the
+                                     click. Inline z-index needs no asset rebuild — always applies. --}}
+                                class="absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
+                                style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 14px; left: calc(56px + (100% - 56px) * {{ $dIdx * $lanes + $lane }} / {{ 7 * $lanes }}); width: calc((100% - 56px) / {{ 7 * $lanes }} - 2px);"
                                 title="{{ $tr }} {{ $evt->title }}">
                             <span class="block px-1 pt-0.5 text-[9px] opacity-80 leading-none">{{ $tr }}</span>
                             <span class="block px-1 text-[10px] font-medium leading-tight truncate">{{ \Illuminate\Support\Str::limit($evt->title, 16) }}</span>
@@ -862,8 +866,10 @@
                                 @dragend="rescheduleEnd()"
                             @endif
                             :class="{ 'pointer-events-none': reschedule.dragging }"
-                            class="absolute text-left rounded overflow-hidden z-[3] transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
-                            style="{{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
+                            {{-- Inline z-index (see week overlay note): the z-[3] class was not in
+                                 the compiled CSS, dropping the tile below the z-1 drag layers. --}}
+                            class="absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
+                            style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
                             title="{{ $tr }} {{ $evt->title }}">
                         <div class="flex items-center gap-2 px-2 pt-1">
                             <span class="text-[11px] opacity-80">{{ $tr }}</span>
