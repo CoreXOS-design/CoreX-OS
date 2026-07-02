@@ -2017,7 +2017,16 @@
                      }">
                     @include('corex.contacts._comm-thread-meta', ['thread' => $thread, 'isWa' => $isWa, 'accent' => 'var(--text-muted)'])
                     <div class="flex items-center gap-3 mt-2">
-                        <span class="text-[11px]" style="color:var(--text-muted);">Private to the owning agent</span>
+                        {{-- AT-153 — name the owning agent so the requester knows whom to ask
+                             (bodies stay gated); fallback message avoids a dead-end when no
+                             owning agent is on record. --}}
+                        <span class="text-[11px]" style="color:var(--text-muted);">
+                            @if($thread->owner_name)
+                                Private to {{ $thread->owner_name }} — request access to read it.
+                            @else
+                                Private — no owning agent on record; your request routes to a communications manager.
+                            @endif
+                        </span>
                         <div class="ml-auto">
                             <template x-if="!requested">
                                 <button type="button" @click="request()" :disabled="loading"

@@ -287,11 +287,21 @@ class CommsAccessGrantService
      */
     public function canRevoke(User $actor, CommsAccessRequest $grant): bool
     {
-        if ((int) $actor->agency_id !== (int) $grant->agency_id) {
-            return false;
-        }
         if ((int) $actor->id === (int) $grant->requester_user_id) {
-            return true; // self-revoke
+            return true; // self-revoke — always allowed (hand back your own grant)
+        }
+        // AT-153 — platform owner / super-admin break-glass: they administer every
+        // agency (bypass AgencyScope everywhere) and carry a NULL agency_id, which
+        // the raw-agency equality below would otherwise reject. Audited via the
+        // EVENT_REVOKE record written by revokeGrant().
+        if ($this->isPlatformAuthoriser($actor)) {
+            return true;
+        }
+        // Everyone else must be in the SAME agency as the grant (effective agency,
+        // so an owner who switched INTO the agency also matches). Ordinary
+        // cross-agency users — including cross-agency grant_access holders — stay blocked.
+        if ((int) $this->effectiveAgencyId($actor) !== (int) $grant->agency_id) {
+            return false;
         }
         if ($actor->hasPermission('communications.grant_access')) {
             return true;
@@ -425,7 +435,20 @@ class CommsAccessGrantService
      */
     public function canAuthorize(User $user, CommsAccessRequest $req): bool
     {
-        if ((int) $user->agency_id !== (int) $req->agency_id) {
+        // AT-153 — platform owner / super-admin break-glass. They own no agency
+        // (agency_id NULL) yet legitimately administer every agency (they bypass
+        // AgencyScope everywhere), and are the capture-owner of platform-linked
+        // threads. The raw-agency equality below rejected a NULL agency_id (0 !== 1),
+        // so a System Owner could not authorise even a thread they own. Allow them
+        // regardless of agency; the approval is audited (EVENT_GRANT via approve()).
+        if ($this->isPlatformAuthoriser($user)) {
+            return true;
+        }
+        // Everyone else must be in the SAME agency as the request (effective agency,
+        // so an owner who switched INTO the agency also matches). Ordinary
+        // cross-agency users — INCLUDING cross-agency grant_access holders — stay
+        // blocked: tenancy is NOT weakened for non-platform users.
+        if ((int) $this->effectiveAgencyId($user) !== (int) $req->agency_id) {
             return false;
         }
         if ($user->hasPermission('communications.grant_access')) {
@@ -434,6 +457,26 @@ class CommsAccessGrantService
         return $this->commsForContact($req->contact_id)
             ->where('owner_user_id', $user->id)
             ->exists();
+    }
+
+    /**
+     * AT-153 — a platform owner / super-admin (isOwnerRole) may authorise/revoke in
+     * any agency as an audited break-glass. This is the ONLY path that ignores the
+     * per-agency equality gate; it never applies to ordinary agency users.
+     */
+    protected function isPlatformAuthoriser(User $user): bool
+    {
+        return method_exists($user, 'isOwnerRole') && $user->isOwnerRole();
+    }
+
+    /** The user's effective agency (agency switcher / branch / direct), or null. */
+    protected function effectiveAgencyId(User $user): ?int
+    {
+        $agencyId = method_exists($user, 'effectiveAgencyId')
+            ? $user->effectiveAgencyId()
+            : $user->agency_id;
+
+        return $agencyId !== null ? (int) $agencyId : null;
     }
 
     /** The user ids notified on a request: owning agents ∪ grant_access holders. */

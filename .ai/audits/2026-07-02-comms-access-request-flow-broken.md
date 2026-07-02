@@ -87,3 +87,21 @@ If a thread's `owner_user_id` is NULL (truly unassigned) **or** the owner is a n
 **D. Unassigned/null-agency owner (bug 4).** Define the fallback explicitly: when a thread has no valid *agency* owner, route approval to agency `grant_access` holders (admins/BMs) and make that visible ("no owning agent — request goes to your manager"); ensure every agency has ≥1 `grant_access` holder; optionally allow the System Owner as an always-eligible break-glass (ties to A). **Upstream:** re-own capture threads to a real agency agent — the WA capture device should be registered to an agency agent, not the platform super_admin, so `owner_user_id` is a real agency-1 agent going forward (and consider a remediation to re-point the existing 46-owned rows to the correct agent — separate approved step).
 
 **No code will be written until Johan approves — including the policy call on showing the owning agent's identity to a requester while content stays gated.**
+
+---
+
+## RESOLUTION — approved + shipped to STAGING (2026-07-02, AT-153)
+
+Johan approved: **A = YES** (null-agency owner / platform owner may authorise, audited break-glass), **B = YES** (show owning agent's NAME on the gated row; bodies stay gated). Shipped on branch `AT-153-comms-access-fix` → **Staging merge `dfad1b18`**, deployed `/corex-staging` (php8.2-fpm reloaded, worker restarted). NOT promoted to live.
+
+**FIX A — `CommsAccessGrantService::canAuthorize` + `canRevoke`.** A platform owner / super-admin (`isOwnerRole`, agency NULL) now passes as an audited break-glass, regardless of the raw/NULL agency. Non-platform users are gated on `effectiveAgencyId()` — ordinary cross-agency users AND cross-agency `grant_access` holders stay blocked (tenancy not weakened). Verified on deployed staging: `canAuthorize(user 46 System Owner, req 15) = TRUE`, `canAuthorize(user 22 agency-1 admin, req 15) = TRUE`.
+
+**FIX B — owner identity.** `ContactController::show` builds an owner-name map `withoutGlobalScope(AgencyScope)` (name-only) so a null/other-agency owner resolves; the gated row now reads "Private to {agent} — request access to read it" (fallback: "no owning agent on record; your request routes to a communications manager"). Verified: Barbara (agency 1) sees owner name **"Johan Reichel"** on the gated Elize row, and the **body is NOT visible (gated)**.
+
+**FIX C — gating model unchanged** (was already correct).
+
+**FIX D — re-own + recurrence guard.** New audited command `communications:reassign-capture-owner --from --to [--dry-run]` (EVENT_OWNERSHIP_TRANSFER per thread; `--to` must be a real agency agent; owner_user_id only — bodies/links untouched). Ran on staging: **80 messages across 3 threads re-owned from platform user 46 → agency-1 agent 22** (3 ownership_transfer audit rows). `WaDeviceController::store` now **refuses** a platform/owner-role/no-agency registrant.
+
+**Device→owner attribution (reported).** Capture stamps `owner_user_id = $device->user_id` (`WaArchiveIngestor`); the device is created by `WaDeviceController::store` with `user_id = Auth::id()`. **Rule (now enforced):** a WhatsApp capture device — extension OR the AT-149 WAHA `waha_session` row — MUST belong to a real agency agent, never the platform super-admin. **Live-cutover precondition (FLAGGED):** before live capture, ensure the WAHA session / device is registered under the correct agency agent, and run `communications:reassign-capture-owner` if any live rows were captured under a platform account.
+
+**Test:** `CommsAccessRequestFlowFixTest` 9/9 (15 assertions) — break-glass authorise+revoke, same-agency admin, cross-agency + cross-agency grant-holder blocked, re-own audited + body untouched + owner-role target refused, device guard both directions.
