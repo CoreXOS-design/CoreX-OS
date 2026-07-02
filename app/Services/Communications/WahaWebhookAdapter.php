@@ -15,8 +15,10 @@ namespace App\Services\Communications;
  *   payload.id, payload.timestamp, payload.from (@lid chat), payload.to,
  *   payload.fromMe, payload.body, payload.hasMedia,
  *   payload.media { url, mimetype, filename },
- *   payload._data.Info { SenderAlt (real phone @s.whatsapp.net), PushName,
- *                        IsGroup, IsFromMe },
+ *   payload._data.Info { SenderAlt (inbound sender's real phone), RecipientAlt
+ *                        (outbound recipient's real phone), PushName, IsGroup,
+ *                        IsFromMe }, // GOWS leaves top-level payload.to NULL,
+ *                        // so the real outbound number lives in RecipientAlt.
  *   payload._data.Message { conversation, audioMessage.seconds }.
  */
 class WahaWebhookAdapter
@@ -45,17 +47,18 @@ class WahaWebhookAdapter
         $fromMe = (bool) ($payload['fromMe'] ?? $info['IsFromMe'] ?? false);
 
         // COUNTERPART identity (the other party — the contact we match/thread on).
-        //   inbound  → the sender: SenderAlt carries their REAL phone (AT-138).
-        //   outbound → the RECIPIENT (payload.to); SenderAlt would be the agent's
-        //              own phone here, so it must NOT drive the match.
+        //   inbound  → the sender: `_data.Info.SenderAlt` carries their REAL phone.
+        //   outbound → the recipient: `_data.Info.RecipientAlt` carries the REAL
+        //              phone. NB: the GOWS engine leaves top-level `payload.to`
+        //              NULL, so the old `phoneFromJid(payload.to)` yielded an empty
+        //              phone → outbound dropped (no match). RecipientAlt is the fix.
         // Phone is PRIMARY; the @lid resolver (AT-133) is the FALLBACK when the
         // real phone is absent — so we only ever hand the ingestor a real number
-        // when we actually have one, else an empty phone + the @lid.
+        // when we actually have one, else an empty phone + the @lid (the chat).
+        $counterpartJid = $chatFrom; // the @lid chat is the thread key in both directions
         if ($fromMe) {
-            $counterpartJid = $this->str($payload['to'] ?? '') ?: $chatFrom;
-            $phone = $this->phoneFromJid($payload['to'] ?? '');
+            $phone = $this->phoneFromJid($info['RecipientAlt'] ?? ($payload['to'] ?? ''));
         } else {
-            $counterpartJid = $chatFrom;
             $phone = $this->phoneFromJid($info['SenderAlt'] ?? '');
         }
 

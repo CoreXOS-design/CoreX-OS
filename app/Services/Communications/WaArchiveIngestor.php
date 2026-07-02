@@ -166,7 +166,16 @@ class WaArchiveIngestor
         // opted IN; pending/opted-out keep the ENVELOPE (FICA floor) but withhold the
         // body. (No CoreX match never reaches here — the hard floor above.)
         $agentUserId = (int) $device->user_id;
-        $this->consent->ensurePending($agencyId, $agentUserId, (int) $contact->id);
+        // AT-156 — a self-linked WAHA device (agent linked their OWN WhatsApp via
+        // My Portal → Tools; identified by a non-empty waha_session) carries the
+        // agent's explicit capture consent, so bodies flow by default (the agent
+        // keeps the per-contact opt-out). Extension-provisioned devices keep the
+        // AT-136 pending-until-opt-in default.
+        if (filled($device->waha_session)) {
+            $this->consent->ensureSelfLinkedConsent($agencyId, $agentUserId, (int) $contact->id);
+        } else {
+            $this->consent->ensurePending($agencyId, $agentUserId, (int) $contact->id);
+        }
         $captureOptedIn = $this->consent->isCaptureOptedIn($agentUserId, (int) $contact->id);
 
         // AT-136 body gate: opted_in → normal body; otherwise withhold the body and

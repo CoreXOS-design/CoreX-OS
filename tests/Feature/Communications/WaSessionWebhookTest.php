@@ -104,6 +104,34 @@ final class WaSessionWebhookTest extends TestCase
         ];
     }
 
+    /** A WAHA OUTBOUND message envelope (GOWS: event message.any, fromMe, RecipientAlt). */
+    private function outboundEnvelope(array $payloadOver = []): array
+    {
+        return [
+            'event'   => 'message.any',
+            'session' => self::SESSION,
+            'payload' => array_merge([
+                'id'        => 'true_' . Str::random(10) . '@c.us_' . Str::random(20),
+                'timestamp' => now()->timestamp,
+                'from'      => self::LID,
+                'to'        => null,          // GOWS leaves this NULL — the number is in RecipientAlt
+                'fromMe'    => true,
+                'body'      => 'Reply from the agent',
+                'hasMedia'  => false,
+                '_data'     => [
+                    'Info' => [
+                        'SenderAlt'    => '',   // sender is the agent (me) — empty
+                        'RecipientAlt' => '27713510291@s.whatsapp.net',
+                        'PushName'     => 'Agent',
+                        'IsGroup'      => false,
+                        'IsFromMe'     => true,
+                    ],
+                    'Message' => ['conversation' => 'Reply from the agent'],
+                ],
+            ], $payloadOver),
+        ];
+    }
+
     private function postWebhook(array $envelope, array $headers = []): \Illuminate\Testing\TestResponse
     {
         return $this->postJson('/communications/wa/webhook', $envelope,
@@ -132,6 +160,76 @@ final class WaSessionWebhookTest extends TestCase
         // Linked to the matched contact.
         $this->assertDatabaseHas('communication_links', [
             'communication_id' => $comm->id, 'linkable_id' => $this->contact->id,
+        ]);
+    }
+
+    // ── DEFECT 2 (AT-149): outbound (message.any, fromMe) → archived, not dropped ──
+
+    public function test_outbound_message_is_mapped_and_archived(): void
+    {
+        $this->postWebhook($this->outboundEnvelope())
+            ->assertOk()
+            ->assertJson(['success' => true, 'result' => 'archived']);
+
+        $comm = Communication::firstWhere('agency_id', $this->agencyId);
+        $this->assertNotNull($comm, 'outbound message must be archived, not dropped');
+        $this->assertSame(Communication::DIRECTION_OUTBOUND, $comm->direction);
+        $this->assertSame(self::LID, $comm->thread_key, 'outbound threads on the same @lid chat');
+        $this->assertSame('Reply from the agent', $comm->body_text);
+        // Resolved to the contact via RecipientAlt (payload.to is NULL in GOWS).
+        $this->assertDatabaseHas('communication_links', [
+            'communication_id' => $comm->id, 'linkable_id' => $this->contact->id,
+        ]);
+    }
+
+    // ── DEFECT 1 (AT-156): a self-linked device is the agent's capture consent ──
+
+    public function test_self_linked_device_captures_body_without_prior_optin(): void
+    {
+        // A brand-new contact the agent has made NO consent decision about.
+        $fresh = Contact::create([
+            'agency_id' => $this->agencyId, 'first_name' => 'Nomsa', 'last_name' => 'Dlamini', 'phone' => '0731112222',
+        ]);
+
+        $this->postWebhook($this->inboundEnvelope([
+            'from'  => '999888777666555@lid', 'body' => 'First contact',
+            '_data' => [
+                'Info'    => ['SenderAlt' => '27731112222@s.whatsapp.net', 'PushName' => 'Nomsa', 'IsGroup' => false, 'IsFromMe' => false],
+                'Message' => ['conversation' => 'First contact'],
+            ],
+        ]))->assertOk()->assertJson(['result' => 'archived']);
+
+        $comm = Communication::where('agency_id', $this->agencyId)->latest('id')->first();
+        $this->assertSame('First contact', $comm->body_text, 'self-linked device → body flows without a prior opt-in');
+        // The consent row was auto-created OPTED_IN (self-link = consent).
+        $this->assertDatabaseHas('agent_capture_consent', [
+            'contact_id' => $fresh->id, 'status' => AgentCaptureConsent::STATUS_OPTED_IN,
+        ]);
+    }
+
+    public function test_self_linked_still_respects_an_explicit_optout(): void
+    {
+        $fresh = Contact::create([
+            'agency_id' => $this->agencyId, 'first_name' => 'Private', 'last_name' => 'Person', 'phone' => '0734445555',
+        ]);
+        // Agent has explicitly opted this contact OUT — a self-link must NOT override it.
+        AgentCaptureConsent::create([
+            'agency_id' => $this->agencyId, 'agent_user_id' => $this->device->user_id,
+            'contact_id' => $fresh->id, 'status' => AgentCaptureConsent::STATUS_OPTED_OUT,
+        ]);
+
+        $this->postWebhook($this->inboundEnvelope([
+            'from'  => '111222333444555@lid', 'body' => 'confidential',
+            '_data' => [
+                'Info'    => ['SenderAlt' => '27734445555@s.whatsapp.net', 'PushName' => 'Private', 'IsGroup' => false, 'IsFromMe' => false],
+                'Message' => ['conversation' => 'confidential'],
+            ],
+        ]))->assertOk();
+
+        $comm = Communication::where('agency_id', $this->agencyId)->latest('id')->first();
+        $this->assertNull($comm->body_text, 'explicit opt-out still withholds the body on a self-linked device');
+        $this->assertDatabaseHas('agent_capture_consent', [
+            'contact_id' => $fresh->id, 'status' => AgentCaptureConsent::STATUS_OPTED_OUT,
         ]);
     }
 

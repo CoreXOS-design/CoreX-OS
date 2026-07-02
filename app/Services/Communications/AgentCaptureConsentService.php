@@ -49,6 +49,48 @@ class AgentCaptureConsentService
         ]);
     }
 
+    /**
+     * AT-156 — a SELF-LINKED WhatsApp device (the agent linked their OWN number via
+     * My Portal → Tools) IS the agent's explicit consent to capture their own client
+     * threads. So the per-contact default here is OPTED-IN, not pending — otherwise
+     * every body is withheld the moment an agent self-links, which defeats the
+     * purpose of linking. The agent keeps the per-contact OPT-OUT (POPIA exclusion):
+     * an explicit opt-out is NEVER overridden here; only a bare pending default is
+     * promoted. Idempotent. (Extension-provisioned devices keep `ensurePending`.)
+     */
+    public function ensureSelfLinkedConsent(int $agencyId, int $agentUserId, int $contactId): AgentCaptureConsent
+    {
+        $row = AgentCaptureConsent::withoutGlobalScope(AgencyScope::class)
+            ->withTrashed()
+            ->where('agency_id', $agencyId)
+            ->where('agent_user_id', $agentUserId)
+            ->where('contact_id', $contactId)
+            ->first();
+
+        if ($row) {
+            if ($row->trashed()) {
+                $row->restore();
+            }
+            // Promote a bare pending → opted_in; never touch an explicit opt-out/opt-in.
+            if ($row->status === AgentCaptureConsent::STATUS_PENDING) {
+                $row->status = AgentCaptureConsent::STATUS_OPTED_IN;
+                $row->decided_at = now();
+                $row->decided_by_user_id = $agentUserId; // the agent's own act (self-link)
+                $row->save();
+            }
+            return $row;
+        }
+
+        return AgentCaptureConsent::create([
+            'agency_id'          => $agencyId,
+            'agent_user_id'      => $agentUserId,
+            'contact_id'         => $contactId,
+            'status'             => AgentCaptureConsent::STATUS_OPTED_IN,
+            'decided_at'         => now(),
+            'decided_by_user_id' => $agentUserId,
+        ]);
+    }
+
     /** THE GATE — bodies flow only when the agent opted IN to this contact. */
     public function isCaptureOptedIn(int $agentUserId, int $contactId): bool
     {
