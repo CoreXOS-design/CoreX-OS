@@ -109,3 +109,39 @@ needs merging. The group threads must be removed from capture, not folded into t
 **Open question for Johan:** confirm groups/broadcasts should be purged from the existing
 archive (recommended), vs left in place and merely hidden by the go-forward filter. Also
 confirm the same remediation runs on live before/after the WAHA cutover.
+
+---
+
+## RESOLUTION — approved A + B on STAGING (2026-07-02, AT-151)
+
+Johan approved A + B on **staging only**; C confirmed (no re-key/merge); live is a
+separate later step (no live changes). Shipped on branch `AT-151-wa-group-broadcast-filter`
+→ **Staging merge `c3f49437`**, deployed to `/corex-staging` (php8.2-fpm reloaded, worker
+restarted). NOT promoted to live.
+
+**A — prevent (deployed).** `WaArchiveIngestor::ingest()` now calls `isNoiseChat($chatId,$msg)`
+right after the id/chat validation → `RESULT_DROPPED` for `thread_key` ending `@g.us`,
+containing `status@broadcast`, or `is_group==true`. This is the server-side authoritative
+gate — it runs for every capture path (extension today, WAHA adapter later). Proven on the
+deployed staging code (rolled-back tinker): a `@g.us` and a `status@broadcast` message both
+returned `dropped`, 0 rows created.
+
+**B — remediate (run).** New `communications:purge-wa-noise` command (agency-scopable,
+`--dry-run`, logged) soft-purged **56 WhatsApp messages across 6 group/broadcast threads**
+(agency 1) — `purged_at` + `purged_reason='group_broadcast_noise'`. NO hard deletes; rows
+retained and recoverable; content bytes untouched.
+
+**Verify (staging):**
+- Elize (10298) now shows **only** `222758646611979@lid` (22 msgs) — the three group
+  threads (20:10 / 19:26 / 14:02) no longer surface.
+- Archive-wide unpurged group/broadcast rows: **0**.
+- 1:1 `@lid` messages still visible/intact: **80**.
+- 56 rows purged + retained (queryable, `purged_reason=group_broadcast_noise`).
+- Test `WaGroupBroadcastFilterTest` 3/3 (15 assertions).
+
+**LIVE (read-only, nothing changed):** `nexus_os` has **123** WhatsApp comms (63 visible),
+and **every** visible one has `thread_key = NULL` — there are **0** `@g.us` / `status@broadcast`
+/ `@lid` / `@c.us` rows. So live has **no group/broadcast leak** to remediate: the inbound
+capture pipeline that produces `@lid`/`@g.us` keys only runs on Staging; live's WA rows are
+manual/provisional outbound with null thread_key. Johan decides live remediation later (there
+is currently nothing to purge) once real inbound capture goes live behind the filter.
