@@ -865,8 +865,8 @@
 
             {{-- awaiting scan --}}
             <div x-show="state === 'awaiting_scan'">
-                <div style="background:#fff8e6; border:1px solid #f5c37a; color:#7a4e12; border-radius:6px; padding:10px 14px; font-size:0.75rem; font-weight:600; margin-bottom:14px;">
-                    ⚠ Scan with your CAPTURE number — it must NEVER be the same WhatsApp number you use to send outreach or marketing.
+                <div style="background:var(--surface-2, rgba(0,0,0,0.03)); border:1px solid var(--border); color:var(--text-secondary); border-radius:6px; padding:10px 14px; font-size:0.75rem; line-height:1.5; margin-bottom:14px;">
+                    Capture is <b>read-only</b> — CoreX never sends messages from this number. It's fine to link the same number you use for your own manual WhatsApp outreach. Just don't connect this number to any external automated or bulk-sending bot/service.
                 </div>
                 <div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
                     <div style="background:#ffffff; padding:12px; border-radius:6px; border:1px solid var(--border); width:224px; height:224px; display:flex; align-items:center; justify-content:center;">

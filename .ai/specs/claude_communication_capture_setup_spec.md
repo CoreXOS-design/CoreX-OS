@@ -134,15 +134,26 @@ The original WhatsApp adapter (§6 of the archive spec) reads the rendered `web.
 ### 8.8 Go-live prerequisites (pending Johan — not done in the build)
 The webhook path is built and tested (`WaSessionWebhookTest` 8/8) but **no number is linked**. To go live Johan must: set `WAHA_WEBHOOK_SECRET`, point WAHA's webhook at `/communications/wa/webhook`, and set `communication_wa_devices.waha_session` for the linked agent's device.
 
-## 9. DOCTRINE — the capture session must NEVER be the same WhatsApp account as outreach sending
+## 9. DOCTRINE — the three lanes (capture, manual outreach, automated sending)
 
-**Rule.** The WhatsApp number a WAHA capture session links must be a **capture-only** number, distinct from any number an agent uses to **send** outreach. Capture is read-only evidence collection; outreach is deliberate outbound. Mixing them raises WhatsApp ban risk (bulk/robotic-send patterns are the primary ban trigger) and muddies the FICA evidence trail.
+The earlier blunt rule ("capture number must NEVER equal the outreach number") was **wrong** and is retired. The correct model has **three lanes**, and only the third requires number separation:
 
-**How CoreX honours it today (as-built):**
-- **Structurally enforced (capture never sends):** the WAHA session is read-only — there is **no** WAHA `sendText`/send call anywhere in `app/`. Outreach WhatsApp delivery is done by the **agent's own device via a `wa.me` deep link** after `SellerOutreachSenderService` redirects the agent — CoreX itself never transmits through the captured session. So the *capture channel* and the *send channel* are already different code paths.
-- **Ownership enforced (AT-153):** `WaDeviceController::store()` refuses a platform/owner-role or agency-less registrant, so a capture device always belongs to a real agency agent (attributable `owner_user_id`). See `at118-communications-access-gate.md` §13.
+| Lane | What it is | Sends programmatically? | Number rule |
+|------|-----------|-------------------------|-------------|
+| **Capture** | WAHA read-only session archiving the agent's WhatsApp threads for FICA | **No** — read-only, no send path exists | The agent's **own** number |
+| **Manual outreach** | `wa.me` deep-link; the agent **physically taps send** on their own device | **No** — CoreX never transmits; the human sends | **Same number is fine** |
+| **Automated sending** (future, NOT built) | Meta Cloud API / bulk programmatic send | **Yes** | **Must** be a separate dedicated number |
 
-**What is convention-only (NOT yet a coded invariant) — flagged honestly per BUILD_STANDARD:** there is currently **no validation** asserting that a session's WhatsApp number differs from an agent's outreach number — `communication_wa_devices.wa_number` is free-text and never compared against any outreach identity. The "separate account" rule is an operational convention recorded here and in the AT-138 audit, enforced structurally (read-only capture) rather than by a rejecting check. A future hardening could add that comparison; until then it is a documented setup discipline for whoever links the session.
+**Why capture + manual outreach may share one number.** CoreX has **no programmatic WhatsApp send** — the Outreach Queue's locked architectural truth is that outreach is a `wa.me` deep link and the agent taps send themselves (`SellerOutreachSenderService` redirects the agent; no server-side transmit). So there are no bulk/robotic-send patterns on the agent's number from CoreX. Capture (read-only) and manual outreach (human-driven) coexisting on one number carries **no added ban risk** — the ban trigger is *automated* bulk sending, which does not exist in CoreX today.
+
+**The one real separation rule.** If/when the **automated** sending lane (Meta Cloud API) is built, that lane MUST use a **separate, dedicated number** — never the capture number and never an agent's personal number. That is a future concern; nothing in CoreX sends automatically now.
+
+**How CoreX honours this today (as-built):**
+- **Capture never sends (structural):** no WAHA `sendText`/send call anywhere in `app/`; the WAHA session is read-only.
+- **Manual outreach is human-driven:** delivery is the agent tapping send on a `wa.me` link — a different lane, not a CoreX transmission.
+- **Ownership enforced (AT-153):** `WaDeviceController::store()` (and the AT-156 in-app link flow) refuse a platform/owner-role or agency-less registrant, so a capture device always belongs to a real agency agent (attributable `owner_user_id`).
+
+**In-app guidance (AT-156).** The WhatsApp Link page tells the agent, calmly: capture is read-only, CoreX never sends from this number, it's fine to use the same number as their manual outreach, and only an external **automated/bulk-sending bot/service** must be kept off this number. No "NEVER use your outreach number" framing.
 
 ---
 

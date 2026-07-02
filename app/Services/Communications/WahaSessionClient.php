@@ -114,8 +114,19 @@ class WahaSessionClient
      */
     public function qrPng(string $session): ?string
     {
+        // NB: request RAW image bytes, NOT via http()/acceptJson(). WAHA honours
+        // Accept: application/json and returns a base64 JSON envelope
+        // ({mimetype,data}) for /auth/qr — which, streamed back with a
+        // Content-Type: image/png header, is undecodable by the browser
+        // (naturalWidth=0 → the "Waiting for QR…" hang). Ask for image/png so
+        // WAHA returns the actual PNG.
+        $req = Http::timeout(15)->connectTimeout(15)->withHeaders(['Accept' => 'image/png']);
+        if ($apiKey = config('communications.waha.api_key')) {
+            $req = $req->withHeaders(['X-Api-Key' => $apiKey]);
+        }
+
         try {
-            $res = $this->http()->get($this->base() . '/api/' . rawurlencode($session) . '/auth/qr', ['format' => 'image']);
+            $res = $req->get($this->base() . '/api/' . rawurlencode($session) . '/auth/qr', ['format' => 'image']);
         } catch (\Throwable $e) {
             throw new WahaUnavailableException('WAHA qr fetch failed: ' . $e->getMessage(), 0, $e);
         }
@@ -123,6 +134,14 @@ class WahaSessionClient
         if (! $res->successful()) {
             return null;
         }
+
+        // Guard: only return genuine image bytes. If WAHA still handed back a
+        // JSON envelope (wrong state / older build), treat as "not ready".
+        $ctype = strtolower((string) $res->header('Content-Type'));
+        if (! str_contains($ctype, 'image/')) {
+            return null;
+        }
+
         $bytes = $res->body();
 
         return $bytes !== '' ? $bytes : null;
