@@ -383,22 +383,195 @@ class Property24FeatureTagsTest extends TestCase
 
     /**
      * AT-103 follow-up — "Air Conditioned" (the real CoreX feature label per
-     * config/property-spaces.php) now maps to the verbatim Tag enum member
-     * AirConditioningUnit. The Irrigation/Sprinkler pairings are deliberately
-     * HELD: the requested "Irrigation System"/"Sprinkler System" strings do not
-     * exist in the CoreX vocabulary (real strings are "Irrigation"/"Sprinklers"),
-     * so nothing is mapped for them until Johan confirms the CoreX side.
+     * config/property-spaces.php) maps to the verbatim Tag enum member
+     * AirConditioningUnit and, having no PropertyFeatures field, lands in
+     * top-level tags[].
      */
-    public function test_air_conditioned_maps_held_irrigation_sprinkler_do_not(): void
+    public function test_air_conditioned_maps_to_top_level_tag(): void
     {
-        // Air Conditioned → AirConditioningUnit. It has no PropertyFeatures field,
-        // so as a global feature it lands in top-level tags[].
         $this->assertContains('AirConditioningUnit', $this->buildTags(['Air Conditioned']));
+    }
 
-        // Held — not mapped (neither the requested nor the real CoreX strings).
-        foreach (['Irrigation System', 'Irrigation', 'Sprinkler System', 'Sprinklers'] as $f) {
-            $this->assertNotContains('Irrigationsystem', $this->buildTags([$f]));
-            $this->assertNotContains('SprinklerSystem', $this->buildTags([$f]));
+    /**
+     * AT-146 — Irrigation / Sprinklers ARE mapped (Johan: send everything with a
+     * P24 tag) but they are Garden ROOM fittings, so they ride the Garden room's
+     * featureTags[] and are filtered out of the top-level tags[] array (a global
+     * copy at listing level would render as a phantom room).
+     */
+    public function test_garden_room_fittings_ride_room_not_top_level(): void
+    {
+        // Never at top level.
+        $this->assertNotContains('Irrigationsystem', $this->buildTags(['Irrigation']));
+        $this->assertNotContains('SprinklerSystem', $this->buildTags(['Sprinklers']));
+
+        // But attached to a Garden space they map onto that room's featureTags[].
+        $p = new Property();
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Garden', 'count' => 1, 'featuresAll' => ['Irrigation', 'Sprinklers', 'Zen Garden']],
+        ]];
+        $p->features_json = [];
+
+        $garden = collect($this->invoke('buildFeatureTags', $p))->firstWhere('featureType', 'Garden')['tags'] ?? [];
+        $this->assertContains('Irrigationsystem', $garden);
+        $this->assertContains('SprinklerSystem', $garden);
+        $this->assertContains('ZenGarden', $garden);
+    }
+
+    /**
+     * AT-146 — the previously-unmapped room-fabric families (floors, walls,
+     * windows, doors, beds) now map to their verbatim P24 Tag enum members and
+     * attach to the room that carries them.
+     */
+    public function test_room_fabric_features_now_map_onto_their_room(): void
+    {
+        $p = new Property();
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Bedroom', 'count' => 1, 'units' => [
+                ['label' => 'Bedroom 1', 'features' => [
+                    'King Bed', 'Wood Windows', 'Brick Wall', 'Carpet', 'Sliding Doors', 'Blinds',
+                ]],
+            ]],
+        ]];
+        $p->features_json = [];
+
+        $bed = collect($this->invoke('buildFeatureTags', $p))->firstWhere('featureType', 'Bedroom')['tags'] ?? [];
+        $this->assertContains('KingBed', $bed);
+        $this->assertContains('WoodWindowOptions', $bed);
+        $this->assertContains('Brick', $bed);
+        $this->assertContains('Carpets', $bed);
+        $this->assertContains('SlidingDoors', $bed);
+        $this->assertContains('Blinds', $bed);
+    }
+
+    /**
+     * AT-146 — room-fabric tags are room-detail descriptors: a legacy GLOBAL copy
+     * (flat features_json, no room provenance) must NOT leak to top-level tags[]
+     * where P24 renders it as a phantom room (the #1322 TVPort class of bug).
+     */
+    public function test_room_fabric_features_never_leak_to_top_level_tags(): void
+    {
+        $tags = $this->buildTags([
+            'Alarm System',        // real listing feature — stays
+            'King Bed', 'Wood Windows', 'Brick Wall', 'Carpet', 'Sliding Doors',
+            'Fireplace', 'Open Plan', 'Double Garage', 'Full Bathroom', 'Rock Pool',
+        ]);
+
+        $this->assertContains('AlarmSystem', $tags);
+        foreach ([
+            'KingBed', 'WoodWindowOptions', 'Brick', 'Carpets', 'SlidingDoors',
+            'FireplaceRoomOptions', 'OpenPlanRoomOptions', 'Double', 'Full', 'RockPool',
+        ] as $roomOnly) {
+            $this->assertNotContains($roomOnly, $tags, "$roomOnly must not appear at listing level");
         }
+    }
+
+    /**
+     * AT-146 — the Johan-approved ambiguous pairings resolve to their room-scoped
+     * enum members on the room that carries them; "Automated Garage Doors" is the
+     * one that stays top-level (a global Security-category feature).
+     */
+    public function test_ambiguous_pairings_resolve_to_approved_enums(): void
+    {
+        $p = new Property();
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Kitchen', 'count' => 1, 'featuresAll' => ['Open Plan', 'Fireplace']],
+            ['type' => 'Garage', 'count' => 1, 'featuresAll' => ['Double Garage']],
+        ]];
+        $p->features_json = [];
+
+        $ft = collect($this->invoke('buildFeatureTags', $p));
+        $this->assertContains('OpenPlanRoomOptions', $ft->firstWhere('featureType', 'Kitchen')['tags'] ?? []);
+        $this->assertContains('FireplaceRoomOptions', $ft->firstWhere('featureType', 'Kitchen')['tags'] ?? []);
+        $this->assertContains('Double', $ft->firstWhere('featureType', 'Garage')['tags'] ?? []);
+
+        // Automated Garage Doors is a global Security-category feature → top-level.
+        $this->assertContains('ElectricGarage', $this->buildTags(['Automated Garage Doors']));
+    }
+
+    // ── AT-146 (property 6049) — space-level featuresAll drop + PF amenity strip ──
+
+    /**
+     * Property 6049 root cause: a space with an auto-created EMPTY unit plus
+     * space-level featuresAll dropped its entire featuresAll set, because the
+     * per-unit branch never read featuresAll. The agent's Kitchen (Oven & Hob,
+     * Pantry, …), Lounge and Garage features never reached P24.
+     */
+    public function test_space_level_features_emit_when_units_are_empty(): void
+    {
+        $p = new Property();
+        $p->features_json = [];
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Kitchen', 'count' => 1,
+             'featuresAll' => ['Oven and Hob', 'Pantry', 'Extractor Fan'],
+             'units' => [['label' => 'Kitchen 1', 'features' => []]]], // auto-created empty unit
+            ['type' => 'Garage', 'count' => 1,
+             'featuresAll' => ['Single Garage'],
+             'units' => [['label' => 'Garage 1', 'features' => []]]],
+        ]];
+
+        $ft = collect($this->invoke('buildFeatureTags', $p));
+        $kitchen = $ft->firstWhere('featureType', 'Kitchen')['tags'] ?? [];
+        $this->assertContains('OvenAndHob', $kitchen);
+        $this->assertContains('Pantry', $kitchen);
+        $this->assertContains('ExtractorFan', $kitchen);
+        // Exactly one Kitchen row (not one per empty unit).
+        $this->assertSame(1, $ft->where('featureType', 'Kitchen')->count());
+        $this->assertContains('Single', $ft->firstWhere('featureType', 'Garage')['tags'] ?? []);
+    }
+
+    /**
+     * AT-146 — when a unit carries its own features, the space-level featuresAll
+     * is merged into that unit (whole-space features apply to every unit).
+     */
+    public function test_space_level_features_merge_into_units_with_own_features(): void
+    {
+        $p = new Property();
+        $p->features_json = [];
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Bedroom', 'count' => 1,
+             'featuresAll' => ['Air Conditioned'],
+             'units' => [['label' => 'Bedroom 1', 'features' => ['King Bed']]]],
+        ]];
+
+        $bed = collect($this->invoke('buildFeatureTags', $p))->firstWhere('featureType', 'Bedroom')['tags'] ?? [];
+        $this->assertContains('KingBed', $bed);              // unit's own
+        $this->assertContains('AirConditioningUnit', $bed); // space-level merged in
+    }
+
+    /**
+     * AT-146 (property 6049) — a parking amenity entered on the Parking space
+     * (globalFeatures() strips it, since parking is not a global-screen category)
+     * must still set its structured PropertyFeatures.parking boolean.
+     */
+    public function test_space_level_parking_amenity_sets_property_feature(): void
+    {
+        $p = new Property();
+        $p->features_json = ['Visitors Parking'];
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Parking', 'count' => 1,
+             'featuresAll' => ['Visitors Parking'],
+             'units' => [['label' => 'Parking 1', 'features' => []]]],
+        ]];
+
+        $features = $this->invoke('buildPropertyFeatures', $p);
+        $this->assertTrue($features['parking']['visitorsParking']);
+    }
+
+    /**
+     * AT-146 — same class as parking: a kitchen fitting on the Kitchen space sets
+     * its KitchensInfo boolean instead of being stripped by globalFeatures().
+     */
+    public function test_space_level_kitchen_fitting_sets_property_feature(): void
+    {
+        $p = new Property();
+        $p->features_json = ['Dishwasher'];
+        $p->spaces_json = ['features' => [], 'spaces' => [
+            ['type' => 'Kitchen', 'count' => 1,
+             'featuresAll' => ['Dishwasher'],
+             'units' => [['label' => 'Kitchen 1', 'features' => []]]],
+        ]];
+
+        $features = $this->invoke('buildPropertyFeatures', $p);
+        $this->assertTrue($features['kitchens']['dishwasher']);
     }
 }
