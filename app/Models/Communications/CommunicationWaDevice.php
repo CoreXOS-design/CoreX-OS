@@ -19,7 +19,7 @@ class CommunicationWaDevice extends Model
     protected $table = 'communication_wa_devices';
 
     protected $fillable = [
-        'agency_id', 'user_id', 'wa_number', 'device_token', 'last_seen_at', 'active',
+        'agency_id', 'user_id', 'wa_number', 'waha_session', 'device_token', 'last_seen_at', 'active',
     ];
 
     protected $casts = [
@@ -45,5 +45,11 @@ class CommunicationWaDevice extends Model
     public function scopeForToken($query, string $plaintext)
     {
         return $query->where('device_token', hash('sha256', $plaintext))->where('active', true);
+    }
+
+    /** AT-149 — resolve the active device linked to a WAHA server session name. */
+    public function scopeForWahaSession($query, string $session)
+    {
+        return $query->where('waha_session', $session)->where('active', true);
     }
 }

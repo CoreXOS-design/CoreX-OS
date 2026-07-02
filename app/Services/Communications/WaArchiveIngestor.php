@@ -34,6 +34,7 @@ class WaArchiveIngestor
         private ContactIdentifierResolver $resolver,
         private ProvisionalReconciler $reconciler,
         private AgentCaptureConsentService $consent,
+        private WahaMediaClient $wahaMedia,
     ) {
     }
 
@@ -51,16 +52,11 @@ class WaArchiveIngestor
             return self::RESULT_INVALID;
         }
 
-        // AT-151 — GROUP / BROADCAST NOISE FILTER (server-side authoritative gate;
-        // runs for EVERY capture path that calls ingest — extension or the future
-        // WAHA adapter). WhatsApp status broadcasts (status@broadcast) and group
-        // chats (…@g.us / IsGroup) are never 1:1 contact communications — they must
-        // never enter the compliance archive. Without this, a group message whose
-        // sender resolves to a contact was archived under the GROUP's chat-id,
-        // surfacing every group a contact is in as a separate "thread" on their
-        // record (the Elize 10298 four-thread fragmentation — see
-        // .ai/audits/2026-07-02-elize-four-thread-fragmentation.md). Empirically
-        // required per the AT-138 server-session validation.
+        // AT-138/AT-148 — server-session NOISE FILTER (defence-in-depth; the WAHA
+        // webhook adapter also drops these before they reach here). WhatsApp status
+        // broadcasts (status@broadcast) and group chats (IsGroup==true) are never
+        // 1:1 contact communications — they must never enter the compliance archive.
+        // The empirical AT-138 closeout proved these arrive on the server transport.
         if ($this->isNoiseChat($chatId, $msg)) {
             return self::RESULT_DROPPED;
         }
@@ -357,26 +353,130 @@ class WaArchiveIngestor
     private function storeMedia(Communication $communication, int $agencyId, array $media): void
     {
         foreach ($media as $item) {
-            $b64 = $item['data_base64'] ?? null;
-            if (! $b64) {
-                continue;
-            }
-            $bytes = base64_decode($b64, true);
-            if ($bytes === false || $bytes === '') {
-                continue;
-            }
-            $stored = $this->storage->store($agencyId, 'attachment', $bytes);
+            $mime     = $item['mime'] ?? $item['mimetype'] ?? null;
+            $filename = $item['filename'] ?? null;
+            $duration = $this->mediaDuration($item);
 
-            CommunicationAttachment::create([
-                'agency_id'        => $agencyId,
-                'communication_id' => $communication->id,
-                'filename'         => $item['filename'] ?? null,
-                'mime'             => $item['mime'] ?? null,
-                'size_bytes'       => strlen($bytes),
-                'content_hash'     => $stored['content_hash'],
-                'storage_path'     => $stored['path'],
-            ]);
+            // Path A — INLINE base64 (Chrome-extension transport). Bytes are here now.
+            $b64 = $item['data_base64'] ?? null;
+            if (is_string($b64) && $b64 !== '') {
+                $bytes = base64_decode($b64, true);
+                if ($bytes === false || $bytes === '') {
+                    continue;
+                }
+                $this->persistStoredAttachment($communication, $agencyId, $bytes, $mime, $filename, $duration, null);
+                continue;
+            }
+
+            // Path B — WAHA SERVER-SESSION transport: media is a URL to fetch. WAHA
+            // holds the DECRYPTED bytes; we authenticate + download to the volume.
+            // ROBUSTNESS: any failure archives the attachment as media-pending
+            // (remote_ref kept for retry) — the message + envelope are already
+            // persisted, so a bodyless media message is NEVER dropped.
+            $url = $item['url'] ?? null;
+            if (is_string($url) && $url !== '') {
+                try {
+                    $dl = $this->wahaMedia->download($url);
+                    $this->persistStoredAttachment(
+                        $communication,
+                        $agencyId,
+                        $dl['bytes'],
+                        $mime ?: $dl['mime'],
+                        $filename,
+                        $duration,
+                        $url,
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning('AT-148 WA media download failed — archived media-pending', [
+                        'communication_id' => $communication->id,
+                        'media_host'       => parse_url($url, PHP_URL_HOST),
+                        'error'            => $e->getMessage(),
+                    ]);
+                    $this->persistPendingAttachment($communication, $agencyId, $mime, $filename, $duration, $url);
+                }
+                continue;
+            }
         }
+    }
+
+    /** Store fetched/inline bytes on the volume and record a 'stored' attachment. */
+    private function persistStoredAttachment(
+        Communication $communication,
+        int $agencyId,
+        string $bytes,
+        ?string $mime,
+        ?string $filename,
+        ?int $duration,
+        ?string $remoteRef,
+    ): void {
+        $stored = $this->storage->store($agencyId, 'attachment', $bytes);
+
+        CommunicationAttachment::create([
+            'agency_id'        => $agencyId,
+            'communication_id' => $communication->id,
+            'filename'         => $filename,
+            'mime'             => $mime,
+            'size_bytes'       => strlen($bytes),
+            'content_hash'     => $stored['content_hash'],
+            'storage_path'     => $stored['path'],
+            'media_status'     => CommunicationAttachment::MEDIA_STORED,
+            'remote_ref'       => $remoteRef,
+            'duration_seconds' => $duration,
+        ]);
+    }
+
+    /**
+     * Record a media-pending attachment — the download failed or is deferred, but
+     * the message must still archive. remote_ref holds the WAHA url so a future
+     * retry can fetch it; no file is written to the volume yet.
+     */
+    private function persistPendingAttachment(
+        Communication $communication,
+        int $agencyId,
+        ?string $mime,
+        ?string $filename,
+        ?int $duration,
+        string $remoteRef,
+    ): void {
+        CommunicationAttachment::create([
+            'agency_id'        => $agencyId,
+            'communication_id' => $communication->id,
+            'filename'         => $filename,
+            'mime'             => $mime,
+            'size_bytes'       => 0,
+            'content_hash'     => '', // no bytes yet; filled when the retry stores it
+            'storage_path'     => null,
+            'media_status'     => CommunicationAttachment::MEDIA_PENDING,
+            'remote_ref'       => $remoteRef,
+            'duration_seconds' => $duration,
+        ]);
+    }
+
+    /** Voice-note length in whole seconds from whichever field the transport used. */
+    private function mediaDuration(array $item): ?int
+    {
+        foreach (['duration', 'seconds', 'duration_seconds'] as $k) {
+            if (isset($item[$k]) && is_numeric($item[$k])) {
+                return (int) $item[$k];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * AT-138/AT-148 — a chat that must never enter the archive: WhatsApp status
+     * broadcasts and group chats. status@broadcast is the fixed status jid; a group
+     * is flagged either by the adapter (is_group) or by the @g.us chat-id suffix.
+     */
+    private function isNoiseChat(string $chatId, array $msg): bool
+    {
+        $chat = strtolower(trim($chatId));
+        if (str_contains($chat, 'status@broadcast') || str_ends_with($chat, '@g.us')) {
+            return true;
+        }
+
+        return (bool) ($msg['is_group'] ?? false);
     }
 
     private function normalizeDirection(string $d): string
@@ -395,21 +495,6 @@ class WaArchiveIngestor
             return '';
         }
         return str_contains($jid, '@') ? substr($jid, 0, strpos($jid, '@')) : $jid;
-    }
-
-    /**
-     * AT-151 — a chat that must never enter the archive: WhatsApp status broadcasts
-     * and group chats. status@broadcast is the fixed status jid; a group is flagged
-     * either by the capture path (is_group) or by the …@g.us chat-id suffix.
-     */
-    private function isNoiseChat(string $chatId, array $msg): bool
-    {
-        $chat = strtolower(trim($chatId));
-        if (str_contains($chat, 'status@broadcast') || str_ends_with($chat, '@g.us')) {
-            return true;
-        }
-
-        return (bool) ($msg['is_group'] ?? false);
     }
 
     /**

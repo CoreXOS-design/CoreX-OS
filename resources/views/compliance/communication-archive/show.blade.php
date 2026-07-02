@@ -29,9 +29,27 @@
             @if($communication->attachments->isNotEmpty())
             <div class="px-5 py-3" style="border-top:1px solid var(--border, #f1f5f9);">
                 <h4 class="text-xs font-bold uppercase mb-2" style="color:#94a3b8;">Attachments</h4>
-                <div class="flex flex-wrap gap-2">
+                <div class="flex flex-col gap-2">
                     @foreach($communication->attachments as $att)
-                    <span class="text-xs px-2 py-1" style="background:var(--surface-alt, #f8fafc); border-radius:6px; color:#64748b;">📎 {{ $att->filename ?? 'attachment' }} ({{ number_format($att->size_bytes / 1024, 1) }} KB)</span>
+                        @php
+                            $duration = $att->duration_seconds
+                                ? sprintf('%d:%02d', intdiv($att->duration_seconds, 60), $att->duration_seconds % 60)
+                                : null;
+                        @endphp
+                        @if($att->isAudio() && $att->isPlayable())
+                            {{-- AT-148 — inline voice-note player (authenticated route) --}}
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs" style="color:#64748b;">🎙️ Voice note@if($duration) · {{ $duration }}@endif · {{ number_format($att->size_bytes / 1024, 1) }} KB</span>
+                                <audio controls preload="none" style="height:34px; max-width:280px;">
+                                    <source src="{{ route('compliance.comm-archive.attachment', $att->id) }}" type="{{ $att->mime }}">
+                                    Your browser cannot play this voice note.
+                                </audio>
+                            </div>
+                        @elseif($att->isAudio())
+                            <span class="text-xs px-2 py-1 inline-block" style="background:var(--surface-alt, #f8fafc); border-radius:6px; color:#94a3b8;">🎙️ Voice note — processing@if($duration) · {{ $duration }}@endif</span>
+                        @else
+                            <span class="text-xs px-2 py-1 inline-block" style="background:var(--surface-alt, #f8fafc); border-radius:6px; color:#64748b;">📎 {{ $att->filename ?? 'attachment' }} ({{ number_format($att->size_bytes / 1024, 1) }} KB)</span>
+                        @endif
                     @endforeach
                 </div>
             </div>

@@ -1710,6 +1710,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'index'])->name('index');
         Route::get('/thread/{threadKey}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'thread'])->name('thread')->where('threadKey', '.*');
         Route::get('/message/{communication}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'show'])->name('show');
+        // AT-148 — authenticated media serve (WhatsApp voice notes). Streamed from
+        // the mounted volume through Laravel; per-thread gated in the controller.
+        Route::get('/attachment/{attachment}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'attachment'])->name('attachment');
     });
 
     // ── Communication Archive — mailbox config (AT-33) — tighter: editing IMAP
@@ -3646,4 +3649,13 @@ Route::middleware(['auth.wa_capture'])->post('/communications/wa/ping', [\App\Ht
 // AT-135 — numbers with unreadable bodies, for the read-only backfill sweep.
 Route::middleware(['auth.wa_capture'])->get('/communications/wa/backfill-targets', [\App\Http\Controllers\Communications\WaIngestController::class, 'backfillTargets'])
     ->name('communications.wa.backfill-targets');
+
+// AT-149 — WAHA server-session webhook. WAHA posts ONE message per webhook; the
+// controller maps it (WahaWebhookAdapter) into the messages[] contract and feeds
+// the EXISTING WaArchiveIngestor. Authenticated by the WAHA HMAC/secret
+// (waha.webhook middleware) — never accepts an unauthenticated POST. Machine
+// endpoint (like the extension ingest), so it lives beside the wa/* capture
+// routes rather than in the session API.
+Route::middleware(['waha.webhook'])->post('/communications/wa/webhook', [\App\Http\Controllers\Communications\WaSessionWebhookController::class, 'handle'])
+    ->name('communications.wa.webhook');
 
