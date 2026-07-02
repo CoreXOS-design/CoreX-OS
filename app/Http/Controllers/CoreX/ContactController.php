@@ -347,6 +347,19 @@ class ContactController extends Controller
             ->limit(500)
             ->get();
 
+        // AT-153 — resolve owning-agent NAMES without AgencyScope so a null-agency
+        // (platform-owned) or other-agency owner still resolves to a name for the
+        // gated thread row. The eager-loaded `owner` relation is AgencyScope-filtered
+        // and returns NULL for such owners (→ "Unassigned"); this map is NAME-ONLY
+        // (no bodies, no identifiers) and drives "Private to {agent} — request access".
+        $ownerUserIds = $allContactComms->pluck('owner_user_id')->filter()->unique()->all();
+        $ownerNameMap = $ownerUserIds
+            ? \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->whereIn('id', $ownerUserIds)
+                ->pluck('name', 'id')
+                ->all()
+            : [];
+
         $allIds = $allContactComms->pluck('id')->all();
         $visibleIds = $allIds
             ? $grantService->applyArchiveVisibility(
@@ -423,7 +436,9 @@ class ContactController extends Controller
                 'channel'            => $latest->channel,
                 'latest_at'          => $latest->occurred_at,
                 'message_count'      => count($msgs),
-                'owner_name'         => $latest->owner?->name,
+                // AT-153 — name resolved unscoped (see $ownerNameMap); falls back to
+                // the scoped relation, then null → the row renders "Unassigned".
+                'owner_name'         => ($ownerId ? ($ownerNameMap[$ownerId] ?? null) : null) ?: $latest->owner?->name,
                 'has_attachments'    => collect($msgs)->contains(fn ($m) => (bool) $m->has_attachments),
                 // hide_subject protects the subject from viewers who CAN'T read the
                 // thread (the gated list). A viewer who can see the body still sees

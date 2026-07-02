@@ -62,10 +62,23 @@ class WaDeviceController extends Controller
             'wa_number' => 'nullable|string|max:50',
         ]);
 
+        // AT-153 — capture ownership rule: a WhatsApp capture device MUST belong to a
+        // real AGENCY AGENT, never the platform super-admin / owner account. The
+        // device's user_id is stamped onto every captured message as owner_user_id;
+        // a platform/owner or agency-less registrant produces threads owned by a
+        // null-agency account, which then can't be authorised/attributed within the
+        // agency (the Elize four-thread / access-request break — see
+        // .ai/audits/2026-07-02-comms-access-request-flow-broken.md). Refuse here.
+        $registrant = Auth::user();
+        if ($registrant->isOwnerRole() || ! $registrant->effectiveAgencyId()) {
+            return redirect()->route('communications.wa-devices.index')
+                ->with('error', 'WhatsApp capture devices must be registered by the agency agent whose WhatsApp will be captured — not a platform/owner account. Sign in as that agent and register the device there.');
+        }
+
         $plain = Str::random(48);
 
         $device = CommunicationWaDevice::create([
-            'agency_id'    => Auth::user()->effectiveAgencyId(),
+            'agency_id'    => $registrant->effectiveAgencyId(),
             'user_id'      => Auth::id(),
             'wa_number'    => $validated['wa_number'] ?? null,
             'device_token' => hash('sha256', $plain),
