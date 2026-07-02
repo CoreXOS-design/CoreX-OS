@@ -1,853 +1,329 @@
-# Deal Register V2 — CoreX OS Full Spec
-> Single source of truth for Deal Register V2 development
-> Save to: `.ai/specs/deal_register_v2_spec.md`
-> Version: 1.1 — 2026-03-30 (added status triggers + BM approval gate)
+# Deal Register V2 — CoreX OS Full Spec (SSOT)
+
+> **Single source of truth for the Deal Register V2 (DR2) build.**
+> **Version:** 2.0 — 2026-07-02. Supersedes v1.1 (2026-03-30). Approved design inputs = Johan's 4 locked decisions + product direction from the 2026-07-02 spec-design session.
+> **Grounded in:** the AT-158 investigation (`.ai/audits/2026-07-02-dr2-programme-investigation.md`) — verified as-built against `Staging`. **Jira:** AT-158.
+> **Owner:** Johan (product) · Build: Johan + Claude.
+> **Pillars:** Property · Contact · Deal · Agent (all four). Documents + Compliance ride on top.
+> **Standing constraints:** no hard deletes; everything configurable with sensible defaults; a nav link for every new page the same day; full input-space robustness (BUILD_STANDARD); POPIA-conscious access logging. STAGING build — HOLD from live; promotion gated on Johan.
 
 ---
 
-## 1. Core Principles
+## 0. What changed in v2.0 (read this first)
 
-### V2 Alongside V1
-V1 deal register stays untouched — live and working. V2 is a parallel build. When ready, migration tool moves existing deals across. V1 gets archived, not deleted.
+v1.1 was written **before** the code existed and before the 4 decisions. Three things are now true and reframe the whole build:
 
-### Four Pillars
-Every deal links to existing CoreX records:
-- **Property** — from the properties module (the listing)
-- **Contacts** — buyer(s) and seller(s) from the contacts module
-- **Documents** — OTP, addendums, compliance docs from DocuPerfect
-- **Compliance** — FICA status pulled from contact records
-
-No freeform property addresses. No freeform client names. If they're not in CoreX, the user adds them first. The pillars are the foundation.
-
-### User Flexibility Above All
-Zero hardcoded step names, zero hardcoded timelines, zero hardcoded thresholds. Every agency operates differently. CoreX adapts to the agency — the agency never adapts to CoreX. The system ships with a sensible default template that matches the standard SA conveyancing process, but every element is user-configurable.
-
-### Data Scoping
-- **Agent** sees own deals only
-- **BM** sees branch deals
-- **Admin** sees all deals across the company
-Standard CoreX `scopeVisibleTo()` pattern via `PermissionService::getDataScope()`.
+1. **DR2 is not greenfield.** Phase 1–3 of v1.1 is already built (`deals_v2`, `App\Models\DealV2\*`, `DealPipelineService`, template/step CRUD, seeded templates, deal-detail tracker, calendar sync) but holds **0 rows** on dev and live and is **untested**. The build **completes** this code; it does not restart it. Full as-built inventory in §2.
+2. **The "clock & escalation" runtime is missing** — `deals:process-rag` (persisted RAG goes stale; `updateDealOverallRag()` has zero callers), escalations/notifications, dynamic calendar colour. Because an *untested* engine is about to become the canonical deal store, **the build LEADS with engine tests + the RAG timer** (§15, WS0) before any new feature.
+3. **Four decisions are locked** (§3) and the product direction adds a real **document-distribution** capability (secure-link+OTP or direct attachment, per-doc-type×party), an **agency supplier directory**, **auto COC generation**, and **3-pillar comms logging**.
 
 ---
 
-## 2. Deal Types
+## 1. Governing principles
 
-Three deal types, each with different pipeline behaviour:
-
-### Bond Sale (most common)
-Standard flow. Bond approval is the critical suspensive condition. Pipeline includes bond application, bond approval, and all downstream steps.
-
-### Cash Sale
-No bond track. Simpler pipeline — deposit, FICA, compliance certificates, rates clearance, transfer. Faster timeline (typically 4–6 weeks).
-
-### Sale of Second Property
-Most complex. Two deals are linked — the buyer's purchase depends on the sale of their existing property. The suspensive condition on Deal A references Deal B's progress. Both pipelines are visible and linked.
-
-The deal type determines which **default steps** are pre-loaded from the pipeline template, but the user can always add, remove (non-locked), or reorder steps.
+- **Canonical DR2, DR1 preserved.** DR2 becomes the canonical operational deal store. DR1 (`deals` / `App\Models\Deal`) stays live and **untouched behaviourally** through the transition (§13). No hard deletes anywhere — DR1 rows survive cutover as audit records.
+- **Four pillars are the spine.** Every deal reads Property + Contacts, writes back document/deal/calendar/comms state. No freeform property addresses or client names — if it's not in CoreX, the user adds it first (the one exception: free-text is never invented; a provider not yet a contact is created inline into the directory, §9).
+- **Zero hardcoded process.** No hardcoded step names, timelines, RAG thresholds, escalation timing, or distribution rules. Every element is agency-configurable with a **sensible default** shipped in a seeder. CoreX adapts to the agency.
+- **Server-authoritative.** Status changes, RAG, visibility scoping, distribution eligibility, and access verification are decided server-side. The client is a skin.
+- **Cross-pillar reactivity via domain events** (non-negotiable #9), not ad-hoc cross-table writes. Deal events already exist (`DealCreated`, `DealRegistered`, `DealStageAdvanced`, `DealStatusChanged`, …).
+- **Data scoping** (existing pattern): Agent = own, BM = branch, Admin = all, via `DealV2::scopeVisibleTo()` + `PermissionService::getDataScope()`.
 
 ---
 
-## 3. Pipeline Setup (User Configuration)
+## 2. As-built inventory (the starting line)
 
-### Pipeline Templates
-Admin/BM creates pipeline templates in a setup screen. Each template defines the steps a deal goes through from creation to registration.
+### 2.1 Built and working (do NOT rebuild — complete/extend)
+| Area | As-built | File |
+|---|---|---|
+| Tables | `deals_v2`, `deal_v2_contacts`, `deal_v2_agents`, `deal_step_instances` (RAG cols), `deal_step_documents`, `deal_activity_log`, `deal_pipeline_templates/steps`, `deal_v2_settlements` | `database/migrations/2026_03_30_*`, `_400000_add_status_triggers_*` |
+| Engine | `createDeal`, `activateStep`, `completeStep` (pos/neg outcome, status_trigger, BM-approval gate, file upload), `approveStep`/`rejectStep`, `activateDownstreamSteps` (chain recalc from *actual* completion), `recalculateExpectedRegistration` | `app/Services/DealV2/DealPipelineService.php` |
+| Models | `DealV2` (`scopeVisibleTo`, ref `DL-YYYY-NNNNN`, ported commission math), `DealStepInstance` (`calculateRag`, `daysRemaining`, `needsApproval`), `DealPipelineStep/Template`, `DealStepDocument`, `DealActivityLog`, `DealV2Settlement` | `app/Models/DealV2/*` |
+| Controllers | deal CRUD + search, step complete/approve/reject/upload/overrideDueDate, pipeline-setup CRUD + duplicate, step reorder, settlement | `app/Http/Controllers/DealV2/*` |
+| Seeder | 3 templates: Standard Bond Sale (default, 15 steps), Cash Sale (9), Sale of 2nd (16, incl. `auto_from_linked_deal`) | `database/seeders/DealPipelineTemplateSeeder.php` |
+| Views | Deal-detail **visual pipeline tracker** (live RAG in Blade), pipeline-setup, settlement | `resources/views/deals-v2/*` |
+| Calendar sync | `DealCalendarSource` (`deal_step_deadline`, `deal_registration_target`) + `DealStepInstanceObserver`/`DealV2Observer` + nightly `corex:calendar:reconcile` (idempotent on `(source_type,source_id,category)`) | `app/Services/CommandCenter/Calendar/Sources/DealCalendarSource.php`, `app/Observers/*` |
+| Perms/nav | `deals_v2.*` in `config/corex-permissions.php:418-424`; sidebar group | `corex-sidebar.blade.php:1455-1487` |
 
-A template has:
-- **Name** (e.g. "Standard Bond Sale", "Cash Sale KZN", "Sale of 2nd Property")
-- **Deal type** (bond/cash/sale_of_2nd)
-- **Branch** (agency-wide or branch-specific)
-- **Steps** (ordered list — see below)
-- **Is default** — auto-applied when creating a deal of this type
-
-### Pipeline Steps (fully user-defined)
-
-Each step in a template has:
-
-| Field | Description |
-|-------|-------------|
-| **name** | User-defined label (e.g. "Bond Approval", "Electrical COC", "Agent Addendum Signed") |
-| **description** | Optional help text explaining what this step requires |
-| **position** | Sort order in the pipeline |
-| **is_locked** | If true, cannot be removed from a deal (regulatory requirement) |
-| **completion_type** | What's needed to complete this step (see below) |
-| **trigger_type** | When does this step activate? (see below) |
-| **trigger_step_id** | If trigger is "after_step", which step triggers this one |
-| **days_offset** | Days allowed after trigger to complete this step |
-| **rag_green_days** | Days remaining where status is GREEN |
-| **rag_amber_days** | Days remaining where status turns AMBER |
-| **rag_red_days** | Days remaining where status turns RED |
-| **notify_agent** | Boolean — notify assigned agent |
-| **notify_bm** | Boolean — notify branch manager |
-| **notify_admin** | Boolean — notify admin |
-| **is_milestone** | Boolean — major stage change (shows prominently on tracker) |
-| **required_before** | Array of step IDs that must be complete before this step can be marked done |
-
-### Completion Types
-
-Each step specifies HOW it gets completed:
-
-| Type | Behaviour |
-|------|-----------|
-| **manual_tick** | User clicks "Mark Complete" — simple checkbox |
-| **date_input** | User enters a date (e.g. "Bond granted on [date]") |
-| **amount_input** | User enters an amount (e.g. "Deposit received: R___") |
-| **document_upload** | User uploads a document (e.g. electrical COC certificate) |
-| **document_signed** | Auto-completes when a linked DocuPerfect document is fully signed |
-| **text_input** | User enters text (e.g. "Conveyancer reference number") |
-| **multi_field** | Multiple inputs needed (e.g. date + amount + reference) |
-| **auto_from_linked_deal** | Auto-completes when a linked deal reaches a specified step (sale of 2nd property) |
-
-### Trigger Types (linked step system)
-
-Steps don't all start from the deal creation date — they chain off each other:
-
-| Trigger | Behaviour |
-|---------|-----------|
-| **on_creation** | Step activates when the deal is created. Due date = creation date + days_offset |
-| **after_step** | Step activates when another step is completed. Due date = completion date of trigger step + days_offset |
-| **manual** | Step has no auto-trigger. User activates manually. Due date set manually. |
-| **on_date** | Step activates on a specific date entered by the user at deal creation |
-
-**Example chain:**
-```
-OTP Signed (on_creation, 0 days)
-  └→ Bond Application (after: OTP Signed, +3 days)
-       └→ Bond Approved (after: Bond Application, +30 days)
-            ├→ Compliance Certificates (after: Bond Approved, +30 days)
-            ├→ Deposit Payment (after: Bond Approved, +7 days)
-            └→ Attorney Instructed (after: Bond Approved, +5 days)
-                 ├→ FICA Completed (after: Attorney Instructed, +14 days)
-                 └→ Rates Clearance (after: Attorney Instructed, +42 days)
-                      └→ Deeds Lodgement (after: Rates Clearance, +7 days)
-                           └→ Registration (after: Deeds Lodgement, +15 days)
-```
-
-When Bond Approved is marked complete on 15 April, the system automatically:
-- Activates COC steps with due date 15 May (15 Apr + 30 days)
-- Activates Deposit Payment with due date 22 April (15 Apr + 7 days)
-- Activates Attorney Instructed with due date 20 April (15 Apr + 5 days)
-- Creates calendar events for all activated steps
-- Sends notifications to assigned agents
-- Recalculates all downstream due dates in the chain
-
-If a step is completed early or late, all downstream dates recalculate automatically from the actual completion date.
-
-### Status Triggers (pipeline drives deal status)
-
-Certain pipeline steps are **status gates** — completing them changes the deal's overall status. This is configurable per step in the template.
-
-Each step can have:
-- **status_trigger** — on positive completion, change deal to this status (granted/completed)
-- **negative_status_trigger** — on negative outcome, change deal to this status (cancelled)
-- **negative_outcome_label** — custom button label for the negative path (e.g. "Bond Declined")
-- **requires_bm_approval** — if true, status change is held pending until BM approves
-
-**Positive/negative completion flow:**
-Steps with a negative_status_trigger show TWO buttons at completion:
-- Green: "[Step Name]" → uses status_trigger
-- Red: "[Negative Outcome Label]" → uses negative_status_trigger, requires reason text
-
-**BM approval gate:**
-When requires_bm_approval is true:
-1. Agent completes the step
-2. Deal status does NOT change yet — approval_status set to 'pending'
-3. BM notified, reviews, and approves or rejects
-4. On approve: deal status changes, downstream steps activate
-5. On reject: step reverts to active, agent notified with reason, must re-complete
-
-**Default status triggers on key steps:**
-- OTP Signed: negative → cancelled ("OTP Rejected"), no BM approval
-- Bond Approved: positive → granted, negative → cancelled ("Bond Declined"), BM approval required
-- Deposit Paid (cash): positive → granted, BM approval required
-- Registration: positive → completed, no BM approval
-
-### RAG Status (user-configurable per step)
-
-Each step has three thresholds set by the user during pipeline setup:
-
-- **GREEN**: More than X days remaining (comfortable, on track)
-- **AMBER**: Between Y and X days remaining (getting close, needs attention)
-- **RED**: Less than Y days remaining (critical, act now)
-- **OVERDUE**: Past due date (bright red, escalation triggers)
-
-Example for "Bond Approval" step (longer horizon):
-- Green: 15+ days remaining
-- Amber: 7–14 days remaining
-- Red: 1–6 days remaining
-
-Example for "Electrical COC" step (shorter timeline):
-- Green: 10+ days remaining
-- Amber: 5–9 days remaining
-- Red: 1–4 days remaining
-
-The user sets these per step in the template. Different steps have different urgency profiles.
-
-### Default Template (ships with CoreX)
-
-Standard SA bond sale — agencies customise from here:
-
-```
- 1. OTP Signed                    [on_creation, 0d]      [milestone] [locked]
- 2. Bond Application Submitted    [after: #1, +3d]
- 3. Bond Approved                 [after: #2, +30d]      [milestone] [locked]
- 4. Deposit Paid                  [after: #3, +7d]       [locked]
- 5. Attorney Instructed           [after: #3, +5d]
- 6. FICA Completed (Buyer)        [after: #5, +14d]      [locked]
- 7. FICA Completed (Seller)       [after: #5, +14d]      [locked]
- 8. Electrical COC                [after: #3, +30d]      [locked]
- 9. Gas COC                       [after: #3, +30d]
-10. Electric Fence COC            [after: #3, +30d]
-11. Beetle Certificate            [after: #3, +30d]
-12. Water Installation COC        [after: #3, +30d]
-13. Rates Clearance               [after: #5, +42d]      [locked]
-14. Deeds Office Lodgement        [after: #13, +7d]      [milestone] [locked]
-15. Registration                  [after: #14, +15d]     [milestone] [locked]
-```
-
-Agencies can:
-- Add steps (e.g. "Agent Addendum Signed", "Home Inspection Report")
-- Remove non-locked steps (e.g. Gas COC if not applicable in their area)
-- Rename ANY step (locked or not — the label is always editable)
-- Change days offset on any step
-- Change RAG thresholds on any step
-- Reorder non-locked steps
-- Change trigger links
-- Duplicate a template and modify for different branches
-
-They CANNOT:
-- Remove locked steps (FICA, COCs, Rates Clearance, Lodgement, Registration)
-- Skip locked steps during deal progression
+### 2.2 Missing (the build)
+1. `deals:process-rag` timer; `updateDealOverallRag()` is **uncalled** → persisted `current_rag`/`overall_rag` stale.
+2. Escalation runtime (`deals:process-escalations`) + `NotificationService` (two `// TODO Phase 5` stubs; `escalation_config` is dead data).
+3. Dynamic RAG **colour** persisted onto deal calendar events.
+4. Deal link on the unified `documents` store; `deal_step_documents` is disconnected (raw `file_path`, `document_id` NULL).
+5. Stage×doc-type×role **distribution matrix** + distribute action + auto-triggers + COC generation.
+6. Provider party roles + agency **supplier directory**.
+7. `OutboundProvisionalLogger` extension for attachments + Property/Deal links + owner stamp.
+8. DR1↔DR2 link + sync service + parity harness.
+9. `document_signed` step auto-completion; `auto_from_linked_deal` runtime.
+10. Overview board/kanban, dashboard cards, CSV, scope switcher; per-user iCal.
+11. **Zero automated tests for the DR2 engine** — the highest-priority gap.
 
 ---
 
-## 4. Deal Creation Flow
+## 3. Locked decisions (AT-158)
 
-### Step 1: Select Property
-Search/select from CoreX properties module. Property details auto-populate (address, price, listing agent, mandate status).
-
-### Step 2: Select Contacts
-- **Seller(s)** — search/select from contacts. Multiple allowed (co-owners). FICA status badge shown inline (green/amber/red).
-- **Buyer(s)** — search/select. Multiple allowed (co-purchasers). FICA status badge shown.
-- **Listing Agent** — auto-populated from property record, editable
-- **Selling Agent** — search/select from users
-
-### Step 3: Deal Details
-- **Deal type**: Bond / Cash / Sale of 2nd Property
-- **Purchase price**: R amount
-- **Commission**: % or R amount (ex VAT, system calculates inc VAT)
-- **Offer date**: date picker
-- **Pipeline template**: auto-selected based on deal type, can override
-- **Linked deal** (sale of 2nd only): search/select existing deal
-
-### Step 4: Review Pipeline
-Shows the pipeline steps that will be created from the template. User can:
-- Adjust days offset for any step before creation
-- Add additional steps
-- Remove non-locked steps not needed for this deal
-- Set specific known dates (overrides auto-calc)
-- Add notes to any step
-
-### Step 5: Confirm & Create
-Creates the deal record, creates all step instances, activates steps triggered by "on_creation", creates calendar events, sends notifications to assigned agents and BM.
+- **D1 — Sync model.** Canonical DR2 + a **single-writer `DealSyncService`** (the `ContactIdentifierService` mirror pattern) mirroring only the **shared core fields** (status, granted/registration dates, parties, commission totals) both ways during the overlap, keyed by a link column on **both** sides (`deals.deal_v2_id` ↔ `deals_v2.legacy_deal_id`). Then a **Leave-style human reconciliation** proves parity; DR1's UI is retired; the `deals` row is preserved as audit. **Not** a permanent live mirror. (§13)
+- **D2 — Providers.** Extend `deal_v2_contacts.role` with provider roles **and** build a reusable **agency preferred-supplier directory** — an agent picks a provider from the list **or creates a new one inline**, which saves to the directory for reuse. (§9)
+- **D3 — V1 footprint.** Minimal: add a nullable `deals.deal_v2_id` pointer only. **DR1 integrity fully intact** — no behavioural or forward-date columns on the live table. All new behaviour is DR2-side. (§13)
+- **D4 — Document spine.** Add a nullable `documents.deal_id` FK. A deal is **attachable and reachable from every angle** — one upload auto-links everywhere: PDF splitter (per-page assignment gains a **deal** target alongside property/contact), property, contact, and the deal register. (§7)
 
 ---
 
-## 5. Deal Tracking Screens
+## 4. Data model
 
-### 5.1 Deal Detail View (single deal)
+### 4.1 Existing tables — unchanged except where noted
+`deal_pipeline_templates`, `deal_pipeline_steps`, `deals_v2`, `deal_v2_agents`, `deal_step_instances`, `deal_activity_log`, `deal_v2_settlements` are as v1.1 §8 / as-built. All `BelongsToAgency` + `SoftDeletes`. Notes:
+- `deals_v2.overall_rag` and `deal_step_instances.current_rag` are **cached computed** values — they become correct only once WS0 wires the timer (§15). Until then they are read-live in Blade.
+- `deal_step_instances` already carries per-step `rag_green_days/amber_days/red_days` (per-step override of the class default).
 
-**Header bar (sticky):**
-Back | Deal #[ref] — [property address] | Status badge | Overall RAG | [Actions dropdown]
+### 4.2 New columns
 
-**Progress Tracker (visual pipeline):**
-Visual step-by-step pipeline showing the full chain:
-- Each step as a node/card
-- Status per step: `not_started` | `active` | `completed` | `overdue` | `skipped`
-- RAG colour indicator on active steps (green/amber/red dot or border)
-- Completion date stamp on finished steps
-- Due date + days remaining on active steps
-- Dependency lines showing the chain (which step triggers which)
-- Milestone steps visually larger/emphasised
-- Completed steps show a checkmark, overdue show an alert icon
-
-**Step Detail (expand any step):**
-- Step name + description
-- Status + RAG colour
-- Triggered by: [parent step name] + date it was triggered
-- Due date (auto-calculated, with option to override)
-- Days remaining (positive) or days overdue (negative, red)
-- Completion form (whatever the completion_type requires — tick, date input, file upload, etc.)
-- Documents attached to this step
-- Notes / activity log for this step
-- "Mark Complete" button (or the required input form)
-
-**Deal Summary Panel:**
-- Property: address, listing price, mandate status
-- Seller(s): names, FICA badges
-- Buyer(s): names, FICA badges
-- Agents: listing + selling, commission split
-- Commission: amount ex VAT, inc VAT, split breakdown
-- Key dates: offer date, expected registration (auto-calculated from pipeline)
-- Documents: linked DocuPerfect documents with signing status
-- Notes: deal-level notes
-
-**Activity Log (timeline):**
-Chronological feed of everything that happened on this deal:
 ```
-28 Mar 2026 — Deal created by Johan Reichel
-28 Mar 2026 — OTP Signed marked complete
-28 Mar 2026 — System: Bond Application activated, due 31 Mar 2026
-31 Mar 2026 — Bond Application submitted by Falan
-31 Mar 2026 — System: Bond Approval activated, due 30 Apr 2026
-15 Apr 2026 — Bond Approved marked complete by Johan
-15 Apr 2026 — System: 5 steps activated (COC, Deposit, Attorney, ...)
-15 Apr 2026 — System: Electrical COC due 15 May 2026
-22 Apr 2026 — System: AMBER alert — Deposit Payment due in 5 days
-25 Apr 2026 — System: RED alert — Deposit Payment due in 2 days
-28 Apr 2026 — System: OVERDUE — Deposit Payment was due 27 Apr
+deals.deal_v2_id            bigint unsigned NULL  FK→deals_v2.id  (D3 pointer; index)   -- ONLY change to DR1
+deals_v2.legacy_deal_id     bigint unsigned NULL  FK→deals.id     (D1 back-pointer; index)
+documents.deal_id           bigint unsigned NULL  FK→deals_v2.id  (D4 deal anchor; index)
+deal_step_documents.document_id  -- already exists (nullable); the build POPULATES it (link to unified documents)
 ```
 
-### 5.2 Pipeline Overview (multiple deals — BM/Admin view)
+### 4.3 `deal_v2_contacts.role` — extended enum (D2)
+Add to the existing `buyer, seller, co_buyer, co_seller, conveyancer, bond_originator, other`:
+`transfer_attorney, bond_attorney, electrician_coc, entomologist, originator, service_provider`.
+(Additive enum change — a migration `MODIFY COLUMN`; no data rewrite; existing rows keep their value.)
 
-**Scope Switcher (top of page):**
-- Agent: [My Deals] (only option)
-- BM: [My Deals] | [Branch: Shelly Beach]
-- Admin: [My Deals] | [Branch: dropdown] | [All Company]
+### 4.4 `agency_service_providers` (NEW — D2 supplier directory)
+```
+id                bigint PK
+agency_id         bigint  (BelongsToAgency)
+contact_id        bigint NULL   FK→contacts  (a provider MAY also be a CoreX contact; NULL = directory-only)
+name              string 191
+specialty         enum: electrician, entomologist, plumber, gas, electric_fence,
+                        transfer_attorney, bond_attorney, conveyancer, bond_originator, other
+company           string 191 NULL
+email             string 191 NULL   -- normalised; where packs are sent
+phone             string 50  NULL
+notes             text NULL
+is_preferred      boolean default false   -- agency's default pick for this specialty
+is_active         boolean default true
+created_by_id     bigint
+timestamps + deleted_at (SoftDeletes)
+```
+Index `(agency_id, specialty, is_active)`. A provider is addressed on a deal via `deal_v2_contacts` (role) resolving to either an existing contact or a directory row; the directory is the **reuse** layer.
 
-**Dashboard Cards (top section):**
-| Card | Description |
-|------|-------------|
-| Active Deals | Total count of non-archived deals |
-| Overdue Steps | Count of steps past due date (RED badge) |
-| Due This Week | Count of steps due in next 7 days |
-| Pending Registration | Deals past lodgement, awaiting registration |
-| Total Pipeline Value | Sum of purchase prices of active deals |
-| Avg Days to Registration | Average across completed deals |
+### 4.5 `deal_stage_document_rules` (NEW — §8 distribution matrix)
+```
+id                    bigint PK
+agency_id             bigint  (BelongsToAgency)
+pipeline_step_id      bigint NULL  FK→deal_pipeline_steps  -- the STAGE (NULL = any stage / manual only)
+document_type_id      bigint       FK→document_types       -- the DOC TYPE
+party_role            string 40    -- the RECIPIENT role (reuses the deal_v2_contacts.role vocabulary)
+delivery_mode         enum: secure_link, direct_attachment  default secure_link
+auto_on_stage_tick    boolean default false  -- fire automatically when the stage's status_trigger fires
+is_active             boolean default true
+created_by_id         bigint
+timestamps + deleted_at (SoftDeletes)
+```
+Unique `(agency_id, pipeline_step_id, document_type_id, party_role)`. This is the `doc-type × party-role × deal-stage` matrix, editable on the existing doc-types settings surface (§8.1).
 
-**Board View (kanban — milestone columns):**
-Columns = milestone steps only (OTP Signed → Bond Approved → Lodgement → Registered)
-Cards = individual deals showing:
-- Property address (truncated)
-- Purchase price
-- Assigned agent(s)
-- RAG dot (worst RAG across all active steps)
-- Days in current stage
-- Next due step + date
-
-Cards are not draggable — status changes through proper step completion only. This prevents agents from gaming the pipeline.
-
-**Table View:**
-Sortable columns:
-
-| Column | Content |
-|--------|---------|
-| Deal # | Reference number, clickable to detail |
-| Property | Address |
-| Buyer | Name(s) |
-| Seller | Name(s) |
-| Agent | Listing + selling |
-| Current Stage | Which milestone the deal is at |
-| RAG | Worst RAG across active steps (coloured dot) |
-| Next Due | Nearest upcoming step + date |
-| Days Left | To next due step (negative = overdue) |
-| Value | Purchase price |
-| Created | Deal creation date |
-
-- Filter by: agent, stage, RAG status, deal type, branch, date range, overdue only
-- Search by: property address, contact name, deal reference
-- Sort by any column
-- Pagination (25 per page default)
-- "Showing X of Y deals" count
-- Empty state when no deals match filters
-- Export to CSV
+### 4.6 `deal_document_distributions` (NEW — §8 send record + §10 comms anchor)
+```
+id                    bigint PK
+agency_id             bigint  (BelongsToAgency)
+deal_id               bigint       FK→deals_v2
+document_id           bigint NULL  FK→documents         -- the doc sent (NULL for a generated-on-send COC before filing)
+party_role            string 40
+recipient_contact_id  bigint NULL  FK→contacts
+recipient_provider_id bigint NULL  FK→agency_service_providers
+recipient_email       string 191   -- snapshot at send
+delivery_mode         enum: secure_link, direct_attachment
+secure_token          char(40) NULL UNIQUE  -- for secure_link mode; the tokened URL
+otp_required          boolean default true  -- secure_link identity gate
+status                enum: queued, sent, delivered_failed, opened, downloaded, revoked  default queued
+communication_id      bigint NULL  FK→communications    -- the archived outbound email (§10)
+sent_by_id            bigint
+sent_at               datetime NULL
+first_opened_at       datetime NULL
+timestamps + deleted_at (SoftDeletes)
+```
+Plus **`deal_document_access_log`** (append-only, immutable — mirrors the comms/e-sign audit pattern; POPIA evidence): `id, distribution_id, event enum(link_clicked, otp_sent, otp_verified, otp_failed, downloaded, revoked), ip, user_agent, meta json, created_at`. No `updated_at`/`deleted_at`; `update()`/`delete()` throw.
 
 ---
 
-## 6. Calendar Integration
+## 5. Pipeline engine (config → tick → status → timer → RAG)
 
-### How Deal Events Reach the Calendar
+The configuration model (deal types, templates, steps, completion types, triggers, status triggers, RAG thresholds, default template) is **as v1.1 §2–3 and is already built** — retained verbatim as the contract. This section records only what the **build adds/completes**.
 
-Every active deal step creates a `calendar_event` record:
-- **Title**: "[Step Name] — [Property Address]"
-- **Date**: Due date of the step
-- **Description**: Deal #[ref], parties, what's needed to complete
-- **Colour**: Matches RAG status (updates dynamically as RAG changes)
-- **Source link**: Polymorphic link back to `DealStepInstance`
-- **Assigned to**: The deal's agent(s)
+### 5.1 Agency-configurable definitions (built)
+Per-deal-type pipeline templates with fully user-defined steps: `completion_type` ∈ {manual_tick, date_input, amount_input, document_upload, document_signed, text_input, multi_field, auto_from_linked_deal}; `trigger_type` ∈ {on_creation, after_step, manual, on_date}; per-step `days_offset`, `rag_*_days`, `notify_*`, `is_locked`, `is_milestone`, `required_before`; status triggers (`status_trigger`, `negative_status_trigger`, `negative_outcome_label`, `requires_bm_approval`). Default SA bond template ships in the seeder; every element is editable; locked steps cannot be removed/skipped but can be renamed.
 
-When a step is completed, the calendar event is marked as completed.
-When a step's RAG changes, the calendar event colour updates.
-When a step's due date recalculates, the calendar event date updates.
+### 5.2 Tick-driven advance (built) — the spine of "agent ticks, status advances"
+`DealPipelineService::completeStep()` already: records positive/negative outcome, applies `status_trigger` (or holds it behind the BM-approval gate), then `activateDownstreamSteps()` recalculates all downstream due dates **from the actual completion date**, or `cancelDownstreamSteps()` on a negative outcome. A date-bearing step (e.g. **bond-due date** entered via `date_input`/`multi_field`) sets the due date that **starts the timer**. This works today; the build **tests it** (WS0) and **wires the missing runtime around it** (below).
 
-### CoreX In-App Calendar
+### 5.3 RAG colour escalation — COMPLETE the runtime (WS0, the lead item)
+- **Timer:** new `deals:process-rag` command (every 15 min) sweeps active `deal_step_instances`, recomputes RAG from `now` vs `due_date` against the step's `rag_*_days` (green→amber→red→overdue), **persists** `current_rag`, calls the currently-uncalled `updateDealOverallRag()` (worst-RAG rollup), and — on a change — repaints the linked calendar event's colour and fires the notification (§11).
+- **Thresholds are agency-configurable** per step (already modelled); the timer only reads them.
+- **Overdue** flips `status: active → overdue` for actionable steps (reuse the calendar `ProcessReminders` overdue idiom, but for deal steps).
+- **Verification gate:** a step crossing each threshold purely by the passage of (test-frozen) time transitions `current_rag` and `overall_rag`, repaints the calendar tile, and emits one notification per transition — proven by a feature test with a controlled clock.
 
-Every user has a CoreX calendar inside the app.
-
-**Scope switcher (consistent across the app):**
-- **Agent**: "My Calendar" — only their deals and events
-- **BM**: "My Calendar" | "Branch Calendar" (all agents in branch, colour-coded per agent)
-- **Admin**: "My Calendar" | "[Branch Name]" (dropdown per branch) | "All Company"
-
-**Views available:**
-- Month (default) — grid with coloured dots per event, click to expand
-- Week — 7-day horizontal with time blocks
-- Day — detailed single-day view
-- Agenda — vertical list grouped by day, best for "what's coming up"
-
-**Filters:**
-- Event category (deals, leases, compliance, manual)
-- RAG status (green/amber/red/overdue)
-- Agent (BM/admin only)
-- Property
-- Deal type
-
-### iCal Sync to Phone
-
-Each user gets a unique iCal subscription URL:
-`https://corexos.co.za/calendar/ical/{user_token}.ics`
-
-This URL serves a dynamically generated ICS file with all their calendar events. Google Calendar, Outlook, Apple Calendar subscribe to it and auto-refresh every 15–60 minutes.
-
-The agent's phone handles native pop-up notifications. CoreX doesn't need a mobile app for reminders — the phone's built-in calendar does it.
-
-**BM iCal feeds:**
-A BM can optionally subscribe to a second feed for their branch:
-`https://corexos.co.za/calendar/ical/{user_token}.ics?scope=branch`
-
-This gives them two calendars on their phone — personal and branch.
-
-**Admin iCal feeds:**
-Same pattern, with `?scope=branch&branch_id=X` or `?scope=company`.
+### 5.4 Through to registration
+The seeded bond template runs OTP Signed → Bond Application → Bond Approved (granted + BM approval) → COC/Deposit/Attorney (activate on approval) → Rates Clearance → Deeds Lodgement → **Registration** (status → completed). On registration completion, emit `DealRegistered` (existing event) → downstream listeners (property→sold, commission calc) fire through the catalogue.
 
 ---
 
-## 7. Notification & Escalation System
+## 6. Calendar integration (Feed System + calendar-interactive)
 
-### When Notifications Fire
+Deal→calendar is **already wired** via the Calendar Feed System (`.ai/specs/spec-calendar-module.md` source-service model) and coexists cleanly with the interactive/recurrence/privacy layer (`.ai/specs/calendar-interactive.md`). The build only closes the colour gap.
 
-| Event | Who | Channel |
-|-------|-----|---------|
-| Step activated (new due date) | Agent | Calendar + in-app |
-| RAG turns AMBER | Agent | Calendar colour update + in-app |
-| RAG turns RED | Agent + BM | Calendar update + in-app + email |
-| Step OVERDUE | Agent + BM + Admin | In-app + email + escalation |
-| Step completed | BM (if milestone) | In-app |
-| Deal created | BM | In-app |
-| Deal registered (complete) | Agent + BM + Admin | In-app + email |
-| Linked deal progress (sale of 2nd) | Agent on both deals | In-app |
-
-### Escalation Chain (user-configurable per step)
-
-Default escalation when a step goes overdue:
-1. **Due date**: Agent notified — "Step overdue"
-2. **+1 day**: BM notified — "[Agent] has overdue: [step] on [deal]"
-3. **+3 days**: Admin notified — "Escalation: [deal] — [step] overdue 3 days"
-4. **Every 3 days after**: Repeat to all three until resolved
-
-Agencies can configure the escalation timing per step in the pipeline template. Critical steps (bond approval) might escalate faster than less critical ones.
-
-### Notification Channels
-
-| Channel | How it works |
-|---------|-------------|
-| **In-app** | Bell icon in CoreX header, real-time count badge, click to see list |
-| **Email** | Branded agency email using the email template system |
-| **Calendar** | Event created/updated in CoreX calendar, syncs to phone via iCal |
-| **SMS** (future) | For critical overdue items — phase 2 |
-
-### Notification Preferences (3 levels)
-
-1. **Agency defaults** — set by admin in Settings, apply to all users unless overridden
-2. **Per-category defaults** — different settings per event category (deal steps vs compliance vs manual)
-3. **Per-user override** — each user can adjust their own notification preferences
+- **Source service (built):** `DealCalendarSource` emits `deal_step_deadline` (per active step `due_date`) + `deal_registration_target` (per deal `expected_registration`), keyed idempotently `(source_type, source_id, category)`. New named stage timers (e.g. a distinct **bond-due** class) are usually just a pipeline step with a `due_date` (flows through `deal_step_deadline`); add a new **event class** row (`CalendarEventClassSeeder`) only when it needs distinct thresholds/visibility.
+- **Colour (build):** the calendar tile already escalates on-read via `CalendarThresholdResolver` (per-class + per-step `rag_*_days` overrides). WS0 additionally **persists** the RAG colour onto the deal calendar event when `deals:process-rag` runs, so the deal board and the calendar agree (the two-colour-systems nuance from the audit is resolved by having the timer write both).
+- **Source-driven guard (built):** deal events carry a non-manual `source_type` → the interactive calendar refuses edit/drag/delete (422), correct for auto events.
+- **Verification gate:** creating a deal materialises step events at the right dates; completing a step completes its event; a due-date recalc moves the event; a RAG change repaints it — all idempotent under a second `corex:calendar:reconcile`.
 
 ---
 
-## 8. Database Design
+## 7. OTP + document spine (D4)
 
-### `deal_pipeline_templates` table
-```
-id                      bigint PK
-name                    string 255
-deal_type               enum: bond, cash, sale_of_2nd
-branch_id               foreignId nullable (null = agency-wide)
-is_default              boolean default false
-is_active               boolean default true
-created_by_id           foreignId
-created_at, updated_at, deleted_at
-```
+> "OTP" throughout §7–8 = **Offer to Purchase** (a document type), distinct from the one-time-PIN `OtpService` (which §8 reuses for secure-link identity verification).
 
-### `deal_pipeline_steps` table (template steps)
-```
-id                      bigint PK
-pipeline_template_id    foreignId
-name                    string 255
-description             text nullable
-position                integer
-is_locked               boolean default false
-is_milestone            boolean default false
-completion_type         enum: manual_tick, date_input, amount_input,
-                              document_upload, document_signed, text_input,
-                              multi_field, auto_from_linked_deal
-completion_config       json nullable (field definitions for multi_field type)
-trigger_type            enum: on_creation, after_step, manual, on_date
-trigger_step_id         bigint nullable (references deal_pipeline_steps.id)
-days_offset             integer default 0
-rag_green_days          integer default 14
-rag_amber_days          integer default 7
-rag_red_days            integer default 3
-notify_agent            boolean default true
-notify_bm              boolean default true
-notify_admin            boolean default false
-escalation_config       json nullable (override default escalation timing)
-required_before         json nullable (array of step IDs)
-created_at, updated_at, deleted_at
-```
+**Goal:** one upload, auto-linked everywhere. A deal becomes reachable from the PDF splitter, property, contact, and deal register.
 
-### `deals_v2` table
-```
-id                      bigint PK
-reference               string unique (auto-generated: DL-YYYY-NNNNN)
-deal_type               enum: bond, cash, sale_of_2nd
-status                  enum: active, completed, cancelled, on_hold
-property_id             foreignId
-listing_agent_id        foreignId (user)
-selling_agent_id        foreignId nullable (user)
-pipeline_template_id    foreignId
-linked_deal_id          bigint nullable (for sale of 2nd property)
-purchase_price          decimal(14,2)
-commission_percentage   decimal(5,2) nullable
-commission_amount       decimal(12,2)
-commission_vat          decimal(12,2)
-offer_date              date
-expected_registration   date nullable (auto-calc from pipeline)
-actual_registration     date nullable
-overall_rag             enum: green, amber, red, overdue (computed, cached)
-notes                   text nullable
-branch_id               foreignId
-created_by_id           foreignId
-created_at, updated_at, deleted_at
-```
-
-### `deal_v2_contacts` pivot table
-```
-id                      bigint PK
-deal_id                 foreignId (deals_v2)
-contact_id              foreignId
-role                    enum: buyer, seller, co_buyer, co_seller,
-                              conveyancer, bond_originator, other
-created_at
-```
-
-### `deal_v2_agents` pivot table
-```
-id                      bigint PK
-deal_id                 foreignId (deals_v2)
-user_id                 foreignId
-role                    enum: listing_agent, selling_agent, referral_agent
-commission_split        decimal(5,2) nullable (percentage of total commission)
-created_at
-```
-
-### `deal_step_instances` table (per-deal step tracking)
-```
-id                      bigint PK
-deal_id                 foreignId (deals_v2)
-pipeline_step_id        foreignId (deal_pipeline_steps — template reference)
-name                    string 255 (copied from template, can be edited per-deal)
-description             text nullable
-position                integer
-is_locked               boolean
-is_milestone            boolean
-completion_type         enum (same as template)
-completion_config       json nullable
-status                  enum: not_started, active, completed, overdue, skipped
-trigger_type            enum (same as template)
-trigger_step_instance_id bigint nullable (references deal_step_instances.id)
-days_offset             integer
-due_date                date nullable (auto-calculated or manually set)
-activated_at            datetime nullable (when this step became active)
-completed_at            datetime nullable
-completed_by_id         foreignId nullable
-completion_data         json nullable (stores the input: date, amount, text, file path, etc.)
-rag_green_days          integer
-rag_amber_days          integer
-rag_red_days            integer
-current_rag             enum: grey, green, amber, red, overdue (computed, cached)
-notify_agent            boolean
-notify_bm              boolean
-notify_admin            boolean
-notes                   text nullable
-created_at, updated_at, deleted_at
-```
-
-### `deal_step_documents` table
-```
-id                      bigint PK
-deal_step_instance_id   foreignId
-document_id             foreignId nullable (DocuPerfect document)
-file_path               string nullable (uploaded file)
-file_name               string nullable
-uploaded_by_id          foreignId nullable
-created_at
-```
-
-### `deal_activity_log` table
-```
-id                      bigint PK
-deal_id                 foreignId (deals_v2)
-deal_step_instance_id   foreignId nullable
-user_id                 foreignId nullable (null = system)
-action                  string (step_activated, step_completed, rag_changed,
-                                deal_created, note_added, date_overridden, etc.)
-description             text
-metadata                json nullable (old/new values, etc.)
-created_at
-```
-
-### `calendar_events` table (shared with Calendar Module)
-```
-id                      bigint PK
-user_id                 foreignId (assigned to)
-created_by_id           foreignId (system or user)
-event_type              enum: deal, lease, compliance, document, prospecting, portal, manual
-category                string (bond_deadline, coc_due, deposit_due, etc.)
-title                   string 255
-description             text nullable
-event_date              datetime
-end_date                datetime nullable
-all_day                 boolean default true
-priority                enum: low, normal, high, critical
-status                  enum: pending, completed, overdue, dismissed
-colour                  string nullable (hex — auto-set from RAG if deal event)
-source_type             string nullable (polymorphic: DealStepInstance, Lease, etc.)
-source_id               bigint nullable
-property_id             foreignId nullable
-contact_id              foreignId nullable
-branch_id               foreignId nullable
-reminder_offsets        json nullable
-reminders_sent          json nullable
-is_recurring            boolean default false
-recurrence_rule         string nullable
-parent_event_id         bigint nullable
-metadata                json nullable
-created_at, updated_at, deleted_at
-```
-
-### `calendar_reminders_log` table
-```
-id                      bigint PK
-calendar_event_id       foreignId
-user_id                 foreignId
-channel                 enum: app, email, sms
-offset_minutes          integer
-sent_at                 datetime
-read_at                 datetime nullable
-actioned_at             datetime nullable
-escalated               boolean default false
-created_at
-```
-
-### `calendar_user_preferences` table
-```
-id                      bigint PK
-user_id                 foreignId unique
-default_view            enum: month, week, day, agenda default month
-default_scope           enum: own, branch, company default own
-working_hours_start     time default 08:00
-working_hours_end       time default 17:00
-weekend_visible         boolean default false
-ical_token              string unique nullable
-email_reminders         boolean default true
-app_reminders           boolean default true
-digest_email            enum: none, daily, weekly default daily
-created_at, updated_at
-```
+- **Unified anchor (D4):** `documents.deal_id` FK. Any `Document` can now belong to a deal, alongside its existing `document_contacts`(party_role) + `document_properties` links.
+- **PDF splitter gains a deal target:** the per-page assignment UI (`/admin/settings/document-types` routing + the splitter review screen) gains a **deal** destination beside property/contact. When a deal is in context, splitting an OTP files each page group as a `Document` linked to the **deal + property + contacts** in one pass (`PdfSplitterController::fileGroupsToDestinations` extended to write `deal_id`).
+- **E-sign / DocuPerfect auto-file links the deal:** `SignatureService::autoFileSignedDocument()` already files signed docs to property+contacts; the build passes the deal context through so the filed `Document` also sets `deal_id` (when the signing originated from a deal or matches one).
+- **`document_signed` step auto-completion (build the wiring):** on DocuPerfect full-sign, a listener resolves the deal + the matching `document_signed` pipeline step (by `document_type_id`) and calls `DealPipelineService::completeStep()` — closing the loop the v1.1 spec promised but never wired. Idempotent (a re-fire finds the step already complete).
+- **`deal_step_documents.document_id` populated:** when a step's `document_upload` runs, create/link a unified `Document` (with `deal_id`) and store its id on the step-document row, instead of an orphaned raw `file_path`.
+- **OTP-upload-onto-deal action:** a direct "Upload document" on the deal detail creates a `Document` (`deal_id` set, `document_type_id` chosen, party links optional) and, if it satisfies a `document_upload`/`document_signed` step, offers to complete that step.
+- **Verification gate:** upload/split/sign an OTP once → it appears on the deal, the property, and the buyer+seller contacts; the matching pipeline step auto-completes; no orphaned file.
 
 ---
 
-## 9. Services
+## 8. Distribution matrix + distribute action (the COC killer)
 
-### DealPipelineService
+### 8.1 The matrix (`deal_stage_document_rules`, §4.5)
+Editable on the **existing** doc-types settings surface (`/admin/settings/document-types`, `Admin\SplitterDocTypeController`) as an added "Deal distribution" section, reusing `AgencyComplianceDocTypeService`'s resolver + raw-write pattern and the existing party-role vocabulary. A rule = `stage (pipeline_step) × document_type × party_role → { delivery_mode, auto_on_stage_tick }`. Sensible defaults seeded (e.g. COC request → electrician at the "Electrical COC" stage, secure_link, auto on the OTP-granted tick). Fully agency-configurable; nav entry added the same day.
 
-The brain. Handles all pipeline logic:
+### 8.2 Two delivery modes (configurable per doc-type × party)
+- **(a) Secure link + OTP/ID verification (DEFAULT).** The recipient gets an email with a tokened link (`deal_document_distributions.secure_token`). Opening it triggers an **OTP challenge** via the canonical `App\Services\Otp\OtpService` (6-digit, hashed-at-rest, delivered to the recipient's own email/phone, single-use, throttled) — the e-sign-style identity gate. Every step is written to the **immutable** `deal_document_access_log` (link_clicked, otp_sent, otp_verified/failed, downloaded) — POPIA evidence. Only after verification does the doc stream (via an authenticated, `response()->file()` served route; never a public docroot path). Links are revocable (`status=revoked`).
+- **(b) Direct attachment.** The pack is attached to a branded email (the `FeedbackReportMail` multi-attachment pattern extending `BaseSignatureMail`) — for low-sensitivity docs / trusted providers where a link+OTP is friction.
 
-```php
-// Deal lifecycle
-createDeal(array $data): DealV2
-cancelDeal(DealV2 $deal, string $reason): void
-holdDeal(DealV2 $deal): void
-resumeDeal(DealV2 $deal): void
-
-// Step management
-activateStep(DealStepInstance $step): void
-completeStep(DealStepInstance $step, array $completionData): void
-skipStep(DealStepInstance $step, string $reason): void
-overrideDueDate(DealStepInstance $step, Carbon $newDate, string $reason): void
-
-// Chain reaction (called by completeStep)
-activateDownstreamSteps(DealStepInstance $completedStep): void
-recalculateDueDates(DealV2 $deal): void
-
-// RAG calculation (called by scheduled command + on step changes)
-calculateRag(DealStepInstance $step): string
-updateDealOverallRag(DealV2 $deal): void
-
-// Query helpers
-getActiveDealsForUser(User $user): Collection
-getOverdueSteps(?int $branchId = null): Collection
-getDealTimeline(DealV2 $deal): Collection
-```
-
-### CalendarEventService
-
-Creates/updates/deletes calendar events from deal steps:
-
-```php
-createFromDealStep(DealStepInstance $step): CalendarEvent
-updateFromDealStep(DealStepInstance $step): void  // RAG change, date change
-completeFromDealStep(DealStepInstance $step): void
-deleteForDeal(DealV2 $deal): void
-syncDealEvents(DealV2 $deal): void  // Full re-sync
-
-// iCal generation
-generateIcalFeed(User $user, ?string $scope, ?int $branchId): string
-
-// Scope queries
-getEventsForUser(User $user, Carbon $from, Carbon $to): Collection
-getEventsForBranch(int $branchId, Carbon $from, Carbon $to): Collection
-getEventsForCompany(Carbon $from, Carbon $to): Collection
-```
-
-### NotificationService
-
-Handles all notification channels:
-
-```php
-notifyStepActivated(DealStepInstance $step): void
-notifyRagChanged(DealStepInstance $step, string $oldRag, string $newRag): void
-notifyStepOverdue(DealStepInstance $step): void
-notifyStepCompleted(DealStepInstance $step): void
-notifyDealCompleted(DealV2 $deal): void
-escalate(DealStepInstance $step): void
-
-// Channels
-sendInApp(User $user, string $title, string $body, ?string $link): void
-sendEmail(User $user, string $template, array $data): void
-sendCalendarUpdate(CalendarEvent $event): void
-```
+### 8.3 Distribute action + auto-triggers
+- **Manual:** a **"Distribute documents"** button on the deal opens a modal that resolves, from the matrix + the deal's current stage + its parties/providers, *who gets which docs by which mode*, lets the agent confirm/adjust, then sends — creating `deal_document_distributions` rows and the comms records (§10).
+- **Auto on stage tick:** when a step's `status_trigger` fires (e.g. **OTP marked granted**), any matrix rule with `auto_on_stage_tick=true` for that stage fires automatically — e.g. auto-email the **appointed provider** (electrician/entomologist, resolved via `deal_v2_contacts` → supplier directory) their pack. This is the red-button moment: agent ticks, the COC request goes out.
+- **Auto-generate the COC request:** a templated document is generated from **deal + property + contact** data (address, erf, owner, agent, deal ref) — no hand-filling. It is filed as a `Document` (`deal_id` set, type `coc_request`) and distributed per the rule. **This kills HFC's hand-filled electrician/entomologist COC request.**
+- **Verification gate:** configure a rule (COC request → electrician, secure_link, auto on OTP-granted); tick OTP granted on a test deal → a `deal_document_distributions` row + an outbound `communications` record (§10) + a generated COC `Document` exist; the secure link demands an OTP before serving; every access writes an immutable log row.
 
 ---
 
-## 10. Scheduled Commands
+## 9. Service-provider parties + supplier directory (D2)
 
-### `deals:process-rag` (every 15 minutes)
-Scans all active deal steps, recalculates RAG status based on current date vs due date. If RAG changed, updates the step, updates the calendar event colour, fires notifications.
-
-### `deals:process-escalations` (every hour)
-Scans overdue steps. If escalation timing thresholds met and notification not already sent for this level, sends escalation to next person in chain.
-
-### `calendar:generate-ical` (every 15 minutes)
-Regenerates iCal feeds for users with active subscriptions. Cached with a short TTL so phone calendars get near-real-time updates.
-
-### `deals:daily-digest` (daily at 07:00)
-Sends a morning digest email to each user with:
-- Steps due today
-- Overdue steps
-- Steps turning amber/red today
-- Deals completed yesterday
+- **Roles:** `deal_v2_contacts.role` extended (§4.3) so a deal can name its transfer attorney, bond attorney, electrician (COC), entomologist, originator, or a generic service provider. Providers are addressed via the **deal-party role**, never a 5th contact type (contact types are hard-locked to 4).
+- **Directory:** `agency_service_providers` (§4.4) is the reuse layer. On a deal, adding a provider role opens a picker: **pick an existing directory provider** (filtered by specialty, preferred first) **or create a new one inline** — which saves to the directory (`created_by_id`, agency-scoped) for next time and optionally links/creates a CoreX contact. A settings screen manages the directory (CRUD, mark preferred, deactivate — soft delete only). Nav entry added the same day.
+- **Verification gate:** add "the electrician we always use" once on deal A; on deal B the same provider is one click from the picker; distribution to that role reaches the stored email; deactivating a provider hides it from new pickers but preserves historic distributions.
 
 ---
 
-## 11. Navigation & Permissions
+## 10. Comms tracking — every distribution on all three pillars
 
-### Sidebar
-```
-Deals (top-level, not buried in submenu)
-  ├── Deal Register        (pipeline overview — table + board views)
-  ├── New Deal             (creation flow)
-  ├── Pipeline Setup       (template management — admin/BM only)
-  └── Calendar             (full calendar with scope switcher)
-```
-
-### Permissions
-```
-deals_v2.view            — scoped: own / branch / all
-deals_v2.create
-deals_v2.edit
-deals_v2.archive
-deals_v2.manage_pipeline — create/edit pipeline templates
-deals_v2.override_dates  — override auto-calculated due dates
-access_calendar
-calendar.manage          — edit other users' events
-```
+Extend the sanctioned outbound-archive seam `App\Services\Communications\OutboundProvisionalLogger` (AT-59/80) — do not invent a parallel path:
+1. **Stamp `owner_user_id` at create** = the sending agent (AT-122 provenance), so the row is visible in the sender's own/branch scope immediately (today it's NULL until reconcile).
+2. **Write `communication_attachments`** for the pack files (or a link-record for secure_link mode) and set `has_attachments=true` (today hardcoded false).
+3. **Write multiple `communication_links`** — `Contact::class` (recipient) **plus** `Property::class` (the deal's property) **plus** `DealV2::class` (the deal) — the morph already supports all three (calendar already morphs to Property + DealV2); today every writer hardcodes `Contact`.
+The `communication_id` is stored on the `deal_document_distributions` row (§4.6). `ProvisionalReconciler` continues to promote the provisional→confirmed row in place when the Sent-folder copy is ingested.
+- **Verification gate:** a distribution email surfaces in the Communication Archive **and** on the deal timeline **and** on the property **and** on the recipient contact — one send, three pillars — with the attachment/link recorded and the sending agent as owner.
 
 ---
 
-## 12. Build Phases
+## 11. Notifications & escalation
 
-### Phase 1: Database + Pipeline Setup
-- All migrations (templates, steps, deals, instances, contacts, agents, activity log)
-- Models with relationships
-- Pipeline template CRUD (setup screen)
-- Default template seeder
-- Pipeline step builder UI (drag to reorder, inline edit, trigger linking)
+Build the missing `App\Services\DealV2\NotificationService` and the two schedulers; reuse the calendar notification infra where it already exists (`CalendarNotificationDispatcher`, per-class `*_notifications`, digests).
 
-### Phase 2: Deal Creation + Tracking
-- Deal creation wizard (5 steps)
-- Deal detail view with visual pipeline tracker
-- Step completion flows (all completion types)
-- Chain reaction: completing a step activates downstream steps
-- Activity log
-- RAG calculation engine
-
-### Phase 3: Pipeline Overview + Views
-- Board view (kanban by milestone)
-- Table view (sortable, filterable, searchable)
-- Dashboard cards (counts, pipeline value)
-- Scope switcher (own/branch/company)
-- CSV export
-
-### Phase 4: Calendar Integration
-- `calendar_events` table + model
-- CalendarEventService (create/update/delete from deal steps)
-- CoreX in-app calendar (month/week/day/agenda views)
-- Scope switcher on calendar (own/branch/company)
-- Calendar filters (category, RAG, agent, property)
-
-### Phase 5: Notifications + Reminders
-- `calendar:process-rag` scheduled command
-- In-app notification system (bell icon + count)
-- Email notifications (branded templates)
-- Escalation chain
-- `deals:daily-digest` morning email
-- Notification preferences (agency → category → user)
-
-### Phase 6: iCal + Phone Sync
-- iCal subscription endpoint per user
-- Scope-based feeds (own, branch, company)
-- Token-based authentication
-- ICS file generation
-- `calendar:generate-ical` scheduled command
-
-### Phase 7: Polish + Linked Deals
-- Sale of 2nd property linking
-- Auto-complete from linked deal progress
-- V1 → V2 migration tool
-- Dashboard widget (today's events + overdue)
-- Deal-level reporting (avg days per step, bottleneck analysis)
+- **`deals:process-escalations` (hourly):** overdue steps escalate agent → BM (+configurable) → admin (+configurable), reading the now-live `escalation_config`; each level fires once (idempotent, recorded in a reminders log).
+- **`deals:daily-digest` (07:00):** per-user morning email — due today, overdue, turning amber/red today, deals registered yesterday.
+- **Channels:** in-app (bell), email (branded), calendar colour/transition (already fires via reconcile). SMS is future.
+- **Preferences (3 levels):** agency default → per-category → per-user override (reuse `.ai/specs/notification-preferences.md` infra).
+- **Verification gate:** an overdue step with a 1-day BM / 3-day admin config produces exactly one BM notification at +1d and one admin at +3d (frozen clock), and no duplicates on re-run.
 
 ---
 
-## 13. What This Replaces
+## 12. Overview surfaces
 
-| Current Process | CoreX V2 |
-|----------------|-----------|
-| Spreadsheet tracking | Visual pipeline with RAG status |
-| BM calling agents for updates | Real-time dashboard + escalations |
-| Agent forgetting bond deadline | Auto-reminder on phone calendar |
-| Admin not knowing deal status | Company-wide pipeline view |
-| Addendum not signed in time | RED alert days before deadline |
-| Manual commission tracking | Auto-linked to deal + settlement |
-| "Where is the COC?" emails | Step status visible to everyone |
-| Deal falls through the cracks | Impossible — every step tracked |
+Complete the Pipeline Overview (index is table-only today):
+- **Scope switcher** (own/branch/company per role) — reuse `getDataScope`.
+- **Dashboard cards:** Active Deals, Overdue Steps, Due This Week, Pending Registration, Total Pipeline Value, Avg Days to Registration.
+- **Board/kanban** by milestone columns; cards non-draggable (status changes only through proper step completion — anti-gaming).
+- **Table view:** sortable/filterable/searchable (agent, stage, RAG, deal type, branch, date range, overdue-only; search by address/contact/ref), 25/page, empty state, **CSV export**.
+- **Per-user iCal feed** (`…/calendar/ical/{token}.ics`, `?scope=branch|company`) — reuse the calendar `ical_token`; deal events already flow through the calendar so the feed is largely wiring.
+- **Verification gate:** each card count matches a direct query on a seeded set; the board places each deal in its current-milestone column; CSV row count = filtered result count; the iCal feed validates and contains the deal step events.
+
+---
+
+## 13. DR1↔DR2 sync, parity harness & transition (D1, D3)
+
+### 13.1 Link
+`deals.deal_v2_id` ↔ `deals_v2.legacy_deal_id` (§4.2). Nullable both sides; a DR1 deal and its DR2 twin point at each other.
+
+### 13.2 `DealSyncService` (single-writer mirror, `ContactIdentifierService` pattern)
+- **One service owns the shared-field invariant.** Mirrors only: status (mapped DR1 `accepted_status`/`commission_status` ↔ DR2 `status`), granted/registration dates, party names, commission totals. **DR2-only concepts (pipeline steps, distributions) never mirror back to DR1.**
+- **Thin observers on both sides** (`DealObserver`, `DealV2Observer`) only *call* the service; the service never re-triggers itself (quiet writes, no recursion), wrapped in `DB::transaction`, and **idempotent** — a re-run converges.
+- **Mapping table** for the status axes is explicit and agency-agnostic (DR1's two-axis P/G/R/D + Paid ↔ DR2's `active/completed/cancelled/on_hold` + a derived registration/commission state). Documented in the service; the reconciliation (§13.3) is the safety net for anything the mapping can't express.
+
+### 13.3 Parity harness — HFC's real backfilled deals as truth set
+- The **131 live `deals` (Oct 2025 → now)** are the parallel-run truth set. Build a `deals:parity-check` command that, for every linked pair, compares the shared fields and reports mismatches (agency-scoped, read-only, `--dry-run` default). Feature tests seed real-shaped SA deals (BUILD_STANDARD §5 — real addresses/prices/messy data, not "Test/0000").
+- **Verification gate:** create/edit a DR1 deal → the mirror appears/updates in DR2 (shared fields only) and vice versa; `deals:parity-check` reports **0 mismatches** across the linked set; a status change on either side lands on the other; no pipeline data leaks into DR1.
+
+### 13.4 Transition & retirement (Leave precedent)
+Once parity holds: run the **human reconciliation** (Elize/Falan/Johan validate DR2 against DR1 as the Leave/payroll procedures did), sign it off (filed against the agency), then **retire DR1's UI** (route/nav removed behind a flag). The `deals` rows are **never deleted** — they remain as the audit trail, `deal_v2_id` pointing at the operational DR2 record (the TrackedProperty `promoted_to_*` doctrine). DR1 integrity is intact throughout (D3).
+
+---
+
+## 14. Navigation & permissions
+
+- **Sidebar (DR2 group, existing):** Deal Register (overview) · New Deal · Pipeline Setup (admin/BM) · Calendar. **Add:** Supplier Directory (settings), and a Deal-distribution section on the doc-types settings page. Every new page ships its nav link the same day (non-negotiable #2).
+- **Permissions (existing + new):** `deals_v2.view` (own/branch/all), `deals_v2.create`, `deals_v2.edit`, `deals_v2.archive`, `deals_v2.manage_pipeline`, `deals_v2.override_dates`; **new** `deals_v2.distribute_documents`, `deals_v2.manage_distribution_rules`, `deals_v2.manage_suppliers`. Registered in `config/corex-permissions.php` + `corex:sync-permissions --merge-defaults`; sidebar-gated + route-middleware + controller checks (non-negotiable #5).
+- **API:** any new JSON endpoint under `/api/v1/*` with a `->name()`, discoverable in the Admin→API catalogue (non-negotiable #7).
+
+---
+
+## 15. Build sequence (one continuous build; each work-stream ends at a verification gate)
+
+Sequenced, not phased-for-deferral. **WS0 leads** because an untested engine is about to become canonical.
+
+- **WS0 — Engine hardening + RAG timer (FIRST).** Feature tests for the *existing* engine (createDeal, chain recalculation, completeStep pos/neg, status_trigger, BM-approval gate, expected-registration). Build `deals:process-rag` + wire `updateDealOverallRag` + persist RAG colour to calendar events. *Gate:* engine test suite green + a clock-driven step transitions RAG and repaints its calendar event. **Re-run `schema:dump` after any migration; run only the single relevant test file during active work (non-negotiable #13).**
+- **WS1 — DR1↔DR2 link + `DealSyncService` + parity harness** (§13). *Gate:* `deals:parity-check` = 0 mismatches on the linked truth set; two-way shared-field mirror proven; no pipeline leak into DR1.
+- **WS2 — Provider roles + supplier directory** (§9). *Gate:* pick-or-create-inline works; reuse across deals; soft-delete preserves history.
+- **WS3 — Document spine** (§7): `documents.deal_id`, PDF-splitter deal target, e-sign auto-file deal link, `document_signed` auto-completion, `deal_step_documents.document_id` population, upload-onto-deal. *Gate:* one upload/split/sign links deal+property+contacts and auto-completes the step; no orphaned file.
+- **WS4 — Distribution matrix + distribute action + COC generation** (§8). *Gate:* configured rule fires on stage tick; secure-link demands OTP before serving; generated COC filed + sent; immutable access log written.
+- **WS5 — Comms archive extension** (§10). *Gate:* one distribution shows on deal + contact + property, with attachment/link + agent owner.
+- **WS6 — Notifications + escalation** (§11). *Gate:* exactly-once BM/admin escalation on a frozen clock; digest content correct.
+- **WS7 — Overview surfaces + iCal** (§12). *Gate:* card counts match queries; board placement correct; CSV/iCal validate.
+- **WS8 — Transition** (§13.4): reconciliation, sign-off, DR1-UI retirement behind a flag, `deals` preserved as audit. *Gate:* parity signed off; DR1 rows intact; DR2 canonical.
+
+Each WS closes with the CLAUDE.md done-checklist (`php -l`, view/route/cache clear, the single relevant test file, functional Tinker verification, commit+push to Staging, demo parity if data-shape changed, CHAT_STARTER update). **No WS ships with a documented "good enough for now" compromise** (Operating Principle).
+
+---
+
+## 16. Robustness, doctrine & POPIA (applies to every WS)
+
+- **No hard deletes** anywhere — SoftDeletes on every new model; distributions/providers/rules archive, never delete; DR1 rows survive cutover.
+- **Input-space rule** (BUILD_STANDARD §2): every new field handles required-empty (clear reject), optional-empty (graceful), malformed (validated), the lazy-but-valid shortcut, whitespace, wrong order. Every NOT-NULL column gets a value for every input combination. A deleted-related-record (provider, contact, property, linked deal) renders gracefully, never a 500.
+- **Prevent-or-absorb** decided at spec time for each breaking input: e.g. a distribution rule pointing at a party the deal doesn't have → the distribute modal skips it with a visible note (no silent drop, no crash); a secure link opened after revoke → a friendly "link no longer available" page, logged.
+- **POPIA:** secure-link mode is the default for anything with personal data; every access is OTP-gated and written to the immutable `deal_document_access_log`; direct-attachment is opt-in per doc-type×party. Owner PII in generated COCs follows existing egress rules.
+- **Multi-tenancy:** every new table `BelongsToAgency`; no `withoutGlobalScope` in request code (the sync service's cross-scope reads are the audited exception, like the reassign-capture-owner command).
+- **Tests mirror reality** (BUILD_STANDARD §5): real SA deals from the backfill, each-empty paths, the shortcut, malformed, deleted-relation, idempotency (sync + reconcile + auto-triggers must all be safe to re-run).
+
+---
+
+## 17. Acceptance criteria (definition of done for the programme)
+
+1. DR2 engine has a green feature-test suite covering createDeal/chain/complete/status-trigger/BM-approval, and `deals:process-rag` transitions persisted RAG + calendar colour on a clock. **(WS0)**
+2. DR1↔DR2 shared-field mirror is bidirectional and `deals:parity-check` reports 0 mismatches across the 131-deal truth set; no pipeline data leaks into DR1; DR1 behaviour unchanged. **(WS1/13)**
+3. A provider is added once and reused across deals; distribution reaches the stored address. **(WS2/9)**
+4. One OTP upload/split/sign links deal+property+contacts and auto-completes its pipeline step; no orphaned files. **(WS3/7)**
+5. A configured matrix rule auto-distributes on a stage tick; secure-link demands OTP before serving; a COC request is auto-generated from deal/property/contact data (no hand-filling) and filed; every access is logged immutably. **(WS4/8)**
+6. Every distribution appears on the deal, contact, and property, with attachment/link and the sending agent as owner. **(WS5/10)**
+7. Overdue escalation fires exactly once per level; digests are correct; overview cards/board/CSV/iCal are correct and scoped. **(WS6–7)**
+8. Reconciliation signed off; DR1 UI retired behind a flag; `deals` rows preserved as audit; DR2 canonical. **(WS8)**
+9. Every new page has a nav link + permission gate; every new endpoint is under `/api/v1/*` and in the API catalogue; no hard deletes; input-space + POPIA rules met. **(all WS)**
+
+---
+
+## 18. What this replaces (unchanged from v1.1 — the human wins)
+Spreadsheet tracking → visual pipeline + RAG. BM chasing agents → real-time dashboard + escalation. Forgotten bond deadline → phone-calendar reminder. Unknown deal status → company-wide view. Late addendum → RED alert days early. Manual commission → auto-linked settlement. **Hand-filled COC request → one-tick auto-generated + distributed.** "Where is the COC?" emails → step status visible to all. A deal falling through the cracks → impossible; every step, document, and distribution tracked.
