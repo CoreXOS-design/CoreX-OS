@@ -1240,7 +1240,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Conflict check — MUST be before /calendar/{calendarEvent} wildcard
         Route::get('/calendar/check-conflicts', function (\Illuminate\Http\Request $request) {
             $svc = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class);
-            return response()->json($svc->checkUserConflicts((int)$request->get('user_id'), $request->get('start'), $request->get('end'), $request->get('exclude_event_id')));
+            $conflicts = $svc->checkUserConflicts(
+                (int) $request->get('user_id'),
+                $request->get('start'),
+                $request->get('end'),
+                $request->get('exclude_event_id'),
+            );
+            // Shape { has_conflict, conflicts } — BOTH the attendee check and the
+            // organizer self-check read `data.has_conflict` / `data.conflicts`.
+            // The endpoint previously returned the raw array, so `has_conflict`
+            // was always undefined and the attendee ⚠ never fired.
+            return response()->json(['has_conflict' => !empty($conflicts), 'conflicts' => $conflicts]);
         })->name('command-center.calendar.check-conflicts');
 
         Route::get('/calendar/{calendarEvent}', [CommandCenterCalendarController::class, 'show'])->name('command-center.calendar.show');

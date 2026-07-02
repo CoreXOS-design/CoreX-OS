@@ -33,6 +33,10 @@ class CalendarEventClassSetting extends Model
         // 'freeform' the panel never offered "Capture Feedback to
         // Complete". CalendarEventClassSeeder now reasserts the map.
         'actor_role', 'completion_behaviour',
+        // occupies_time (2026_07_02_000001) — explicit appointment flag,
+        // decoupled from actor_role. true = occupies a slot (conflicts);
+        // false = marker/reminder (never conflicts).
+        'occupies_time',
         // CAL-7 Class 6 — every migration column that the app is meant to
         // set must appear here. Previously omitted columns silently
         // dropped their mass-assigned values (Model::create([col=>X])
@@ -54,6 +58,7 @@ class CalendarEventClassSetting extends Model
         'is_active'             => 'boolean',
         'daily_digest_enabled'  => 'boolean',
         'allow_multiple_properties' => 'boolean',
+        'occupies_time'         => 'boolean',
         'green_days'            => 'integer',
         'amber_days'            => 'integer',
         'red_days'              => 'integer',

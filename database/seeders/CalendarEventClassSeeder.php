@@ -58,6 +58,19 @@ class CalendarEventClassSeeder extends Seeder
                 ->update($values);
         }
 
+        // occupies_time — explicit appointment flag, decoupled from actor_role
+        // (which is now ONLY the buyer/seller feedback field). Appointments
+        // occupy a slot → count for double-booking conflicts; everything else is
+        // a marker/reminder. Idempotent; matches migration 2026_07_02_000001's
+        // backfill. Global rows only (agency overrides carry it via
+        // SettingsController + the migration's one-time all-row backfill).
+        $appointmentClasses = ['viewing', 'property_evaluation', 'listing_presentation', 'meeting', 'other', 'private'];
+        CalendarEventClassSetting::withoutGlobalScopes()
+            ->whereNull('agency_id')->update(['occupies_time' => false]);
+        CalendarEventClassSetting::withoutGlobalScopes()
+            ->whereNull('agency_id')->whereIn('event_class', $appointmentClasses)
+            ->update(['occupies_time' => true]);
+
         $this->command->info('Seeded ' . count($this->classes()) . ' calendar event class settings.');
     }
 

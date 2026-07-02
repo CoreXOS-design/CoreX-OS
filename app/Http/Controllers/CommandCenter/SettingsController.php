@@ -126,6 +126,7 @@ class SettingsController extends Controller
             'daily_digest_roles.*' => 'string',
             'actor_role'           => 'nullable|in:buyer_action,seller_action,both,neither',
             'completion_behaviour' => 'nullable|in:require_feedback,require_reason,freeform',
+            'occupies_time'        => 'sometimes|boolean',
         ]);
 
         if ($validated['red_days'] > $validated['amber_days']
@@ -177,6 +178,10 @@ class SettingsController extends Controller
                         : null,
                     'actor_role'           => $validated['actor_role'] ?? $global->actor_role ?? 'neither',
                     'completion_behaviour' => $validated['completion_behaviour'] ?? $global->completion_behaviour ?? 'freeform',
+                    // Carry the appointment flag from the global default (or an
+                    // explicit override) so editing a class never silently resets
+                    // it to the column default and breaks its conflict behaviour.
+                    'occupies_time'        => $validated['occupies_time'] ?? (bool) $global->occupies_time,
                 ]
             );
 

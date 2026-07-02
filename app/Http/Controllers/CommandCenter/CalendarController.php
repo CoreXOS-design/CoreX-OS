@@ -1282,9 +1282,12 @@ class CalendarController extends Controller
 
         // Conflict markers: mark events that overlap another appointment-type event for this user.
         // Single sweep — no additional queries.
-        $informationalClasses = CalendarEventClassSetting::withoutGlobalScopes()
-            ->where('actor_role', 'neither')->pluck('event_class')->toArray();
-        $appointments = $result->filter(fn($e) => !in_array($e->category, $informationalClasses))
+        // Markers/reminders (occupies_time=false) never count as conflicts —
+        // reads the explicit flag (decoupled from actor_role). A category with no
+        // settings row is treated as an appointment (unchanged behaviour).
+        $nonOccupyingClasses = CalendarEventClassSetting::withoutGlobalScopes()
+            ->where('occupies_time', false)->pluck('event_class')->toArray();
+        $appointments = $result->filter(fn($e) => !in_array($e->category, $nonOccupyingClasses))
             ->sortBy('event_date')->values();
         $conflictIds = [];
         for ($i = 0; $i < $appointments->count(); $i++) {

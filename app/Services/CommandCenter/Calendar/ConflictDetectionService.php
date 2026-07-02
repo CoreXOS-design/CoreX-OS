@@ -15,10 +15,15 @@ class ConflictDetectionService
      */
     public function checkUserConflicts(int $userId, string $startsAt, string $endsAt, ?int $excludeEventId = null): array
     {
-        // Get event classes that are informational (actor_role = 'neither') — these never conflict.
+        // Classes that do NOT occupy a time slot (markers/reminders — mandate
+        // expiry, rent due, birthdays, SARS, tasks, etc.) never conflict. This
+        // reads the explicit occupies_time flag (decoupled from actor_role, which
+        // is now only the buyer/seller feedback field). A category with no
+        // settings row is absent from this list → treated as an appointment
+        // (unchanged from the previous actor_role='neither' behaviour).
         // Must bypass AgencyScope because class settings are stored with agency_id=NULL (global defaults).
-        $informationalClasses = CalendarEventClassSetting::withoutGlobalScopes()
-            ->where('actor_role', 'neither')
+        $nonOccupyingClasses = CalendarEventClassSetting::withoutGlobalScopes()
+            ->where('occupies_time', false)
             ->pluck('event_class')->toArray();
 
         $query = CalendarEvent::withoutGlobalScopes()
@@ -36,9 +41,9 @@ class ConflictDetectionService
             ->whereNull('deleted_at')
             ->whereNotIn('status', ['completed', 'dismissed']);
 
-        // Exclude informational event classes (expiries, leave, payroll, etc.)
-        if (!empty($informationalClasses)) {
-            $query->whereNotIn('category', $informationalClasses);
+        // Exclude non-occupying event classes (expiries, leave, payroll, tasks, etc.)
+        if (!empty($nonOccupyingClasses)) {
+            $query->whereNotIn('category', $nonOccupyingClasses);
         }
 
         if ($excludeEventId) {

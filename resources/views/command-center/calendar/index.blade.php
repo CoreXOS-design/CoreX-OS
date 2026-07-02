@@ -2088,6 +2088,21 @@
         <input type="hidden" name="event_date" :value="computedEventDate">
         <input type="hidden" name="end_date" :value="computedEndDate">
 
+        {{-- Part B — organizer self double-booking SOFT warning. Same amber ⚠
+             language as the invited-agent conflict badge. Non-blocking: it lists
+             the clashing appointment(s); the user may still save. Markers
+             (occupies_time=false) never appear here — excluded server-side. --}}
+        <div x-show="selfConflicts.length > 0" x-cloak
+             class="rounded-md px-3 py-2 text-xs flex items-start gap-2"
+             style="background: color-mix(in srgb, #f59e0b 12%, transparent); border: 1px solid #f59e0b; color: var(--text-primary);">
+            <span class="text-sm leading-none" style="color:#f59e0b;">&#9888;</span>
+            <div class="min-w-0">
+                <div class="font-medium">You already have an appointment at this time.</div>
+                <div class="opacity-80 truncate" x-text="selfConflicts.map(c => c.title).join(', ')"></div>
+                <div class="opacity-60 mt-0.5">You can still save — this is just a heads-up.</div>
+            </div>
+        </div>
+
         {{-- Property multi-select --}}
         <div x-data="propertySearch()">
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Properties</label>
@@ -2451,6 +2466,10 @@
 function calendarPage() {
     return {
         showCreateEvent: false,
+        // Part B — organizer self double-booking (soft, non-blocking) warning.
+        currentUserId: {{ auth()->id() ?? 'null' }},
+        selfConflicts: [],
+        _selfConflictTimer: null,
         form: { title: '', category: '', startDate: '', startTime: '', endDate: '', endTime: '', description: '', allDay: false },
         endManuallyEdited: false,
         selectedDate: '{{ $anchorDate->toDateString() }}',
@@ -2879,6 +2898,13 @@ function calendarPage() {
 
         // â”€â”€ Right Panel â”€â”€
         initPanel() {
+            // Part B — recheck the ORGANIZER's own schedule whenever the event's
+            // time changes (create OR edit) → surfaces a self double-booking as a
+            // soft warning. Watches catch user edits AND programmatic sets
+            // (openBlank / openEditModal); toggling all-day clears it.
+            ['form.startDate', 'form.startTime', 'form.endDate', 'form.endTime', 'form.allDay']
+                .forEach(f => this.$watch(f, () => this.checkSelfConflict()));
+
             // Default: hidden on first visit. Only show if user previously opened it.
             const stored = localStorage.getItem('corex.calendar.panelOpen');
             this.rightPanelOpen = stored === '1';
@@ -3009,6 +3035,35 @@ function calendarPage() {
             if (this.form.allDay) return '';
             if (!this.form.endDate || !this.form.endTime) return '';
             return this.form.endDate + 'T' + this.form.endTime;
+        },
+
+        // Part B — organizer self double-booking check. Debounced because several
+        // time fields can change in one tick (openBlank seeds date+time+end;
+        // auto end-time). Reuses the SAME /check-conflicts endpoint + response
+        // shape as the invited-agent badge — just against the organizer's own id.
+        checkSelfConflict() {
+            clearTimeout(this._selfConflictTimer);
+            this._selfConflictTimer = setTimeout(() => this._runSelfConflict(), 200);
+        },
+        async _runSelfConflict() {
+            this.selfConflicts = [];
+            const start = this.computedEventDate;
+            // Only a timed event occupies a slot; all-day / no-start makes no claim.
+            if (!start || this.form.allDay || !this.currentUserId) return;
+            const end = this.computedEndDate || start;
+            try {
+                const params = new URLSearchParams({ user_id: this.currentUserId, start, end });
+                // When editing, exclude the event itself so it never clashes with itself.
+                if (this.editingEventId) params.append('exclude_event_id', this.editingEventId);
+                const r = await fetch('/corex/command-center/calendar/check-conflicts?' + params, {
+                    headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
+                });
+                if (!r.ok) return;
+                const data = await r.json();
+                // Markers (occupies_time=false) are excluded server-side, so they
+                // can never appear here. Soft warning only — never blocks save.
+                this.selfConflicts = data.has_conflict ? (data.conflicts || []) : [];
+            } catch (e) { /* best-effort — a check failure must never block the form */ }
         },
 
         async openEditModal(eventId) {
