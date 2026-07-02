@@ -146,21 +146,32 @@ class PpFeatureAttributesTest extends TestCase
         $this->assertSame('true', $attrs['Built_in_Braai'] ?? null);
         $this->assertSame('true', $attrs['WalkInCloset'] ?? null);
         $this->assertSame('true', $attrs['Aircon'] ?? null);
-        $this->assertSame('true', $attrs['EnSuite'] ?? null);
+        // EnSuite is a COUNT (one en-suite bathroom here), not a flag.
+        $this->assertSame('1', $attrs['EnSuite'] ?? null);
     }
 
-    /** AT-146 — En-suite / Main en-suite map to the PP EnSuite attribute (was unmapped). */
-    public function test_ensuite_maps_to_pp_ensuite(): void
+    /**
+     * AT-146 — En-suite / Main en-suite map to the PP EnSuite attribute (was
+     * unmapped). EnSuite is a COUNT in PP's Appendix A (sits among the room-count
+     * attributes), so it is emitted as an integer, NOT the boolean 'true' — a
+     * 'true' value triggers PP106 "match attribute datatypes" and rejects the
+     * whole listing.
+     */
+    public function test_ensuite_maps_to_pp_ensuite_count(): void
     {
         $p = (new Property())->forceFill([
-            'beds' => 1, 'baths' => 1, 'property_type' => 'Apartment',
-            'features_json' => ['En-suite'],
+            'beds' => 2, 'baths' => 2, 'property_type' => 'Apartment',
+            'features_json' => ['En-suite', 'Main en-suite'],
             'spaces_json' => ['spaces' => [
-                ['type' => 'Bathroom', 'count' => 1, 'units' => [['label' => 'Bathroom 1', 'features' => ['En-suite']]]],
+                ['type' => 'Bathroom', 'count' => 1, 'units' => [
+                    ['label' => 'Bathroom 1', 'features' => ['Main en-suite']],
+                    ['label' => 'Bathroom 2', 'features' => ['En-suite']],
+                ]],
             ]],
         ]);
 
-        $this->assertSame('true', $this->attributesFor($p)['EnSuite'] ?? null);
+        // Two en-suite bathrooms → EnSuite=2 (integer count).
+        $this->assertSame('2', $this->attributesFor($p)['EnSuite'] ?? null);
     }
 
     /** AT-146 — "Single Storey" maps to PP Storeys=1; multi-storey is omitted (no CoreX feature). */
