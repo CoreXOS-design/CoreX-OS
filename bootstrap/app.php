@@ -95,7 +95,22 @@ return Application::configure(basePath: dirname(__DIR__))
         // on /dashboard will bounce them to login if their session is gone —
         // login displays the same flash, then they continue post-sign-in.
         // JSON callers (Alpine fetch, Chrome extension) get a structured 419.
-        $exceptions->render(function (TokenMismatchException $e, $request) {
+        //
+        // IMPORTANT (why this is keyed on HttpException, not TokenMismatchException):
+        // Laravel's Handler::prepareException() rewraps TokenMismatchException into
+        // a generic Symfony HttpException(419) BEFORE render callbacks run
+        // (Foundation\Exceptions\Handler::render → prepareException → renderViaCallbacks).
+        // A callback type-hinted on TokenMismatchException therefore NEVER matches,
+        // so every CSRF 419 fell straight through to the raw default "419 Page
+        // Expired" page (the staging symptom in
+        // .ai/audits/2026-07-02-staging-419-csrf-investigation.md). We match the
+        // prepared HttpException and act ONLY on status 419 — returning null for
+        // any other status so 403/404/500 keep their own handlers/views. The
+        // original TokenMismatchException is preserved as $e->getPrevious().
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpException $e, $request) {
+            if ($e->getStatusCode() !== 419) {
+                return null; // not a CSRF/session 419 — let the default handling run
+            }
             if ($request->expectsJson()) {
                 return response()->json([
                     'ok'    => false,
