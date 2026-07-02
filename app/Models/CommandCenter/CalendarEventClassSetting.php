@@ -37,6 +37,10 @@ class CalendarEventClassSetting extends Model
         // decoupled from actor_role. true = occupies a slot (conflicts);
         // false = marker/reminder (never conflicts).
         'occupies_time',
+        // autofill_buyers (AT-154) — does this class auto-fill the linked
+        // property's BUYER as an attendee? Sellers auto-fill for every property
+        // appointment; buyers only for buyer-driven classes (viewing). Configurable.
+        'autofill_buyers',
         // CAL-7 Class 6 — every migration column that the app is meant to
         // set must appear here. Previously omitted columns silently
         // dropped their mass-assigned values (Model::create([col=>X])
@@ -59,6 +63,7 @@ class CalendarEventClassSetting extends Model
         'daily_digest_enabled'  => 'boolean',
         'allow_multiple_properties' => 'boolean',
         'occupies_time'         => 'boolean',
+        'autofill_buyers'       => 'boolean',
         'green_days'            => 'integer',
         'amber_days'            => 'integer',
         'red_days'              => 'integer',
