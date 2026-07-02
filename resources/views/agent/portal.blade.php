@@ -816,6 +816,133 @@
                 </div>
             </div>
         </div>
+
+        {{-- ═══════════════════════════════════════════
+             WHATSAPP LINK — AT-156 (spec: .ai/specs/whatsapp-link.md)
+             In-app capture-device pairing. Server proxies WAHA; the API key
+             never reaches the browser. States driven by /communications/wa-link/status.
+             ═══════════════════════════════════════════ --}}
+        @if(auth()->user()->hasPermission('access_communication'))
+        <div x-data="waLink()" x-init="init()"
+             style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">WhatsApp Link</h3>
+            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">
+                Link your work WhatsApp so CoreX can capture your client conversations into the compliance archive. Read-only — CoreX never sends from your number.
+            </p>
+
+            {{-- loading --}}
+            <div x-show="state === 'loading'" style="font-size:0.8125rem; color:var(--text-muted);">Checking link status…</div>
+
+            {{-- disabled by agency --}}
+            <div x-show="state === 'disabled'" style="font-size:0.8125rem; color:var(--text-secondary);">
+                WhatsApp self-linking is turned off for your agency. Ask your administrator to enable it.
+            </div>
+
+            {{-- blocked (super-admin / agency-less) --}}
+            <div x-show="state === 'blocked'"
+                 style="font-size:0.8125rem; color:var(--text-secondary); background:var(--surface-2, rgba(0,0,0,0.03)); border:1px solid var(--border); border-radius:6px; padding:12px 14px;">
+                WhatsApp capture linking is only available to agency agents. A platform/owner account cannot own captured threads — sign in as the agency agent whose WhatsApp will be captured.
+            </div>
+
+            {{-- WAHA unavailable --}}
+            <div x-show="state === 'waha_down'">
+                <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 10px;">The WhatsApp capture service is temporarily unavailable.</p>
+                <button type="button" class="corex-btn-secondary" @click="retry()">Retry</button>
+            </div>
+
+            {{-- not linked --}}
+            <div x-show="state === 'not_linked'">
+                <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
+                    <span style="font-size:0.75rem; color:var(--text-muted);">Consent to date —</span>
+                    <span style="font-size:0.75rem; color:var(--text-primary);">Opted in: <b x-text="consent.opted_in ?? 0"></b></span>
+                    <span style="font-size:0.75rem; color:var(--text-primary);">Pending: <b x-text="consent.pending ?? 0"></b></span>
+                    <span style="font-size:0.75rem; color:var(--text-primary);">Opted out: <b x-text="consent.opted_out ?? 0"></b></span>
+                </div>
+                <button type="button" class="corex-btn-primary" @click="link()" x-bind:disabled="busy">
+                    <span x-show="!busy">Link WhatsApp</span><span x-show="busy" x-cloak>Starting…</span>
+                </button>
+            </div>
+
+            {{-- awaiting scan --}}
+            <div x-show="state === 'awaiting_scan'">
+                <div style="background:#fff8e6; border:1px solid #f5c37a; color:#7a4e12; border-radius:6px; padding:10px 14px; font-size:0.75rem; font-weight:600; margin-bottom:14px;">
+                    ⚠ Scan with your CAPTURE number — it must NEVER be the same WhatsApp number you use to send outreach or marketing.
+                </div>
+                <div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
+                    <div style="background:#ffffff; padding:12px; border-radius:6px; border:1px solid var(--border); width:224px; height:224px; display:flex; align-items:center; justify-content:center;">
+                        <img :src="qrSrc" alt="WhatsApp pairing QR" style="width:200px; height:200px; display:block;"
+                             @error="qrError = true" x-show="!qrError">
+                        <span x-show="qrError" x-cloak style="font-size:0.75rem; color:var(--text-muted); text-align:center;">Waiting for QR…</span>
+                    </div>
+                    <div style="flex:1; min-width:220px;">
+                        <ol style="font-size:0.8125rem; color:var(--text-secondary); padding-left:18px; margin:0 0 14px; line-height:1.7;">
+                            <li>Open WhatsApp on the capture phone.</li>
+                            <li>Tap <b>Linked devices → Link a device</b>.</li>
+                            <li>Scan the code on the left.</li>
+                        </ol>
+                        <button type="button" class="corex-btn-secondary" @click="unlink()">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            {{-- linked --}}
+            <div x-show="state === 'linked'">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                    <span style="width:9px; height:9px; border-radius:999px; background:#22a06b; display:inline-block;"></span>
+                    <span style="font-size:0.875rem; font-weight:700; color:var(--text-primary);">Linked &amp; capturing</span>
+                </div>
+                <div style="font-size:0.8125rem; color:var(--text-secondary); line-height:1.7; margin-bottom:14px;">
+                    <div>Number: <b x-text="device?.number || '—'"></b></div>
+                    <div>Linked since: <span x-text="device?.linked_since || '—'"></span></div>
+                    <div>Session health: <span x-text="wahaStatus || 'WORKING'"></span></div>
+                </div>
+                <button type="button" class="corex-btn-secondary" @click="unlink()" x-bind:disabled="busy"
+                        style="border-color:#c0392b; color:#c0392b;">Unlink</button>
+            </div>
+
+            {{-- failed --}}
+            <div x-show="state === 'failed'">
+                <p style="font-size:0.8125rem; color:#c0392b; margin:0 0 10px;">The WhatsApp session failed. Restart to try again.</p>
+                <button type="button" class="corex-btn-secondary" @click="restart()" x-bind:disabled="busy">Restart session</button>
+            </div>
+        </div>
+
+        <script>
+        function waLink() {
+            return {
+                state: 'loading', consent: {}, device: null, wahaStatus: null,
+                busy: false, qrSrc: '', qrError: false, _poll: null,
+                _csrf() { return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''; },
+                async _get() {
+                    const r = await fetch('{{ route('communications.wa-link.status') }}', { headers: { 'Accept': 'application/json' } });
+                    if (!r.ok) throw new Error('status ' + r.status);
+                    return r.json();
+                },
+                async _post(url) {
+                    const r = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf() } });
+                    return r.json().catch(() => ({}));
+                },
+                apply(d) {
+                    this.state = d.state || 'not_linked';
+                    this.consent = d.consent || this.consent;
+                    this.device = d.device ?? null;
+                    this.wahaStatus = d.waha_status ?? null;
+                    if (this.state === 'awaiting_scan') { this.refreshQr(); this.startPoll(); }
+                    else { this.stopPoll(); }
+                },
+                refreshQr() { this.qrError = false; this.qrSrc = '{{ route('communications.wa-link.qr') }}?_=' + Date.now(); },
+                startPoll() { if (this._poll) return; this._poll = setInterval(() => this.tick(), 5000); },
+                stopPoll() { if (this._poll) { clearInterval(this._poll); this._poll = null; } },
+                async tick() { try { const d = await this._get(); if (this.state === 'awaiting_scan' && d.state === 'awaiting_scan') this.refreshQr(); this.apply(d); } catch (e) { this.state = 'waha_down'; this.stopPoll(); } },
+                async init() { try { this.apply(await this._get()); } catch (e) { this.state = 'waha_down'; } },
+                async retry() { this.state = 'loading'; await this.init(); },
+                async link() { this.busy = true; try { this.apply(await this._post('{{ route('communications.wa-link.link') }}')); } catch (e) { this.state = 'waha_down'; } this.busy = false; },
+                async restart() { this.busy = true; try { this.apply(await this._post('{{ route('communications.wa-link.restart') }}')); } catch (e) { this.state = 'waha_down'; } this.busy = false; },
+                async unlink() { if (!confirm('Unlink this WhatsApp device? Capture will stop.')) return; this.busy = true; try { this.apply(await this._post('{{ route('communications.wa-link.unlink') }}')); } catch (e) {} this.busy = false; },
+            };
+        }
+        </script>
+        @endif
     </div>
 
     {{-- ═══════════════════════════════════════════

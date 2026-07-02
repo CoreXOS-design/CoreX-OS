@@ -150,6 +150,8 @@ DROP TABLE IF EXISTS `agencies`;
 CREATE TABLE `agencies` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `wa_history_backfill` tinyint(1) NOT NULL DEFAULT '1',
+  `wa_self_link_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `wa_session_prefix` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `trading_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `tagline` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -460,6 +462,8 @@ CREATE TABLE `agency_contact_settings` (
   `contact_retention_years` int unsigned NOT NULL DEFAULT '5',
   `consent_retention_years` int unsigned NOT NULL DEFAULT '5',
   `access_log_retention_years` int unsigned NOT NULL DEFAULT '5',
+  `calendar_max_occurrences` smallint unsigned DEFAULT NULL COMMENT 'Max occurrences materialised per recurring series per query',
+  `calendar_max_expansion_days` smallint unsigned DEFAULT NULL COMMENT 'Max days a query window is expanded for recurring series',
   `feedback_seller_roles` json DEFAULT NULL,
   `feedback_buyer_source` json DEFAULT NULL,
   `feedback_lessor_roles` json DEFAULT NULL,
@@ -12591,3 +12595,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (933,'2026_07_15_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (934,'2026_07_02_000002_add_waha_session_to_communication_wa_devices',201);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (935,'2026_07_02_000001_add_occupies_time_to_calendar_event_class_settings',202);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (936,'2026_07_02_000003_add_autofill_buyers_to_calendar_event_class_settings',202);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (937,'2026_07_02_100001_add_calendar_recurrence_limits_to_agency_contact_settings',203);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (938,'2026_07_02_120000_add_wa_self_link_to_agencies',203);

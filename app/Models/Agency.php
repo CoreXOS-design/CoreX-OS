@@ -120,6 +120,8 @@ class Agency extends Model
         'name',
         'slug',
         'wa_history_backfill', // AT-135 — read-only WA body backfill toggle
+        'wa_self_link_enabled', // AT-156 — agents may self-link WhatsApp capture (default on)
+        'wa_session_prefix', // AT-156 — WAHA session-name prefix (null => agency{id})
 
         'viewing_pack_redaction_dpi', // AT-107 Step 5b — redaction render DPI (null = default 150)
         'viewing_pack_default_duration_minutes', // AT-107 Step 8 — default viewing duration (null = 60)
@@ -310,6 +312,7 @@ class Agency extends Model
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
         'wa_history_backfill' => 'boolean', // AT-135 — read-only WA body backfill toggle (default on)
+        'wa_self_link_enabled' => 'boolean', // AT-156 — WhatsApp self-link toggle (default on)
         'outreach_send_window' => 'array', // AT-117 §4a — send-window config (null => defaults)
         'restrict_consent_outreach_to_full_status' => 'boolean', // AT-142 — consent-outreach full-status restriction (default off)
         'outreach_queue_expiry_hours' => 'integer', // AT-117 §8

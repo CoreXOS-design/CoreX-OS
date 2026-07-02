@@ -1734,6 +1734,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{waDevice}', [\App\Http\Controllers\Communications\WaDeviceController::class, 'destroy'])->name('destroy');
     });
 
+    // ── AT-156 — WhatsApp Capture Linking (My Portal → Tools). In-app QR
+    //    pairing; server proxies WAHA, key stays server-side. ──
+    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/wa-link')->name('communications.wa-link.')->group(function () {
+        Route::get('/status', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'status'])->name('status');
+        Route::get('/qr', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'qr'])->name('qr');
+        Route::post('/link', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'link'])->name('link');
+        Route::post('/restart', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'restart'])->name('restart');
+        Route::post('/unlink', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'unlink'])->name('unlink');
+    });
+
     // ── AT-136 — per-agent WhatsApp capture consent (controls body INGESTION;
     //    SEPARATE from the AT-125 contact marketing opt-out). ──
     Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/capture')->name('communications.capture.')->group(function () {
