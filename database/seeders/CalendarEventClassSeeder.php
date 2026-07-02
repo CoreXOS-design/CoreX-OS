@@ -59,16 +59,23 @@ class CalendarEventClassSeeder extends Seeder
         }
 
         // occupies_time — explicit appointment flag, decoupled from actor_role
-        // (which is now ONLY the buyer/seller feedback field). Appointments
-        // occupy a slot → count for double-booking conflicts; everything else is
-        // a marker/reminder. Idempotent; matches migration 2026_07_02_000001's
-        // backfill. Global rows only (agency overrides carry it via
-        // SettingsController + the migration's one-time all-row backfill).
-        $appointmentClasses = ['viewing', 'property_evaluation', 'listing_presentation', 'meeting', 'other', 'private'];
+        // (which is now ONLY the buyer/seller feedback field). Seed it to match
+        // TODAY's behaviour EXACTLY: occupies_time = (actor_role != 'neither'),
+        // mirroring migration 2026_07_02_000001's backfill. Doing it by actor_role
+        // (not a hardcoded class list) keeps EVERY row behaviour-identical —
+        // including legacy/non-standard rows (e.g. an old actor_role='agent') that
+        // a fixed appointment list would silently flip to a marker. Runs AFTER the
+        // behaviourMap above so actor_role is set. Global rows only (agency rows
+        // carry it via SettingsController + the migration's one-time all-row backfill).
+        // For the seeded classes this equals {viewing, property_evaluation,
+        // listing_presentation, meeting, other, private} = appointments; everything
+        // else (markers/reminders) = false.
         CalendarEventClassSetting::withoutGlobalScopes()
-            ->whereNull('agency_id')->update(['occupies_time' => false]);
+            ->whereNull('agency_id')->where('actor_role', 'neither')
+            ->update(['occupies_time' => false]);
         CalendarEventClassSetting::withoutGlobalScopes()
-            ->whereNull('agency_id')->whereIn('event_class', $appointmentClasses)
+            ->whereNull('agency_id')
+            ->where(function ($q) { $q->where('actor_role', '<>', 'neither')->orWhereNull('actor_role'); })
             ->update(['occupies_time' => true]);
 
         $this->command->info('Seeded ' . count($this->classes()) . ' calendar event class settings.');
