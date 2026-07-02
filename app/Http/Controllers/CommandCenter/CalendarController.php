@@ -446,6 +446,44 @@ class CalendarController extends Controller
         $user = $request->user();
         if (!$this->visibilityResolver->canSee($calendarEvent, $user)) { abort(403); }
 
+        // Recurring occurrence view: the client decodes a synthetic occurrence id
+        // → /calendar/{parent}?occurrence=Y-m-d. Substitute the occurrence's
+        // date/time onto the (in-memory) parent so the panel shows THIS occurrence,
+        // and expose recurrence markers so the UI can offer the edit-scope prompt.
+        $occurrenceDate = $request->query('occurrence');
+        $isOccurrence = false;
+        if ($occurrenceDate && $calendarEvent->is_recurring) {
+            try {
+                $od = \Carbon\Carbon::parse($occurrenceDate);
+                $t = $calendarEvent->event_date;
+                $dur = $calendarEvent->end_date ? $calendarEvent->event_date->diffInSeconds($calendarEvent->end_date) : null;
+                $start = $od->copy()->setTime($t->hour, $t->minute, $t->second);
+                $calendarEvent->event_date = $start;
+                $calendarEvent->end_date = $dur !== null ? $start->copy()->addSeconds($dur) : null;
+                $isOccurrence = true;
+                $occurrenceDate = $od->toDateString();
+            } catch (\Throwable $e) { $isOccurrence = false; }
+        }
+        $recurrenceLabel = $calendarEvent->is_recurring
+            ? optional(\App\Services\CommandCenter\Calendar\RecurrenceRule::parse($calendarEvent->recurrence_rule))->humanLabel()
+            : null;
+        // Parsed rule parts so the edit form can pre-fill its recurrence controls
+        // (freq / interval / end condition), letting an "edit all" round-trip the
+        // series settings instead of silently dropping recurrence.
+        $recurrenceParts = null;
+        if ($calendarEvent->is_recurring) {
+            $pr = \App\Services\CommandCenter\Calendar\RecurrenceRule::parse($calendarEvent->recurrence_rule);
+            if ($pr) {
+                $recurrenceParts = [
+                    'freq'     => $pr->freq,
+                    'interval' => $pr->interval,
+                    'end_type' => $pr->count !== null ? 'count' : ($pr->until !== null ? 'until' : 'never'),
+                    'until'    => $pr->until?->toDateString(),
+                    'count'    => $pr->count,
+                ];
+            }
+        }
+
         // ITEM 4 — a private event opened by anyone but its creator returns ONLY
         // the busy-slot placeholder: "Private" + the time block, no detail, not
         // editable. Role-blind (no admin/owner override).
@@ -476,6 +514,12 @@ class CalendarController extends Controller
                 'linked_property'   => null,
                 'linked_properties' => [],
                 'attendees'         => [],
+                'is_recurring'      => (bool) $calendarEvent->is_recurring,
+                'is_occurrence'     => $isOccurrence,
+                'occurrence_date'   => $isOccurrence ? $occurrenceDate : null,
+                'recurrence_label'  => $recurrenceLabel,
+                'recurrence'        => $recurrenceParts,
+                'recurrence_parent_id' => $calendarEvent->is_recurring ? (int) $calendarEvent->id : null,
             ]);
         }
 
@@ -524,9 +568,17 @@ class CalendarController extends Controller
             // returned so the edit form can pre-select the current value.
             'is_actionable' => !$calendarEvent->isInformational(),
             'event_nature' => $calendarEvent->effectiveEventNature(),
+            // Recurrence markers — the panel offers the this/future/all edit-scope
+            // prompt when is_recurring (occurrence carries the specific date).
+            'is_recurring' => (bool) $calendarEvent->is_recurring,
+            'is_occurrence' => $isOccurrence,
+            'occurrence_date' => $isOccurrence ? $occurrenceDate : null,
+            'recurrence_label' => $recurrenceLabel,
+            'recurrence' => $recurrenceParts,
+            'recurrence_parent_id' => $calendarEvent->is_recurring ? (int) $calendarEvent->id : null,
             'actor_role' => $cfg?->actor_role ?? 'both',
             'completion_behaviour' => $cfg?->completion_behaviour ?? 'freeform',
-            'is_draggable' => $isManual,
+            'is_draggable' => $isManual && !$calendarEvent->is_recurring,
             'linked_property' => $calendarEvent->property_id ? [
                 'id' => $calendarEvent->property_id,
                 'address' => $calendarEvent->property?->address ?? ('Property #' . $calendarEvent->property_id),
@@ -1038,7 +1090,17 @@ class CalendarController extends Controller
             // Per-event "requires feedback" choice (actionable) vs "no feedback
             // needed" (informational). Stored in metadata; overrides the class default.
             'event_nature'      => 'nullable|in:actionable,informational',
+            // Recurrence (optional): none|DAILY|WEEKLY|MONTHLY + interval + end.
+            'recur_freq'        => 'nullable|in:DAILY,WEEKLY,MONTHLY',
+            'recur_interval'    => 'nullable|integer|min:1|max:99',
+            'recur_end_type'    => 'nullable|in:never,until,count',
+            'recur_until'       => 'nullable|date',
+            'recur_count'       => 'nullable|integer|min:1|max:1000',
         ]);
+
+        // Build the RRULE from the recurrence inputs (if any) → is_recurring +
+        // recurrence_rule on the parent. The creator writes them onto the event.
+        $data = $this->applyRecurrenceInputs($data);
 
         // Create + link + invite through the shared CalendarEventCreator so the
         // web cockpit and the v1 mobile API build events identically.
@@ -1051,6 +1113,26 @@ class CalendarController extends Controller
         return redirect()
             ->route('command-center.calendar', ['view' => 'day', 'date' => Carbon::parse($event->event_date)->toDateString()])
             ->with('success', 'Event created.');
+    }
+
+    /** Build recurrence_rule + is_recurring from the form's recur_* inputs. */
+    private function applyRecurrenceInputs(array $data): array
+    {
+        if (empty($data['recur_freq'])) {
+            $data['is_recurring'] = false;
+            $data['recurrence_rule'] = null;
+            return $data;
+        }
+        $rule = \App\Services\CommandCenter\Calendar\RecurrenceRule::build(
+            $data['recur_freq'],
+            (int) ($data['recur_interval'] ?? 1),
+            $data['recur_end_type'] ?? 'never',
+            $data['recur_until'] ?? null,
+            isset($data['recur_count']) ? (int) $data['recur_count'] : null,
+        );
+        $data['recurrence_rule'] = $rule;
+        $data['is_recurring'] = $rule !== null;
+        return $data;
     }
 
     public function reschedule(Request $request, CalendarEvent $calendarEvent)
@@ -1130,7 +1212,34 @@ class CalendarController extends Controller
             // Per-event "requires feedback" choice (actionable) vs "no feedback
             // needed" (informational). Stored in metadata; overrides the class default.
             'event_nature'      => 'nullable|in:actionable,informational',
+            // Recurrence + edit-scope.
+            'recur_freq'        => 'nullable|in:DAILY,WEEKLY,MONTHLY',
+            'recur_interval'    => 'nullable|integer|min:1|max:99',
+            'recur_end_type'    => 'nullable|in:never,until,count',
+            'recur_until'       => 'nullable|date',
+            'recur_count'       => 'nullable|integer|min:1|max:1000',
+            'recur_scope'       => 'nullable|in:this,future,all',
+            'occurrence_date'   => 'nullable|date',
         ]);
+
+        // Recurring series edit with an explicit scope. "this"/"future" fork into
+        // the RecurrenceEditService (exception child / series split); "all" and
+        // non-recurring fall through to the normal parent update below.
+        $scope = $data['recur_scope'] ?? null;
+        $occ   = $data['occurrence_date'] ?? null;
+        if ($calendarEvent->is_recurring && $occ && in_array($scope, ['this', 'future'], true)) {
+            $svc = app(\App\Services\CommandCenter\Calendar\RecurrenceEditService::class);
+            $result = $scope === 'this'
+                ? $svc->editOccurrence($calendarEvent, $occ, $data, $user)
+                : $svc->editFuture($calendarEvent, $occ, $data, $user);
+            return $request->wantsJson()
+                ? response()->json(['success' => true, 'id' => $result->id])
+                : back()->with('success', 'Occurrence updated.');
+        }
+
+        // "all" / non-recurring / add-recurrence-on-edit: rebuild is_recurring +
+        // recurrence_rule from the recur_* inputs, then update the parent in place.
+        $data = $this->applyRecurrenceInputs($data);
 
         $oldValues = $calendarEvent->only(['title', 'category', 'event_date', 'end_date', 'description', 'property_id']);
 
@@ -1138,7 +1247,8 @@ class CalendarController extends Controller
             $calendarEvent->update(collect($data)->only([
                 'title', 'category', 'event_date', 'end_date', 'description',
                 'status', 'priority', 'property_id',
-            ])->filter(fn ($v, $k) => $v !== null || in_array($k, ['end_date', 'description', 'property_id']))->all());
+                'is_recurring', 'recurrence_rule',
+            ])->filter(fn ($v, $k) => $v !== null || in_array($k, ['end_date', 'description', 'property_id', 'recurrence_rule']))->all());
 
             // Per-event "requires feedback" choice → metadata['event_nature'].
             // Merge (don't clobber other metadata keys); absent input leaves it as-is.
@@ -1206,6 +1316,43 @@ class CalendarController extends Controller
         // ITEM 4 — a private event may only be deleted by its creator (role-blind).
         if ($calendarEvent->isPrivateHiddenFrom($request->user())) { abort(403); }
 
+        // Only user-created (manual) events are deletable from the calendar —
+        // source-driven events (deal steps, birthdays) are removed at their source,
+        // not here. Mirrors is_editable, and guards the endpoint against a crafted
+        // request soft-deleting a system-generated row.
+        if (!in_array($calendarEvent->source_type, ['manual', 'manual:demo'], true)) {
+            return $request->wantsJson()
+                ? response()->json(['error' => 'This event cannot be deleted from the calendar.'], 422)
+                : back()->with('error', 'This event cannot be deleted from the calendar.');
+        }
+
+        // Recurring series delete with an explicit scope. "this" tombstones one
+        // occurrence, "future" truncates the series, "all" soft-deletes the parent
+        // (+ its exception children). No hard deletes on any path.
+        $scope = $request->input('recur_scope');
+        $occ   = $request->input('occurrence_date');
+        if ($calendarEvent->is_recurring && in_array($scope, ['this', 'future', 'all'], true)) {
+            $svc = app(\App\Services\CommandCenter\Calendar\RecurrenceEditService::class);
+            if ($scope === 'this' && $occ) {
+                $svc->deleteOccurrence($calendarEvent, $occ, $request->user());
+            } elseif ($scope === 'future' && $occ) {
+                $svc->deleteFuture($calendarEvent, $occ);
+            } else {
+                $svc->deleteAll($calendarEvent);
+            }
+            // Audit the scoped delete on the series parent.
+            \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+                'calendar_event_id'    => $calendarEvent->id,
+                'action'               => 'deleted',
+                'old_values'           => ['recur_scope' => $scope, 'occurrence_date' => $occ, 'title' => $calendarEvent->title],
+                'new_values'           => ['deleted' => true, 'scope' => $scope],
+                'performed_by_user_id' => $request->user()->id,
+                'performed_at'         => now(),
+                'notes'                => "Recurring event deleted (scope: {$scope})",
+            ]);
+            return $request->wantsJson() ? response()->json(['ok' => true]) : back()->with('success', 'Event removed.');
+        }
+
         // Fix 6: Cancel cascade — notify attendees + cancel invitations
         $invitations = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
             ->whereIn('status', ['pending', 'accepted', 'tentative'])->get();
@@ -1224,6 +1371,17 @@ class CalendarController extends Controller
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
+
+        // Audit the soft-delete before it happens (captures the pre-delete state).
+        \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+            'calendar_event_id'    => $calendarEvent->id,
+            'action'               => 'deleted',
+            'old_values'           => $calendarEvent->only(['title', 'event_date', 'status', 'category']),
+            'new_values'           => ['deleted' => true],
+            'performed_by_user_id' => $request->user()->id,
+            'performed_at'         => now(),
+            'notes'                => 'Event soft-deleted from calendar panel',
+        ]);
 
         $this->service->delete($calendarEvent);
         return $request->wantsJson() ? response()->json(['ok' => true]) : back()->with('success', 'Event removed.');

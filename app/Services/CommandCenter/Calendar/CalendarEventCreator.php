@@ -93,6 +93,10 @@ class CalendarEventCreator
                 'metadata'      => in_array($data['event_nature'] ?? null, ['actionable', 'informational'], true)
                     ? ['event_nature' => $data['event_nature']]
                     : null,
+                // Recurrence (parent). RRULE built by the controller from the form's
+                // recur_* inputs; occurrences are materialised on view.
+                'is_recurring'    => (bool) ($data['is_recurring'] ?? false),
+                'recurrence_rule' => $data['recurrence_rule'] ?? null,
             ]);
 
             $this->syncEventLinks($event, $data, $user);

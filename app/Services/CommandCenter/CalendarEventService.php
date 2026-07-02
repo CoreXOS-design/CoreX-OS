@@ -10,6 +10,7 @@ use App\Models\Contact;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\CommandCenter\Calendar\ConflictDetectionService;
+use App\Services\CommandCenter\Calendar\RecurrenceExpander;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -132,7 +133,50 @@ class CalendarEventService
             $query->where('property_id', $filters['property_id']);
         }
 
-        return $query->orderBy('event_date')->get();
+        $base = $query->orderBy('event_date')->get();
+
+        // ── Recurring events (materialise-on-view) ──────────────────────────
+        // A recurring PARENT is never rendered as its own raw row — it is
+        // expanded into virtual occurrences below. A cancel-tombstone child
+        // (deleted single occurrence) is likewise hidden. Everything else
+        // (non-recurring events + EDIT-exception children) renders as itself.
+        $base = $base->reject(function ($e) {
+            if ($e->is_recurring) {
+                return true;
+            }
+            return is_array($e->metadata ?? null) && ($e->metadata['recurrence_cancelled'] ?? false);
+        })->values();
+
+        // Fetch recurring parents whose series could overlap [start, end] even
+        // when the series START (event_date = DTSTART) is before the window.
+        $startC = Carbon::parse($start);
+        $endC   = Carbon::parse($end);
+        $parentQuery = CalendarEvent::query()
+            ->where('is_recurring', true)
+            ->where('event_date', '<=', $endC)
+            ->visibleTo($user, $scope);
+        if (!empty($filters['event_type'])) {
+            $parentQuery->ofType($filters['event_type']);
+        }
+        if (!empty($filters['property_id'])) {
+            $parentQuery->where('property_id', $filters['property_id']);
+        }
+        // Mirror the base status handling: a dismissed parent = "delete all".
+        if (!empty($filters['status'])) {
+            if ($filters['status'] !== '*') {
+                $parentQuery->where('status', $filters['status']);
+            }
+        } else {
+            $parentQuery->where('status', '!=', 'dismissed');
+        }
+
+        $expander = app(RecurrenceExpander::class);
+        $occurrences = collect();
+        foreach ($parentQuery->get() as $parent) {
+            $occurrences = $occurrences->merge($expander->expand($parent, $startC, $endC));
+        }
+
+        return $base->merge($occurrences)->sortBy('event_date')->values();
     }
 
     /**

@@ -36,6 +36,9 @@ class AgencyContactSettings extends Model
         'contact_retention_years',
         'consent_retention_years',
         'access_log_retention_years',
+        // Recurring-events expansion limits (agency-configurable, never hardcoded).
+        'calendar_max_occurrences',
+        'calendar_max_expansion_days',
     ];
 
     protected $casts = [
@@ -52,7 +55,14 @@ class AgencyContactSettings extends Model
         'contact_retention_years' => 'integer',
         'consent_retention_years' => 'integer',
         'access_log_retention_years' => 'integer',
+        'calendar_max_occurrences' => 'integer',
+        'calendar_max_expansion_days' => 'integer',
     ];
+
+    /** Recurring-events: max occurrences materialised per series per query. */
+    public const DEFAULT_CALENDAR_MAX_OCCURRENCES = 200;
+    /** Recurring-events: max days a single query window is expanded (from range start). */
+    public const DEFAULT_CALENDAR_MAX_EXPANSION_DAYS = 400;
 
     /** AT-81 — default no-response window (days) before a pending contact lapses. */
     public const DEFAULT_OUTREACH_NO_RESPONSE_DAYS = 7;
@@ -99,8 +109,24 @@ class AgencyContactSettings extends Model
                 'contact_retention_years' => 5,
                 'consent_retention_years' => 5,
                 'access_log_retention_years' => 5,
+                'calendar_max_occurrences' => self::DEFAULT_CALENDAR_MAX_OCCURRENCES,
+                'calendar_max_expansion_days' => self::DEFAULT_CALENDAR_MAX_EXPANSION_DAYS,
             ]
         );
+    }
+
+    /** Recurring-events: resolved max occurrences per series per query (null-safe, clamped 1–1000). */
+    public function calendarMaxOccurrences(): int
+    {
+        $v = (int) ($this->calendar_max_occurrences ?? self::DEFAULT_CALENDAR_MAX_OCCURRENCES);
+        return max(1, min(1000, $v));
+    }
+
+    /** Recurring-events: resolved max expansion window (days from range start; null-safe, clamped 1–1830). */
+    public function calendarMaxExpansionDays(): int
+    {
+        $v = (int) ($this->calendar_max_expansion_days ?? self::DEFAULT_CALENDAR_MAX_EXPANSION_DAYS);
+        return max(1, min(1830, $v));
     }
 
     /** AT-81 — resolved no-response window (days), null-safe, clamped to ≥1. */
