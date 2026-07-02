@@ -30,9 +30,27 @@
                     @if($m->subject)<div class="text-sm font-semibold mb-1" style="color:var(--text-primary);">{{ $m->subject }}</div>@endif
                     <div class="text-sm whitespace-pre-wrap" style="color:#334155; line-height:1.6;">{{ $m->body_text ?: $m->body_preview }}</div>
                     @if($m->has_attachments && $m->attachments->isNotEmpty())
-                    <div class="mt-2 flex flex-wrap gap-2">
+                    <div class="mt-2 flex flex-col gap-2">
                         @foreach($m->attachments as $att)
-                        <span class="text-xs px-2 py-1" style="background:var(--surface-alt, #f8fafc); border-radius:6px; color:#64748b;">📎 {{ $att->filename ?? 'attachment' }}</span>
+                            @php
+                                $duration = $att->duration_seconds
+                                    ? sprintf('%d:%02d', intdiv($att->duration_seconds, 60), $att->duration_seconds % 60)
+                                    : null;
+                            @endphp
+                            @if($att->isAudio() && $att->isPlayable())
+                                {{-- AT-148 — inline voice-note player, served via the authenticated route --}}
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs" style="color:#64748b;">🎙️ Voice note@if($duration) · {{ $duration }}@endif</span>
+                                    <audio controls preload="none" style="height:34px; max-width:280px;">
+                                        <source src="{{ route('compliance.comm-archive.attachment', $att->id) }}" type="{{ $att->mime }}">
+                                        Your browser cannot play this voice note.
+                                    </audio>
+                                </div>
+                            @elseif($att->isAudio())
+                                <span class="text-xs px-2 py-1" style="background:var(--surface-alt, #f8fafc); border-radius:6px; color:#94a3b8;">🎙️ Voice note — processing@if($duration) · {{ $duration }}@endif</span>
+                            @else
+                                <span class="text-xs px-2 py-1 inline-block" style="background:var(--surface-alt, #f8fafc); border-radius:6px; color:#64748b;">📎 {{ $att->filename ?? 'attachment' }}</span>
+                            @endif
                         @endforeach
                     </div>
                     @endif

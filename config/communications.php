@@ -129,4 +129,34 @@ return [
         'google.com', 'data-studio-noreply.google.com', 'handicaps.co.za',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | WAHA server-side session — media download (AT-148, Relates AT-138/143)
+    |--------------------------------------------------------------------------
+    | The WAHA server session (GOWS engine, isolated Docker container on the box,
+    | 127.0.0.1:3111, API-key ON) delivers media as a URL to fetch — WAHA holds
+    | the DECRYPTED bytes and serves them at media.url behind its API key. CoreX
+    | downloads voice notes from there and stores them on the mounted volume.
+    |
+    |   base_url  — WAHA API base (localhost-only; never publicly exposed).
+    |   api_key   — WAHA API key (X-Api-Key header). Set in .env, never committed.
+    |   download_timeout_seconds — connect+read cap for a single media fetch.
+    |   max_media_bytes — hard ceiling on a downloaded media (defence against a
+    |                     runaway file filling the volume). Voice notes are tiny
+    |                     (Opus ~1KB/s); 50 MB is generous headroom.
+    |   allowed_media_hosts — download is refused unless media.url's host is in
+    |                     this allow-list (SSRF guard — we only ever fetch our own
+    |                     WAHA). Defaults to base_url's host.
+    */
+    'waha' => [
+        'base_url' => rtrim((string) env('WAHA_BASE_URL', 'http://127.0.0.1:3111'), '/'),
+        'api_key'  => env('WAHA_API_KEY'),
+        'download_timeout_seconds' => (int) env('WAHA_MEDIA_DOWNLOAD_TIMEOUT', 30),
+        'max_media_bytes' => (int) env('WAHA_MEDIA_MAX_BYTES', 50 * 1024 * 1024),
+        'allowed_media_hosts' => array_values(array_filter(array_map('trim', explode(
+            ',',
+            (string) env('WAHA_ALLOWED_MEDIA_HOSTS', '127.0.0.1,localhost')
+        )))),
+    ],
+
 ];

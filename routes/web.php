@@ -1700,6 +1700,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'index'])->name('index');
         Route::get('/thread/{threadKey}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'thread'])->name('thread')->where('threadKey', '.*');
         Route::get('/message/{communication}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'show'])->name('show');
+        // AT-148 — authenticated media serve (WhatsApp voice notes). Streamed from
+        // the mounted volume through Laravel; per-thread gated in the controller.
+        Route::get('/attachment/{attachment}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'attachment'])->name('attachment');
     });
 
     // ── Communication Archive — mailbox config (AT-33) — tighter: editing IMAP
