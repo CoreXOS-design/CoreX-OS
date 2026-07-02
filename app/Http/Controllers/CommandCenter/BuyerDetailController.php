@@ -25,7 +25,7 @@ class BuyerDetailController extends Controller
 
         // Eager-load the contact's wishlists for the new tab. Sort primary
         // first so the card layout naturally puts the primary at the top.
-        $contact->load('createdBy');
+        $contact->load('agent');
         $contact->setRelation(
             'matches',
             $contact->matches()->orderByDesc('is_primary')->orderByDesc('updated_at')->get()
@@ -272,7 +272,7 @@ class BuyerDetailController extends Controller
             'buyer_state_at_loss' => $contact->buyer_state,
             'days_in_pipeline_at_loss' => $contact->buyer_pipeline_entered_at ? (int) $contact->buyer_pipeline_entered_at->diffInDays(now()) : null,
             'days_since_last_activity_at_loss' => $contact->last_activity_at ? (int) $contact->last_activity_at->diffInDays(now()) : null,
-            'agent_owner_user_id_at_loss' => $contact->created_by_user_id,
+            'agent_owner_user_id_at_loss' => $contact->agent_id, // AT-159: owner = assigned agent, not capturer
             'branch_id_at_loss' => $contact->branch_id,
             'created_at' => now(),
             'updated_at' => now(),

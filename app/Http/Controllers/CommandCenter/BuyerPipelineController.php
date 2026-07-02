@@ -25,7 +25,7 @@ class BuyerPipelineController extends Controller
 
         // AT-74 — eager-load wishlists so the "No core match" tag (hasCountableWishlist)
         // is computed per card without an N+1.
-        $query = Contact::buyers()->with(['createdBy', 'matches']);
+        $query = Contact::buyers()->with(['agent', 'matches']);
 
         // Layer 3 pipeline scope is driven by the explicit ?scope= param for
         // ALL roles. Admins still see everything BY DEFAULT because
@@ -39,7 +39,9 @@ class BuyerPipelineController extends Controller
             $query->where('buyer_state', $stateFilter);
         }
         if ($agentFilter) {
-            $query->where('created_by_user_id', (int) $agentFilter);
+            // AT-159: the pipeline agent is the ASSIGNED agent (contacts.agent_id),
+            // never the capturer (created_by_user_id). Filter on the loaded agent.
+            $query->where('agent_id', (int) $agentFilter);
         }
 
         // Drill-down from a prospecting listing: show only buyers who have an
@@ -171,15 +173,15 @@ class BuyerPipelineController extends Controller
     private function applyPipelineScope(Builder $query, $user, string $scope): void
     {
         if ($scope === 'own') {
-            $query->where('contacts.created_by_user_id', $user->id);
+            $query->where('contacts.agent_id', $user->id);
         } elseif ($scope === 'branch') {
             $branchId = $user->effectiveBranchId() ?? $user->branch_id;
             if ($branchId) {
-                $query->whereIn('contacts.created_by_user_id', function ($sub) use ($branchId) {
+                $query->whereIn('contacts.agent_id', function ($sub) use ($branchId) {
                     $sub->select('id')->from('users')->where('branch_id', $branchId)->whereNull('deleted_at');
                 });
             } else {
-                $query->where('contacts.created_by_user_id', $user->id);
+                $query->where('contacts.agent_id', $user->id);
             }
         }
         // 'agency' = no additional filter (Layer 2 controls access)
