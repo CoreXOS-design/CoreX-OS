@@ -871,7 +871,7 @@
                 <div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
                     <div style="background:#ffffff; padding:12px; border-radius:6px; border:1px solid var(--border); width:224px; height:224px; display:flex; align-items:center; justify-content:center;">
                         <img :src="qrSrc" alt="WhatsApp pairing QR" style="width:200px; height:200px; display:block;"
-                             @error="qrError = true" x-show="!qrError">
+                             x-on:error="qrError = true" x-show="!qrError">
                         <span x-show="qrError" x-cloak style="font-size:0.75rem; color:var(--text-muted); text-align:center;">Waiting for QR…</span>
                     </div>
                     <div style="flex:1; min-width:220px;">
