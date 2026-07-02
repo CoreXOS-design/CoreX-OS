@@ -169,11 +169,16 @@ Rules (mirror the P24 mapper discipline):
   Safe, ADSL/Fibre, 24 Hour Access) is skipped, not mapped to a near-miss.
 - **Present-only.** A flag is emitted only when the feature is present; absent
   features send no attribute (so only the "yes" value is ever transmitted).
-- **Boolean value = `PrivatePropertyListingMapper::ATTR_PRESENT` (`"true"`)** —
-  the WSDL types `Value` as a plain string. Verified against the live feed on
-  2026-07-01: property 6049 submitted with `Value="true"` on every flag returned
-  `UpdateListingResult: "Successful"` (strict enum ⇒ all types + value accepted).
-  This constant is the single source of truth if PP's accepted value ever changes.
+- **Boolean value = `PrivatePropertyListingMapper::ATTR_PRESENT` (`"Yes"`)** —
+  the WSDL types `Value` as a plain string, but PP stores/displays boolean
+  amenities as `"Yes"`. CORRECTION (2026-07-02): `"true"` is ACCEPTED by
+  UpdateListing (`UpdateListingResult: "Successful"`) but SILENTLY DROPPED — the
+  feature never appears on the portal. Confirmed via
+  `GetFullDetailsOfAllListingsByBranch`: property 6049 pushed with `"true"` had
+  zero amenities stored; re-pushed with `"Yes"`, every amenity (Electric_Fencing,
+  Alarm, Fence, Satelite, TV, …) appeared. This was the root cause of "almost no
+  features show on PP". Count-type attributes (Bedrooms, EnSuite, Lounges, …) use
+  the integer value, NOT `"Yes"`. This constant is the single source of truth.
 
 Feature resolution is shared with the portal layer via the
 `App\Services\Syndication\Concerns\ResolvesPropertyFeatures` trait

@@ -270,9 +270,36 @@ class CommandCenterApiController extends Controller
             ];
         })->values();
 
+        // Newer Flutter builds read `classes` (identical to `categories` but
+        // with the class value under `event_class`, plus `completion_behaviour`
+        // so the app can decide whether completing an event requires feedback
+        // capture). `categories` is retained verbatim above for older builds
+        // still on the pre-alignment contract — do NOT remove it.
+        $classes = collect(self::MANUAL_CREATABLE_CLASSES)->map(function ($class) use ($settings) {
+            $cfg = $settings->get($class);
+            return [
+                'event_class'               => $class,
+                'label'                     => $cfg?->label ?? ucwords(str_replace('_', ' ', $class)),
+                'allow_multiple_properties' => (bool) ($cfg?->allow_multiple_properties ?? false),
+                'actor_role'                => $cfg?->actor_role ?? 'both',
+                'completion_behaviour'      => $cfg?->completion_behaviour,
+            ];
+        })->values();
+
         return response()->json([
-            'categories' => $categories,
-            'priorities' => ['low', 'normal', 'high', 'critical'],
+            'categories'     => $categories,
+            'classes'        => $classes,
+            'priorities'     => ['low', 'normal', 'high', 'critical'],
+            // Attendee-role picker options. Keys are the create validator's
+            // attendee role enum MINUS agent_contact — that role is reserved
+            // for agents, which the backend auto-assigns (attendees[].type =
+            // agent → agent_contact link), so it must never be a user-pickable
+            // option for a contact attendee.
+            'attendee_roles' => [
+                ['key' => 'attendee',        'label' => 'Attendee'],
+                ['key' => 'buyer_contact',   'label' => 'Buyer'],
+                ['key' => 'seller_contact',  'label' => 'Seller'],
+            ],
         ]);
     }
 
