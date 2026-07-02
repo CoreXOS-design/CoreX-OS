@@ -11,7 +11,8 @@ class ConflictDetectionService
 {
     /**
      * Check if a user has conflicting events in the given time range.
-     * Only appointment-type events (actor_role != 'neither') count as conflicts.
+     * Only time-occupying events (occupies_time=true) count as conflicts;
+     * markers/reminders (occupies_time=false) never do.
      */
     public function checkUserConflicts(int $userId, string $startsAt, string $endsAt, ?int $excludeEventId = null): array
     {
