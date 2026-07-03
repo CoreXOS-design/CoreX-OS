@@ -1534,6 +1534,13 @@
                 @endif
                 @endpermission
 
+                {{-- WS8 — pipeline overview (branch_manager + admin only) --}}
+                @permission('deals_v2.view_overview')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.overview'))
+                <a href="{{ route('deals-v2.overview') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.overview') ? 'active' : '' }}">Pipeline Overview</a>
+                @endif
+                @endpermission
+
                 @permission('deals_v2.manage_pipeline')
                 @if(\Illuminate\Support\Facades\Route::has('deals-v2.pipeline.index'))
                 <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.pipeline.*') ? 'active' : '' }}">Pipeline Setup</a>

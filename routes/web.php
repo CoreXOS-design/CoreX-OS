@@ -656,6 +656,11 @@ Route::prefix('deals-v2/secure-doc')->group(function () {
 
 Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:access_deal_register_v2');
+    // WS8 (§12) — pipeline overview (KPI cards + milestone board), branch_manager
+    // + admin only; and CSV export of the filtered register. Static paths BEFORE
+    // the /{deal} wildcard so they are not captured as a deal id.
+    Route::get('/overview', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'overview'])->name('deals-v2.overview')->middleware('permission:deals_v2.view_overview');
+    Route::get('/export', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'exportCsv'])->name('deals-v2.export')->middleware('permission:access_deal_register_v2');
     // WS2 — attach a directory provider to a deal under a provider role.
     Route::post('/{deal}/providers', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'attach'])->name('deals-v2.providers.attach')->middleware('permission:deals_v2.edit');
     // WS3 (D4) — upload a document directly onto a deal + gated download.

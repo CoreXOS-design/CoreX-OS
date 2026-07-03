@@ -237,9 +237,16 @@ class DealV2 extends Model
         return $query->where('status', 'active');
     }
 
-    public function scopeVisibleTo($query, User $user)
+    /**
+     * @param  string|null  $requestedScope  Overview scope-switcher request
+     *   (own|branch|all|company). Server-authoritative: CLAMPED to the user's
+     *   permitted scope — a switcher can only NARROW, never widen the gate
+     *   (WS8, §12). Null/absent = the user's full permitted scope (existing
+     *   behaviour, so all current callers are unaffected).
+     */
+    public function scopeVisibleTo($query, User $user, ?string $requestedScope = null)
     {
-        $scope = PermissionService::getDataScope($user, 'deals_v2');
+        $scope = self::clampScope($requestedScope, PermissionService::getDataScope($user, 'deals_v2'));
 
         if ($scope === 'all') {
             return $query;
@@ -254,6 +261,25 @@ class DealV2 extends Model
               ->orWhere('selling_agent_id', $user->id)
               ->orWhere('created_by_id', $user->id);
         });
+    }
+
+    /**
+     * Narrow the requested scope to at most the permitted scope. Ranking
+     * own(1) < branch(2) < all(3); "company" is an alias for "all". Returns the
+     * MIN of requested and permitted, so a branch manager asking for "all"
+     * still gets "branch", and any junk falls back to permitted.
+     */
+    public static function clampScope(?string $requested, ?string $permitted): string
+    {
+        $rank = ['own' => 1, 'branch' => 2, 'all' => 3, 'company' => 3];
+        $permitted = $permitted ?: 'own';
+        $permRank = $rank[$permitted] ?? 1;
+        if ($requested === null || ! isset($rank[$requested])) {
+            return $permitted === 'company' ? 'all' : $permitted;
+        }
+        $effRank = min($rank[$requested], $permRank);
+
+        return array_search($effRank, ['own' => 1, 'branch' => 2, 'all' => 3], true) ?: 'own';
     }
 
     // ── Helper Methods ──
