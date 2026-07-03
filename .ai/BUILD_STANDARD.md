@@ -148,9 +148,24 @@ A feature is DONE only when ALL apply:
 - [ ] Sibling occurrences of any fixed bug-class also fixed
 - [ ] Navigation entry + permission gate present
 - [ ] Verification report states WHICH input paths were proven
+- [ ] **Reference data travels with the deploy.** If the feature relies on
+      GLOBAL reference rows (settings/types/classes/permissions), those rows are
+      provisioned by a MIGRATION BACKFILL, or the owning seeder is registered in
+      `deploy:sync-reference-data`. Seeders do NOT run on `git pull` deploys — a
+      seeded-only row that isn't registered will silently fail to reach live
+      (AT-162: the "Private" calendar type missing on live). Verify the row
+      exists on the target after promotion.
 
 If any box is unchecked, the feature is not done — regardless of how
 many tests pass.
+
+### Deploy sequence (every promotion)
+
+`git pull` → `php artisan migrate --force` → **`php artisan deploy:sync-reference-data`**
+(idempotent, global-scope) → `view:clear` + `route:clear` + `config:clear` →
+reload php-fpm → restart the queue worker. The reference-data step is
+non-optional: it is the only thing that carries seeder-owned GLOBAL reference
+rows across environments.
 
 ---
 

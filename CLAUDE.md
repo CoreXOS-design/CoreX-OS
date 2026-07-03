@@ -222,11 +222,16 @@ The reason: a stale demo is a dead demo. Walkthroughs that hit empty tables, mis
       Do NOT mark done until all verification passes.
    g. git add + commit + push to origin/<current branch> (non-negotiable #11).
       No work is "done" until it is on the remote.
-   h. Demo deployment (non-negotiable #12) — if the change touches DB, schema,
-      seeder, or anything the demo persona will see: deploy to the demo host
-      (git pull + php artisan migrate + view:clear + config:clear; reseed if
-      data-shape changed) and verify parity against local. Report the demo
-      verification result.
+   h. Demo/live deployment (non-negotiable #12) — if the change touches DB, schema,
+      seeder, or anything the persona will see: deploy to the target host in this
+      order — git pull → `php artisan migrate --force` →
+      **`php artisan deploy:sync-reference-data`** (idempotent, global-scope —
+      carries seeder-owned GLOBAL reference rows that `migrate` does NOT; seeders
+      never run on a `git pull` deploy — AT-162) → view:clear + route:clear +
+      config:clear → reload php-fpm → restart the worker. Verify parity against
+      local and report the verification result. If the feature added a
+      must-travel GLOBAL reference row, either backfill it IN the migration or
+      register its seeder in `deploy:sync-reference-data`.
    i. Update `.ai/CHAT_STARTER.md` — move items between sections
       (LIVE / IN FLIGHT / SPECCED / PARKED) to reflect what landed, prepend a
       dated entry to the Recent decisions log if a decision was made, remove
