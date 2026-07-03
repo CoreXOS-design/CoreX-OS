@@ -4101,6 +4101,10 @@ function continuousMonth() {
         _params: '',
         _restoreAnchor: null,
         _anchorTimer: null,
+        // Gate 7 — live-RAG loop
+        pollSeconds: {{ (int) ($pollSeconds ?? 60) }},
+        _gridPoll: null,
+        _refreshingGrid: false,
 
         initMonth() {
             const months = this.$refs.months;
@@ -4132,6 +4136,48 @@ function continuousMonth() {
             // Expose a scroll-to-today hook to the toolbar Today control.
             window.addEventListener('calendar:today', () => this.scrollToDate(new Date().toISOString().slice(0, 10)));
             window.addEventListener('calendar:jump', (e) => { if (e.detail) this.scrollToDate(e.detail); });
+
+            // Gate 7 — live-RAG loop: refetch visible month blocks on focus/visibility
+            // + a light poll, so RAG changed elsewhere (a DR2 step ticked in another
+            // tab) repaints without a full reload. The demo moment:
+            //   red deal chip → complete in new tab → return here → focus refetch → green.
+            window.addEventListener('focus', () => this.refreshGrid());
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refreshGrid(); });
+            const secs = Math.max(15, this.pollSeconds || 60);
+            this._gridPoll = setInterval(() => { if (!document.hidden) this.refreshGrid(); }, secs * 1000);
+        },
+
+        /* Re-fetch the month blocks near the viewport and replace them in place. Uses
+           the SAME /calendar/month-block renderer, so RAG (chip + aggregate-chip
+           colours) repaints server-side with zero page reload. Scroll position and
+           active layer toggles are preserved. */
+        async refreshGrid() {
+            if (this._refreshingGrid || document.hidden) return;
+            const el = this.$refs.scroller;
+            const months = this.$refs.months;
+            if (!el || !months) return;
+            this._refreshingGrid = true;
+            const beforeTop = el.scrollTop;
+            const viewTop = el.getBoundingClientRect().top;
+            const viewBottom = viewTop + el.clientHeight;
+            const blocks = Array.from(months.querySelectorAll('.cal-month-block'));
+            for (const b of blocks) {
+                const r = b.getBoundingClientRect();
+                if (r.bottom < viewTop - 240 || r.top > viewBottom + 240) continue; // only near-visible
+                const parts = b.dataset.month.split('-').map(Number);
+                const html = await this._fetchBlock(parts[0], parts[1]);
+                if (!html) continue;
+                const tmp = document.createElement('div');
+                tmp.innerHTML = html.trim();
+                const node = tmp.firstElementChild;
+                if (!node) continue;
+                b.replaceWith(node);
+                if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(node);
+            }
+            // Re-apply layer visibility to the refreshed blocks; restore scroll.
+            window.dispatchEvent(new Event('calendar:block-appended'));
+            el.scrollTop = beforeTop;
+            this._refreshingGrid = false;
         },
 
         _monthUrl(y, m) {
