@@ -21,9 +21,40 @@
         'id'        => 'ID Copy',
         'por'       => 'Proof of Residence',
     ];
+    $storeRoute    = $isSettings ? route('admin.settings.document-types.store') : route('admin.splitter.doc-types.store');
+    $bulkSaveRoute = $isSettings ? route('admin.settings.document-types.bulk-save') : route('admin.splitter.doc-types.bulk-save');
 @endphp
 
-<div class="w-full space-y-6">
+{{-- AT-166 — component-scoped styles. Own classes (NOT Tailwind arbitrary utilities),
+     so they survive the git-pull + view:clear deploy with no `npm run build` (calendar §3). --}}
+<style>
+    [x-cloak] { display: none !important; }
+    .dt-pill {
+        display: inline-flex; align-items: center; gap: .375rem;
+        padding: .3rem .7rem; border-radius: 9999px; cursor: pointer;
+        font-size: .78rem; line-height: 1; user-select: none; white-space: nowrap;
+        border: 1px solid var(--border); color: var(--text-secondary);
+        background: var(--surface); transition: background .12s, border-color .12s, color .12s;
+    }
+    .dt-pill:hover { border-color: var(--border-hover, var(--brand-icon)); }
+    .dt-pill[data-on="true"] {
+        background: color-mix(in srgb, var(--brand-icon) 16%, transparent);
+        border-color: var(--brand-icon); color: var(--brand-icon); font-weight: 600;
+    }
+    .dt-pill[data-on="true"].dt-pill-green {
+        background: color-mix(in srgb, var(--ds-green) 16%, transparent);
+        border-color: var(--ds-green); color: var(--ds-green);
+    }
+    .dt-pill input { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .dt-group[data-gated="true"] { opacity: .4; pointer-events: none; }
+    .dt-row-head { display: flex; align-items: center; gap: .75rem; padding: .625rem .875rem; cursor: pointer; }
+    .dt-row-head:hover { background: var(--surface-2); }
+    .dt-chevron { transition: transform .15s; }
+    .dt-chevron[data-open="true"] { transform: rotate(180deg); }
+    .dt-field-label { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: .4rem; }
+</style>
+
+<div class="w-full space-y-6" x-data="docTypesPage()">
 
     {{-- Page header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -61,14 +92,9 @@
         </div>
     @endif
 
-    @php
-        $storeRoute = $isSettings ? route('admin.settings.document-types.store') : route('admin.splitter.doc-types.store');
-        $bulkSaveRoute = $isSettings ? route('admin.settings.document-types.bulk-save') : route('admin.splitter.doc-types.bulk-save');
-    @endphp
-
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        {{-- LEFT: Add New Type --}}
+        {{-- LEFT: Add New Type (unchanged behaviour) + Legend --}}
         <div class="lg:col-span-1 space-y-4">
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                 <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">Add New Type</h3>
@@ -143,36 +169,35 @@
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                 <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">How It Works</h3>
                 <p class="text-sm leading-relaxed mb-3" style="color: var(--text-secondary);">
-                    Assign <strong style="color: var(--text-primary);">listing types</strong> to each document type to control which file upload folders appear on a property's <strong style="color: var(--text-primary);">Drive</strong> tab.
+                    Each document type is a full-width row — click it to open its settings. Assign <strong style="color: var(--text-primary);">listing types</strong> to control which upload folders appear on a property's <strong style="color: var(--text-primary);">Drive</strong> tab.
                 </p>
                 <div class="space-y-2">
-                    <div class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
-                        <span class="ds-badge ds-badge-success">For Sale</span>
-                        <span>appears on sale listings only</span>
-                    </div>
-                    <div class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
-                        <span class="ds-badge ds-badge-info">For Rent</span>
-                        <span>appears on rental listings only</span>
-                    </div>
-                    <div class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
-                        <span class="ds-badge ds-badge-default">Both</span>
-                        <span>appears on all listings</span>
-                    </div>
-                    <div class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
-                        <span class="ds-badge ds-badge-default">None</span>
-                        <span>appears on no listings</span>
-                    </div>
+                    <div class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);"><span class="ds-badge ds-badge-success">For Sale</span><span>sale listings only</span></div>
+                    <div class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);"><span class="ds-badge ds-badge-info">For Rent</span><span>rental listings only</span></div>
+                    <div class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);"><span class="ds-badge ds-badge-default">All listings</span><span>every listing</span></div>
                 </div>
             </div>
         </div>
 
-        {{-- RIGHT: Existing Types --}}
+        {{-- RIGHT: search + Save All + full-width expandable rows (NO horizontal scroll) --}}
         <div class="lg:col-span-2">
+
+            {{-- Search / filter (client-side; not a form field) --}}
+            <div class="mb-3 relative">
+                <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style="color: var(--text-muted);" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/></svg>
+                <input type="text" x-model="q" placeholder="Search document types by name or slug…"
+                       class="w-full rounded-md pl-9 pr-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
+
             <form method="POST" action="{{ $bulkSaveRoute }}" id="bulkForm">
                 @csrf
 
-                <div class="mb-3 flex items-center justify-between">
-                    <p class="text-sm" style="color: var(--text-muted);">Showing {{ number_format($types->count()) }} document {{ \Illuminate\Support\Str::plural('type', $types->count()) }}</p>
+                <div class="mb-3 flex items-center justify-between gap-3">
+                    <p class="text-sm" style="color: var(--text-muted);">
+                        <span x-show="q === ''">Showing {{ number_format($types->count()) }} document {{ \Illuminate\Support\Str::plural('type', $types->count()) }}</span>
+                        <span x-show="q !== ''" x-cloak><span x-text="shown"></span> of {{ number_format($types->count()) }} shown</span>
+                    </p>
                     <button type="submit" class="corex-btn-primary">Save All Changes</button>
                 </div>
 
@@ -186,190 +211,154 @@
                         <p class="text-sm" style="color: var(--text-muted);">Add your first document type using the form on the left.</p>
                     </div>
                 @else
-                    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full text-sm ds-table">
-                                <thead>
-                                    <tr style="background: var(--surface-2);">
-                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-20" style="color: var(--text-muted);">Order</th>
-                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Label</th>
-                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Slug</th>
-                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Listing Type</th>
-                                        <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-40" style="color: var(--text-muted);">
-                                            <span class="cursor-help" title="When the PDF Splitter files a document of this type, save it to the property record, the linked seller/owner contact, or both. Tick either or both. Applies to this agency only.">Save To &#9432;</span>
-                                        </th>
-                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-36" style="color: var(--text-muted);">
-                                            <span class="cursor-help" title="Which party a split page of this type is assigned to on the review screen. 'Seller / Owner' covers both seller and owner roles. Applies to this agency only.">Routes To &#9432;</span>
-                                        </th>
-                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-36" style="color: var(--text-muted);">
-                                            <span class="cursor-help" title="If this is a FICA document, which wet-ink FICA upload slot it fills (FICA Form, ID Copy, or Proof of Residence). Pages of FICA types are grouped per assigned contact into one verification each. Applies to this agency only.">FICA Slot &#9432;</span>
-                                        </th>
-                                        <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-24" style="color: var(--text-muted);">Active</th>
-                                        <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-32" style="color: var(--text-muted);">
-                                            <span class="cursor-help" title="When ticked, a property cannot be marketed until at least one document of this type is on its Drive. Applies to this agency only. Photos and listing details are always required.">Compliance required &#9432;</span>
-                                        </th>
-                                        <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-28" style="color: var(--text-muted);">
-                                            <span class="cursor-help" title="Catalogue default: when ticked, this document type can be selected into a buyer's Viewing Pack across all agencies, unless an agency overrides it.">Buyer Pack (default) &#9432;</span>
-                                        </th>
-                                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-36" style="color: var(--text-muted);">
-                                            <span class="cursor-help" title="This agency's override of the buyer-pack default. 'Inherit' uses the catalogue default; 'Eligible' / 'Not eligible' force this agency's own choice.">Buyer Pack (this agency) &#9432;</span>
-                                        </th>
-                                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-20" style="color: var(--text-muted);">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach($types as $i => $t)
-                                    @php
-                                        $assigned = $t->listing_types ?? [];
-                                        $dest  = $destinationMap[$t->id] ?? ['property' => true, 'contact' => false];
-                                        $route = $routingMap[$t->id] ?? ['contact_roles' => [], 'fica_slot' => 'none'];
-                                        // Viewing Pack — per-agency override: present in the map only
-                                        // when set (true/false); absent => inherit the catalogue default.
-                                        $eligOverride = array_key_exists($t->id, $eligibilityMap ?? [])
-                                            ? ($eligibilityMap[$t->id] ? 'yes' : 'no')
-                                            : 'inherit';
-                                    @endphp
-                                    {{-- AT-105 — Routes-To/FICA are gated on the Contact destination (meaningless
-                                         without it). Greyed via pointer-events (NOT `disabled`) so saved roles still
-                                         POST and are never wiped when Contact is un-ticked. --}}
-                                    <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                                        x-data="{ contact: {{ $dest['contact'] ? 'true' : 'false' }} }">
-                                        <td class="px-4 py-3">
-                                            <input type="hidden" name="types[{{ $i }}][id]" value="{{ $t->id }}">
-                                            <input type="number" name="types[{{ $i }}][sort_order]" value="{{ $t->sort_order }}"
-                                                   class="w-16 rounded-md px-2 py-1 text-sm text-center"
-                                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                                   min="0">
-                                        </td>
-                                        <td class="px-4 py-3">
-                                            <input type="text" name="types[{{ $i }}][label]" value="{{ $t->label }}"
-                                                   class="w-full rounded-md px-2 py-1 text-sm"
-                                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                        </td>
-                                        <td class="px-4 py-3 font-mono text-xs" style="color: var(--text-muted);">{{ $t->slug }}</td>
-                                        <td class="px-4 py-3">
-                                            <div x-data="{ open: false }" class="relative" @click.outside="open = false">
-                                                <button type="button" @click="open = !open"
-                                                        class="w-full flex items-center justify-between gap-1 rounded-md px-2 py-1.5 text-sm text-left transition-colors"
-                                                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); min-width: 140px;">
-                                                    <span class="truncate">
-                                                        @if(empty($assigned) || count($assigned) === 2)
-                                                            <span class="ds-badge ds-badge-default">All listings</span>
-                                                        @elseif(in_array('sale', $assigned))
-                                                            <span class="ds-badge ds-badge-success">For Sale</span>
-                                                        @elseif(in_array('rental', $assigned))
-                                                            <span class="ds-badge ds-badge-info">For Rent</span>
-                                                        @endif
-                                                    </span>
-                                                    <svg class="w-3 h-3 flex-shrink-0 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                                                </button>
-                                                <div x-show="open" x-cloak x-transition
-                                                     class="absolute z-50 mt-1 w-44 rounded-md py-1"
-                                                     style="background: var(--surface); border: 1px solid var(--border); right: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
-                                                    <label class="flex items-center gap-2 px-3 py-2 cursor-pointer text-sm transition-colors hover:bg-[var(--surface-2)]"
-                                                           style="color: var(--text-secondary);">
-                                                        <input type="checkbox"
-                                                               name="types[{{ $i }}][listing_types][]"
-                                                               value="sale"
-                                                               {{ in_array('sale', $assigned) ? 'checked' : '' }}
-                                                               class="rounded" style="accent-color: var(--ds-green);">
-                                                        <span>For Sale</span>
-                                                    </label>
-                                                    <label class="flex items-center gap-2 px-3 py-2 cursor-pointer text-sm transition-colors hover:bg-[var(--surface-2)]"
-                                                           style="color: var(--text-secondary);">
-                                                        <input type="checkbox"
-                                                               name="types[{{ $i }}][listing_types][]"
-                                                               value="rental"
-                                                               {{ in_array('rental', $assigned) ? 'checked' : '' }}
-                                                               class="rounded" style="accent-color: var(--brand-icon);">
-                                                        <span>For Rent</span>
-                                                    </label>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="px-4 py-3">
-                                            <div class="flex items-center justify-center gap-3">
-                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-secondary);"
-                                                       title="Save a {{ $t->label }} to the property's Drive.">
-                                                    <input type="checkbox" name="types[{{ $i }}][save_to_property]" value="1"
-                                                           {{ $dest['property'] ? 'checked' : '' }}
-                                                           class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--brand-icon);">
-                                                    Property
+                    <div class="space-y-2">
+                        @foreach($types as $i => $t)
+                        @php
+                            $assigned = $t->listing_types ?? [];
+                            $dest  = $destinationMap[$t->id] ?? ['property' => true, 'contact' => false];
+                            $route = $routingMap[$t->id] ?? ['contact_roles' => [], 'fica_slot' => 'none'];
+                            $eligOverride = array_key_exists($t->id, $eligibilityMap ?? [])
+                                ? ($eligibilityMap[$t->id] ? 'yes' : 'no')
+                                : 'inherit';
+                            $hay = \Illuminate\Support\Str::lower($t->label . ' ' . $t->slug);
+                            // Collapsed-summary listing-type badge
+                            if (empty($assigned) || count($assigned) === 2) { $ltBadge = ['All listings', 'ds-badge-default']; }
+                            elseif (in_array('sale', $assigned)) { $ltBadge = ['For Sale', 'ds-badge-success']; }
+                            else { $ltBadge = ['For Rent', 'ds-badge-info']; }
+                        @endphp
+                        {{-- FULL-WIDTH ROW. Every types[..] field stays in the DOM (x-show = display:none,
+                             which still POSTs) so Save All captures collapsed AND filtered rows. Contact
+                             gating uses opacity/pointer-events (NOT `disabled`) so roles/FICA still POST
+                             when Contact is un-ticked. --}}
+                        <div class="dt-row rounded-md" style="background: var(--surface); border: 1px solid var(--border);"
+                             x-show="matches(@js($hay))"
+                             x-data="{ contact: {{ $dest['contact'] ? 'true' : 'false' }}, open: false }">
+                            <input type="hidden" name="types[{{ $i }}][id]" value="{{ $t->id }}">
+
+                            {{-- COLLAPSED HEAD — label + slug always visible --}}
+                            <div class="dt-row-head" @click="open = !open">
+                                {{-- order --}}
+                                <div @click.stop title="Display order">
+                                    <input type="number" name="types[{{ $i }}][sort_order]" value="{{ $t->sort_order }}" min="0"
+                                           class="w-14 rounded-md px-2 py-1 text-sm text-center"
+                                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                </div>
+                                {{-- label (full, editable) + slug --}}
+                                <div class="flex-1 min-w-0" @click.stop>
+                                    <input type="text" name="types[{{ $i }}][label]" value="{{ $t->label }}"
+                                           class="w-full rounded-md px-2 py-1 text-sm font-medium"
+                                           style="background: transparent; border: 1px solid transparent; color: var(--text-primary);"
+                                           onfocus="this.style.background='var(--surface-2)';this.style.borderColor='var(--border)';"
+                                           onblur="this.style.background='transparent';this.style.borderColor='transparent';">
+                                    <span class="font-mono text-xs px-2" style="color: var(--text-muted);">{{ $t->slug }}</span>
+                                </div>
+                                {{-- collapsed summary badges --}}
+                                <div class="hidden sm:flex items-center gap-1.5 flex-shrink-0">
+                                    <span class="ds-badge {{ $ltBadge[1] }}">{{ $ltBadge[0] }}</span>
+                                    @if($dest['property'])<span class="ds-badge ds-badge-default">Property</span>@endif
+                                    @if($dest['contact'])<span class="ds-badge ds-badge-default">Contact</span>@endif
+                                    @if(!$t->is_active)<span class="ds-badge ds-badge-default" style="opacity:.7;">Inactive</span>@endif
+                                </div>
+                                {{-- active toggle (Yes/No) --}}
+                                <div @click.stop title="Active">
+                                    <select name="types[{{ $i }}][is_active]" class="rounded-md px-2 py-1 text-sm"
+                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="1" {{ $t->is_active ? 'selected' : '' }}>Active</option>
+                                        <option value="0" {{ !$t->is_active ? 'selected' : '' }}>Inactive</option>
+                                    </select>
+                                </div>
+                                {{-- delete --}}
+                                <button type="button" @click.stop="" onclick="deleteDocType('{{ route('admin.splitter.doc-types.destroy', $t) }}', '{{ addslashes($t->label) }}')"
+                                        class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-crimson);" title="Delete">Delete</button>
+                                {{-- chevron --}}
+                                <svg class="dt-chevron w-4 h-4 flex-shrink-0" :data-open="open" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </div>
+
+                            {{-- EXPANDED BODY — grouped toggle pills --}}
+                            <div x-show="open" x-cloak x-transition.opacity
+                                 class="px-4 pb-4 pt-1" style="border-top: 1px solid var(--border);">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 pt-3">
+
+                                    {{-- Listing Type --}}
+                                    <div>
+                                        <div class="dt-field-label">Listing type <span class="normal-case font-normal" style="color:var(--text-muted);">— which Drive folders show</span></div>
+                                        <div class="flex flex-wrap gap-2">
+                                            <label class="dt-pill" x-data="{ on: {{ in_array('sale', $assigned) ? 'true':'false' }} }" :data-on="on">
+                                                <input type="checkbox" name="types[{{ $i }}][listing_types][]" value="sale" x-model="on">For Sale
+                                            </label>
+                                            <label class="dt-pill" x-data="{ on: {{ in_array('rental', $assigned) ? 'true':'false' }} }" :data-on="on">
+                                                <input type="checkbox" name="types[{{ $i }}][listing_types][]" value="rental" x-model="on">For Rent
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    {{-- Save to --}}
+                                    <div>
+                                        <div class="dt-field-label">Save to <span class="normal-case font-normal" style="color:var(--text-muted);">— where the splitter files it</span></div>
+                                        <div class="flex flex-wrap gap-2">
+                                            <label class="dt-pill" x-data="{ on: {{ $dest['property'] ? 'true':'false' }} }" :data-on="on">
+                                                <input type="checkbox" name="types[{{ $i }}][save_to_property]" value="1" x-model="on">Property
+                                            </label>
+                                            <label class="dt-pill dt-pill-green" :data-on="contact">
+                                                <input type="checkbox" name="types[{{ $i }}][save_to_contact]" value="1" x-model="contact">Contact
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    {{-- Routes to (gated on Contact) --}}
+                                    <div class="dt-group" :data-gated="!contact" :title="contact ? '' : 'Tick Contact (Save to) to route this type to a party'">
+                                        <div class="dt-field-label">Routes to <span class="normal-case font-normal" style="color:var(--text-muted);">— which party a page is assigned to</span></div>
+                                        <div class="flex flex-wrap gap-2">
+                                            @foreach($contactRoleOptions as $val => $human)
+                                                <label class="dt-pill dt-pill-green" x-data="{ on: {{ in_array($val, $route['contact_roles'] ?? []) ? 'true':'false' }} }" :data-on="on">
+                                                    <input type="checkbox" name="types[{{ $i }}][contact_roles][]" value="{{ $val }}" x-model="on">{{ $human }}
                                                 </label>
-                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-secondary);"
-                                                       title="Save a {{ $t->label }} to the linked contact(s). Enables Routes-To + FICA Slot.">
-                                                    <input type="checkbox" name="types[{{ $i }}][save_to_contact]" value="1" x-model="contact"
-                                                           {{ $dest['contact'] ? 'checked' : '' }}
-                                                           class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--ds-green);">
-                                                    Contact
-                                                </label>
-                                            </div>
-                                        </td>
-                                        <td class="px-4 py-3">
-                                            <div class="space-y-1" :style="contact ? '' : 'opacity:0.4; pointer-events:none;'"
-                                                 :title="contact ? '' : 'Tick Contact to route this type to a party'">
-                                                @foreach($contactRoleOptions as $val => $human)
-                                                    <label class="flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-secondary);">
-                                                        <input type="checkbox" name="types[{{ $i }}][contact_roles][]" value="{{ $val }}"
-                                                               {{ in_array($val, $route['contact_roles'] ?? []) ? 'checked' : '' }}
-                                                               class="rounded w-3.5 h-3.5" style="accent-color: var(--ds-green);">
-                                                        {{ $human }}
-                                                    </label>
-                                                @endforeach
-                                            </div>
-                                        </td>
-                                        <td class="px-4 py-3">
-                                            <select name="types[{{ $i }}][fica_slot]"
-                                                    class="w-full rounded-md px-2 py-1 text-sm"
-                                                    :style="contact ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); opacity:0.4; pointer-events:none;'">
-                                                @foreach($ficaSlotOptions as $val => $human)
-                                                    <option value="{{ $val }}" @selected($route['fica_slot']===$val)>{{ $human }}</option>
-                                                @endforeach
-                                            </select>
-                                        </td>
-                                        <td class="px-4 py-3 text-center">
-                                            <select name="types[{{ $i }}][is_active]"
-                                                    class="rounded-md px-2 py-1 text-sm"
-                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                                <option value="1" {{ $t->is_active ? 'selected' : '' }}>Yes</option>
-                                                <option value="0" {{ !$t->is_active ? 'selected' : '' }}>No</option>
-                                            </select>
-                                        </td>
-                                        <td class="px-4 py-3 text-center">
-                                            <input type="checkbox" name="types[{{ $i }}][compliance_required]" value="1"
-                                                   {{ ($complianceMap[$t->id] ?? false) ? 'checked' : '' }}
-                                                   class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--ds-green);"
-                                                   title="Require a {{ $t->label }} on the property Drive before it can be marketed (this agency only).">
-                                        </td>
-                                        <td class="px-4 py-3 text-center">
-                                            {{-- Viewing Pack catalogue default (global) — checkbox. --}}
-                                            <input type="checkbox" name="types[{{ $i }}][buyer_pack_eligible]" value="1"
-                                                   {{ $t->buyer_pack_eligible ? 'checked' : '' }}
-                                                   class="rounded w-4 h-4 cursor-pointer" style="accent-color: var(--brand-icon);"
-                                                   title="Catalogue default: allow a {{ $t->label }} to be selected into a buyer's Viewing Pack (all agencies, unless overridden below).">
-                                        </td>
-                                        <td class="px-4 py-3">
-                                            {{-- Viewing Pack per-agency override — tri-state. --}}
-                                            <select name="types[{{ $i }}][buyer_pack_eligible_override]"
-                                                    class="w-full rounded-md px-2 py-1 text-sm"
+                                            @endforeach
+                                        </div>
+                                    </div>
+
+                                    {{-- FICA slot (gated on Contact) --}}
+                                    <div class="dt-group" :data-gated="!contact">
+                                        <div class="dt-field-label">FICA slot <span class="normal-case font-normal" style="color:var(--text-muted);">— wet-ink slot this fills</span></div>
+                                        <select name="types[{{ $i }}][fica_slot]" class="w-full max-w-xs rounded-md px-2 py-1.5 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            @foreach($ficaSlotOptions as $val => $human)
+                                                <option value="{{ $val }}" @selected($route['fica_slot']===$val)>{{ $human }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+
+                                    {{-- Compliance required (per-agency) --}}
+                                    <div>
+                                        <div class="dt-field-label">Compliance</div>
+                                        <label class="dt-pill dt-pill-green" x-data="{ on: {{ ($complianceMap[$t->id] ?? false) ? 'true':'false' }} }" :data-on="on"
+                                               title="Require a {{ $t->label }} on the property Drive before it can be marketed (this agency only).">
+                                            <input type="checkbox" name="types[{{ $i }}][compliance_required]" value="1" x-model="on">Required to market
+                                        </label>
+                                    </div>
+
+                                    {{-- Buyer pack (catalogue default + per-agency override) --}}
+                                    <div>
+                                        <div class="dt-field-label">Buyer pack (Viewing Pack)</div>
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <label class="dt-pill" x-data="{ on: {{ $t->buyer_pack_eligible ? 'true':'false' }} }" :data-on="on"
+                                                   title="Catalogue default: allow a {{ $t->label }} into a buyer's Viewing Pack (all agencies, unless overridden).">
+                                                <input type="checkbox" name="types[{{ $i }}][buyer_pack_eligible]" value="1" x-model="on">Eligible (default)
+                                            </label>
+                                            <select name="types[{{ $i }}][buyer_pack_eligible_override]" class="rounded-md px-2 py-1.5 text-sm"
                                                     style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                                    title="Override the catalogue default for this agency only.">
-                                                <option value="inherit" @selected($eligOverride === 'inherit')>Inherit (default)</option>
-                                                <option value="yes" @selected($eligOverride === 'yes')>Eligible</option>
-                                                <option value="no" @selected($eligOverride === 'no')>Not eligible</option>
+                                                    title="This agency's override of the catalogue default.">
+                                                <option value="inherit" @selected($eligOverride === 'inherit')>This agency: inherit</option>
+                                                <option value="yes" @selected($eligOverride === 'yes')>This agency: eligible</option>
+                                                <option value="no" @selected($eligOverride === 'no')>This agency: not eligible</option>
                                             </select>
-                                        </td>
-                                        <td class="px-4 py-3 text-right">
-                                            <button type="button" onclick="deleteDocType('{{ route('admin.splitter.doc-types.destroy', $t) }}', '{{ addslashes($t->label) }}')"
-                                                    class="text-xs font-semibold transition-colors"
-                                                    style="color: var(--ds-crimson);"
-                                                    title="Delete">Delete</button>
-                                        </td>
-                                    </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
                         </div>
+                        @endforeach
                     </div>
                 @endif
             </form>
@@ -390,6 +379,16 @@ function deleteDocType(url, label) {
     var form = document.getElementById('deleteDocTypeForm');
     form.action = url;
     form.submit();
+}
+function docTypesPage() {
+    return {
+        q: '',
+        get shown() {
+            if (this.q === '') return {{ $types->count() }};
+            return this.$root.querySelectorAll('.dt-row:not([style*="display: none"])').length;
+        },
+        matches(hay) { return this.q === '' || hay.indexOf(this.q.toLowerCase().trim()) !== -1; },
+    };
 }
 </script>
 
