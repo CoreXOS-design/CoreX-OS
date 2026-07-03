@@ -125,9 +125,9 @@
                                 </span>
                                 <span class="text-xs px-1.5 py-0.5 rounded flex-shrink-0" style="background: var(--surface-2); color: var(--text-muted);" x-text="completionLabel(step.completion_type)"></span>
                                 <span class="text-xs flex-shrink-0 ml-auto hidden sm:inline" style="color: var(--text-muted);" x-text="triggerLabel(step)"></span>
+                                {{-- Two-threshold RAG (AT-158 WS7): green is "not yet amber" — derived
+                                     from amber_days, no separate green threshold. Only amber + red shown. --}}
                                 <span class="flex-shrink-0 flex items-center gap-1 ml-2 hidden sm:flex">
-                                    <span class="inline-block w-2 h-2 rounded-full" style="background: #22c55e;" :title="step.rag_green_days + 'd'"></span>
-                                    <span class="text-xs font-mono" style="color: var(--text-muted);" x-text="step.rag_green_days"></span>
                                     <span class="inline-block w-2 h-2 rounded-full" style="background: #f59e0b;"></span>
                                     <span class="text-xs font-mono" style="color: var(--text-muted);" x-text="step.rag_amber_days"></span>
                                     <span class="inline-block w-2 h-2 rounded-full" style="background: #ef4444;"></span>
@@ -215,13 +215,11 @@
                                         </div>
                                     </div>
                                     <div class="rounded-lg p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
-                                        <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">RAG Thresholds (days)</div>
+                                        <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">RAG Thresholds (days before due)</div>
+                                        {{-- Two-threshold model (AT-158 WS7, Johan): a step is GREEN from the
+                                             start, turns AMBER at amber_days before due, RED at red_days, then
+                                             overdue. Green needs no threshold of its own (it's "not yet amber"). --}}
                                         <div class="flex items-center gap-3">
-                                            <div class="flex items-center gap-1">
-                                                <span class="w-2.5 h-2.5 rounded-full" style="background: #22c55e;"></span>
-                                                <input type="number" x-model="editForm.rag_green_days" min="1" class="w-14 rounded-md text-sm px-2 py-1 focus:outline-none text-center"
-                                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                            </div>
                                             <div class="flex items-center gap-1">
                                                 <span class="w-2.5 h-2.5 rounded-full" style="background: #f59e0b;"></span>
                                                 <input type="number" x-model="editForm.rag_amber_days" min="1" class="w-14 rounded-md text-sm px-2 py-1 focus:outline-none text-center"
@@ -373,7 +371,6 @@
                         trigger_type: 'after_step',
                         trigger_step_id: this.steps.length > 0 ? this.steps[this.steps.length - 1].id : null,
                         days_offset: 7,
-                        rag_green_days: 14,
                         rag_amber_days: 7,
                         rag_red_days: 3,
                         notify_agent: true,
@@ -411,7 +408,6 @@
                                 trigger_type: this.editForm.trigger_type,
                                 trigger_step_id: this.editForm.trigger_type === 'after_step' ? this.editForm.trigger_step_id : null,
                                 days_offset: parseInt(this.editForm.days_offset) || 0,
-                                rag_green_days: parseInt(this.editForm.rag_green_days) || 14,
                                 rag_amber_days: parseInt(this.editForm.rag_amber_days) || 7,
                                 rag_red_days: parseInt(this.editForm.rag_red_days) || 3,
                                 notify_agent: this.editForm.notify_agent ? 1 : 0,

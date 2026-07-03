@@ -42,7 +42,7 @@ class DealPipelineStepController extends Controller
         if ($step->is_locked) {
             $data = array_intersect_key($data, array_flip([
                 'name', 'description', 'days_offset',
-                'rag_green_days', 'rag_amber_days', 'rag_red_days',
+                'rag_amber_days', 'rag_red_days',
                 'notify_agent', 'notify_bm', 'notify_admin',
                 'trigger_step_id',
                 'status_trigger', 'negative_status_trigger', 'negative_outcome_label',
@@ -116,7 +116,11 @@ class DealPipelineStepController extends Controller
             'trigger_type' => ['required', 'in:on_creation,after_step,manual,on_date'],
             'trigger_step_id' => ['nullable', 'integer', 'exists:deal_pipeline_steps,id'],
             'days_offset' => ['required', 'integer', 'min:0'],
-            'rag_green_days' => ['required', 'integer', 'min:1'],
+            // AT-158 WS7 — two-threshold RAG (Johan): amber_days + red_days only.
+            // green is derived ("not yet amber"), no configurable green threshold.
+            // rag_green_days column is retained (the calendar tile resolver reads it)
+            // but is no longer set from the pipeline-setup UI; new steps take the
+            // column default. Reconciles to derived-green once AT-164 lands.
             'rag_amber_days' => ['required', 'integer', 'min:1'],
             'rag_red_days' => ['required', 'integer', 'min:1'],
             'notify_agent' => ['boolean'],

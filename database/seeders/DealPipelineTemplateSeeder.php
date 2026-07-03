@@ -134,7 +134,10 @@ class DealPipelineTemplateSeeder extends Seeder
                 'trigger_type' => $triggerType,
                 'trigger_step_id' => null,
                 'days_offset' => $daysOffset,
-                'rag_green_days' => $ragGreen,
+                // AT-158 WS7 — two-threshold RAG: green is derived ("not yet amber"),
+                // no seeded green threshold. rag_green_days keeps its column default
+                // (the calendar tile resolver still reads it until AT-164 reconciles
+                // it to derived-green). $ragGreen in the tuple is retained but unused.
                 'rag_amber_days' => $ragAmber,
                 'rag_red_days' => $ragRed,
                 'status_trigger' => $statusTrigger,
