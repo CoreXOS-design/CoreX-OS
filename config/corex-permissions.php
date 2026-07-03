@@ -568,7 +568,10 @@ return [
             // reveal_mailbox_credential is principal-only — admin must NOT inherit
             // it via the all-minus-exclude default (AT-37).
             // reveal_backup_password is likewise principal-only (AT-163).
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password'],
+            // calendar.tile.my_deals is FLAGGED HIDDEN behind the DR2 hold (AT-164 §15.5)
+            // — it must NOT be auto-granted to admin via all-minus-exclude; it lights up
+            // only when explicitly granted after DR2 ships.
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'calendar.tile.my_deals'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
