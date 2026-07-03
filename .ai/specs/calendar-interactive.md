@@ -211,9 +211,18 @@ All of the above is on **Staging (HELD from live)** except where a specific item
 
 ---
 
-# 15. Calendar Noise Redesign (AT-164) — SPEC, await approval
+# 15. Calendar Noise Redesign (AT-164) — AS-BUILT (Staging, HELD from live)
 
-> **Status:** SPEC. NO build until Johan approves. Johan-directed from live use: the month view drowns in
+> **Status:** AS-BUILT on **Staging (HELD from live)** — all 8 build gates (§15.10) shipped 2026-07-03 on
+> branch `AT-164-calendar-redesign`. Gates 1–2 (species split + server aggregation + aggregate-chip popover +
+> new-tab deep links) banked earlier; Gates 3–8 (Tile Library `<x-tile>` · Deck + launch tiles · continuous
+> vertical month scroll + JSON range/month-block endpoints · layer toggles · live-RAG focus/poll loop · frozen
+> mobile contract) this pass. Each gate carries a passing feature test (`tests/Feature/CommandCenter/Calendar*Test.php`).
+> My Deals tile ships FLAGGED HIDDEN behind `calendar.tile.my_deals` (seeded OFF; owner-bypass noted). Promotion
+> to live remains gated on Johan's explicit authorization. Original spec (below) authored before build; the shape
+> here is what shipped.
+>
+> Johan-directed from live use: the month view drowns in
 > system-deadline bars (6+ "Portal listing expiring" red bars/day bury the 3 real appointments). Design
 > settled Johan+Claude, patterned on Fantastical / Notion Calendar / Monday "My Work" / Outlook-web scroll.
 > **Investigation basis:** four parallel subagent audits (2026-07-03) of the render pipeline, the 8 feed
