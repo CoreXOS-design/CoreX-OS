@@ -545,6 +545,10 @@ return [
         // ── Backups (AT-163) — off-box restic backup status page ──
         ['key' => 'view_backups',                    'label' => 'View Backups (status, health, history)', 'section' => 'admin',   'type' => 'access',  'module' => 'backups',          'sort_order' => 1],
         ['key' => 'reveal_backup_password',          'label' => 'Reveal Backup Encryption Password (audited, principal only)', 'section' => 'admin', 'type' => 'action', 'module' => 'backups', 'sort_order' => 2],
+
+        // ── Misfiled Documents register (AT-167) ──
+        ['key' => 'access_misfiled_documents',       'label' => 'Access Misfiled Documents Register', 'section' => 'admin', 'type' => 'access', 'module' => 'filing', 'sort_order' => 5],
+        ['key' => 'misfiled_documents.refile',       'label' => 'Refile Misfiled Documents',          'section' => 'admin', 'type' => 'action', 'module' => 'filing', 'sort_order' => 6],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -573,6 +577,8 @@ return [
                 'sidebar.section.tools', 'sidebar.section.admin',
                 // Soft Deletes Register
                 'access_soft_deletes',
+                // Misfiled Documents register (AT-167)
+                'access_misfiled_documents', 'misfiled_documents.refile',
                 // Whistleblower
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
@@ -647,6 +653,7 @@ return [
                 'presentations.view', 'presentations.create', 'presentations.edit',
                 'access_filing_register',
                 'filing.view', 'filing.create', 'filing.edit',
+                'access_misfiled_documents', 'misfiled_documents.refile',
                 'access_commercial_evaluations',
                 'commercial_evals.view', 'commercial_evals.create', 'commercial_evals.edit',
                 'access_sales_documents',

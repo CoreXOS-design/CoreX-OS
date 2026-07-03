@@ -549,6 +549,35 @@ class PdfSplitterController extends Controller
                 ->withErrors(['pdf' => 'No pages were assigned to any label.']);
         }
 
+        // AT-167 — PREVENT AT SOURCE. A contact-only document type (Save-to =
+        // Contact, not Property) filed with NO contact assigned would otherwise
+        // fall back to the property — a misfile (an ID under the property's
+        // folder instead of the person's). Block the whole link and name exactly
+        // which pages need a contact, by document-type label. Data-driven: the
+        // contact-only decision comes from each agency's Save-to config, never a
+        // hardcoded slug list.
+        $destSvc    = app(AgencyComplianceDocTypeService::class);
+        $typeLabels = DocumentType::query()
+            ->whereIn('slug', collect($groups)->pluck('label')->filter()->unique()->all())
+            ->pluck('label', 'slug')->toArray();
+        $needsContact = [];
+        foreach ($groups as $g) {
+            $slug = $g['label'] ?? null;
+            if (! $slug) continue;
+            $dest = $destSvc->destinationForSlug($agencyId, $slug);
+            if ($dest['contact'] && ! $dest['property'] && empty($g['contact_ids'])) {
+                $name  = $typeLabels[$slug] ?? Str::headline($slug);
+                $pages = implode(', ', $g['pages']);
+                $needsContact[] = $name . ' (page' . (count($g['pages']) === 1 ? '' : 's') . ' ' . $pages . ')';
+            }
+        }
+        if (! empty($needsContact)) {
+            return redirect()->route('tools.pdf_splitter.review')->withErrors([
+                'pdf' => 'These are contact-only document types and can only be filed to a person — assign a contact to each before linking: '
+                    . implode('; ', $needsContact) . '. (Nothing was filed.)',
+            ]);
+        }
+
         Storage::disk('local')->makeDirectory($outDirRel);
         $outDirAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($outDirRel));
 
@@ -724,7 +753,7 @@ class PdfSplitterController extends Controller
         $slugs   = collect($groups)->pluck('label')->filter()->unique()->values();
         $typeMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('id', 'slug')->toArray();
 
-        $result = ['property' => 0, 'contact' => 0, 'fallback' => 0];
+        $result = ['property' => 0, 'contact' => 0, 'fallback' => 0, 'unfiled' => 0];
         foreach ($groups as $g) {
             $abs = $g['file'] ?? null;
             if (! $abs || ! is_file($abs)) continue;
@@ -776,8 +805,18 @@ class PdfSplitterController extends Controller
             }
 
             if (! $didAttach) {
-                $doc->properties()->attach($property->id);
-                $result['fallback']++;
+                // AT-167 — never silently anchor a contact-only type to the
+                // property (that is the misfile). link() blocks this at source;
+                // this is defence-in-depth for any other caller. A contact-only
+                // doc with no contact stays unlinked and surfaces in the Misfiled
+                // Documents register for refiling. Genuine property/shared types
+                // still fall back to the property (no-orphan).
+                if ($dest['contact'] && ! $dest['property']) {
+                    $result['unfiled']++;
+                } else {
+                    $doc->properties()->attach($property->id);
+                    $result['fallback']++;
+                }
             }
 
             // WS3 (D4) — when this split is anchored to a deal, auto-complete the
