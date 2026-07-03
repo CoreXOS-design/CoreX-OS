@@ -538,6 +538,10 @@ return [
 
         // ── Soft Deletes Register ──
         ['key' => 'access_soft_deletes',             'label' => 'Access Soft Deletes Register',  'section' => 'admin',           'type' => 'access',  'module' => 'soft_deletes',     'sort_order' => 1],
+
+        // ── Backups (AT-163) — off-box restic backup status page ──
+        ['key' => 'view_backups',                    'label' => 'View Backups (status, health, history)', 'section' => 'admin',   'type' => 'access',  'module' => 'backups',          'sort_order' => 1],
+        ['key' => 'reveal_backup_password',          'label' => 'Reveal Backup Encryption Password (audited, principal only)', 'section' => 'admin', 'type' => 'action', 'module' => 'backups', 'sort_order' => 2],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -552,7 +556,8 @@ return [
         'admin' => [
             // reveal_mailbox_credential is principal-only — admin must NOT inherit
             // it via the all-minus-exclude default (AT-37).
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential'],
+            // reveal_backup_password is likewise principal-only (AT-163).
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',

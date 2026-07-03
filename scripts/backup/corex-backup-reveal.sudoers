@@ -1,0 +1,6 @@
+# AT-163 — allow the web user (www-data) to reveal the OFF-BOX backup repo
+# password via the hardened helper ONLY, with NO arguments, no TTY, no password.
+# The in-app controller authorises (permission:reveal_backup_password) and writes
+# an immutable audit row BEFORE invoking this. The password file itself stays
+# root-only (0600) — this is the single sanctioned read path.
+www-data ALL=(root) NOPASSWD: /usr/local/bin/corex-reveal-backup-password ""

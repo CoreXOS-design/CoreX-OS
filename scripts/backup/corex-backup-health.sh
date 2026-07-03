@@ -17,14 +17,23 @@
 set -o pipefail
 umask 077
 
-STALE_HOURS=${STALE_HOURS:-36}          # AT-163: alert if the repo goes stale > 36h
+STALE_HOURS=${STALE_HOURS:-36}          # AT-163: alert if the repo goes stale > 36h (default)
 MAIL_TO=${MAIL_TO:-johan@hfcoastal.co.za}
 APP_DIR=/corex
+WWWGROUP=www-data
 
 LOG=/var/log/corex-offbox-backup.log
 STATEDIR=/var/lib/corex-backup
 HEALTH="$STATEDIR/last-success"
 STATUS="$STATEDIR/status.json"
+
+# Configurable threshold from the LIVE app DB (nexus_os = the box-global source of
+# truth, set on the in-app Backups page). Falls back to the default above.
+_db_hours=$(mysql -u root -N -e "SELECT value FROM nexus_os.performance_settings WHERE \`key\`='backup_stale_alarm_hours' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1" 2>/dev/null)
+if [[ "$_db_hours" =~ ^[0-9]+$ ]] && [ "$_db_hours" -ge 1 ]; then STALE_HOURS="$_db_hours"; fi
+
+# status.json is non-secret and is read by the web app (www-data group).
+publish(){ chown root:"$WWWGROUP" "$1" 2>/dev/null; chmod 640 "$1" 2>/dev/null; }
 
 # repo URL for the alert body (root-only env)
 [ -f /root/.corex-backup/restic.env ] && . /root/.corex-backup/restic.env 2>/dev/null
@@ -41,7 +50,7 @@ write_status_alert(){ # message
   local last="never"; [ -f "$HEALTH" ] && last="$(cat "$HEALTH")"
   printf '{"state":"ALERT","message":"%s","last_success_epoch":"%s","updated":"%s","stale_hours_threshold":"%s"}\n' \
     "$(echo "$1" | tr '"' "'" )" "$last" "$(date '+%F %T')" "$STALE_HOURS" > "$STATUS"
-  chmod 600 "$STATUS"
+  publish "$STATUS"
 }
 
 send_mail(){ # subject body
@@ -94,7 +103,7 @@ case "$MODE" in
     log "OK last success $(date -d "@$last" '+%F %T') ($(( age/3600 ))h ago, within ${STALE_HOURS}h)"
     # Clear any prior ALERT once the condition resolves (keeps the Admin surface truthful).
     printf '{"state":"OK","message":"health check passed (%sh ago, within %sh)","last_success_epoch":"%s","updated":"%s"}\n' \
-      "$(( age/3600 ))" "$STALE_HOURS" "$last" "$(date '+%F %T')" > "$STATUS"; chmod 600 "$STATUS"
+      "$(( age/3600 ))" "$STALE_HOURS" "$last" "$(date '+%F %T')" > "$STATUS"; publish "$STATUS"
     exit 0
     ;;
   *)
