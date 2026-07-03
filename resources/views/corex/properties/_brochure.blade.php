@@ -149,6 +149,16 @@
                 $emailPx   = $hasAgent2 ? 12 : 13;
             @endphp
             <td style="vertical-align:middle;">
+                @if(!empty($vpNotes ?? null))
+                {{-- AT-160 items 7+8 — viewing pack: ONE agent per pack (the preparing
+                     agent is on the cover), so the per-property listing-agent card is
+                     removed; the freed space carries a compact notes block. --}}
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{{ !empty($vpNotes['confidential']) ? '#b91c1c' : '#00b894' }};">{{ $vpNotes['label'] }}</div>
+                <div style="font-size:10.5px;color:#6b6b6b;margin:3px 0 8px;max-width:440px;">{{ $vpNotes['microcopy'] }}</div>
+                @for($vn = 0; $vn < 3; $vn++)
+                    <div style="border-bottom:1px solid #d7dde5;height:22px;max-width:440px;"></div>
+                @endfor
+                @else
                 <table style="border-collapse:collapse;"><tr>
                     <td style="vertical-align:middle;padding-right:14px;">
                         @if(!empty($b['agentPhoto']))
@@ -177,10 +187,16 @@
                     </td>
                     @endif
                 </tr></table>
+                @endif
             </td>
             <td style="vertical-align:middle;text-align:right;width:110px;">
                 @if(!empty($b['qr']))
                     <img src="{{ $b['qr'] }}" alt="" style="width:104px;height:104px;">
+                    {{-- AT-160 item 7 — the QR encodes the listing preview URL (not agent
+                         contact), so it stays; relabelled "View online" in the pack. --}}
+                    @if(!empty($vpNotes ?? null))
+                        <div style="font-size:9px;color:#6b6b6b;text-align:center;margin-top:2px;">View online</div>
+                    @endif
                 @endif
             </td>
         </tr></table>

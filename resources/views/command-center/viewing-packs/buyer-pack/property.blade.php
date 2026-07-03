@@ -2,11 +2,15 @@
 <html lang="en">
 <head>@include('command-center.viewing-packs.buyer-pack._head')</head>
 <body>
-    {{-- Page 1 — the property brochure (reused) or a minimal fallback --}}
+    {{-- AT-160 items 7+8 — ONE agent per pack (preparing agent is on the cover):
+         the per-property agent card is removed and a compact buyer-notes block
+         fills the freed footer space. Property + notes = ONE page (no separate
+         notes page). --}}
+    @php $buyerNotes = ['label' => 'Your notes', 'microcopy' => 'Jot your thoughts during the viewing — this space is yours to keep.']; @endphp
     @if($brochure)
-        @include('corex.properties._brochure', ['b' => $brochure])
+        @include('corex.properties._brochure', ['b' => $brochure, 'vpNotes' => $buyerNotes])
     @else
-        <div class="pg">
+        <div class="pg" style="height:1020px; overflow:hidden;">
             <div style="font-size:13px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--teal);">Property {{ $seq }}</div>
             <div style="width:64px; height:4px; background:var(--brand); border-radius:2px; margin:14px 0 22px;"></div>
             <h1 style="font-size:26px; color:var(--brand); margin:0 0 6px;">{{ $minimal['price'] ?: 'Price on application' }}</h1>
@@ -22,19 +26,13 @@
                 @endforeach
             </table>
             <p style="margin-top:24px; font-size:11px; color:var(--text-muted);">Full brochure detail unavailable for this property.</p>
+            {{-- Compact notes block, anchored to the page bottom. --}}
+            <div style="position:absolute; left:56px; right:56px; bottom:48px;">
+                <div style="font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--teal);">{{ $buyerNotes['label'] }}</div>
+                <div style="font-size:10.5px; color:var(--text-muted); margin:3px 0 8px;">{{ $buyerNotes['microcopy'] }}</div>
+                @for($vn = 0; $vn < 3; $vn++)<div style="border-bottom:1px solid var(--line); height:22px;"></div>@endfor
+            </div>
         </div>
     @endif
-
-    {{-- Page 2 — buyer notes block (same layout on every property page).
-         page-break-before keeps it on its own page without a double-break blank. --}}
-    <div class="pg" style="page-break-before:always;">
-        <div style="font-size:13px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--teal);">Your notes</div>
-        <div style="width:64px; height:4px; background:var(--brand); border-radius:2px; margin:14px 0 16px;"></div>
-        <div style="font-size:16px; font-weight:700; color:var(--brand); margin-bottom:4px;">{{ $address }}</div>
-        <div style="font-size:12px; color:var(--text-muted); margin-bottom:26px;">Jot your thoughts during the viewing — this space is yours to keep.</div>
-        @for($i = 0; $i < 16; $i++)
-            <div style="border-bottom:1px solid var(--line); height:34px;"></div>
-        @endfor
-    </div>
 </body>
 </html>
