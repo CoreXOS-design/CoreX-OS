@@ -79,6 +79,7 @@ class Deal extends Model
 
     protected $fillable = [
         'agency_id',
+        'deal_v2_id', // WS1 — DR1↔DR2 link (deals_v2.id of the mirrored DR2 twin)
         'deal_no',
 
         'period',

@@ -3938,6 +3938,7 @@ DROP TABLE IF EXISTS `deals`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `deals` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `deal_v2_id` bigint unsigned DEFAULT NULL,
   `deal_no` int unsigned DEFAULT NULL,
   `file_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `branch_id` bigint unsigned DEFAULT NULL,
@@ -3987,6 +3988,7 @@ CREATE TABLE `deals` (
   KEY `deals_property_sale_date_idx` (`property_id`,`sale_date`),
   KEY `deals_presentation_idx` (`presentation_id`),
   KEY `deals_managed_by_user_id_foreign` (`managed_by_user_id`),
+  KEY `deals_deal_v2_id_index` (`deal_v2_id`),
   CONSTRAINT `deals_link_reviewer_fk` FOREIGN KEY (`link_reviewed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `deals_managed_by_user_id_foreign` FOREIGN KEY (`managed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `deals_presentation_fk` FOREIGN KEY (`presentation_id`) REFERENCES `presentations` (`id`) ON DELETE SET NULL,
@@ -3998,6 +4000,7 @@ DROP TABLE IF EXISTS `deals_v2`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `deals_v2` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `legacy_deal_id` bigint unsigned DEFAULT NULL,
   `reference` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `deal_type` enum('bond','cash','sale_of_2nd') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `status` enum('active','granted','completed','cancelled','on_hold') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
@@ -4040,6 +4043,7 @@ CREATE TABLE `deals_v2` (
   KEY `deals_v2_created_by_id_foreign` (`created_by_id`),
   KEY `deals_v2_linked_deal_id_foreign` (`linked_deal_id`),
   KEY `deals_v2_agency_id_idx` (`agency_id`),
+  KEY `deals_v2_legacy_deal_id_index` (`legacy_deal_id`),
   CONSTRAINT `deals_v2_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `deals_v2_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
   CONSTRAINT `deals_v2_created_by_id_foreign` FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`),
@@ -12601,3 +12605,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (937,'2026_07_02_10
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (938,'2026_07_02_120000_add_wa_self_link_to_agencies',203);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (939,'2026_07_03_090000_add_media_retry_to_communication_attachments',204);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (940,'2026_07_03_000001_add_granted_to_deals_v2_status_enum',205);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (941,'2026_07_03_100001_add_dr1_dr2_link_columns',206);
