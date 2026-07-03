@@ -1295,6 +1295,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             return response()->json(['ok' => true, 'invitation_id' => $invitation->id, 'acknowledged_at' => $invitation->fresh()->acknowledged_at->toIso8601String()]);
         })->name('command-center.calendar.invitations.acknowledge');
 
+        // AT-164 Gate 4 — Tile Deck (JSON) — MUST be before /calendar/{calendarEvent} wildcard
+        Route::get('/calendar/deck', [CommandCenterCalendarController::class, 'deck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck');
+        Route::post('/calendar/deck', [CommandCenterCalendarController::class, 'saveDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.save');
+        Route::post('/calendar/deck/reset', [CommandCenterCalendarController::class, 'resetDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.reset');
+
         // Conflict check — MUST be before /calendar/{calendarEvent} wildcard
         Route::get('/calendar/check-conflicts', function (\Illuminate\Http\Request $request) {
             $svc = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class);

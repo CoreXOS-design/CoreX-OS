@@ -31,6 +31,7 @@ class CalendarController extends Controller
         private CalendarThresholdResolver $thresholdResolver,
         private CalendarVisibilityResolver $visibilityResolver,
         private CalendarEventCreator $creator,
+        private \App\Services\CommandCenter\CalendarTileService $tiles,
     ) {}
 
     public function index(Request $request)
@@ -51,6 +52,14 @@ class CalendarController extends Controller
         $shared = $this->sharedViewData($user, $view, $typeFilter, $categoryFilter, $scope);
         $shared['scopeCeiling'] = $ceiling;
         $shared['autoOpenFeedbackEventId'] = $request->input('capture_feedback');
+
+        // AT-164 Gate 4 — the Tile Deck (below the grid, all views).
+        $shared['deck']        = $this->tiles->buildDeck($user);
+        $shared['deckCatalog'] = $this->tiles->catalog($user);
+        $shared['deckLayout']  = $this->tiles->resolveLayout($user);
+        $shared['deckSlots']   = $this->tiles->slotCount($user);
+        // AT-164 Gate 7 — live-RAG light-poll interval (agency-configurable).
+        $shared['pollSeconds'] = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarPollSeconds();
 
         // ── Week view ──
         if ($view === 'week') {
@@ -446,6 +455,54 @@ class CalendarController extends Controller
             'priority' => $e->priority, 'status' => $e->status,
             'propertyId' => $e->property_id, 'contactId' => $e->contact_id,
         ])->values());
+    }
+
+    // ── AT-164 Gate 4/7 — Tile Deck (JSON) ──
+
+    /**
+     * The resolved Deck for this user — cards (built through the same builders as the
+     * server render), the pickable catalogue, the current ordered layout, and the
+     * slot count. Also fired by the live-RAG loop (Gate 7) to refresh tile RAG in place.
+     */
+    public function deck(Request $request)
+    {
+        $user = $request->user();
+        return response()->json([
+            'cards'   => $this->tiles->buildDeck($user),
+            'catalog' => $this->tiles->catalog($user),
+            'layout'  => $this->tiles->resolveLayout($user),
+            'slots'   => $this->tiles->slotCount($user),
+        ]);
+    }
+
+    /** Persist this user's Deck layout (ordered tile-ids). Server clamps to slots + catalogue. */
+    public function saveDeck(Request $request)
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'tiles'   => ['present', 'array'],
+            'tiles.*' => ['string', 'max:64'],
+        ]);
+        $layout = $this->tiles->saveLayout($user, $data['tiles']);
+
+        return response()->json([
+            'ok'     => true,
+            'layout' => $layout,
+            'cards'  => $this->tiles->buildDeck($user),
+        ]);
+    }
+
+    /** Reset this user's Deck to the role/agency/code default. */
+    public function resetDeck(Request $request)
+    {
+        $user = $request->user();
+        $layout = $this->tiles->resetLayout($user);
+
+        return response()->json([
+            'ok'     => true,
+            'layout' => $layout,
+            'cards'  => $this->tiles->buildDeck($user),
+        ]);
     }
 
     public function show(Request $request, CalendarEvent $calendarEvent)
@@ -1768,20 +1825,9 @@ class CalendarController extends Controller
 
     private function resolveSourceLink(CalendarEvent $event): ?array
     {
-        if (!$event->source_type || !$event->source_id) return null;
-        if (str_starts_with($event->source_type, 'synthetic:')) return null;
-        $routeMap = [
-            \App\Models\Property::class => ['route' => 'corex.properties.show', 'label' => 'View property'],
-            \App\Models\FicaSubmission::class => ['route' => 'compliance.fica.show', 'label' => 'View FICA submission'],
-            \App\Models\Compliance\RmcpVersion::class => ['route' => 'compliance.rmcp.show', 'label' => 'View RMCP version'],
-            \App\Models\Compliance\EmployeeScreening::class => ['route' => 'compliance.screenings.show', 'label' => 'View screening'],
-            \App\Models\Payroll\PayrollRun::class => ['route' => 'payroll.runs.show', 'label' => 'View payroll run'],
-            \App\Models\Payroll\PayrollEmployee::class => ['route' => 'payroll.employees.show', 'label' => 'View employee'],
-        ];
-        $entry = $routeMap[$event->source_type] ?? null;
-        if (!$entry) return null;
-        try { return ['url' => route($entry['route'], $event->source_id), 'label' => $entry['label']]; }
-        catch (\Throwable $e) { return null; }
+        // AT-164 — delegated to the shared resolver so the chip popover (Gate 2)
+        // and the Deck's Notifications tile (Gate 4) never diverge on the route map.
+        return \App\Services\CommandCenter\Calendar\CalendarSourceLinkResolver::resolve($event);
     }
 
     /**

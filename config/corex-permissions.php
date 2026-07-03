@@ -480,6 +480,10 @@ return [
         ['key' => 'command_center.automation.view',  'label' => 'View Automation Rules',        'section' => 'command-center',   'type' => 'access',  'module' => 'command_center',   'sort_order' => 15],
         ['key' => 'command_center.automation.manage','label' => 'Manage Automation Rules',      'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 16],
         ['key' => 'command_center.settings',         'label' => 'Manage Command Center Settings','section' => 'command-center',  'type' => 'access',  'module' => 'command_center',   'sort_order' => 17],
+        // AT-164 §15.5 — the Calendar Deck "My Deals" tile. Seeded but granted to NO
+        // role (default OFF) — the tile is FLAGGED HIDDEN behind the DR2 hold and
+        // lights up when an admin grants this after DR2 ships (no rebuild).
+        ['key' => 'calendar.tile.my_deals',          'label' => 'Calendar Deck — My Deals Tile',  'section' => 'command-center',  'type' => 'action',  'module' => 'command_center_calendar', 'sort_order' => 18],
 
         // ── Contact Governance ──
         ['key' => 'contact_governance.manage',       'label' => 'Manage Contact Governance Settings', 'section' => 'contact-governance', 'type' => 'access', 'module' => 'contact_governance', 'sort_order' => 50],

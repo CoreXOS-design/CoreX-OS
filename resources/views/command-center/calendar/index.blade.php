@@ -1853,6 +1853,84 @@
         </div>
     </div>
 
+    {{-- ══════ AT-164 Gate 4 — TILE DECK (below the grid, all views) ══════ --}}
+    <section x-data="calendarDeck()" x-init="init()"
+             data-tour="cal-deck"
+             class="rounded-md px-4 py-4 mt-2"
+             style="background: var(--surface); border: 1px solid var(--border);">
+        {{-- Deck header --}}
+        <div class="flex items-center justify-between gap-3 mb-3">
+            <div class="flex items-center gap-2 min-w-0">
+                <svg class="w-4 h-4 flex-shrink-0" style="color: var(--text-secondary);" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg>
+                <h2 class="text-sm font-semibold truncate" style="color: var(--text-primary);">My Deck</h2>
+                <span class="text-xs" style="color: var(--text-muted);" x-text="'· ' + cards.length + '/' + slots"></span>
+                <span x-show="saving" x-cloak class="text-[11px]" style="color: var(--text-muted);">Saving…</span>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                {{-- Add-tile picker (edit mode) --}}
+                <div x-show="editing" x-cloak class="relative" @click.outside="pickerOpen = false">
+                    <button type="button" @click="pickerOpen = !pickerOpen" :disabled="!canAddMore"
+                            class="corex-btn-outline text-xs disabled:opacity-40"
+                            :title="canAddMore ? 'Add a tile' : 'Deck is full ('+slots+' slots)'">
+                        + Add tile
+                    </button>
+                    <div x-show="pickerOpen" x-cloak
+                         class="absolute right-0 mt-1 w-64 max-h-72 overflow-y-auto rounded-md z-30 py-1"
+                         style="background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.35);">
+                        <template x-if="availableToAdd.length === 0">
+                            <div class="px-3 py-2 text-xs" style="color: var(--text-muted);">All tiles are on your Deck.</div>
+                        </template>
+                        <template x-for="t in availableToAdd" :key="t.tile_id">
+                            <button type="button" @click="addTile(t.tile_id)"
+                                    class="w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors hover:bg-[color:var(--surface)]"
+                                    style="color: var(--text-secondary);">
+                                <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="t.launch ? 'background: var(--brand-button);' : 'background: var(--text-muted);'"></span>
+                                <span class="truncate" x-text="t.title"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <button type="button" x-show="editing" x-cloak @click="reset()" class="corex-btn-outline text-xs" title="Reset to default layout">Reset</button>
+                <button type="button" @click="toggleEdit()"
+                        class="corex-btn-outline text-xs inline-flex items-center gap-1"
+                        :style="editing ? 'background: var(--brand-button); color:#fff;' : ''">
+                    <span x-text="editing ? 'Done' : 'Edit Deck'"></span>
+                </button>
+            </div>
+        </div>
+
+        {{-- Empty deck --}}
+        <template x-if="cards.length === 0">
+            <div class="py-8 text-center">
+                <p class="text-sm" style="color: var(--text-muted);">Your Deck is empty.</p>
+                <button type="button" @click="editing = true" class="corex-btn-outline text-xs mt-2">Add tiles</button>
+            </div>
+        </template>
+
+        {{-- Deck grid --}}
+        <div class="grid gap-4" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));">
+            <template x-for="(card, idx) in cards" :key="card.card_id">
+                <div class="relative h-full"
+                     :draggable="editing"
+                     @dragstart="dragStart(idx, $event)" @dragover.prevent="dragOver(idx)" @drop.prevent="drop(idx)" @dragend="dragEndDeck()"
+                     :style="editing ? 'cursor: move;' : ''"
+                     :class="editing && dragIndex === idx && 'opacity-50'">
+                    {{-- Edit overlay: drag hint + remove --}}
+                    <div x-show="editing" x-cloak class="absolute top-2 right-2 z-20 flex items-center gap-1">
+                        <span class="w-6 h-6 rounded flex items-center justify-center" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);" title="Drag to reorder">
+                            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+                        </span>
+                        <button type="button" @click="removeTile(card.card_id)" class="w-6 h-6 rounded flex items-center justify-center transition hover:opacity-80"
+                                style="background: var(--surface); border: 1px solid var(--border); color: var(--ds-crimson, #c41e3a);" title="Remove from Deck">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                    <x-tile :var="'card'" />
+                </div>
+            </template>
+        </div>
+    </section>
+
 </div>{{-- END main calendar column --}}
 
 {{-- ══════ RIGHT SIDE PANEL ══════ --}}
@@ -4097,6 +4175,108 @@ function contactSearch() {
                     this.chosen.push(o);
                 }
             });
+        },
+    };
+}
+
+/* ══════ AT-164 Gate 4/7 — Tile Deck controller ══════
+   Per-user Deck of tiles below the grid: pick/reorder/save/reset, with a live-RAG
+   refresh loop (focus/visibilitychange + light poll) so tile RAG stays current
+   without a full reload. Server is authoritative — every structural change POSTs
+   and re-reads the built cards. */
+function calendarDeck() {
+    return {
+        editing: false,
+        saving: false,
+        pickerOpen: false,
+        dragIndex: null,
+        cards: @json($deck ?? []),
+        catalog: @json($deckCatalog ?? []),
+        layout: @json($deckLayout ?? []),
+        slots: {{ (int) ($deckSlots ?? 4) }},
+        pollSeconds: {{ (int) ($pollSeconds ?? 60) }},
+        _pollTimer: null,
+        _csrf: document.querySelector('meta[name="csrf-token"]')?.content || '',
+        _urls: {
+            deck:  '{{ route('command-center.calendar.deck') }}',
+            save:  '{{ route('command-center.calendar.deck.save') }}',
+            reset: '{{ route('command-center.calendar.deck.reset') }}',
+        },
+
+        init() {
+            // Live-RAG loop (Gate 7): refetch on focus/visibility + a light poll.
+            window.addEventListener('focus', () => this.refresh());
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refresh(); });
+            const secs = Math.max(15, this.pollSeconds || 60);
+            this._pollTimer = setInterval(() => { if (!document.hidden && !this.editing) this.refresh(); }, secs * 1000);
+        },
+
+        get availableToAdd() {
+            const used = new Set(this.layout);
+            return this.catalog.filter(t => !used.has(t.tile_id));
+        },
+        get canAddMore() { return this.layout.length < this.slots; },
+
+        toggleEdit() { this.editing = !this.editing; if (!this.editing) this.pickerOpen = false; },
+
+        async _post(url, body) {
+            this.saving = true;
+            try {
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(body || {}),
+                });
+                if (r.ok) {
+                    const data = await r.json();
+                    if (Array.isArray(data.layout)) this.layout = data.layout;
+                    if (Array.isArray(data.cards))  this.cards = data.cards;
+                }
+            } catch (e) { console.warn('Deck save failed:', e); }
+            this.saving = false;
+        },
+
+        async addTile(id) {
+            if (!this.canAddMore) return;
+            this.pickerOpen = false;
+            const next = [...this.layout, id];
+            await this._post(this._urls.save, { tiles: next });
+        },
+        async removeTile(id) {
+            const next = this.layout.filter(x => x !== id);
+            await this._post(this._urls.save, { tiles: next });
+        },
+        async reset() { await this._post(this._urls.reset, {}); },
+
+        // Drag reorder (edit mode)
+        dragStart(idx, ev) { if (!this.editing) return; this.dragIndex = idx; try { ev.dataTransfer.effectAllowed = 'move'; } catch (e) {} },
+        dragOver(idx) { /* handled by @dragover.prevent to allow drop */ },
+        drop(idx) {
+            if (!this.editing || this.dragIndex === null || this.dragIndex === idx) { this.dragIndex = null; return; }
+            const moved = this.cards.splice(this.dragIndex, 1)[0];
+            this.cards.splice(idx, 0, moved);
+            this.layout = this.cards.map(c => c.card_id);
+            this.dragIndex = null;
+            this._post(this._urls.save, { tiles: this.layout });
+        },
+        dragEndDeck() { this.dragIndex = null; },
+
+        // Live refresh — re-read built cards (RAG may have changed elsewhere).
+        async refresh() {
+            if (this.editing) return; // never clobber an in-progress edit
+            try {
+                const r = await fetch(this._urls.deck, {
+                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf },
+                    credentials: 'same-origin',
+                });
+                if (r.ok) {
+                    const data = await r.json();
+                    if (Array.isArray(data.cards)) this.cards = data.cards;
+                    if (Array.isArray(data.layout)) this.layout = data.layout;
+                    if (typeof data.slots === 'number') this.slots = data.slots;
+                }
+            } catch (e) { /* silent — degrade, never break the page */ }
         },
     };
 }

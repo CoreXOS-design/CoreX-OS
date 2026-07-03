@@ -39,6 +39,13 @@ class AgencyContactSettings extends Model
         // Recurring-events expansion limits (agency-configurable, never hardcoded).
         'calendar_max_occurrences',
         'calendar_max_expansion_days',
+        // AT-164 — calendar surface knobs (Deck / grid / live-poll / layers).
+        'calendar_deck_slots',
+        'calendar_grid_max_rows',
+        'calendar_poll_seconds',
+        'calendar_category_groups',
+        'calendar_default_layers',
+        'calendar_default_deck_layouts',
     ];
 
     protected $casts = [
@@ -57,12 +64,25 @@ class AgencyContactSettings extends Model
         'access_log_retention_years' => 'integer',
         'calendar_max_occurrences' => 'integer',
         'calendar_max_expansion_days' => 'integer',
+        'calendar_deck_slots' => 'integer',
+        'calendar_grid_max_rows' => 'integer',
+        'calendar_poll_seconds' => 'integer',
+        'calendar_category_groups' => 'array',
+        'calendar_default_layers' => 'array',
+        'calendar_default_deck_layouts' => 'array',
     ];
 
     /** Recurring-events: max occurrences materialised per series per query. */
     public const DEFAULT_CALENDAR_MAX_OCCURRENCES = 200;
     /** Recurring-events: max days a single query window is expanded (from range start). */
     public const DEFAULT_CALENDAR_MAX_EXPANSION_DAYS = 400;
+
+    /** AT-164 — calendar surface defaults (§15.9). All agency-overridable. */
+    public const DEFAULT_CALENDAR_DECK_SLOTS = 4;
+    public const DEFAULT_CALENDAR_GRID_MAX_ROWS = 4;
+    public const DEFAULT_CALENDAR_POLL_SECONDS = 60;
+    /** Layer toggles that start ON for a new user (Personal off by default — §15.6). */
+    public const DEFAULT_CALENDAR_LAYERS = ['appointments', 'deal', 'compliance', 'property', 'lease', 'people', 'payroll', 'document'];
 
     /** AT-81 — default no-response window (days) before a pending contact lapses. */
     public const DEFAULT_OUTREACH_NO_RESPONSE_DAYS = 7;
@@ -127,6 +147,48 @@ class AgencyContactSettings extends Model
     {
         $v = (int) ($this->calendar_max_expansion_days ?? self::DEFAULT_CALENDAR_MAX_EXPANSION_DAYS);
         return max(1, min(1830, $v));
+    }
+
+    /** AT-164 — Deck slot count, null-safe, clamped 1–8. */
+    public function calendarDeckSlots(): int
+    {
+        $v = (int) ($this->calendar_deck_slots ?? self::DEFAULT_CALENDAR_DECK_SLOTS);
+        return max(1, min(8, $v));
+    }
+
+    /** AT-164 — grid-cell rows before "+N", null-safe, clamped 1–12. */
+    public function calendarGridMaxRows(): int
+    {
+        $v = (int) ($this->calendar_grid_max_rows ?? self::DEFAULT_CALENDAR_GRID_MAX_ROWS);
+        return max(1, min(12, $v));
+    }
+
+    /** AT-164 — live-RAG light-poll interval (seconds), null-safe, clamped 15–3600. */
+    public function calendarPollSeconds(): int
+    {
+        $v = (int) ($this->calendar_poll_seconds ?? self::DEFAULT_CALENDAR_POLL_SECONDS);
+        return max(15, min(3600, $v));
+    }
+
+    /** AT-164 — class→display-group map for aggregate chips (stored override, else []). */
+    public function calendarCategoryGroups(): array
+    {
+        $v = $this->calendar_category_groups;
+        return is_array($v) ? $v : [];
+    }
+
+    /** AT-164 — layer toggles that start ON for a new user (stored override, else default). */
+    public function calendarDefaultLayers(): array
+    {
+        $v = $this->calendar_default_layers;
+        return (is_array($v) && !empty($v)) ? array_values($v) : self::DEFAULT_CALENDAR_LAYERS;
+    }
+
+    /** AT-164 — role→ordered-tile-id-list default Deck layouts (stored override, else []). */
+    public function calendarDefaultDeckLayouts(): array
+    {
+        $v = $this->calendar_default_deck_layouts;
+        return is_array($v) ? $v : [];
     }
 
     /** AT-81 — resolved no-response window (days), null-safe, clamped to ≥1. */
