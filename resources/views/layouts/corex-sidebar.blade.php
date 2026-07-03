@@ -1492,6 +1492,11 @@
                 <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') ? 'active' : '' }}">Supplier Directory</a>
                 @endif
                 @endpermission
+                @permission('deals_v2.manage_distribution_rules')
+                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
+                <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-distribution-rules.*') ? 'active' : '' }}">Distribution Rules</a>
+                @endif
+                @endpermission
             </div>
         </div>
         @endif

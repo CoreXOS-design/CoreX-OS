@@ -3612,6 +3612,63 @@ CREATE TABLE `deal_branches` (
   CONSTRAINT `deal_branches_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `deal_document_access_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `deal_document_access_log` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `distribution_id` bigint unsigned NOT NULL,
+  `event` enum('link_clicked','otp_sent','otp_verified','otp_failed','downloaded','revoked') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `meta` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `deal_document_access_log_distribution_id_event_index` (`distribution_id`,`event`),
+  KEY `deal_document_access_log_agency_id_index` (`agency_id`),
+  CONSTRAINT `deal_document_access_log_distribution_id_foreign` FOREIGN KEY (`distribution_id`) REFERENCES `deal_document_distributions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `deal_document_distributions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `deal_document_distributions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `deal_id` bigint unsigned NOT NULL,
+  `document_id` bigint unsigned DEFAULT NULL,
+  `party_role` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `recipient_contact_id` bigint unsigned DEFAULT NULL,
+  `recipient_provider_id` bigint unsigned DEFAULT NULL,
+  `recipient_email` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `delivery_mode` enum('secure_link','direct_attachment') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `secure_token` char(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `otp_required` tinyint(1) NOT NULL DEFAULT '1',
+  `status` enum('queued','sent','delivered_failed','opened','downloaded','revoked') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'queued',
+  `communication_id` bigint unsigned DEFAULT NULL,
+  `sent_by_id` bigint unsigned DEFAULT NULL,
+  `sent_at` datetime DEFAULT NULL,
+  `first_opened_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `deal_document_distributions_secure_token_unique` (`secure_token`),
+  KEY `deal_document_distributions_deal_id_foreign` (`deal_id`),
+  KEY `deal_document_distributions_document_id_foreign` (`document_id`),
+  KEY `deal_document_distributions_recipient_contact_id_foreign` (`recipient_contact_id`),
+  KEY `deal_document_distributions_recipient_provider_id_foreign` (`recipient_provider_id`),
+  KEY `deal_document_distributions_communication_id_foreign` (`communication_id`),
+  KEY `deal_document_distributions_agency_id_deal_id_index` (`agency_id`,`deal_id`),
+  KEY `deal_document_distributions_agency_id_index` (`agency_id`),
+  CONSTRAINT `deal_document_distributions_communication_id_foreign` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `deal_document_distributions_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals_v2` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `deal_document_distributions_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `documents` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `deal_document_distributions_recipient_contact_id_foreign` FOREIGN KEY (`recipient_contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `deal_document_distributions_recipient_provider_id_foreign` FOREIGN KEY (`recipient_provider_id`) REFERENCES `agency_service_providers` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `deal_link_review_queue`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -3793,6 +3850,32 @@ CREATE TABLE `deal_settlements` (
   CONSTRAINT `deal_settlements_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `deal_settlements_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`) ON DELETE CASCADE,
   CONSTRAINT `deal_settlements_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `deal_stage_document_rules`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `deal_stage_document_rules` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `pipeline_step_id` bigint unsigned DEFAULT NULL,
+  `document_type_id` bigint unsigned NOT NULL,
+  `party_role` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `delivery_mode` enum('secure_link','direct_attachment') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'secure_link',
+  `auto_on_stage_tick` tinyint(1) NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dsdr_unique` (`agency_id`,`pipeline_step_id`,`document_type_id`,`party_role`),
+  KEY `deal_stage_document_rules_pipeline_step_id_foreign` (`pipeline_step_id`),
+  KEY `deal_stage_document_rules_document_type_id_foreign` (`document_type_id`),
+  KEY `dsdr_stage_idx` (`agency_id`,`pipeline_step_id`,`is_active`),
+  KEY `deal_stage_document_rules_agency_id_index` (`agency_id`),
+  CONSTRAINT `deal_stage_document_rules_document_type_id_foreign` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `deal_stage_document_rules_pipeline_step_id_foreign` FOREIGN KEY (`pipeline_step_id`) REFERENCES `deal_pipeline_steps` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `deal_step_documents`;
@@ -12657,3 +12740,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (942,'2026_07_03_11
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (943,'2026_07_03_110002_add_provider_roles_and_link_to_deal_v2_contacts',207);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (944,'2026_07_03_110001_add_deal_id_to_documents',208);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (945,'2026_07_21_000001_create_backup_password_reveals_table',209);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (946,'2026_07_03_120001_create_deal_stage_document_rules_table',210);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (947,'2026_07_03_120002_create_deal_document_distributions_table',210);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (948,'2026_07_03_120003_create_deal_document_access_log_table',210);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (949,'2026_07_03_120004_seed_coc_request_document_type',210);
