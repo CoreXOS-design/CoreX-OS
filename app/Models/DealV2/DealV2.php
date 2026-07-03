@@ -26,6 +26,7 @@ class DealV2 extends Model
 
     protected $fillable = [
         'agency_id',
+        'legacy_deal_id', // WS1 — DR1↔DR2 link (deals.id of the mirrored DR1 twin)
         'reference',
         'deal_type',
         'status',
