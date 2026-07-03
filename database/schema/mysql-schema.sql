@@ -663,6 +663,30 @@ CREATE TABLE `agency_policies` (
   CONSTRAINT `agency_policies_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_service_providers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_service_providers` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned DEFAULT NULL,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `specialty` enum('electrician','entomologist','plumber','gas','electric_fence','transfer_attorney','bond_attorney','conveyancer','bond_originator','other') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other',
+  `company` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `email` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `phone` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  `is_preferred` tinyint(1) NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `agency_service_providers_agency_id_specialty_is_active_index` (`agency_id`,`specialty`,`is_active`),
+  KEY `agency_service_providers_agency_id_is_preferred_index` (`agency_id`,`is_preferred`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_signing_parties`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -3894,12 +3918,14 @@ DROP TABLE IF EXISTS `deal_v2_contacts`;
 CREATE TABLE `deal_v2_contacts` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `deal_id` bigint unsigned NOT NULL,
-  `contact_id` bigint unsigned NOT NULL,
-  `role` enum('buyer','seller','co_buyer','co_seller','conveyancer','bond_originator','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_id` bigint unsigned DEFAULT NULL,
+  `agency_service_provider_id` bigint unsigned DEFAULT NULL,
+  `role` enum('buyer','seller','co_buyer','co_seller','conveyancer','bond_originator','other','transfer_attorney','bond_attorney','electrician_coc','entomologist','originator','service_provider') COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `deal_v2_contacts_deal_id_foreign` (`deal_id`),
   KEY `deal_v2_contacts_contact_id_foreign` (`contact_id`),
+  KEY `deal_v2_contacts_agency_service_provider_id_index` (`agency_service_provider_id`),
   CONSTRAINT `deal_v2_contacts_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `deal_v2_contacts_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals_v2` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -12606,3 +12632,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (938,'2026_07_02_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (939,'2026_07_03_090000_add_media_retry_to_communication_attachments',204);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (940,'2026_07_03_000001_add_granted_to_deals_v2_status_enum',205);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (941,'2026_07_03_100001_add_dr1_dr2_link_columns',206);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (942,'2026_07_03_110001_create_agency_service_providers_table',207);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (943,'2026_07_03_110002_add_provider_roles_and_link_to_deal_v2_contacts',207);

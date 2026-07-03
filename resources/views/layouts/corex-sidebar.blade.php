@@ -1487,6 +1487,11 @@
                 <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.pipeline.*') ? 'active' : '' }}">Pipeline Setup</a>
                 @endif
                 @endpermission
+                @permission('deals_v2.manage_suppliers')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
+                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') ? 'active' : '' }}">Supplier Directory</a>
+                @endif
+                @endpermission
             </div>
         </div>
         @endif

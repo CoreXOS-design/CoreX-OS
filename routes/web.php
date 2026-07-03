@@ -609,9 +609,23 @@ Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_
     Route::post('/{template}/steps/reorder', [\App\Http\Controllers\DealV2\DealPipelineStepController::class, 'reorder'])->name('deals-v2.pipeline.steps.reorder');
 });
 
+// ===== DEAL REGISTER V2 — SUPPLIER DIRECTORY (WS2 / D2) =====
+Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'index'])->name('deals-v2.suppliers.index')->middleware('permission:deals_v2.manage_suppliers');
+    Route::post('/', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'store'])->name('deals-v2.suppliers.store')->middleware('permission:deals_v2.manage_suppliers');
+    Route::put('/{provider}', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'update'])->name('deals-v2.suppliers.update')->middleware('permission:deals_v2.manage_suppliers');
+    Route::post('/{provider}/preferred', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'markPreferred'])->name('deals-v2.suppliers.preferred')->middleware('permission:deals_v2.manage_suppliers');
+    Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
+    // Inline pick-or-create (used by the deal form) — gated to agents working a deal.
+    Route::get('/search', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->name('deals-v2.suppliers.search')->middleware('permission:deals_v2.edit');
+    Route::post('/inline', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->name('deals-v2.suppliers.inline')->middleware('permission:deals_v2.edit');
+});
+
 // ===== DEAL REGISTER V2 =====
 Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:access_deal_register_v2');
+    // WS2 — attach a directory provider to a deal under a provider role.
+    Route::post('/{deal}/providers', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'attach'])->name('deals-v2.providers.attach')->middleware('permission:deals_v2.edit');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create');
     Route::get('/search/properties', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchProperties'])->name('deals-v2.search.properties');
