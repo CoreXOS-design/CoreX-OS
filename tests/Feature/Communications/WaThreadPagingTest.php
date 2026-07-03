@@ -69,6 +69,39 @@ final class WaThreadPagingTest extends TestCase
         $resp->assertDontSee('Message number 1 body');
     }
 
+    /**
+     * AT-168 defect pair (Johan staging QA, fix commit 194016b6) — regression guard
+     * at the view layer. cc2's fix shipped with no test; this locks it so neither
+     * defect can silently return:
+     *   (1) Toolbar clipped under header — the page-header must NOT be sticky on this
+     *       page (otherwise it and the toolbar both pin at top:0 and the higher-z
+     *       header renders over the toolbar). The toolbar is the sole sticky control,
+     *       with inline critical layering (z-index:20), not an uncompiled Tailwind
+     *       arbitrary z-class.
+     *   (2) Open-at-newest race — the old one-shot `$nextTick(scrollToBottom)` is gone,
+     *       replaced by a settle-then-scroll (`openAtNewest`) with the older-loader
+     *       IntersectionObserver gated behind `ready` so it can't auto-load older to
+     *       the top on first paint ("Start of conversation").
+     * Behavioural proof (actual scroll landing on the newest message) is via headless
+     * Chromium on the staging host — this guards the structure the fix depends on.
+     */
+    public function test_thread_view_locks_the_toolbar_and_open_at_newest_fix(): void
+    {
+        $html = $this->actingAs($this->user)
+            ->get(route('compliance.comm-archive.thread', ['threadKey' => self::THREAD]))
+            ->assertOk()
+            ->getContent();
+
+        // Defect 1: header not sticky here; toolbar carries the inline critical layer.
+        $this->assertStringNotContainsString('sticky top-0 z-30', $html, 'the page-header must not be sticky on the thread view');
+        $this->assertStringContainsString('z-index:20', $html, 'toolbar needs the inline z-index critical layer');
+
+        // Defect 2: racy one-shot scroll removed; settle-then-scroll + ready-gated loader.
+        $this->assertStringNotContainsString('$nextTick(() => this.scrollToBottom())', $html, 'the racy one-shot open-scroll must be gone');
+        $this->assertStringContainsString('openAtNewest', $html, 'open-at-newest must settle layout before scrolling');
+        $this->assertStringContainsString('this.ready', $html, 'the older-loader observer must be gated behind the ready flag');
+    }
+
     public function test_older_endpoint_returns_the_previous_page(): void
     {
         $thread = $this->actingAs($this->user)
