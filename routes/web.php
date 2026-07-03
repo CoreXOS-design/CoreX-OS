@@ -1738,7 +1738,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Seller Information Pack ──
-    Route::middleware(['permission:compliance.whistleblow.view', 'agency.required'])->prefix('compliance/seller-info')->name('compliance.seller-info.')->group(function () {
+    // AT-161 — gate fix: this is a SEND action (the legal-info email for sellers who
+    // won't sign), not a whistleblow surface. Repointed off the borrowed
+    // `compliance.whistleblow.view` onto a proper own gate (outreach compose). Stays
+    // filed under Compliance per the re-cut IA.
+    Route::middleware(['permission:outreach.compose', 'agency.required'])->prefix('compliance/seller-info')->name('compliance.seller-info.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'index'])->name('index');
         Route::post('/preview', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'preview'])->name('preview');
         Route::post('/send', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'send'])->name('send');
@@ -1746,7 +1750,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Compliance Communications Log ──
-    Route::middleware(['permission:compliance.whistleblow.view', 'agency.required'])->prefix('compliance/communications')->name('compliance.communications.')->group(function () {
+    // AT-161 — gate fix: a comms audit/log view, repointed off the borrowed
+    // `compliance.whistleblow.view` onto the proper comms gate
+    // (`access_communication_archive`). Stays filed under Compliance per the re-cut IA.
+    Route::middleware(['permission:access_communication_archive', 'agency.required'])->prefix('compliance/communications')->name('compliance.communications.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationsLogController::class, 'index'])->name('index');
     });
 
