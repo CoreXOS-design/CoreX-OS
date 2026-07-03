@@ -77,6 +77,8 @@ class AgentCaptureConsentService
                 $row->decided_at = now();
                 $row->decided_by_user_id = $agentUserId; // the agent's own act (self-link)
                 $row->save();
+                // AT-168 Part B — self-link opt-in releases any embargoed bodies too.
+                $this->releaseEmbargoedBodies($agencyId, $agentUserId, $contactId);
             }
             return $row;
         }
@@ -122,7 +124,38 @@ class AgentCaptureConsentService
             'decided_at'    => now()->toIso8601String(),
         ]);
 
+        // AT-168 Part B — opting IN releases every embargoed body for this
+        // (agent, contact) instantly. Guarded: a release hiccup must never break
+        // the consent decision itself. Lazy-resolved to avoid a service cycle.
+        if ($status === AgentCaptureConsent::STATUS_OPTED_IN) {
+            $this->releaseEmbargoedBodies((int) $contact->agency_id, $agentUserId, (int) $contact->id);
+        }
+
         return $row;
+    }
+
+    /**
+     * AT-168 Part B — release embargoed WhatsApp bodies for this (agent, contact)
+     * on opt-in. Lazy-resolved (WaEmbargoReleaseService depends on THIS service,
+     * so constructor injection would cycle) and fully guarded — a release failure
+     * must never roll back or block the consent decision.
+     */
+    private function releaseEmbargoedBodies(int $agencyId, int $agentUserId, int $contactId): void
+    {
+        try {
+            $tally = app(WaEmbargoReleaseService::class)
+                ->releaseForAgentContact($agencyId, $agentUserId, $contactId);
+            if (($tally['released'] ?? 0) > 0 || ($tally['recovered'] ?? 0) > 0) {
+                Log::info('AT-168 embargoed bodies released on opt-in', array_merge($tally, [
+                    'agency_id' => $agencyId, 'agent_user_id' => $agentUserId, 'contact_id' => $contactId,
+                ]));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('AT-168 embargo release on opt-in failed (non-fatal)', [
+                'agency_id' => $agencyId, 'agent_user_id' => $agentUserId,
+                'contact_id' => $contactId, 'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

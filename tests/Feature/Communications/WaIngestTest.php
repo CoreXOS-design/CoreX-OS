@@ -78,7 +78,10 @@ final class WaIngestTest extends TestCase
         $comm = Communication::firstWhere('agency_id', $this->agencyId);
         $this->assertNotNull($comm);
         $this->assertSame('whatsapp', $comm->channel);
-        $this->assertSame('27821234567@c.us', $comm->thread_key);
+        // AT-168 Part A — thread_key is the CANONICAL grouping key (wa:<last-9>),
+        // the raw chat id is preserved on wa_chat_id for WAHA addressing.
+        $this->assertSame('wa:821234567', $comm->thread_key);
+        $this->assertSame('27821234567@c.us', $comm->wa_chat_id);
         // AT-122 — owning-agent provenance = the capture device's user.
         $this->assertSame((int) $this->device->user_id, (int) $comm->owner_user_id);
         $this->assertDatabaseHas('communication_links', [

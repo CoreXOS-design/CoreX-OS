@@ -1,121 +1,186 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    @php
-        // AT-137 — context-aware Back: return to the originating contact when the
-        // user came from a contact record, else to the compliance archive.
-        $backRoute = isset($backContact) && $backContact
-            ? route('corex.contacts.show', $backContact->id)
-            : route('compliance.comm-archive.index');
-        $backLabel = isset($backContact) && $backContact
-            ? (trim(($backContact->first_name ?? '').' '.($backContact->last_name ?? '')) ?: 'Contact')
-            : 'Communication Archive';
-    @endphp
+@php
+    // AT-137 — context-aware Back.
+    $backRoute = isset($backContact) && $backContact
+        ? route('corex.contacts.show', $backContact->id)
+        : route('compliance.comm-archive.index');
+    $backLabel = isset($backContact) && $backContact
+        ? (trim(($backContact->first_name ?? '').' '.($backContact->last_name ?? '')) ?: 'Contact')
+        : 'Communication Archive';
+    $olderUrl  = route('api.v1.communications.threads.older',  ['threadKey' => $threadKey]);
+    $searchUrl = route('api.v1.communications.threads.search', ['threadKey' => $threadKey]);
+@endphp
+<div class="-m-4 lg:-m-6"
+     x-data="waThread({
+        olderUrl: @js($olderUrl),
+        searchUrl: @js($searchUrl),
+        hasMore: @js((bool) ($hasMore ?? false)),
+        cursor: @js($olderCursor ?? null),
+        total: @js((int) ($total ?? 0)),
+     })"
+     x-init="init()">
     <x-page-header title="Conversation Thread" :back-route="$backRoute" :back-label="$backLabel" :flush="true" />
 
-    {{-- AT-150 — WhatsApp-style chat thread. Direction drives alignment
-         (outbound RIGHT, inbound LEFT — WhatsApp's own convention) and colour
-         (outbound = tasteful CoreX green tint from --ds-green; inbound = neutral
-         surface). Per-message metadata (sender, time, direction, channel tag) is
-         preserved, as is the AT-148 inline audio player / pending-media chip and
-         the per-thread visibility gate (enforced upstream in the controller). --}}
-    <div class="p-4 lg:p-6">
-        <div class="max-w-3xl mx-auto space-y-3">
-            @foreach($messages as $m)
-                @php
-                    $out = $m->direction === 'outbound';
-                    $body = $m->body_text ?: $m->body_preview;
-                    $hasBody = filled($m->subject) || filled($body);
-                    $hasAttachments = $m->has_attachments && $m->attachments->isNotEmpty();
-                    // Outbound: green tint that adapts to the active theme surface
-                    // (mixes over --surface so dark mode stays legible), with a
-                    // solid fallback for browsers without color-mix. Inbound: the
-                    // neutral surface bubble with the standard border.
-                    $bubbleStyle = $out
-                        ? 'background:#e6f4ec; background:color-mix(in srgb, var(--ds-green,#059669) 14%, var(--surface,#ffffff)); border:1px solid #cfe8da; border-color:color-mix(in srgb, var(--ds-green,#059669) 26%, transparent); border-radius:14px 14px 4px 14px;'
-                        : 'background:var(--surface,#ffffff); border:1px solid var(--border,#e5e7eb); border-radius:14px 14px 14px 4px;';
-                @endphp
-                <div class="flex {{ $out ? 'justify-end' : 'justify-start' }}">
-                    <div class="px-3.5 py-2.5 shadow-sm" style="{{ $bubbleStyle }} max-width:82%;">
-                        {{-- Header: sender + channel tag --}}
-                        <div class="flex items-center gap-2 mb-1 {{ $out ? 'justify-end' : 'justify-start' }}">
-                            <span class="text-xs font-semibold truncate" style="color:var(--text-primary,#111827); max-width:16rem;">{{ $m->from_display }}</span>
-                            <span class="ds-badge {{ $m->channel === 'email' ? 'ds-badge-default' : 'ds-badge-success' }}">{{ ucfirst($m->channel) }}</span>
-                        </div>
-
-                        {{-- Body --}}
-                        @if(filled($m->subject))
-                            <div class="text-sm font-semibold mb-1" style="color:var(--text-primary,#111827);">{{ $m->subject }}</div>
-                        @endif
-                        @if(filled($body))
-                            <div class="text-sm whitespace-pre-wrap break-words" style="color:var(--text-primary,#1f2937); line-height:1.55;">{{ $body }}</div>
-                        @endif
-
-                        {{-- Attachments — voice-note player (AT-148), pending chip, or generic file.
-                             A media-only message renders its player here so the bubble is never blank. --}}
-                        @if($hasAttachments)
-                            <div class="mt-2 flex flex-col gap-2 {{ $out ? 'items-end' : 'items-start' }}">
-                                @foreach($m->attachments as $att)
-                                    @php
-                                        $duration = $att->duration_seconds
-                                            ? sprintf('%d:%02d', intdiv($att->duration_seconds, 60), $att->duration_seconds % 60)
-                                            : null;
-                                        $durSuffix = $duration ? ' · '.$duration : '';
-                                    @endphp
-                                    @php $label = $att->isAudio() ? ('Voice note'.$durSuffix) : ('Attachment: '.($att->filename ?? 'file')); @endphp
-                                    @if($att->isAudio() && $att->isPlayable())
-                                        <div class="flex flex-col gap-1 w-full">
-                                            <span class="text-xs" style="color:var(--text-secondary,#4b5563);">{{ 'Voice note'.$durSuffix }}</span>
-                                            <audio controls preload="none" style="height:36px; width:100%; max-width:260px;">
-                                                <source src="{{ route('compliance.comm-archive.attachment', $att->id) }}" type="{{ $att->mime }}">
-                                                Your browser cannot play this voice note.
-                                            </audio>
-                                        </div>
-                                    @elseif($att->isPlayable())
-                                        {{-- Stored non-audio (image / document) — open/download. --}}
-                                        <a href="{{ route('compliance.comm-archive.attachment', $att->id) }}" target="_blank" rel="noopener"
-                                           class="text-xs px-2 py-1 rounded inline-block" style="background:var(--surface-2,#f0f2f8); color:var(--text-secondary,#4b5563);">{{ $label }}</a>
-                                    @elseif($att->isFailed())
-                                        {{-- Terminal failure — never a silent "processing" forever; offer Retry. --}}
-                                        <span class="text-xs px-2 py-1 rounded inline-flex items-center gap-2" style="background:var(--surface-2,#f0f2f8); color:var(--ds-red,#c0392b);">
-                                            {{ $label }} — unavailable
-                                            <form method="POST" action="{{ route('compliance.comm-archive.attachment.retry', $att->id) }}" class="inline">@csrf
-                                                <button type="submit" class="underline" style="color:var(--ds-blue,#2563eb);">Retry</button>
-                                            </form>
-                                        </span>
-                                    @else
-                                        {{-- Pending — a background retry is running; allow a manual nudge. --}}
-                                        <span class="text-xs px-2 py-1 rounded inline-flex items-center gap-2" style="background:var(--surface-2,#f0f2f8); color:var(--text-muted,#9ca3af);">
-                                            {{ ($att->isAudio() ? 'Voice note — processing'.$durSuffix : $label.' — processing') }}
-                                            <form method="POST" action="{{ route('compliance.comm-archive.attachment.retry', $att->id) }}" class="inline">@csrf
-                                                <button type="submit" class="underline" style="color:var(--text-muted,#9ca3af);">Retry now</button>
-                                            </form>
-                                        </span>
-                                    @endif
-                                @endforeach
-                            </div>
-                        @endif
-
-                        {{-- A genuinely empty message (no body, no media) never shows a blank bubble. --}}
-                        @unless($hasBody || $hasAttachments)
-                            <div class="text-sm italic" style="color:var(--text-muted,#9ca3af);">No message content captured</div>
-                        @endunless
-
-                        {{-- Footer: direction + timestamp --}}
-                        <div class="flex items-center gap-2 mt-1.5 {{ $out ? 'justify-end' : 'justify-start' }}">
-                            <span class="text-xs" style="color:var(--text-muted,#9ca3af);">{{ $out ? 'Outbound' : 'Inbound' }}</span>
-                            <span class="text-xs" style="color:var(--text-muted,#9ca3af);">&middot;</span>
-                            <span class="text-xs" style="color:var(--text-muted,#9ca3af);">{{ $m->occurred_at?->format('d M Y H:i') }}</span>
-                        </div>
-                    </div>
+    {{-- AT-168 Part C — thread toolbar: in-thread search (jump + highlight),
+         oldest/newest jump, date jump. Sticky so it stays reachable while scrolling. --}}
+    <div class="px-4 lg:px-6 py-2 sticky top-0 z-10 flex flex-wrap items-center gap-2"
+         style="background:var(--surface-1,var(--surface,#fff)); border-bottom:1px solid var(--border,#e5e7eb);">
+        <div class="flex items-center gap-1">
+            <input type="search" placeholder="Search this conversation…" x-model.debounce.300ms="term" @keydown.enter.prevent="runSearch()" @input="if(term.length<2) clearSearch()"
+                   class="text-sm rounded px-3 py-1.5" style="background:var(--surface-2,#f0f2f8); color:var(--text-primary,#111827); border:1px solid var(--border,#e5e7eb); min-width:200px;">
+            <template x-if="matches.length">
+                <div class="flex items-center gap-1 text-xs" style="color:var(--text-secondary,#4b5563);">
+                    <button @click="prevMatch()" class="px-2 py-1 rounded" style="border:1px solid var(--border,#e5e7eb);">↑</button>
+                    <span x-text="(matchIndex+1)+' / '+matches.length"></span>
+                    <button @click="nextMatch()" class="px-2 py-1 rounded" style="border:1px solid var(--border,#e5e7eb);">↓</button>
                 </div>
-            @endforeach
+            </template>
+            <template x-if="searched && !matches.length">
+                <span class="text-xs" style="color:var(--text-muted,#9ca3af);">No matches</span>
+            </template>
+        </div>
 
-            @if($messages->isEmpty())
-                <div class="text-center text-sm py-10" style="color:var(--text-muted,#9ca3af);">No messages in this thread.</div>
-            @endif
+        <div class="flex items-center gap-2 ml-auto text-xs">
+            <span style="color:var(--text-muted,#9ca3af);" x-text="loadedCount()+' of '+total"></span>
+            <input type="date" x-model="jumpDate" @change="jumpToDate()"
+                   class="text-xs rounded px-2 py-1" style="background:var(--surface-2,#f0f2f8); color:var(--text-primary,#111827); border:1px solid var(--border,#e5e7eb);">
+            <button @click="jumpOldest()" class="px-2 py-1 rounded font-semibold" style="border:1px solid var(--border,#e5e7eb); color:var(--text-secondary,#4b5563);" x-bind:disabled="loading">Oldest</button>
+            <button @click="jumpNewest()" class="px-2 py-1 rounded font-semibold" style="border:1px solid var(--border,#e5e7eb); color:var(--text-secondary,#4b5563);">Newest</button>
+        </div>
+    </div>
+
+    {{-- Scroll container. Opens scrolled to the NEWEST message; scrolling to the
+         top lazy-loads older pages. --}}
+    <div x-ref="scroller" class="overflow-y-auto" style="height:calc(100vh - 190px);">
+        <div class="p-4 lg:p-6">
+            <div class="max-w-3xl mx-auto">
+                {{-- Top sentinel + loading state --}}
+                <div x-ref="sentinel" class="h-6 flex items-center justify-center">
+                    <template x-if="loading"><span class="text-xs" style="color:var(--text-muted,#9ca3af);">Loading earlier messages…</span></template>
+                    <template x-if="!hasMore && total"><span class="text-xs" style="color:var(--text-muted,#9ca3af);">Start of conversation</span></template>
+                </div>
+
+                <div x-ref="messages" class="space-y-3">
+                    @foreach($messages as $m)
+                        @include('compliance.communication-archive._thread-bubble', ['m' => $m])
+                    @endforeach
+                </div>
+
+                @if(($total ?? 0) === 0)
+                    <div class="text-center text-sm py-10" style="color:var(--text-muted,#9ca3af);">No messages in this thread.</div>
+                @endif
+            </div>
         </div>
     </div>
 </div>
+
+<script>
+function waThread(cfg) {
+    return {
+        olderUrl: cfg.olderUrl,
+        searchUrl: cfg.searchUrl,
+        hasMore: cfg.hasMore,
+        cursor: cfg.cursor,
+        total: cfg.total,
+        loading: false,
+        term: '',
+        matches: [],
+        matchIndex: -1,
+        searched: false,
+        jumpDate: '',
+
+        init() {
+            // Open on the newest message (WhatsApp-style).
+            this.$nextTick(() => this.scrollToBottom());
+            // Lazy-load older when the top sentinel scrolls into view.
+            const obs = new IntersectionObserver((entries) => {
+                if (entries.some(e => e.isIntersecting)) this.loadOlder();
+            }, { root: this.$refs.scroller, threshold: 0.1 });
+            obs.observe(this.$refs.sentinel);
+        },
+
+        loadedCount() { return this.$refs.messages ? this.$refs.messages.querySelectorAll('.cx-msg').length : 0; },
+        scrollToBottom() { const s = this.$refs.scroller; if (s) s.scrollTop = s.scrollHeight; },
+
+        async loadOlder() {
+            if (this.loading || !this.hasMore) return false;
+            this.loading = true;
+            const s = this.$refs.scroller, prevH = s.scrollHeight, prevTop = s.scrollTop;
+            try {
+                const url = new URL(this.olderUrl, window.location.origin);
+                if (this.cursor) { url.searchParams.set('before_at', this.cursor.before_at); url.searchParams.set('before_id', this.cursor.before_id); }
+                const r = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                const j = await r.json();
+                if (j.html) {
+                    this.$refs.messages.insertAdjacentHTML('afterbegin', j.html);
+                    // Preserve the viewport: keep the previously-top message in place.
+                    this.$nextTick(() => { s.scrollTop = s.scrollHeight - prevH + prevTop; });
+                }
+                this.hasMore = !!j.has_more;
+                this.cursor = j.cursor;
+            } catch (e) { /* leave hasMore; user can retry by scrolling */ }
+            this.loading = false;
+            return true;
+        },
+
+        async loadAllOlder(guard) {
+            let n = 0;
+            while (this.hasMore && n < (guard || 500)) { await this.loadOlder(); n++; if (guard === undefined && !this.hasMore) break; }
+        },
+
+        async loadUntil(id) {
+            let n = 0;
+            while (!document.getElementById('msg-' + id) && this.hasMore && n < 500) { await this.loadOlder(); n++; }
+            return document.getElementById('msg-' + id);
+        },
+
+        async runSearch() {
+            this.searched = true; this.matches = []; this.matchIndex = -1;
+            const q = this.term.trim();
+            if (q.length < 2) return;
+            try {
+                const url = new URL(this.searchUrl, window.location.origin);
+                url.searchParams.set('q', q);
+                const r = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                const j = await r.json();
+                this.matches = j.matches || [];
+                if (this.matches.length) this.gotoMatch(0);
+            } catch (e) {}
+        },
+        clearSearch() { this.searched = false; this.matches = []; this.matchIndex = -1; this.clearHighlights(); },
+
+        async gotoMatch(i) {
+            if (!this.matches.length) return;
+            this.matchIndex = (i + this.matches.length) % this.matches.length;
+            const id = this.matches[this.matchIndex].id;
+            const el = await this.loadUntil(id);
+            this.clearHighlights();
+            if (el) {
+                el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                const b = el.querySelector('.cx-bubble');
+                if (b) { b.style.boxShadow = '0 0 0 2px var(--brand-button, #0ea5e9)'; b.dataset.hit = '1'; }
+            }
+        },
+        nextMatch() { this.gotoMatch(this.matchIndex + 1); },
+        prevMatch() { this.gotoMatch(this.matchIndex - 1); },
+        clearHighlights() { this.$refs.messages.querySelectorAll('.cx-bubble[data-hit]').forEach(b => { b.style.boxShadow = ''; delete b.dataset.hit; }); },
+
+        async jumpNewest() { this.scrollToBottom(); },
+        async jumpOldest() { await this.loadAllOlder(); this.$nextTick(() => { this.$refs.scroller.scrollTop = 0; }); },
+        async jumpToDate() {
+            if (!this.jumpDate) return;
+            // Load older until the oldest loaded message is on/before the target date.
+            let n = 0;
+            const oldestAt = () => { const f = this.$refs.messages.querySelector('.cx-msg'); return f ? f.dataset.at : null; };
+            while (this.hasMore && n < 500) { const oa = oldestAt(); if (oa && oa <= this.jumpDate) break; await this.loadOlder(); n++; }
+            // Scroll to the first message on/after the target date.
+            const rows = Array.from(this.$refs.messages.querySelectorAll('.cx-msg'));
+            const target = rows.find(r => (r.dataset.at || '') >= this.jumpDate) || rows[0];
+            if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        },
+    };
+}
+</script>
 @endsection

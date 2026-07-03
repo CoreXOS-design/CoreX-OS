@@ -116,8 +116,10 @@ final class WaLidBackfillTargetTest extends TestCase
         // envelope (incl. counterpart_lid) archived. This is Elize's exact case.
         $this->ingest($this->lidMessage());
         $comm = Communication::firstWhere('agency_id', $this->agencyId);
-        $this->assertSame('consent_pending', $comm->body_status);
-        $this->assertNull($comm->body_text, 'body withheld until opt-in');
+        // AT-168 Part B — withheld bodies are now EMBARGOED (stored, never shown),
+        // not discarded; the AT-135 sweep still targets them (body_text empty).
+        $this->assertSame('embargoed', $comm->body_status);
+        $this->assertNull($comm->body_text, 'body withheld (embargoed) until opt-in');
         $this->assertSame(self::LID_DIGITS, $comm->counterpart_lid);
 
         $svc = app(WaBodyBackfillService::class);

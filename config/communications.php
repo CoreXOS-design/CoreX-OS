@@ -27,6 +27,13 @@ return [
     'debug_dropped_wa' => (bool) env('COMMUNICATIONS_DEBUG_DROPPED_WA', false),
 
     /*
+    | AT-168 Part C — conversation-thread paging. The thread view loads the newest
+    | page and lazy-loads older messages on scroll-up so a years-long thread never
+    | renders at once. Configurable, not hardcoded.
+    */
+    'thread_page_size' => (int) env('COMMUNICATIONS_THREAD_PAGE_SIZE', 40),
+
+    /*
     | Inbound grace window (calendar days) before an unmatched inbound item
     | prunes. Clamped to a maximum of 5 by CommunicationPending::graceDays().
     */
