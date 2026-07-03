@@ -147,6 +147,28 @@
         border: 1px solid var(--border);
         color: var(--text-primary);
     }
+
+    .ellie-widget-bubble.ellie .ellie-link {
+        color: var(--brand-button);
+        font-weight: 600;
+        text-decoration: underline;
+        word-break: break-all;
+    }
+    .ellie-widget-bubble.ellie .ellie-link:hover { opacity: 0.85; }
+
+    .ellie-follow-note {
+        margin: 10px 0 2px;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--brand-button);
+        display: flex; align-items: center; gap: 6px;
+    }
+    .ellie-follow-note::before {
+        content: '📍';
+        font-size: 0.8125rem;
+    }
 </style>
 
 <script>
@@ -162,9 +184,12 @@
 
     const KEY = 'ellie_open_v1';
     const CONVO_KEY = 'ELLIE_CONVO_ID';
+    const FOLLOW_KEY = 'ellie_follow_v1';   // steps to re-show while the user follows a link
+    const FOLLOW_TTL = 2 * 60 * 60 * 1000;  // 2h — a follow session doesn't outlive the day
     const csrf = (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')) || '';
     const open = () => { panel.style.display = 'flex'; document.body.classList.add('ellie-docked'); localStorage.setItem(KEY,'1'); setTimeout(()=>input.focus(), 50); };
-    const close = () => { panel.style.display = 'none'; document.body.classList.remove('ellie-docked'); localStorage.setItem(KEY,'0'); };
+    // Closing ends any "follow" session — that's the user's signal they're done.
+    const close = () => { panel.style.display = 'none'; document.body.classList.remove('ellie-docked'); localStorage.setItem(KEY,'0'); localStorage.removeItem(FOLLOW_KEY); };
 
     btn.addEventListener('click', () => {
         if (panel.style.display === 'flex') close(); else open();
@@ -177,6 +202,19 @@
 
     if (localStorage.getItem(KEY) === '1') open();
 
+    function escapeHtml(s){
+        return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    // Turn bare internal paths (e.g. /deals-v2/create) into clickable links.
+    // Runs AFTER escaping, so the source text can never inject markup.
+    function linkify(text){
+        return escapeHtml(text).replace(
+            /(^|[\s(])(\/[A-Za-z][\w\-\/]*)/g,
+            (m, pre, path) => pre + '<a href="' + path + '" class="ellie-link" data-ellie-link="1">' + path + '</a>'
+        );
+    }
+
     function addBubble(text, who){
         const wrap = document.createElement('div');
         wrap.style.margin = '8px 0';
@@ -184,13 +222,46 @@
         wrap.style.justifyContent = (who === 'me') ? 'flex-end' : 'flex-start';
 
         const b = document.createElement('div');
-        b.textContent = text;
         b.className = 'ellie-widget-bubble ' + (who === 'me' ? 'me' : 'ellie');
+        // User text stays literal; Ellie replies get their paths linkified.
+        if (who === 'me') { b.textContent = text; } else { b.innerHTML = linkify(text); }
         wrap.appendChild(b);
 
         messages.appendChild(wrap);
         messages.scrollTop = messages.scrollHeight;
     }
+
+    // When the user clicks a link Ellie gave, remember the steps she just showed
+    // and keep the widget open, so on the destination page she "follows" with the
+    // same guidance until the user closes her. Navigation proceeds as normal.
+    messages.addEventListener('click', (e) => {
+        const a = e.target.closest('a[data-ellie-link]');
+        if (!a) return;
+        const bubble = a.closest('.ellie-widget-bubble');
+        const stepsText = bubble ? bubble.textContent : '';
+        if (stepsText) {
+            try { localStorage.setItem(FOLLOW_KEY, JSON.stringify({ text: stepsText, ts: Date.now() })); } catch (_) {}
+        }
+        localStorage.setItem(KEY, '1'); // ensure she's open on the next page
+        // no preventDefault — let the browser navigate
+    });
+
+    // On load, if a follow session is active, open Ellie and re-show the steps.
+    function showFollow(){
+        let raw;
+        try { raw = localStorage.getItem(FOLLOW_KEY); } catch (_) { return; }
+        if (!raw) return;
+        let f = null;
+        try { f = JSON.parse(raw); } catch (_) { localStorage.removeItem(FOLLOW_KEY); return; }
+        if (!f || !f.text || (Date.now() - (f.ts || 0) > FOLLOW_TTL)) { localStorage.removeItem(FOLLOW_KEY); return; }
+        open();
+        const note = document.createElement('div');
+        note.className = 'ellie-follow-note';
+        note.textContent = 'Following these steps on this page:';
+        messages.appendChild(note);
+        addBubble(f.text, 'ellie');
+    }
+    showFollow();
 
     let busy = false;
 
