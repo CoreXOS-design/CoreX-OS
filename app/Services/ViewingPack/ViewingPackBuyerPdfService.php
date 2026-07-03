@@ -64,8 +64,11 @@ class ViewingPackBuyerPdfService
                 }
             }
 
-            // 3. Comparison (closing)
-            $segments[] = $this->writeSegment($tmpDir, $n++, $this->renderToBytes('command-center.viewing-packs.buyer-pack.comparison', $this->comparisonData($pack)));
+            // 3. Comparison (closing) — only meaningful with 2+ properties to
+            //     compare (AT-160 item 6: a single-property pack skips it).
+            if ($pack->viewingPackProperties->count() > 1) {
+                $segments[] = $this->writeSegment($tmpDir, $n++, $this->renderToBytes('command-center.viewing-packs.buyer-pack.comparison', $this->comparisonData($pack)));
+            }
 
             // 4. Concatenate everything into one PDF.
             $finalTmp = $tmpDir . '/buyer-pack.pdf';

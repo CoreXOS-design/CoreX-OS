@@ -404,6 +404,7 @@
 {{-- Redaction modal (Step 5b) — draw black boxes; output is a flattened image-only PDF --}}
 <div x-data="redactionTool('{{ csrf_token() }}')"
      x-on:open-redactor.window="openRedactor($event.detail)"
+     x-on:keydown.window="onRedactKey($event)"
      x-show="isOpen" x-cloak
      class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto"
      style="background: rgba(0,0,0,0.6); padding: 24px;">
@@ -423,10 +424,20 @@
                     (e.g. an account number). On apply, every page is flattened to a raster image — the
                     hidden text is destroyed, not covered.
                 </p>
-                <span class="text-xs font-semibold flex-shrink-0" style="color: var(--text-secondary);"
-                      x-show="!loading && !loadError" x-cloak>
-                    <span x-text="boxCount()"></span> box<span x-show="boxCount() !== 1">es</span> drawn
-                </span>
+                <div class="flex items-center gap-3 flex-shrink-0" x-show="!loading && !loadError" x-cloak>
+                    {{-- AT-160 item 1 — undo / redo the last redaction action (Ctrl+Z / Ctrl+Shift+Z) --}}
+                    <div class="flex items-center gap-1">
+                        <button type="button" class="text-xs px-2 py-1 rounded" title="Undo (Ctrl+Z)"
+                                @click="undo()" :disabled="!canUndo()"
+                                :style="{ border:'1px solid var(--border)', color: canUndo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canUndo() ? '1' : '0.5', cursor: canUndo() ? 'pointer' : 'default' }">Undo</button>
+                        <button type="button" class="text-xs px-2 py-1 rounded" title="Redo (Ctrl+Shift+Z)"
+                                @click="redo()" :disabled="!canRedo()"
+                                :style="{ border:'1px solid var(--border)', color: canRedo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canRedo() ? '1' : '0.5', cursor: canRedo() ? 'pointer' : 'default' }">Redo</button>
+                    </div>
+                    <span class="text-xs font-semibold" style="color: var(--text-secondary);">
+                        <span x-text="boxCount()"></span> box<span x-show="boxCount() !== 1">es</span> drawn
+                    </span>
+                </div>
             </div>
 
             <template x-if="loading">
@@ -463,7 +474,13 @@
                                      overwrite the static style attribute, leaving an invisible box.
                                      Red outline makes even a small box unmistakable. --}}
                                 <template x-for="(box, bi) in boxesFor(page.index)" :key="bi">
-                                    <div :style="{ position:'absolute', left:box.x+'px', top:box.y+'px', width:box.w+'px', height:box.h+'px', background:'#000', opacity:'0.85', outline:'2px solid #ef4444', pointerEvents:'none' }"></div>
+                                    <div :style="{ position:'absolute', left:box.x+'px', top:box.y+'px', width:box.w+'px', height:box.h+'px', background:'#000', opacity:'0.85', outline:'2px solid #ef4444', pointerEvents:'none' }">
+                                        {{-- AT-160 item 1 — delete THIS box only (pointer-events re-enabled on
+                                             the handle; stop the drag surface from stealing the press). --}}
+                                        <button type="button" title="Remove this box"
+                                                @pointerdown.stop.prevent="removeBox(page.index, bi)"
+                                                :style="{ position:'absolute', top:'-9px', right:'-9px', width:'18px', height:'18px', borderRadius:'9999px', background:'#ef4444', color:'#fff', fontSize:'12px', lineHeight:'16px', textAlign:'center', border:'1px solid #fff', padding:'0', pointerEvents:'auto', cursor:'pointer' }">&times;</button>
+                                    </div>
                                 </template>
                                 {{-- live drag rectangle — visible feedback WHILE dragging --}}
                                 <div x-show="drag.active && drag.page === page.index"
@@ -506,6 +523,11 @@ function redactionTool(csrf) {
         pages: [],
         boxes: [],        // FLAT, top-level reactive array: [{page, x, y, w, h} display px]
         drag: { active: false, page: null, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 },
+        // AT-160 item 1 — snapshot undo/redo history for the box set. A snapshot is
+        // pushed BEFORE every mutation (draw / delete-box / clear-page); undo/redo
+        // swap whole-box-set snapshots. Purely client-side, before flatten.
+        undoStack: [],
+        redoStack: [],
 
         // AT-110 Bug 2 — renamed from open() so the handler can never resolve to the
         // global window.open(). Surfaces the REAL failure to the agent (status + server
@@ -516,6 +538,8 @@ function redactionTool(csrf) {
             this.label = detail.label || '';
             this.pages = [];
             this.boxes = [];
+            this.undoStack = [];
+            this.redoStack = [];
             this.loadError = '';
             this.applyError = '';
             this.isOpen = true;
@@ -539,8 +563,46 @@ function redactionTool(csrf) {
         },
         close() { this.isOpen = false; },
         boxesFor(p) { return this.boxes.filter(b => b.page === p); },
-        clearPage(p) { this.boxes = this.boxes.filter(b => b.page !== p); },
+        clearPage(p) { this.pushHistory(); this.boxes = this.boxes.filter(b => b.page !== p); },
         boxCount() { return this.boxes.length; },
+
+        // ── AT-160 item 1 — undo / redo / delete-single-box ──────────────────
+        _snapshot() { return JSON.parse(JSON.stringify(this.boxes)); },
+        pushHistory() {
+            this.undoStack.push(this._snapshot());
+            if (this.undoStack.length > 100) this.undoStack.shift(); // cap
+            this.redoStack = []; // a new action invalidates the redo branch
+        },
+        canUndo() { return this.undoStack.length > 0; },
+        canRedo() { return this.redoStack.length > 0; },
+        undo() {
+            if (!this.undoStack.length) return;
+            this.redoStack.push(this._snapshot());
+            this.boxes = this.undoStack.pop();
+        },
+        redo() {
+            if (!this.redoStack.length) return;
+            this.undoStack.push(this._snapshot());
+            this.boxes = this.redoStack.pop();
+        },
+        // Delete ONE box (the bi-th on its page) without touching the rest.
+        removeBox(page, bi) {
+            const target = this.boxesFor(page)[bi];
+            if (!target) return;
+            const idx = this.boxes.indexOf(target);
+            if (idx === -1) return;
+            this.pushHistory();
+            this.boxes.splice(idx, 1);
+        },
+        // Ctrl/⌘+Z = undo, Ctrl/⌘+Shift+Z (or Ctrl+Y) = redo — only while open.
+        onRedactKey(e) {
+            if (!this.isOpen) return;
+            const mod = e.ctrlKey || e.metaKey;
+            if (!mod) return;
+            const k = (e.key || '').toLowerCase();
+            if (k === 'z' && !e.shiftKey) { e.preventDefault(); this.undo(); }
+            else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); this.redo(); }
+        },
 
         // AT-110 Bug 2/3 — apply via fetch (no full reload): burn boxes server-side, then
         // swap #vp-content so the doc's state badge flips to "Included ✓" in place. Any
@@ -596,6 +658,7 @@ function redactionTool(csrf) {
             if (!this.drag.active || this.drag.page !== page) return;
             try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
             if (this.drag.w > 3 && this.drag.h > 3) {
+                this.pushHistory(); // AT-160 item 1 — snapshot before the draw so it's undoable
                 // push onto the FLAT top-level array — rock-solid Alpine reactivity, the
                 // box x-for re-renders immediately (no fragile dynamic-key object).
                 this.boxes.push({ page, x: this.drag.x, y: this.drag.y, w: this.drag.w, h: this.drag.h });
