@@ -50,7 +50,10 @@ class CommunicationArchiveController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('subject', 'like', "%{$search}%")
                   ->orWhere('from_identifier', 'like', "%{$search}%")
-                  ->orWhere('body_preview', 'like', "%{$search}%");
+                  ->orWhere('body_preview', 'like', "%{$search}%")
+                  // AT-163 — voice-note transcripts are searchable (inherits the same
+                  // pre-applied visibility + consent gate as body_preview).
+                  ->orWhere('transcript_text', 'like', "%{$search}%");
             });
         }
 
@@ -162,16 +165,18 @@ class CommunicationArchiveController extends Controller
         $matches = $this->threadVisibleQuery($threadKey, $request)
             ->where(function ($w) use ($like) {
                 $w->where('body_text', 'like', $like)
-                  ->orWhere('subject', 'like', $like);
-                // Future (AT-163): ->orWhere('transcript_text', 'like', $like)
+                  ->orWhere('subject', 'like', $like)
+                  // AT-163 — voice-note transcripts are searchable in-thread too.
+                  ->orWhere('transcript_text', 'like', $like);
             })
             ->orderBy('occurred_at')->orderBy('id')
             ->limit(200)
-            ->get(['id', 'occurred_at', 'body_text', 'subject'])
+            ->get(['id', 'occurred_at', 'body_text', 'subject', 'transcript_text', 'transcript_status'])
             ->map(fn ($m) => [
                 'id'      => $m->id,
                 'at'      => $m->occurred_at?->format('d M Y H:i'),
-                'preview' => Str::limit(trim((string) ($m->subject ? $m->subject . ' — ' : '') . (string) $m->body_text), 90),
+                'preview' => Str::limit(trim((string) ($m->subject ? $m->subject . ' — ' : '')
+                    . (string) ($m->body_text ?: ($m->transcript_status === 'done' ? 'Voice note: ' . $m->transcript_text : ''))), 90),
             ]);
 
         return response()->json(['matches' => $matches->values(), 'term' => $term, 'count' => $matches->count()]);
@@ -221,6 +226,40 @@ class CommunicationArchiveController extends Controller
             'communication' => $communication,
             'backContact'   => $this->backContext($request), // AT-137 context-aware back
         ]);
+    }
+
+    /**
+     * AT-163 — on-demand "Transcribe now" for a voice note. Gated by the SAME
+     * per-thread visibility as the thread view (a user who can't see the note
+     * can't transcribe it), and consent-gated in the service (a withheld note has
+     * no stored audio to transcribe). Always queued (whisper is long-running);
+     * CPU-guarded only in the message shown — the worker itself is nice'd and
+     * single-flighted (ShouldBeUnique).
+     */
+    public function transcribeNote(Communication $communication, Request $request)
+    {
+        $visible = $this->grants->applyArchiveVisibility(
+            Communication::query()->notPurged()->whereKey($communication->id),
+            $request->user()
+        )->exists();
+        abort_unless($visible, 404);
+
+        $communication->load('attachments');
+        $service = app(\App\Services\Communications\TranscriptionService::class);
+
+        if (! $service->transcribableAttachment($communication)) {
+            return back()->with('error', 'This message has no voice note available to transcribe.');
+        }
+
+        // Show the pending state immediately; the queued job flips it to done/failed.
+        $communication->forceFill(['transcript_status' => 'pending', 'transcript_error' => null])->save();
+        \App\Jobs\Communications\TranscribeVoiceNoteJob::dispatch($communication->id);
+
+        $msg = $service->isBoxBusy()
+            ? 'Transcription queued — the server is busy, it will run shortly.'
+            : 'Transcription started — the transcript will appear here in a moment.';
+
+        return back()->with('success', $msg);
     }
 
     /**

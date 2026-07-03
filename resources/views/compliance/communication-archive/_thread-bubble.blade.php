@@ -6,8 +6,14 @@
     $body = $m->body_text ?: $m->body_preview;
     $hasBody = filled($m->subject) || filled($body);
     $hasAttachments = $m->has_attachments && $m->attachments->isNotEmpty();
-    // Searchable text (body-field-first — future voice-note transcripts append here).
-    $searchText = trim((string) $m->subject . ' ' . (string) $body);
+    // AT-163 — voice-note transcript affordance. A transcript is searchable text,
+    // so it joins the per-bubble search index alongside the body.
+    $audioAtt = $m->has_attachments
+        ? $m->attachments->first(fn ($a) => is_string($a->mime) && str_starts_with($a->mime, 'audio'))
+        : null;
+    $hasTranscript = $m->hasTranscript();
+    // Searchable text (body-field-first — the voice-note transcript is appended).
+    $searchText = trim((string) $m->subject . ' ' . (string) $body . ' ' . (string) ($hasTranscript ? $m->transcript_text : ''));
     $bubbleStyle = $out
         ? 'background:#e6f4ec; background:color-mix(in srgb, var(--ds-green,#059669) 14%, var(--surface,#ffffff)); border:1px solid #cfe8da; border-color:color-mix(in srgb, var(--ds-green,#059669) 26%, transparent); border-radius:14px 14px 4px 14px;'
         : 'background:var(--surface,#ffffff); border:1px solid var(--border,#e5e7eb); border-radius:14px 14px 14px 4px;';
@@ -66,6 +72,41 @@
                         </span>
                     @endif
                 @endforeach
+            </div>
+        @endif
+
+        {{-- AT-163 — voice-note transcription: view the transcript, or transcribe on
+             demand. The transcript inherits this message's visibility gate (the
+             thread only renders visible messages) and consent gate (a withheld note
+             has no stored audio, so no affordance shows). --}}
+        @if($audioAtt)
+            <div class="mt-2" x-data="{ open: {{ $hasTranscript ? 'false' : 'false' }} }">
+                @if($hasTranscript)
+                    <button type="button" @click="open = !open" class="text-xs font-semibold inline-flex items-center gap-1" style="color:var(--brand-icon, #0ea5e9);">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"/></svg>
+                        <span x-text="open ? 'Hide transcription' : 'View transcription'"></span>
+                        @if($m->transcript_lang)<span style="color:var(--text-muted,#9ca3af);">· {{ strtoupper($m->transcript_lang) }}</span>@endif
+                    </button>
+                    <div x-show="open" x-cloak class="mt-1.5 text-sm whitespace-pre-wrap break-words cx-msg-text p-2 rounded"
+                         style="color:var(--text-secondary,#374151); background:var(--surface-2,#f0f2f8); line-height:1.5;">{{ $m->transcript_text }}</div>
+                @elseif(in_array($m->transcript_status, ['pending','processing'], true))
+                    <span class="text-xs inline-flex items-center gap-1" style="color:var(--text-muted,#9ca3af);">
+                        <svg class="w-3.5 h-3.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5"/></svg>
+                        Transcribing…
+                    </span>
+                @else
+                    {{-- not transcribed (null) or terminally failed → offer Transcribe now --}}
+                    <form method="POST" action="{{ route('compliance.comm-archive.transcribe', $m->id) }}" class="inline">
+                        @csrf
+                        <button type="submit" class="text-xs font-semibold inline-flex items-center gap-1" style="color:var(--brand-icon, #0ea5e9);">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"/></svg>
+                            {{ $m->transcript_status === 'failed' ? 'Retry transcription' : 'Transcribe now' }}
+                        </button>
+                    </form>
+                    @if($m->transcript_status === 'failed')
+                        <span class="text-xs ml-1" style="color:var(--text-muted,#9ca3af);">· last attempt failed</span>
+                    @endif
+                @endif
             </div>
         @endif
 

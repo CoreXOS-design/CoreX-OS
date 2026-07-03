@@ -1762,6 +1762,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/attachment/{attachment}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'attachment'])->name('attachment');
         // AT-148 — manual retry for a pending/failed media download.
         Route::post('/attachment/{attachment}/retry', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'retryMedia'])->name('attachment.retry');
+        // AT-163 — on-demand voice-note transcription (gated + consent-checked in the controller).
+        Route::post('/message/{communication}/transcribe', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'transcribeNote'])->name('transcribe');
     });
 
 

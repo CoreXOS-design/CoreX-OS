@@ -149,6 +149,25 @@ Assumptions (small agency, ~10–15 agents once WA capture is live): **~100 voic
 
 ---
 
+## PART 7 — TRANSCRIPTION AS-BUILT (AT-163, 2026-07-03) — Staging, HELD
+
+**Engine decision (Johan-locked):** `whisper.cpp` on the box (not faster-whisper from §2.1). Built at `/opt/corex-transcribe/whisper.cpp` (cmake Release, NEON/ARM_FMA/DOTPROD), `whisper-cli` binary. Worker CLI `/opt/corex-transcribe/transcribe.sh` = ffmpeg (→16 kHz mono PCM) → whisper-cli `-l auto -nt --output-json`, `nice -n 15`. Models in `/opt/corex-transcribe/models` (`ggml-medium.bin` 1.5 GB, `ggml-large-v3.bin` 3 GB — both on the box, so escalation is a config flip). Thin PHP `TranscriptionService` shells out (Symfony Process, hard timeout), parses whisper's native JSON (`result.language` + join `transcription[].text`).
+
+**Model quality test (real HFC staging voice notes, Afrikaans/English code-mixed):**
+
+| Note | Model | Lang | Wall-clock (8 threads) | Quality (real spontaneous af/en) |
+|---|---|---|---|---|
+| id=41, 29 s | medium | af | 33 s (~1.1× RTF) | Usable/searchable; word errors + hallucinations (`had`→ok, `klinkig`, `dame` for "ding", "downstress") |
+| id=41, 29 s | large-v3 | af | 57 s (~2× RTF) | Clearly better: `het`, `klink reg`, `ding`, coherent |
+| id=19, 23 s | medium | af | ~25 s | Mangles proper nouns: `admin@hfkostel`, `contact as page` |
+| id=19, 23 s | large-v3 | af | ~45 s | `admin at HF Coastal`, `contact us page` — names/domains correct |
+
+**Chosen default: `medium`** (Johan's start; it does NOT genuinely fail — gist + search work). `large-v3` is meaningfully more accurate on proper nouns (names/emails/addresses) at ~1.7–2× cost — **recommended if compliance-grade name accuracy matters; escalate via `COREX_TRANSCRIBE_MODEL=large-v3` (both models are already on the box).** Johan to judge.
+
+**States/consent (as-built):** columns on `communications` (`transcript_text/preview/status/retry_count/lang/model/error/at`). `Communication::scopeNeedsTranscription` (media-only note has `body_status=NULL` → INCLUDED; SQL `NULL NOT IN` gotcha handled). Consent (§4): `TranscriptionService::transcribableAttachment` refuses withheld (`embargoed`/`consent_pending`/`embargo_purged`) — an embargoed note has no stored audio anyway; release→captured makes it eligible next run; purge nulls transcript with the body. States mirror AT-148 (`pending→processing→done/failed`, retry-capped, `TranscribeVoiceNoteJob` ShouldBeUnique). Nightly `communications:transcribe-voice-notes` (hourly scheduler, per-agency `wa_transcription_time` default 22:00, `wa_transcription_enabled`; CPU cap `communications.transcription.threads`=8=half cores). On-demand `POST …/message/{id}/transcribe` (gated + consent-checked, CPU-guard message). Search: `transcript_text` folded into archive index + in-thread search (Option A `LIKE`; FULLTEXT still a separate ticket). Thread bubble: "View transcription" (toggle, shows lang) / "Transcribe now" / "Transcribing…" / "Retry". Tests `WaTranscriptionTest` 6/6.
+
+---
+
 ## PART 6 — DISK / BACKUP TRUTH TABLE (as-built facts, 2026-07-03)
 
 **Disk layout (this box hosts BOTH live `/corex` and staging `/corex-staging`):**

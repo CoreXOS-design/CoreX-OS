@@ -85,6 +85,12 @@ class PurgeEmbargoedWaBodies extends Command
                     'text_hash'    => null,
                     'raw_path'     => null,
                     'content_hash' => null,
+                    // AT-163 — a transcript is body content; it follows the body on
+                    // purge (an embargoed note is never transcribed, so this is
+                    // defensive — but the transcript never outlives the body).
+                    'transcript_text'    => null,
+                    'transcript_preview' => null,
+                    'transcript_status'  => null,
                 ])->save();
 
                 // Delete the raw bytes only if no other row still references them
