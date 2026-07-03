@@ -17,8 +17,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('agencies', function (Blueprint $table) {
-            $table->boolean('wa_self_link_enabled')->default(true)->after('wa_history_backfill');
-            $table->string('wa_session_prefix')->nullable()->after('wa_self_link_enabled');
+            // No ->after(): column position is cosmetic, and depending on
+            // `wa_history_backfill` here caused a migrate ORDERING failure on a
+            // migrations-built DB — that column is created by the later
+            // 2026_07_17_000001 migration, so this 07-02 migration ran first and
+            // failed on live. Order-independent now.
+            $table->boolean('wa_self_link_enabled')->default(true);
+            $table->string('wa_session_prefix')->nullable();
         });
     }
 
