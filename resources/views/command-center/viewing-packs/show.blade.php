@@ -77,7 +77,7 @@
     @php
         $orderedItems = $pack->viewingPackProperties->map(fn ($vpp) => [
             'id'     => $vpp->id,
-            'label'  => optional($vpp->property)->address ?: ('Property #' . $vpp->property_id),
+            'label'  => $vpp->property?->buildDisplayAddress() ?: ('Property #' . $vpp->property_id),
             'source' => str_replace('_', ' ', $vpp->source),
             'docs'   => $vpp->viewingPackDocuments->count(),
         ])->values();
@@ -97,7 +97,7 @@
             @php
                 $cmData = $coreMatches->map(fn ($cm) => [
                     'id'      => $cm->id,
-                    'address' => $cm->address ?: ('Property #' . $cm->id),
+                    'address' => $cm->buildDisplayAddress() ?: ('Property #' . $cm->id),
                     'suburb'  => (string) ($cm->suburb ?? ''),
                     'price'   => (int) ($cm->price ?? 0),
                     'score'   => (int) ($cm->match_score ?? 0),
@@ -294,7 +294,7 @@
                                 $eligible  = $entry['eligible'];
                                 $selDocIds = $entry['selectedIds'];
                                 $vpdByDoc  = $vpp->viewingPackDocuments->keyBy('document_id');
-                                $addr      = optional($vpp->property)->address ?: ('Property #' . $vpp->property_id);
+                                $addr      = $vpp->property?->buildDisplayAddress() ?: ('Property #' . $vpp->property_id);
                             @endphp
                             <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
                                 <div class="flex items-center gap-2 mb-2">
@@ -379,7 +379,7 @@
                     ]] : [];
                     // Pack's selected properties, in the agent's chosen drag order.
                     $schedProps = $pack->viewingPackProperties
-                        ->map(fn ($vpp) => ['id' => $vpp->property_id, 'address' => optional($vpp->property)->address ?: ''])
+                        ->map(fn ($vpp) => ['id' => $vpp->property_id, 'address' => $vpp->property?->buildDisplayAddress() ?: ''])
                         ->filter(fn ($p) => $p['id'] !== null)
                         ->values();
                     $scheduleUrl = $buyer ? route('command-center.calendar', array_filter([
