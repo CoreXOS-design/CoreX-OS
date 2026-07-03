@@ -167,6 +167,30 @@ reload php-fpm → restart the queue worker. The reference-data step is
 non-optional: it is the only thing that carries seeder-owned GLOBAL reference
 rows across environments.
 
+### Env-parity check (every promotion) — extensions AND PHP version
+
+CoreX deploys are `git pull` (code only), never provisioning. So a PHP
+**extension** or **PHP version** that staging has but live lacks does not exist
+on live until a code path 500s or a guard trips (real incident: live php8.3
+lacked `imagick`, so the PDF Redact page broke — AT-169). Before/after every
+promotion, run the parity check:
+
+1. **Extension parity** — diff the live FPM pool's `php -m` against staging's:
+   `comm -13 <(php<live-ver> -m|sort -u) <(php<staging-ver> -m|sort -u)`. For
+   every extension staging has that live lacks, decide: does any **promoted or
+   live** code path use it? If yes → install the matching `phpX.Y-<ext>` package
+   and reload **only** the correct pool. If nothing references it → leave it
+   uninstalled and note it (do NOT install unused extensions).
+2. **PHP VERSION parity** — the staging FPM pool and the live FPM pool may run
+   **different PHP versions** (currently staging = php8.2, live = php8.3). The
+   check MUST flag version drift, not just extensions: a version mismatch means
+   an extension present on one is package-named for the other (`php8.2-imagick`
+   ≠ `php8.3-imagick`) and that behaviour can differ across versions. Record the
+   live pool's PHP version and install extensions for THAT version.
+
+Reload only the pool that serves the target environment (`systemctl reload
+php<live-ver>-fpm`), never all pools.
+
 ---
 
 ## 9. How this changes the prompt lifecycle

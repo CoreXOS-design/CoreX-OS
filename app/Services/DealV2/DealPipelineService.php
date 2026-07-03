@@ -2,6 +2,7 @@
 
 namespace App\Services\DealV2;
 
+use App\Events\DealV2\DealStepCompleted;
 use App\Models\DealV2\DealActivityLog;
 use App\Models\DealV2\DealPipelineTemplate;
 use App\Models\DealV2\DealStepInstance;
@@ -188,7 +189,7 @@ class DealPipelineService
      */
     public function completeStep(DealStepInstance $step, User $user, array $completionData): void
     {
-        DB::transaction(function () use ($step, $user, $completionData) {
+        $ticked = DB::transaction(function () use ($step, $user, $completionData) {
             $outcome = $completionData['outcome'] ?? 'positive';
             $isNegative = $outcome === 'negative';
 
@@ -212,11 +213,16 @@ class DealPipelineService
             }
             $this->logActivity($step->deal, $step, $user->id, 'step_completed', $description);
 
-            // Handle file upload
-            if (!empty($completionData['file_path'])) {
+            // Handle file upload. WS3 (D4): a step file may now be backed by a
+            // unified Document (document_id) so the same file is reachable from
+            // the deal, property and contacts — not just this step. Legacy
+            // callers pass only file_path; both shapes create one row.
+            if (!empty($completionData['file_path']) || !empty($completionData['document_id'])) {
                 $step->documents()->create([
-                    'file_path' => $completionData['file_path'],
-                    'file_name' => $completionData['file_name'] ?? basename($completionData['file_path']),
+                    'document_id' => $completionData['document_id'] ?? null,
+                    'file_path' => $completionData['file_path'] ?? null,
+                    'file_name' => $completionData['file_name']
+                        ?? (!empty($completionData['file_path']) ? basename($completionData['file_path']) : null),
                     'uploaded_by_id' => $user->id,
                 ]);
             }
@@ -225,7 +231,7 @@ class DealPipelineService
             if ($isNegative && !$needsApproval && $step->negative_status_trigger) {
                 $this->changeDealStatus($step->deal, $step->negative_status_trigger, $step, $user);
                 $this->cancelDownstreamSteps($step);
-                return;
+                return false;
             }
 
             // Positive + no approval → change status + activate downstream
@@ -234,8 +240,10 @@ class DealPipelineService
                     $this->changeDealStatus($step->deal, $statusTrigger, $step, $user);
                 }
                 $this->activateDownstreamSteps($step);
-                return;
+                return true; // stage ticked (positive)
             }
+
+            return false;
 
             // Needs approval — wait for BM
             if ($needsApproval) {
@@ -243,7 +251,18 @@ class DealPipelineService
                     "Status change to \"{$statusTrigger}\" pending BM approval");
                 // TODO: Fire notification to BM (Phase 5)
             }
+
+            return false;
         });
+
+        // WS4 — a positive stage tick reacts across pillars via the
+        // event/listener pattern (non-negotiable #9). Emitted AFTER the
+        // transaction commits so the distribution engine (email + PDF) never
+        // runs inside the completion transaction, and a distribution failure
+        // can never roll back a completed step.
+        if ($ticked) {
+            event(new DealStepCompleted($step->fresh(), $user->id));
+        }
     }
 
     /**
@@ -251,7 +270,7 @@ class DealPipelineService
      */
     public function approveStep(DealStepInstance $step, User $approver, ?string $notes = null): void
     {
-        DB::transaction(function () use ($step, $approver, $notes) {
+        $ticked = DB::transaction(function () use ($step, $approver, $notes) {
             $completionData = $step->completion_data ?? [];
             $isNegative = ($completionData['outcome'] ?? 'positive') === 'negative';
             $statusTrigger = $isNegative ? $step->negative_status_trigger : $step->status_trigger;
@@ -273,10 +292,17 @@ class DealPipelineService
 
             if ($isNegative) {
                 $this->cancelDownstreamSteps($step);
-            } else {
-                $this->activateDownstreamSteps($step);
+                return false;
             }
+
+            $this->activateDownstreamSteps($step);
+            return true; // BM-approved positive completion ticks the stage
         });
+
+        // WS4 — emit after commit (same doctrine as completeStep).
+        if ($ticked) {
+            event(new DealStepCompleted($step->fresh(), $approver->id));
+        }
     }
 
     /**

@@ -157,6 +157,55 @@ The earlier blunt rule ("capture number must NEVER equal the outreach number") w
 
 ---
 
+## 9b. Canonical WhatsApp thread key (AT-168 Part A — as-built)
+
+A WhatsApp 1:1 conversation is identified by the counterpart's PHONE NUMBER, not
+by the capture engine's opaque chat id. The browser extension keys a chat by its
+`@lid`, WAHA keys the same chat by the phone `@c.us` — so the SAME human used to
+fragment into two archive threads.
+
+- **`communications.thread_key` is canonical:** `wa:<last-9>` where the last-9 is
+  the `ContactDuplicateService::normalizePhone()` match form (helper
+  `App\Services\Communications\WaThreadKey::canonical()`; `@lid` inputs refused per
+  the AT-133 guard; group/broadcast excluded so they never fold into a person's
+  thread). Every stored WA row is match-first, so a canonical key always resolves.
+- **`communications.wa_chat_id`** preserves the RAW chat id (the WAHA addressing
+  key for `WaMediaRecoveryService` media re-download) — one source of truth per
+  concern.
+- **Backfill:** `communications:recanonicalize-wa-threads` (idempotent, `--dry-run`,
+  agency-scoped) re-keys existing rows and merges per-thread privacy settings +
+  access grants onto the canonical key (collision-safe, soft-delete stale). Group
+  rows are left for `communications:purge-wa-noise` (AT-151).
+
+## 9c. Consent embargo — store, don't discard (AT-168 Part B — as-built)
+
+A message captured while the agent's per-contact capture-consent (AT-136) is
+PENDING is no longer discarded at ingestion (which made the blank permanent).
+
+- **Embargoed at rest, never displayed.** Not-opted-in → `body_status='embargoed'`,
+  `body_text`/`body_preview` stay NULL (the ONLY visibility gate — nothing shows a
+  withheld body anywhere), but the FULL body is kept in the encrypted-at-rest raw.
+- **Released instantly on opt-in.** `AgentCaptureConsentService::setDecision(opted_in)`
+  and self-link opt-in call `WaEmbargoReleaseService`, which hydrates `body_text` +
+  media from the stored raw (or, for legacy `consent_pending` rows whose raw was
+  redacted pre-fix, best-effort re-fetches from the WAHA session store where still
+  retrievable). Consent-aware: a body is made VISIBLE only when the owning agent has
+  opted in; a WAHA-recovered body for a still-pending contact is kept embargoed.
+- **Recovery command.** `communications:recover-wa-bodies` (one-time/on-demand,
+  agency-scoped) releases embargoed rows from raw and recovers legacy blanks from
+  WAHA where retrievable; reports released / recovered / unrecoverable.
+- **POPIA purge (the documented no-hard-delete exception).** If consent is refused
+  or never granted, `communications:purge-embargoed-bodies` (scheduled daily 03:30)
+  GENUINELY removes the body after each agency's
+  `agencies.wa_embargo_retention_days` window (default 30, configurable on the
+  WhatsApp devices settings page): `body_text`/`body_preview` nulled, raw bytes
+  deleted (dedup-safe), `body_status='embargo_purged'`. This is deliberate and
+  operates at the BODY level only — the FICA envelope (identity/timestamp/thread/
+  links) is retained and the row is never deleted. Consented bodies are never purged.
+- **Transcript interplay (AT-163):** a voice-note transcript inherits the message's
+  `body_status` — an EMBARGOED voice note is never transcribed while embargoed;
+  release makes it eligible, purge removes its media + transcript with it.
+
 ## 10. Done-criteria (every build prompt)
 
 `php -l` · `php artisan migrate` + `schema:dump` · `view:clear` · documented test command, full-suite failures stay at the 220 baseline (no new) · explicit short FK names · BelongsToAgency + SoftDeletes on new models · permissions added + granted (`reveal_mailbox_credential` owner-only default) · `corex:sync-permissions --merge-defaults` · nav present · **security tests: stored password never returned by any endpoint/view; reveal blocked without `reveal_mailbox_credential`; every reveal writes a `mailbox_credential_reveals` row; a user can only set their own credentials.** Report results, files, line counts. Update Jira.

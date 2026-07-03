@@ -178,18 +178,28 @@ class WaArchiveIngestor
         }
         $captureOptedIn = $this->consent->isCaptureOptedIn($agentUserId, (int) $contact->id);
 
-        // AT-136 body gate: opted_in → normal body; otherwise withhold the body and
-        // mark consent_pending (envelope still archived for FICA).
+        // AT-168 Part B — EMBARGO, not discard. opted_in → the body is displayed
+        // normally. NOT opted in (pending or opted-out) → the body is EMBARGOED:
+        // body_text/preview stay NULL (so it is never displayed anywhere) and
+        // body_status is 'embargoed', but the FULL body rides along in the
+        // encrypted-at-rest raw so a later opt-in RELEASES it instantly
+        // (WaEmbargoReleaseService). If consent is refused or never granted, the
+        // daily purge removes the embargoed body after the agency retention window
+        // (POPIA — genuine content removal; the FICA envelope stays). This replaces
+        // AT-136's discard-at-capture, which made the blank permanent.
         $bodyText   = $captureOptedIn ? ($msg['text'] ?? null) : null;
-        $bodyStatus = $captureOptedIn ? $this->bodyStatusFor($msg) : 'consent_pending';
+        $bodyStatus = $captureOptedIn ? $this->bodyStatusFor($msg) : 'embargoed';
 
-        // The has-attachment FLAG is envelope (kept either way); the media BYTES are
-        // body content — stored ONLY when opted in. The raw payload is REDACTED of
-        // text/caption/media when not opted in, so no body is ever written to disk
-        // for a pending/opted-out contact (no backdoor).
+        // The has-attachment FLAG is envelope (kept either way). Opted in → the media
+        // bytes are stored now. Embargoed → NO attachment rows/bytes are materialised
+        // (nothing is servable before consent); the media DESCRIPTORS ride along in
+        // the raw and are stored on release.
         $hasMedia = (bool) ($msg['has_media'] ?? (count($msg['media'] ?? []) > 0));
         $media    = $captureOptedIn ? ($msg['media'] ?? []) : [];
-        $rawMsg   = $captureOptedIn ? $msg : array_merge($msg, ['text' => null, 'caption' => null, 'media' => []]);
+        // Embargo stores the FULL raw (the body-at-rest); release re-extracts from it
+        // and purge deletes it. Only the display fields (body_text/preview) gate
+        // visibility, so the un-consented body is stored yet never shown.
+        $rawMsg   = $msg;
 
         // Matched → now (and only now) persist the (consent-redacted) raw + index row.
         $raw = json_encode($rawMsg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
@@ -200,7 +210,14 @@ class WaArchiveIngestor
             'channel'                => Communication::CHANNEL_WHATSAPP,
             'direction'              => $direction,
             'external_id'            => $externalId,
-            'thread_key'             => $chatId,
+            // AT-168 Part A — CANONICAL thread grouping key (wa:<last-9 of the
+            // resolved number>) so the SAME human captured via the extension (@lid)
+            // and via WAHA (@c.us) collapse into ONE thread instead of two. Every
+            // stored row is match-first (has a real $matchNumber), so canonical()
+            // resolves; the raw chat id (needed to address WAHA for media recovery)
+            // is preserved in wa_chat_id. Group/broadcast never reach here (noise gate).
+            'thread_key'             => WaThreadKey::canonical($matchNumber) ?: $chatId,
+            'wa_chat_id'             => $chatId,
             // AT-133 — store the RESOLVED real number (…@c.us / MSISDN), not the @lid
             // digits. from_identifier prefers the matched number; participants carry
             // it (+ the sender name) so the archive row shows who, not an @lid.
@@ -357,6 +374,16 @@ class WaArchiveIngestor
         return CommunicationPending::query()
             ->withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)->where('external_id', $externalId)->exists();
+    }
+
+    /**
+     * AT-168 Part B — public entry for the embargo release/recovery service to
+     * materialise media descriptors (from the stored raw or a WAHA re-fetch) once
+     * consent is granted. Same store path as live ingest.
+     */
+    public function hydrateMedia(Communication $communication, array $media): void
+    {
+        $this->storeMedia($communication, (int) $communication->agency_id, $media);
     }
 
     private function storeMedia(Communication $communication, int $agencyId, array $media): void
