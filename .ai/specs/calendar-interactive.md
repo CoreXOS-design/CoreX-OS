@@ -208,3 +208,202 @@ A Delete action is available from the event-detail panel for every user-editable
 ## 14. Deploy status
 
 All of the above is on **Staging (HELD from live)** except where a specific item is noted otherwise. AT-154 shipped via `AT-154-calendar-attendee-autofill` → Staging; the tile/panel/private/occupies_time/event_nature/conflict/recurring work shipped via the `calendar-*` branch series and was reconciled into origin/Staging `740b9c18`. **Promotion to live is gated on Johan's explicit authorization.**
+
+---
+
+# 15. Calendar Noise Redesign (AT-164) — SPEC, await approval
+
+> **Status:** SPEC. NO build until Johan approves. Johan-directed from live use: the month view drowns in
+> system-deadline bars (6+ "Portal listing expiring" red bars/day bury the 3 real appointments). Design
+> settled Johan+Claude, patterned on Fantastical / Notion Calendar / Monday "My Work" / Outlook-web scroll.
+> **Investigation basis:** four parallel subagent audits (2026-07-03) of the render pipeline, the 8 feed
+> sources' deadline taxonomy, the dashboard tiles (see `.ai/audits/2026-07-03-dashboard-tile-audit.md`), and
+> the DR2 RAG / Tasks / client-freshness patterns. DR2 specifics are the Staging truth (WS0–WS3), not the
+> pre-WS0 working-tree state one agent saw.
+
+## 15.0 The problem, precisely
+The interactive render reads **only persisted `calendar_events` rows** (§14 note: feed/source events are
+**pre-materialised** into `calendar_events` by the nightly `corex:calendar:reconcile`; the registry is a
+write-side concept invisible to render — see the render audit). So "noise" is not a feed problem; it is a
+**render/aggregation** problem on `calendar_events`. Today every row becomes its own tile/bar (day cell
+capped at `$chipCap = 6` with a `+N` badge, `index.blade.php:417`), so a day with 8 portal-listing expiries
+shows 6 red bars + "+2" and the real viewing is pushed out of sight. The fix is to **render deadlines as
+aggregates, not bars**, and to give appointments the grid to themselves.
+
+## 15.1 Event species split (the backbone)
+Split every `calendar_events` row at render time into two species. The signals already exist — **no feed
+change, no new event data**:
+
+- **APPOINTMENT** (renders as a time bar, as today): the manual classes (`viewing`, `property_evaluation`,
+  `listing_presentation`, `meeting`, `other`, `task`) — i.e. `occupies_time = true` (§5) / `actor_role <>
+  'neither'` — PLUS the single source-emitted timed class `property_showday`. These have a real clock time
+  (parsed without `->startOfDay()`), a duration, and can conflict.
+- **SYSTEM DEADLINE** (stops rendering as an individual bar → becomes an aggregate chip, §15.2): everything
+  the 8 sources emit as a point-in-time all-day marker (`->startOfDay()`, `occupies_time = false`). Full
+  enumeration (from the feed-taxonomy audit) — grouped by `event_type` (the layer-toggle axis, §15.6):
+
+  | event_type (layer) | Deadline categories (class keys) |
+  |---|---|
+  | **deal** | `deal_step_deadline`, `deal_registration_target` |
+  | **document** | `signature_expiry`, `sales_doc_expiry` |
+  | **lease / rent** | `lease_expiry`, `commercial_lease_expiry`, `rent_escalation`, `rent_due` |
+  | **property / listings** | `mandate_expiry`, `portal_listing_expiry`, `filed_document_expiry` (+`property_showday` is the appointment exception, stays a bar) |
+  | **people** | `employment_anniversary`, `employee_termination`, `leave_cycle_end`, `rmcp_ack_expiry` (+ `agent_birthday`/`contact_birthday`/`leave_*` are informational, §15.1.1) |
+  | **compliance** | `ffc_expiry`, `pi_insurance_expiry`, `tax_clearance_expiry`, `fica_renewal_due`, `rmcp_review_due`, `screening_due`, `training_expiry`, `compliance_provision_expiry`, `compliance_override_expiry`, `agent_document_expiry` |
+  | **payroll** | `payroll_run`, `sars_emp201`, `uif_declaration`, `sdl_submission`, `sars_emp501`, `tax_year_end`, `irp5_deadline` |
+  | **recurring (system)** | `ppra_trust_audit`, `salary_review` |
+
+  The authoritative classifier is `occupies_time` (§2.2/§5) — a class with `occupies_time = true` is an
+  appointment; `false` is a deadline. `all_day`-from-midnight corroborates but `occupies_time` is the single
+  source of truth (already used by conflict detection), keeping this consistent with the existing invariant
+  (§13.6: flags by `actor_role`/class config, never a hardcoded list).
+
+### 15.1.1 Informational markers
+`agent_birthday`, `contact_birthday`, `leave_annual`, `leave_sick`, `office_closure` are `event_nature =
+informational` (§6) → never RAG-escalate, currently `HIDDEN_BY_DEFAULT_CATEGORIES`. They join the **Personal**
+layer (§15.6), off by default, and when on render as a single neutral "🎂 2 birthdays" chip — never a bar.
+
+## 15.2 Aggregate deadline chips
+On the grid, all deadline rows for a given **(day × category-group)** collapse to **one compact chip**:
+`⚠ 6 listings expiring`, `Rent due ×3`, `SARS EMP201`. Rules:
+- **Grouping key** = day + a display **category group** (a small agency-configurable map from class → group;
+  default groups mirror the `event_type` layers: Listings/Portal, Compliance, Rent, Deals, People, Payroll).
+- **Colour** = the worst RAG in the group for that day, via the existing `CalendarThresholdResolver`
+  (`resolveForEvent`, overdue→red; per-step `deal_step_deadline` overrides preserved) — computed server-side,
+  never client. Count badge shows the group size.
+- **Click → popover** listing the individual items (title + RAG dot + due), each a **new-tab** link to its
+  record (§15.7A) via `CalendarController::resolveSourceLink()` (extend its route map — today only 6 model
+  types resolve; the rest carry `source_type`+`source_id` but no deep link, a gap to close per group).
+- **Grid-cell max rows configurable** (`AgencyContactSettings.calendar_grid_max_rows`, default 4): appointments
+  fill first; deadline chips occupy the remainder; overflow = one "＋N more" chip opening the day popover.
+- **Aggregation is server-side** — extend `CalendarEventService::getMonthGrid()` to return, per cell, a
+  `deadlineGroups[]` structure (group → count, worstColour, itemIds) alongside the appointment `byDate[]`.
+  The browser never receives 200 deadline rows; it receives ≤ a handful of grouped chips per cell
+  (kills the DOM-bar explosion — §15.8 performance).
+
+## 15.3 Continuous-scroll grid (per-view)
+Replace month pagination with continuous scrolling; **the scroll axis is per-view** (Amendment: month
+vertical, week horizontal, day single):
+- **MONTH** — weeks flow **vertically** and continuously (Outlook-web). Sticky month/year label while
+  scrolling; a **Today** anchor button; **jump-to-date** via the existing date picker; **URL/scroll-state**
+  so refresh returns to the same position (`?anchor=YYYY-MM-DD` + restore).
+- **WEEK** — days flow **horizontally** (scroll left/right through weeks); the absolute-overlay timed-tile
+  geometry (§3) is unchanged within a week column.
+- **DAY** — a single day (unchanged).
+- **Windowed/virtualised render with server-side aggregation per visible range.** Never render months of DOM:
+  fetch a window (e.g. current ± N weeks) and lazy-append as the user scrolls, each window served pre-aggregated
+  (§15.2). This requires a **new JSON range endpoint** returning the same `{byDate, spanningBars, deadlineGroups}`
+  shape `getMonthGrid` builds (the current page is full-reload HTML only — see render audit §5), consumed by an
+  Alpine windowing controller. The existing **right slide-over for create/edit is UNCHANGED** and must coexist
+  (it opens via `openEventPanel(id)` → `GET /calendar/{id}`, decoupled from the grid — §2 render audit).
+- **Invariant kept:** new critical layering uses **inline `z-index`**, never a fresh Tailwind arbitrary class
+  (§3 / §13.4 — no `npm run build` on deploy).
+
+## 15.4 The Tile Deck + unified Tile Library
+Below the grid sits a **Deck** of tiles. **One Tile Library, two surfaces** (Dashboard + Calendar) — see the
+audit `.ai/audits/2026-07-03-dashboard-tile-audit.md`. The dashboard is already a data-driven tile system
+(`CommandCentreService` card array `card_id/title/icon/urgency/count/items[]/view_all_url` → `today.blade.php`);
+extract that into a single `<x-tile>` component and add the four missing deltas:
+
+- **Tile contract** (single, both surfaces consume it): header (icon+title), **count badge**, **RAG accent**
+  support, **independent scroll area** (body scrolls, not capped-and-hidden), **per-row new-tab click-through**
+  (§15.7A), **collapse**, **empty state** and **degraded state** (a tile whose data source errors renders a
+  quiet "couldn't load" body — **never 500**, mirroring the Backups-page robustness doctrine).
+- **The Deck** = **X slots** below the grid (default **3–4** on desktop; slot count `AgencyContactSettings.
+  calendar_deck_slots`, agency-configurable). Per-user: **tile picker per slot**, **drag-reorder**, **saved
+  layout**, **one-click reset-to-default**. **Role-based default layouts** are agency-configurable.
+- Dashboard's 22 "clean" tiles migrate into the component in place (no data change); the 7 "needs-refactor"
+  tiles keep a bespoke body slot within the same shell (audit tally).
+
+## 15.5 Launch tiles
+1. **Upcoming Events** — agenda of the user's next appointments (today first, then next days). Source:
+   `CalendarEventService` (the existing `today_appointments` builder pattern), appointment species only.
+2. **Notifications / Deadlines** — the RAG-ranked deadline groups (§15.2 data), ranked by urgency
+   (overdue → red → amber → green), each group expandable to items with new-tab links. This is the "coming up"
+   intelligence, now a tile.
+3. **To-dos** — surfaces the existing **`CommandTask`** module (audit §4): `CommandTask::visibleTo($user,$scope)
+   ->open()->thisWeek()`, rows via `task-card.blade.php`, `view_all_url = command-center.tasks`.
+4. **My Deals** — DR2 pipeline attention: `DealV2::visibleTo($user)->whereIn('overall_rag',['amber','red',
+   'overdue'])` (the enum + `visibleTo` scope + `DealV2Controller ?rag` filter exist on Staging WS0). **Spec now,
+   ship FLAGGED HIDDEN behind the DR2 programme hold** — no `deals_v2` rows live, no DR2 UI. Gate the tile on a
+   new `calendar.tile.my_deals` capability (there is NO feature-flag config today — gating is permission-based;
+   add the capability, default OFF) so it lights up when DR2 goes live without a rebuild.
+5. **Repurposed dashboard tiles** — any of the 22 clean tiles a user picks into a Calendar slot (same component).
+
+## 15.6 Layer toggles
+A **category-visibility control** beside the existing All/Branch/Mine scope radios (`index.blade.php:202-219`).
+Layers derive from `event_type`: **Appointments · Deals · Compliance · Listings/Portal · Rent · People ·
+Personal**. Each toggle hides/shows that species/group on the grid AND filters the Notifications tile.
+**Per-user persisted** (localStorage + a server `CalendarUserPreference` row so it survives devices — a model
+already exists for notification prefs, extend it); **agency-configurable defaults** (which layers start on;
+Personal off by default). Server still authoritative — toggles never widen the visibility/RAG-role gate (§13.1).
+
+## 15.7 Click-through (new tab) + live RAG freshness loop
+**A. Click-through = NEW TAB.** Every tile row and every deadline-popover item opens its record in a **new tab**
+(`target="_blank" rel="noopener"`), consistent with dashboard behaviour — deal step, contact, property, listing,
+task, compliance item. Appointment bars keep opening the in-page slide-over (unchanged). Extend
+`resolveSourceLink()` so each deadline category resolves a deep link (the audit found only 6 of ~30 do today).
+
+**B. Live RAG loop.** When an action completes elsewhere (a DR2 step ticked in another tab), the grid + tiles
+reflect the new RAG **without a manual full reload**. This is a **client-freshness** question, not a data one:
+the WS0 `deals:process-rag` / observer already repaint the `calendar_events` row + `overall_rag` server-side.
+- **Minimum (spec'd):** (i) **refetch-on-window-focus / `visibilitychange`** — no such data-refresh exists
+  today (must add; borrow the listener shape from `presentations/public/show.blade.php:1470`), plus (ii) a
+  **light poll** at a **configurable interval** (`AgencyContactSettings.calendar_poll_seconds`, default 60 —
+  reuse the exact `today.blade.php:237-248` `setInterval`+`fetch`+reactive-reassign primitive, currently a
+  hardcoded 60000). Both hit the new JSON range endpoint (§15.3) and re-render in place (no page reload).
+- **Demo moment to satisfy:** red deal chip → click (new tab) → complete step → return to calendar tab →
+  focus refetch → chip is green. Caveat recorded: server-side RAG currency depends on the completion writing
+  through `DealPipelineService`/the observer (there is no separate batch on the DR1 path); the client loop only
+  refetches — it cannot compute RAG the server hasn't.
+
+## 15.8 Doctrine (binding)
+- **All thresholds/defaults agency-configurable:** grid max rows, deck slot count, poll interval, category→group
+  map, default layers, role-based deck layouts, deadline RAG thresholds (already per-class in
+  `calendar_event_class_settings`). Never hardcoded.
+- **Mobile keeps the cockpit contract:** the `MobileCalendarController` JSON envelope (snake_case
+  `id/title/event_type/category/event_date/end_date/all_day/colour/...`) is **frozen** — the redesign adds an
+  optional aggregated shape behind a version/param, never mutates the existing fields. The Deck becomes
+  **swipeable cards / tabs / a bottom sheet** on small screens; layer toggles become a filter sheet.
+- **No behaviour change to event CRUD** — create/edit/delete/reschedule/complete/dismiss, the slide-over, the
+  recurring `{this,future,all}` contract (§7.4), attendee auto-fill (§8), conflict warnings (§9), and private
+  redaction (§10) are all untouched. This is a render + surface redesign only.
+- **Performance:** aggregation is **server-side** (extend `getMonthGrid`), windowed/virtualised — never 200 DOM
+  bars. Tiles/lists usable at **half-width** (truncation + count badge + "view all" affordance).
+- **Robustness:** every tile and popover degrades gracefully (empty/error → quiet state, never 500).
+
+## 15.9 Data model / persistence
+- **No new event columns.** Species split reads existing `occupies_time`; grouping uses `category`/`event_type`.
+- **Per-user layout memory:** extend `CalendarUserPreference` (or add `calendar_deck_layouts`) — per user:
+  deck slot→tile map, collapsed states, active layers, grid/deck proportions. localStorage mirrors for instant
+  paint; the server row is the cross-device source.
+- **Agency config:** new nullable columns on `AgencyContactSettings` (code defaults): `calendar_grid_max_rows`
+  (4), `calendar_deck_slots` (4), `calendar_poll_seconds` (60), plus a `calendar_category_groups` JSON map and
+  `calendar_default_layers` — all with sensible code defaults so an agency with no row behaves correctly.
+
+## 15.10 Build sequencing (one continuous build — no deferral framing)
+1. **Species split + server aggregation** — classify `calendar_events` by `occupies_time`; extend
+   `getMonthGrid`/`getEventsForRange` to emit `deadlineGroups[]`; render deadlines as chips (grid unchanged
+   otherwise). *Immediate noise relief.*
+2. **Aggregate chip popover + `resolveSourceLink` deep-link coverage + new-tab click-through.**
+3. **Tile Library** — extract `<x-tile>` from `today.blade.php`; dashboard migrates in place; contract deltas
+   (scroll/RAG-accent/new-tab/collapse/degraded).
+4. **The Deck** — slots, per-user picker/drag/layout/reset, role defaults; launch tiles 1–3; My Deals tile
+   built + flagged hidden.
+5. **Continuous-scroll grid** — JSON range endpoint + windowed Alpine controller; per-view scroll axes; sticky
+   label, Today anchor, jump-to-date, URL/scroll-state; slide-over coexistence.
+6. **Layer toggles** — the visibility control + per-user/agency persistence.
+7. **Live RAG loop** — focus/visibility refetch + configurable poll against the range endpoint.
+8. **Mobile** — Deck→sheet/tabs, layer filter sheet, contract-compatible.
+
+## 15.11 Acceptance criteria
+- A day with 8 portal-listing expiries + 1 viewing shows **the viewing as a bar + one "⚠ 8 listings expiring"
+  chip**, not 6 red bars + "+2".
+- Month scrolls vertically continuously; week scrolls horizontally; refresh returns to scroll position; Today
+  anchor + jump-to-date work; no month-pagination controls remain.
+- The Deck shows 3–4 tiles; a user can pick/reorder tiles per slot, layout persists across sessions and devices,
+  reset-to-default works; My Deals tile is absent until its capability is enabled.
+- Every deadline/tile item opens its record in a new tab; the DR2 demo (red→complete→green on focus) works.
+- Layer toggles hide/show species and persist; agency defaults apply to new users.
+- Mobile: Deck is a sheet/tabs; `MobileCalendarController` fields unchanged; event CRUD identical on both.
+- Server-side aggregation proven: a busy month issues a bounded number of grouped chips, not hundreds of bars.
