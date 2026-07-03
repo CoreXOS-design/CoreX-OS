@@ -86,7 +86,7 @@ class WaMediaRecoveryService
     /** Extract [session, filename] from a WAHA files url `…/api/files/{session}/{file}`. */
     private function parseRef(string $ref): array
     {
-        if (preg_match('#/api/files/([^/]+)/([^/?#]+)#', $ref, $m)) {
+        if (preg_match('~/api/files/([^/]+)/([^/?#]+)~', $ref, $m)) {
             return [$m[1], $m[2]];
         }
 
