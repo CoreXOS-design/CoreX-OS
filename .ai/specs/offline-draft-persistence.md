@@ -1,0 +1,155 @@
+# CoreX — Offline Draft Persistence (forms-wide client-side autosave)
+
+> **Status:** SPEC — await Johan approval. NO build until assigned (builder may be Andre or CC; this spec is the
+> handoff artifact either way). **Jira:** AT-165.
+> **Owner:** Johan (product) · **As-built audit:** `.ai/audits/2026-07-03-form-draft-audit.md`.
+> **Pillars:** cross-cutting (protects capture into Property, Contact, Deal, and compliance forms).
+> **One-line:** as an agent types, form state continuously persists to the browser and survives
+> sleep / disconnect / crash / accidental close; on return the form offers to restore the unsaved work.
+
+## 1. Purpose — the incident this prevents
+SA connectivity drops; laptops sleep; sessions expire. Real incident: an agent captured a property, the laptop
+slept, the DB session dropped on submit, **an hour of capture was lost**. CoreX's principle is "we do complicated
+so the user does simple" — losing typed work is the opposite. This layer makes unsaved work **durable on the
+device** until it is either saved to the server or explicitly discarded.
+
+## 2. Scope & boundary (named honestly)
+**IN scope:** a single reusable **client-side** draft layer that any long form registers into; per-user/-form/
+-record keying; debounced autosave; restore-on-return; clear-on-successful-save; POPIA-safe field allowlisting;
+a "clear my local drafts" control; a stale-record conflict warning.
+
+**OUT of scope (explicitly, so this layer does not pretend to be it):** full **offline-first sync** — a service
+worker, a background-sync queue of *submissions*, offline reads of server data, or conflict *merging*. This layer
+persists **in-progress form input on the device**; it does **not** queue a submit to replay when the network
+returns, and it does **not** make CoreX usable with no server. That is a separate, larger programme (name it
+"AT-xxx offline-first sync") with its own spec. The draft layer's honesty contract: **it never tells the user
+their work is "saved" — only "draft saved on this device."**
+
+## 3. The one layer (not per-form hacks)
+Generalise the **existing** reference implementation `resources/views/marketing/hub.blade.php:27-59` (per-record
+key, `$watch` allowlist, restore, clear-on-publish) into a single Alpine-compatible module. Ship it as an
+Alpine plugin/mixin registered globally (e.g. `resources/js/draft-persistence.js`, imported in the app bundle),
+exposing a small contract a form's `x-data` composes in:
+
+```
+draft({
+  form: 'property_capture',              // stable form identifier
+  recordId: {{ $property?->id ?? 'null' }}, // null = "new"; an id = edit-this-record
+  fields: ['title','suburb','price', …], // ALLOWLIST (POPIA §7) — only these are persisted
+  version: 3,                             // server record version/updated_at for the conflict check (§8)
+  autosaveMs: 1500,                       // debounce (agency-configurable default)
+  ttlDays: 7,                             // expiry (agency-configurable default)
+})
+```
+It provides: `draftRestoreAvailable` (bool), `draftSavedAt` (timestamp), `restoreDraft()`, `discardDraft()`,
+`clearDraft()` (call on successful submit), and an internal debounced `_persist()` wired via a single
+`$watch`-all over the allowlisted fields. Plain-POST forms (no `x-data`) opt in by wrapping the `<form>` in a
+thin `x-data="draft({...})"` that serialises the allowlisted inputs on `input` — no per-field `x-model` rewrite
+required (keeps the M-effort forms cheap; see the audit's effort buckets).
+
+**Server touch = none.** This is 100% client. No new tables, no new endpoints. (The optional conflict check in
+§8 reuses data already rendered into the form — the record's `updated_at`/version.)
+
+## 4. Storage backend — chosen per payload size
+- **`localStorage`** for small forms (≤ ~50 KB serialized: most captures — contacts, deals, presentations,
+  rentals, onboarding). Synchronous, simplest, 5–10 MB origin budget.
+- **`IndexedDB`** for large forms (property capture ~34 fields, **FICA ~125 fields**, company-settings ~106,
+  staff-take-on 8 steps) and any form the module detects exceeds a size threshold, or where multiple large
+  drafts could coexist. Async, far larger quota, avoids evicting other localStorage.
+- The module **auto-selects** by declared size / measured payload (a `storage: 'auto'|'local'|'idb'` override
+  on the contract). One key-space, one API surface, backend chosen internally so forms don't care.
+
+## 5. Draft keying + multi-tab safety
+- **Key** = `corex.draft.v1.{userId}.{form}.{recordId|'new'}` — **per user + per form + per record**. Editing
+  property 123 and creating a new property are different drafts; two agents on a shared device don't collide
+  (userId from the authenticated page context). A wizard keys per-step under the same record namespace
+  (`…{form}.{recordId}.step{n}`) so a multi-page form (staff-take-on, property wizard) restores the right step.
+- **Multi-tab safety = last-write-wins, coordinated by a `BroadcastChannel`** (fallback: the `storage` event).
+  Decision + justification: a hard **tab-lock** (one editor, others read-only) is heavier than the risk — two
+  tabs editing the *same* record is rare, and a lock strands a draft if a tab crashes without releasing. Instead:
+  each `_persist()` stamps `{tabId, savedAt}`; on write, a tab broadcasts; a peer editing the same key shows a
+  quiet "this draft is also open in another tab — newest edit wins" note. Last-write-wins is deterministic
+  (timestamp), self-healing (no stuck locks), and matches how the reference `hub` pattern already behaves. The
+  restore path always loads the **newest** stamped draft for the key.
+
+## 6. Lifecycle
+- **Autosave:** debounced write on allowlisted-field change (`autosaveMs`, default **1500 ms**,
+  agency-configurable). Also a `visibilitychange`→hidden and `beforeunload` flush so sleep/close captures the
+  last keystrokes.
+- **Expiry:** drafts carry `ttlDays` (default **7**, agency-configurable). On module init, any draft past TTL for
+  this user is purged. A global sweep purges *all* expired keys (cheap, on load).
+- **Clear-on-successful-save:** the form calls `clearDraft()` in its submit-success handler (the one contract
+  requirement on each form). A draft is never left behind after the server accepted the data.
+- **Explicit discard:** the restore banner (§8) offers **Discard** (removes the key immediately, with a one-step
+  undo toast). A "Discard draft" affordance is also available while editing.
+- **Storage-quota handling:** all writes are wrapped; on `QuotaExceededError` the module (a) purges expired
+  drafts and retries once, then (b) if still full, evicts the **oldest** draft for this user and retries, then
+  (c) if still failing, stops autosaving silently and shows a subtle "couldn't save draft — storage full"
+  indicator (never throws into the form, never blocks typing). Degraded, never broken.
+
+## 7. POPIA
+- **What is stored:** only the allowlisted fields (§3), as JSON, in the browser's origin storage on **that one
+  device**. Never sent anywhere; never in the DB or a cookie. It is exactly the data the user is already typing
+  into the form on screen.
+- **Per-device exposure:** a draft is readable by anyone with access to that browser profile until it is saved,
+  discarded, or expires (≤ TTL). This is the same exposure as a half-typed form left on screen, bounded by TTL
+  and clear-on-save. On a **shared device** the per-user key prevents cross-user restore, but note (in the UX)
+  that local drafts live on the machine — a shared-workstation agency may set `ttlDays` low.
+- **"Clear my local drafts" control** — a user-facing action (in My Portal / profile) that enumerates and wipes
+  all `corex.draft.v1.{thisUser}.*` keys across both backends. One click, immediate, audited only client-side
+  (no server record needed — there's nothing server-side to audit).
+- **NEVER stored — enforced by ALLOWLIST, not denylist:** the module persists *only* declared fields, so a field
+  omitted from the allowlist is structurally impossible to persist. Fields that must never appear in any
+  allowlist: `id_number`, `passport`, `tax_reference_number`, bank (`account_number`, `branch_code`, `bank_name`,
+  `account_holder`, `account_type`), `medical_aid_number`, source-of-funds/funding narratives, and any
+  `password`/`api_key`/`secret`/`token`/SMTP-credential field. FICA and staff-take-on (the highest-PII forms)
+  therefore persist only their non-sensitive fields; their ID/banking/funding steps are excluded entirely.
+  A build-time lint (a simple test asserting no allowlist contains a blacklisted key) makes this non-negotiable.
+
+## 8. UX
+- **"Draft saved 14:32" indicator** — a subtle, non-intrusive line near the form's save button, updated on each
+  persist (mirrors `today.blade.php`'s "Updated HH:MM" stamp pattern). Never a modal, never blocking.
+- **Restore banner on return** — when a form loads and a fresh draft exists for its key: a quiet banner
+  *"Unsaved changes from {relative time} — Restore / Discard."* Restore repopulates the allowlisted fields (and
+  jumps to the saved wizard step); Discard removes the draft (with undo). If the user ignores it and starts
+  typing, autosave overwrites the old draft (last-write-wins).
+- **Conflict rule (stale server record)** — if the underlying server record's version/`updated_at` (rendered
+  into the form, passed as `version`) is **newer** than the draft's captured base version, the restore banner
+  becomes a **diff-aware warning**: *"This record was changed by someone else since your draft. Review before
+  restoring."* — it lists which allowlisted fields differ (draft vs current server value) and lets the user pick
+  per-field or cancel. **Never silently overwrites** newer server data. (For "new" records there is no base
+  version, so no conflict path.)
+
+## 9. Per-form registration (from the audit)
+Each form opts in by composing `draft({...})` with its allowlist. Effort buckets (full table in the audit):
+- **S (already Alpine):** deals-v2 create, property wizard (bridge pre-server-draft only), prospecting contact,
+  FICA (strict allowlist).
+- **M (plain POST → thin x-data wrapper + serialize):** property create-edit, presentations create & compute,
+  onboarding, rentals, contact match, buyer detail.
+- **L (no Alpine, large surface, most PII):** DR1 deals, staff-take-on (per-step keying + sensitive-step
+  exclusion), company-settings (exclude credential panels).
+- **Skip (server-owned):** e-sign wizard (already server-autosaves) — do not double-persist; property wizard &
+  e-sign use the client layer only for the pre-server-draft window.
+
+Roll-out order: land the module + the reference form (property capture) first, prove the pattern, then the S
+forms, then M, then L. Each form's PR includes its allowlist and a note of excluded sensitive fields.
+
+## 10. Doctrine
+- **Configurable:** `autosaveMs`, `ttlDays`, storage backend threshold, and per-form allowlists — agency/global
+  configurable where it makes sense (autosave interval, TTL); allowlists are per-form code (not user-editable).
+- **Never blocks typing / never 500s:** every storage op is wrapped; failures degrade to a quiet indicator.
+- **Client-only, honest:** no "saved" language for drafts; the server save is the only thing that says "saved".
+- **Allowlist over denylist** — the single most important POPIA rule (a field not listed cannot leak).
+
+## 11. Acceptance criteria
+- Typing in a registered form, then sleeping/closing the tab, then reopening → the restore banner appears with
+  the correct relative time; Restore repopulates every allowlisted field (and the right wizard step).
+- A successful server save clears the draft (reopening shows no banner).
+- Editing record 123 and a new record keep separate drafts; a second tab editing the same record resolves
+  last-write-wins with the "also open elsewhere" note, no stuck lock.
+- No sensitive field (ID/bank/tax/medical/funding/credential) is ever written to storage — verified by the
+  allowlist lint on FICA and staff-take-on.
+- "Clear my local drafts" wipes all of this user's drafts across localStorage + IndexedDB in one action.
+- A stale-record conflict shows the diff-aware warning and never silently overwrites newer server data.
+- Storage-full degrades to a quiet indicator; the form remains fully usable.
+- e-sign and property wizard are not double-persisted (server draft remains the source once a draft id exists).
