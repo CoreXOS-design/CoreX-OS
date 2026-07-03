@@ -71,8 +71,11 @@ class ViewingPackAgentPdfService
                 }
             }
 
-            // 3. Comparison (closing) — reuse the buyer-pack comparison table.
-            $segments[] = $this->writeSegment($tmpDir, $n++, $this->renderToBytes('command-center.viewing-packs.buyer-pack.comparison', $this->comparisonData($pack)));
+            // 3. Comparison (closing) — reuse the buyer-pack comparison table. Only
+            //     when there are 2+ properties to compare (AT-160 item 6).
+            if ($pack->viewingPackProperties->count() > 1) {
+                $segments[] = $this->writeSegment($tmpDir, $n++, $this->renderToBytes('command-center.viewing-packs.buyer-pack.comparison', $this->comparisonData($pack)));
+            }
 
             $finalTmp = $tmpDir . '/agent-sheet.pdf';
             $this->unite($segments, $finalTmp);
