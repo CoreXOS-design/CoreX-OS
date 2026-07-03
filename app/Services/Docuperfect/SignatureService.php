@@ -1882,6 +1882,7 @@ class SignatureService
         ]);
 
         $this->linkFiledDocumentToContactsAndProperty($filedDoc, $contactLinks, $propertyId);
+        $this->linkFiledDocumentToDeal($filedDoc, $propertyId, $template->created_by);
 
         Log::info('Auto-filed signed document', [
             'filed_doc_id' => $filedDoc->id,
@@ -1991,6 +1992,7 @@ class SignatureService
             ]);
 
             $this->linkFiledDocumentToContactsAndProperty($filedDoc, $contactLinks, $propertyId);
+            $this->linkFiledDocumentToDeal($filedDoc, $propertyId, $template->created_by);
 
             Log::info('Auto-filed individual pack document', [
                 'filed_doc_id' => $filedDoc->id,
@@ -2102,6 +2104,34 @@ class SignatureService
 
         if ($propertyId) {
             $filedDoc->properties()->syncWithoutDetaching([$propertyId]);
+        }
+    }
+
+    /**
+     * AT-158 WS3 (D4) — anchor a freshly-filed signed Document to its DR2 deal.
+     *
+     * When the signed document's property maps to a single active deal, the
+     * document is filed against that deal (reachable from the deal register too)
+     * and any matching document_signed / document_upload pipeline step is
+     * auto-completed — closing the "signed → step done" loop. Fully guarded and
+     * non-fatal: a signing is already legally COMPLETED by the time we get here,
+     * so a deal-link failure must never surface as an error.
+     */
+    private function linkFiledDocumentToDeal(\App\Models\Document $filedDoc, ?int $propertyId, ?int $actorUserId): void
+    {
+        try {
+            if (! $propertyId) {
+                return;
+            }
+            $actor = $actorUserId ? \App\Models\User::find($actorUserId) : null;
+            app(\App\Services\DealV2\DealDocumentService::class)
+                ->attachSignedDocumentToDeal($filedDoc, $propertyId, $actor);
+        } catch (\Throwable $e) {
+            Log::warning('Auto-file: signed document → deal link skipped (non-fatal)', [
+                'filed_doc_id' => $filedDoc->id ?? null,
+                'property_id'  => $propertyId,
+                'error'        => $e->getMessage(),
+            ]);
         }
     }
 

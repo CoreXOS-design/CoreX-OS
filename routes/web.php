@@ -626,6 +626,9 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:access_deal_register_v2');
     // WS2 — attach a directory provider to a deal under a provider role.
     Route::post('/{deal}/providers', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'attach'])->name('deals-v2.providers.attach')->middleware('permission:deals_v2.edit');
+    // WS3 (D4) — upload a document directly onto a deal + gated download.
+    Route::post('/{deal}/documents', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'storeDocument'])->name('deals-v2.documents.store')->middleware('permission:deals_v2.edit');
+    Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'downloadDocument'])->name('deals-v2.documents.download')->middleware('permission:access_deal_register_v2');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create');
     Route::get('/search/properties', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchProperties'])->name('deals-v2.search.properties');

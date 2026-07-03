@@ -4,13 +4,16 @@ namespace App\Http\Controllers\DealV2;
 
 use App\Http\Controllers\Controller;
 use App\Models\DealV2\DealStepInstance;
+use App\Services\DealV2\DealDocumentService;
 use App\Services\DealV2\DealPipelineService;
 use Illuminate\Http\Request;
 
 class DealStepController extends Controller
 {
-    public function __construct(private DealPipelineService $pipelineService)
-    {
+    public function __construct(
+        private DealPipelineService $pipelineService,
+        private DealDocumentService $dealDocumentService,
+    ) {
     }
 
     public function complete(Request $request, DealStepInstance $step)
@@ -55,11 +58,27 @@ class DealStepController extends Controller
             $completionData['reason'] = $data['reason'] ?? null;
         }
 
-        // Handle file upload
+        // Handle file upload. WS3 (D4): file a unified Document anchored to the
+        // deal (+ property + contacts) and back the step-file with its id, so
+        // one upload is reachable from every angle — not orphaned on this step.
         if ($request->hasFile('file')) {
-            $path = $request->file('file')->store("deals/{$step->deal_id}/steps/{$step->id}");
+            $file = $request->file('file');
+            $disk = config('filesystems.default', 'local');
+            $path = $file->store("deals/{$step->deal_id}/steps/{$step->id}", $disk);
+
+            $doc = $this->dealDocumentService->createDealDocument($step->deal, [
+                'original_name'    => $file->getClientOriginalName(),
+                'storage_path'     => $path,
+                'disk'             => $disk,
+                'mime_type'        => $file->getClientMimeType(),
+                'size'             => $file->getSize(),
+                'document_type_id' => data_get($step->completion_config, 'document_type_id'),
+                'source_type'      => 'deal_step',
+            ], auth()->user());
+
+            $completionData['document_id'] = $doc->id;
             $completionData['file_path'] = $path;
-            $completionData['file_name'] = $request->file('file')->getClientOriginalName();
+            $completionData['file_name'] = $file->getClientOriginalName();
         }
 
         $this->pipelineService->completeStep($step, auth()->user(), $completionData);
@@ -106,11 +125,27 @@ class DealStepController extends Controller
             'file' => ['required', 'file', 'max:10240'],
         ]);
 
-        $path = $request->file('file')->store("deals/{$step->deal_id}/steps/{$step->id}");
+        // WS3 (D4): back the standalone step upload with a unified Document
+        // anchored to the deal (+ property + contacts), then record it on the
+        // step for provenance. No orphaned raw file_path.
+        $file = $request->file('file');
+        $disk = config('filesystems.default', 'local');
+        $path = $file->store("deals/{$step->deal_id}/steps/{$step->id}", $disk);
+
+        $doc = $this->dealDocumentService->createDealDocument($step->deal, [
+            'original_name'    => $file->getClientOriginalName(),
+            'storage_path'     => $path,
+            'disk'             => $disk,
+            'mime_type'        => $file->getClientMimeType(),
+            'size'             => $file->getSize(),
+            'document_type_id' => data_get($step->completion_config, 'document_type_id'),
+            'source_type'      => 'deal_step',
+        ], auth()->user());
 
         $step->documents()->create([
+            'document_id' => $doc->id,
             'file_path' => $path,
-            'file_name' => $request->file('file')->getClientOriginalName(),
+            'file_name' => $file->getClientOriginalName(),
             'uploaded_by_id' => auth()->id(),
         ]);
 

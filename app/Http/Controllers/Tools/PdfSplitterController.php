@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Tools;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\DealV2\DealV2;
 use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\FicaSubmission;
@@ -11,6 +12,7 @@ use App\Models\Property;
 use App\Models\SplitterDocType;
 use App\Services\Compliance\AgencyComplianceDocTypeService;
 use App\Services\Compliance\FicaWetInkService;
+use App\Services\DealV2\DealDocumentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -318,6 +320,10 @@ class PdfSplitterController extends Controller
         // can act on compliance. Server-enforced again in link().
         $canFica = (bool) (auth()->user()?->hasPermission('access_compliance'));
 
+        // WS3 (D4) — the optional "also file to a deal" picker is only offered to
+        // users who can reach the Deal Register. Server-enforced again in link().
+        $canLinkDeal = (bool) (auth()->user()?->hasPermission('access_deal_register_v2'));
+
         // AT-105 enh — per-agency routing (contact_roles SET + fica_slot) by slug,
         // plus the pivot-role SET each routing role resolves across, so the review
         // screen can auto-resolve + sticky-assign per-page contacts client-side.
@@ -338,7 +344,7 @@ class PdfSplitterController extends Controller
             'lessor'       => 'Lessor',
         ];
 
-        return view('tools.pdf_splitter_review', compact('manifest', 'canFica', 'routing', 'roleSets', 'roleLabels'));
+        return view('tools.pdf_splitter_review', compact('manifest', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels'));
     }
 
     /**
@@ -485,6 +491,21 @@ class PdfSplitterController extends Controller
 
         $agencyId = (int) ($request->user()->effectiveAgencyId() ?? $property->agency_id ?? 0);
 
+        // WS3 (D4) — optional DR2 deal target. When the agent picks a deal in the
+        // review screen, every split page-group is also anchored to that deal (in
+        // addition to the property/contacts), and a filed doc-type that matches an
+        // active document step auto-completes it. Guarded: only an ACTIVE deal on
+        // THIS property, only for users who can reach the register. No deal → the
+        // splitter behaves exactly as before (feature is purely additive).
+        $deal = null;
+        $dealId = (int) $request->input('deal_id');
+        if ($dealId > 0 && $request->user()?->hasPermission('access_deal_register_v2')) {
+            $deal = DealV2::whereKey($dealId)
+                ->where('property_id', $property->id)
+                ->where('status', 'active')
+                ->first();
+        }
+
         // Resolve final labels (apply whitelisted overrides) — same as confirm().
         [$finalLabels, $overrides] = $this->resolveFinalLabels($request, $autoLabels, $pCount);
         if (! empty($overrides)) {
@@ -544,8 +565,8 @@ class PdfSplitterController extends Controller
 
         $routing = app(AgencyComplianceDocTypeService::class)->routingMapBySlugFor($agencyId);
 
-        // File every group to its destination(s) + assigned contact.
-        $filed = $this->fileGroupsToDestinations($property, array_values($groups), $agencyId, $attached);
+        // File every group to its destination(s) + assigned contact (+ deal).
+        $filed = $this->fileGroupsToDestinations($property, array_values($groups), $agencyId, $attached, $deal);
 
         // FICA — group the FICA-relevant pages by assigned contact; one wet-ink
         // verification per distinct contact. Agent TOGGLE, never silent.
@@ -690,7 +711,7 @@ class PdfSplitterController extends Controller
      * @param array<int,array{label:string,contact_ids:int[],pages:int[],file:string}> $groups
      * @return array{property:int, contact:int, fallback:int}
      */
-    private function fileGroupsToDestinations(Property $property, array $groups, int $agencyId, \Illuminate\Support\Collection $attached): array
+    private function fileGroupsToDestinations(Property $property, array $groups, int $agencyId, \Illuminate\Support\Collection $attached, ?DealV2 $deal = null): array
     {
         $publicDisk = Storage::disk('public');
         $dir = "properties/{$property->id}/files";
@@ -729,6 +750,7 @@ class PdfSplitterController extends Controller
                 // every split doc (incl. contact-only ones) so a contact's
                 // "Not Property-Linked" doc is still traceable to its split.
                 'source_id'        => $property->id,
+                'deal_id'          => $deal?->id, // WS3 (D4) deal anchor (optional)
                 'uploaded_by'      => auth()->id(),
             ]);
 
@@ -756,6 +778,22 @@ class PdfSplitterController extends Controller
             if (! $didAttach) {
                 $doc->properties()->attach($property->id);
                 $result['fallback']++;
+            }
+
+            // WS3 (D4) — when this split is anchored to a deal, auto-complete the
+            // matching document step (config-driven by doc type). Guarded so a
+            // splitter run never fails on the deal-side wiring.
+            if ($deal) {
+                try {
+                    app(DealDocumentService::class)
+                        ->autoCompleteMatchingStep($deal, $doc, auth()->user());
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('PDF splitter: deal step auto-complete skipped (non-fatal)', [
+                        'document_id' => $doc->id,
+                        'deal_id'     => $deal->id,
+                        'error'       => $e->getMessage(),
+                    ]);
+                }
             }
         }
 
