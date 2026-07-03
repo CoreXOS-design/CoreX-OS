@@ -51,9 +51,15 @@
             : route('corex.contacts.matches.store', $contact));
 @endphp
 
+                {{-- AT-165 offline draft persistence — keyed per contact. Only the plain
+                     TYPED fields are persisted; the Alpine-owned chip state (listing_type,
+                     property_types, features, deal-breakers) and the external suburb picker
+                     are EXCLUDED (form-scan can't rehydrate Alpine arrays). No sensitive fields. --}}
                 <form method="POST" action="{{ $formAction }}"
                       x-data="{ listingType: @js($initialListingType) }"
-                      class="space-y-5">
+                      class="space-y-5"
+                      data-draft='@json(["form" => "contact_match", "recordId" => $contact->id, "version" => null])'
+                      data-draft-fields="name,category,is_primary,price_min,price_max,beds_min,bedrooms_max,baths_min,garages_min,parking_min,floor_size_min,floor_size_max,erf_size_min,erf_size_max,notes">
                     @csrf
                     @if($isEdit) @method('PUT') @endif
 

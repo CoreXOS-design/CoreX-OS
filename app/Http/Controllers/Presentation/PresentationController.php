@@ -198,6 +198,7 @@ class PresentationController extends Controller
         ]);
 
         // Intake-first workflow: land on overview with pack readiness visible
+        \App\Support\CoreXDraft::clearOnSave('presentation_capture'); // AT-165: drop the local "new" draft
         return redirect()->route('presentations.show', $presentation)
             ->with('success', 'Presentation created. Upload evidence and add links below, then run analysis when ready.');
     }

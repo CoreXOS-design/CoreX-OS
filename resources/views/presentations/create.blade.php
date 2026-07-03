@@ -27,7 +27,10 @@
 
     {{-- Form card --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-    <form method="POST" action="{{ route('presentations.store') }}">
+    {{-- AT-165 offline draft persistence — no sensitive fields on this capture. --}}
+    <form method="POST" action="{{ route('presentations.store') }}"
+          data-draft='@json(["form" => "presentation_capture", "recordId" => null, "version" => null])'
+          data-draft-fields="title,property_address,suburb,property_type,bedrooms,bathrooms,asking_price_inc,erf_size_m2,floor_area_m2,garages_parking,seller_name,branch_id">
         @csrf
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-5">

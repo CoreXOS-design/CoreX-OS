@@ -165,6 +165,15 @@ Each form opts in by composing `draft({...})` with its allowlist. Effort buckets
 Roll-out order: land the module + the reference form (property capture) first, prove the pattern, then the S
 forms, then M, then L. Each form's PR includes its allowlist and a note of excluded sensitive fields.
 
+**Wired so far (as-built):** property capture (reference), rental capture, presentation builder, commercial
+evaluation (create + edit), agent onboarding (id_number excluded), contact match (typed-field subset only — the
+Alpine chip/feature state and the external suburb picker are excluded as a form-scan restore cannot rehydrate
+Alpine arrays). Each has a `CoreXDraft::clearOnSave()` in its controller success path.
+**Deliberately left for later / special handling:** FICA + staff take-on (POPIA — mostly excluded fields; may opt
+out), DR1/DR2 deals (wizard/axios), company-settings + admin-user (credential panels), e-sign (server-owned),
+calendar/task (own persistence), and any multipart file-upload form (e.g. property capture uses draft only, not
+resilient-submit).
+
 ## 9A. Complements folded in (from §2A alternatives — approved for this build)
 Client-side draft *recovers* work; these two cheap complements *prevent* the loss so the agent rarely sees it. Both
 ship in the same increment as the draft layer, as separate opt-in modules so a form can adopt any subset.
