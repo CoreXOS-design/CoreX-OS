@@ -202,6 +202,17 @@
                                             <option value="multi_field">Multi Field</option>
                                             <option value="auto_from_linked_deal">Auto (Linked Deal)</option>
                                         </select>
+                                        {{-- WS3 (D4) — bind a document type so a matching filed document auto-completes this step --}}
+                                        <div x-show="['document_upload','document_signed'].includes(editForm.completion_type)" class="mt-2">
+                                            <label class="block text-xs mb-1" style="color: var(--text-muted);">Satisfied by document type (auto-complete)</label>
+                                            <select x-model="editForm.expected_document_type_id" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none"
+                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                                <option :value="null">— Any / manual —</option>
+                                                @foreach($documentTypes as $dt)
+                                                    <option :value="{{ $dt->id }}">{{ $dt->label }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
                                     </div>
                                     <div class="rounded-lg p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
                                         <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">RAG Thresholds (days)</div>
@@ -372,6 +383,7 @@
                         negative_status_trigger: null,
                         negative_outcome_label: null,
                         requires_bm_approval: false,
+                        expected_document_type_id: null,
                     };
                     this.steps.push(newStep);
                     this.editingStepId = 'new';
@@ -409,6 +421,8 @@
                                 negative_status_trigger: this.editForm.negative_status_trigger || null,
                                 negative_outcome_label: this.editForm.negative_outcome_label || null,
                                 requires_bm_approval: this.editForm.requires_bm_approval ? 1 : 0,
+                                document_type_id: ['document_upload','document_signed'].includes(this.editForm.completion_type)
+                                    ? (this.editForm.expected_document_type_id || null) : null,
                             },
                         });
 

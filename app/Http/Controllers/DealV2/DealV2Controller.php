@@ -9,6 +9,7 @@ use App\Models\DealV2\DealPipelineTemplate;
 use App\Models\DealV2\DealV2;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\DealV2\DealDocumentService;
 use App\Services\DealV2\DealPipelineService;
 use Illuminate\Http\Request;
 
@@ -200,6 +201,7 @@ class DealV2Controller extends Controller
             'listingAgent',
             'sellingAgent',
             'branch',
+            'documents' => fn ($q) => $q->with('documentType', 'uploader'), // WS3 (D4) deal spine
         ]);
 
         $user = auth()->user();
@@ -207,7 +209,81 @@ class DealV2Controller extends Controller
         $canApprove = $user->hasPermission('deals_v2.manage_pipeline') || $user->is_admin;
         $canOverrideDates = $user->hasPermission('deals_v2.override_dates');
 
-        return view('deals-v2.show', compact('deal', 'canEdit', 'canApprove', 'canOverrideDates'));
+        // Doc-type picker + "satisfies which step" picker for the upload-onto-deal form.
+        $documentTypes = \App\Models\DocumentType::query()->where('is_active', true)
+            ->orderBy('sort_order')->get(['id', 'label']);
+        $documentSteps = $deal->stepInstances
+            ->whereIn('completion_type', ['document_upload', 'document_signed'])
+            ->whereIn('status', ['active', 'not_started'])
+            ->values();
+
+        return view('deals-v2.show', compact(
+            'deal', 'canEdit', 'canApprove', 'canOverrideDates', 'documentTypes', 'documentSteps'
+        ));
+    }
+
+    /**
+     * WS3 (D4) — upload a document directly onto a deal. Creates a unified
+     * Document anchored to the deal (+ its property + contacts) in one pass and,
+     * when the agent targets a step (or the document type matches an active
+     * document step), auto-completes it through the pipeline engine.
+     */
+    public function storeDocument(Request $request, DealV2 $deal, DealDocumentService $dealDocumentService)
+    {
+        abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
+
+        $data = $request->validate([
+            'file'             => ['required', 'file', 'max:10240'],
+            'document_type_id' => ['nullable', 'integer', 'exists:document_types,id'],
+            'link_step_id'     => ['nullable', 'integer'],
+        ]);
+
+        $file = $request->file('file');
+        $disk = config('filesystems.default', 'local');
+        $path = $file->store("deals/{$deal->id}/documents", $disk);
+
+        $doc = $dealDocumentService->createDealDocument($deal, [
+            'original_name'    => $file->getClientOriginalName(),
+            'storage_path'     => $path,
+            'disk'             => $disk,
+            'mime_type'        => $file->getClientMimeType(),
+            'size'             => $file->getSize(),
+            'document_type_id' => $data['document_type_id'] ?? null,
+            'source_type'      => 'deal_upload',
+        ], auth()->user());
+
+        // Explicit step target (agent chose "satisfies this step"), else fall
+        // back to config-driven doc-type matching. Both no-op safely if nothing
+        // is applicable — the document is still filed against the deal.
+        $preferStep = null;
+        if (! empty($data['link_step_id'])) {
+            $preferStep = $deal->stepInstances()->whereKey($data['link_step_id'])->first();
+        }
+        $completedStep = $dealDocumentService->autoCompleteMatchingStep($deal, $doc, auth()->user(), $preferStep);
+
+        $msg = 'Document filed against the deal';
+        if ($completedStep && $completedStep->fresh()->status === 'completed') {
+            $msg .= " and step \"{$completedStep->name}\" completed";
+        }
+
+        return redirect()->route('deals-v2.show', $deal->id)->with('status', $msg . '.');
+    }
+
+    /**
+     * WS3 (D4) — authenticated download of a deal-anchored document. Documents
+     * are served through this gated route (never a public docroot path): the
+     * user must have register access AND the document must belong to this deal
+     * in their agency. POPIA-conscious; deleted files 404 gracefully.
+     */
+    public function downloadDocument(DealV2 $deal, \App\Models\Document $document)
+    {
+        abort_unless(auth()->user()?->hasPermission('access_deal_register_v2'), 403);
+        abort_unless((int) $document->deal_id === (int) $deal->id, 404);
+
+        $disk = \Illuminate\Support\Facades\Storage::disk($document->disk ?? 'local');
+        abort_unless($disk->exists($document->storage_path), 404);
+
+        return $disk->download($document->storage_path, $document->original_name);
     }
 
     public function searchProperties(Request $request)

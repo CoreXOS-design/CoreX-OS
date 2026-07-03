@@ -175,6 +175,43 @@
         </p>
     </div>
 
+    {{-- Deal target (WS3 · D4 — register users only, optional) --}}
+    @if(!empty($canLinkDeal))
+    <div class="card p-4 mb-4" style="border-left: 3px solid #2dd4bf;" x-show="property">
+        <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
+                Also file to a deal <span style="color: var(--text-muted); text-transform:none;">(optional)</span>
+            </label>
+            <button type="button" x-show="deal" @click="clearDeal()" class="text-xs underline" style="color: var(--text-secondary);">Clear</button>
+        </div>
+        <div x-show="!deal" class="relative">
+            <input type="text" x-model="dealQ" @input.debounce.250="searchDeals()" @focus="searchDeals()"
+                   placeholder="Search active deal by reference or address…"
+                   class="w-full px-3 py-2 rounded-md text-sm"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <div x-show="dealResults.length > 0" class="absolute left-0 right-0 top-full mt-1 rounded-md z-20 max-h-72 overflow-y-auto"
+                 style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                <template x-for="d in dealResults" :key="d.id">
+                    <button type="button" @click="pickDeal(d)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
+                        <span class="font-mono" x-text="d.reference"></span>
+                        <span class="text-xs ml-2" style="color: var(--text-muted);" x-text="d.property_address || ''"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
+        <div x-show="deal" class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
+             style="background: var(--surface-2); border: 1px solid var(--border);">
+            <div class="text-sm" style="color: var(--text-primary);">
+                <span class="font-mono" x-text="deal?.reference"></span>
+                <span class="text-xs ml-2" style="color: var(--text-muted);" x-text="deal?.property_address || ''"></span>
+            </div>
+        </div>
+        <p class="text-xs mt-2" style="color: var(--text-muted);">
+            Filed documents are anchored to this deal too; a doc type that matches an active document step auto-completes it.
+        </p>
+    </div>
+    @endif
+
     {{-- FICA toggle (compliance users only) --}}
     @if(!empty($canFica))
     <div class="card p-4 mb-4" data-tour="spr-fica" style="border-left: 3px solid #8b5cf6;" x-show="property">
@@ -217,6 +254,9 @@
         <input type="hidden" name="property_id" :value="property ? property.id : ''">
         @if(!empty($canFica))
             <input type="hidden" name="trigger_fica" :value="ficaChecked ? '1' : '0'">
+        @endif
+        @if(!empty($canLinkDeal))
+            <input type="hidden" name="deal_id" :value="deal ? deal.id : ''">
         @endif
 
         {{-- Deterministic submission: hidden inputs mirror Alpine state, so the
@@ -338,6 +378,7 @@ document.addEventListener('alpine:init', () => {
         roleSets:   @json($roleSets),    // {role:[pivotRole,...]}
         roleLabels: @json($roleLabels),
         searchUrl:       '{{ route('tools.pdf_splitter.properties.search') }}',
+        dealSearchUrl:   '{{ route('deals-v2.search.deals') }}',
         contactsTpl:     '{{ route('tools.pdf_splitter.properties.contacts', ['property' => '__ID__']) }}',
         thumbTpl:        '{{ route('tools.pdf_splitter.thumb', ['page' => '__PAGE__']) }}',
         contactSearchTpl:'{{ route('corex.properties.contacts.search', ['property' => '__PID__']) }}',
@@ -350,6 +391,7 @@ document.addEventListener('alpine:init', () => {
         bulkType:   'other',
         q: '', propResults: [],
         property: null,
+        dealQ: '', dealResults: [], deal: null,
         contacts: [], contactsById: {}, loadingContacts: false,
         ficaOverride: null,
         // inline add-contact panel
@@ -370,9 +412,24 @@ document.addEventListener('alpine:init', () => {
         pickProp(r) { this.property = r; this.q = ''; this.propResults = []; this.loadContacts(r.id); },
         clearProperty() {
             this.property = null; this.contacts = []; this.contactsById = {};
+            this.deal = null; this.dealQ = ''; this.dealResults = [];
             // Back to a clean slate: no contacts, nothing touched.
             this.pages.forEach(p => { p.contactIds = []; p.touched = false; });
         },
+
+        // ── deal search (WS3 · D4) ────────────────────────────────────────
+        async searchDeals() {
+            const q = this.dealQ.trim();
+            if (q.length < 2) { this.dealResults = []; return; }
+            try {
+                const res = await fetch(`${this.dealSearchUrl}?q=${encodeURIComponent(q)}`, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin',
+                });
+                this.dealResults = res.ok ? await res.json() : [];
+            } catch (e) { this.dealResults = []; }
+        },
+        pickDeal(d) { this.deal = d; this.dealQ = ''; this.dealResults = []; },
+        clearDeal() { this.deal = null; this.dealQ = ''; this.dealResults = []; },
         async loadContacts(id) {
             this.loadingContacts = true;
             try {

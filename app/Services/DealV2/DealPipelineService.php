@@ -212,11 +212,16 @@ class DealPipelineService
             }
             $this->logActivity($step->deal, $step, $user->id, 'step_completed', $description);
 
-            // Handle file upload
-            if (!empty($completionData['file_path'])) {
+            // Handle file upload. WS3 (D4): a step file may now be backed by a
+            // unified Document (document_id) so the same file is reachable from
+            // the deal, property and contacts — not just this step. Legacy
+            // callers pass only file_path; both shapes create one row.
+            if (!empty($completionData['file_path']) || !empty($completionData['document_id'])) {
                 $step->documents()->create([
-                    'file_path' => $completionData['file_path'],
-                    'file_name' => $completionData['file_name'] ?? basename($completionData['file_path']),
+                    'document_id' => $completionData['document_id'] ?? null,
+                    'file_path' => $completionData['file_path'] ?? null,
+                    'file_name' => $completionData['file_name']
+                        ?? (!empty($completionData['file_path']) ? basename($completionData['file_path']) : null),
                     'uploaded_by_id' => $user->id,
                 ]);
             }

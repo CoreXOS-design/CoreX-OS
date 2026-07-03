@@ -31,6 +31,17 @@ class DealStepDocument extends Model
         return $this->belongsTo(DealStepInstance::class, 'deal_step_instance_id');
     }
 
+    /**
+     * AT-158 WS3 (D4) — the unified document this step-file is backed by.
+     * Nullable: legacy step-files carry only a raw file_path; the spine
+     * populates document_id so the same file is reachable from the deal,
+     * property and contacts, not just this step.
+     */
+    public function document(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Document::class, 'document_id');
+    }
+
     public function uploadedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploaded_by_id');

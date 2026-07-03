@@ -155,6 +155,18 @@ class DealV2 extends Model
         return $this->hasMany(DealActivityLog::class, 'deal_id')->orderBy('created_at', 'desc');
     }
 
+    /**
+     * AT-158 WS3 (D4) — unified documents anchored directly to this deal
+     * (upload-onto-deal, PDF-splitter deal target, e-sign auto-file). This is
+     * the deal-level document spine; per-step files live on
+     * stepInstances()->documents() and, once populated, also point back to a
+     * unified document via DealStepDocument::document().
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(\App\Models\Document::class, 'deal_id')->latest();
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
