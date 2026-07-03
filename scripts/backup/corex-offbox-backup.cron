@@ -1,0 +1,12 @@
+# CoreX OFF-BOX backup (AT-163 durability) — restic -> Hetzner Storage Box over SFTP.
+# Closes the /dev/sda volume-loss exposure (WA media + DBs + docs were single-copy on the volume).
+# Installed 2026-07-03.
+#
+# Nightly at 03:30 — AFTER the 02:30 nexus_os DB dump (/etc/cron.d/nexus_os-backup), so the two
+# don't contend for IO. The off-box job takes its OWN fresh consistent dumps anyway.
+# Health check at 09:15 daily — catches a missed/failed nightly on the same working day.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+30 3 * * * root /usr/local/bin/corex-offbox-backup.sh
+15 9 * * * root /usr/local/bin/corex-backup-health.sh check
