@@ -253,6 +253,17 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
     Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
 
+    // AT-168 Part C — conversation-thread paging + in-thread search (JSON).
+    // Under /api/v1 (URI starts with api/) so they appear in the Admin→API
+    // catalogue (non-negotiable #7). Called from the thread Blade over fetch with
+    // session cookies — same reason as the P24 tree above they live in web.php.
+    // Gated by the same archive permission as the thread view.
+    Route::middleware(['auth', 'verified', 'permission:access_communication_archive', 'agency.required'])
+        ->prefix('api/v1/communications/threads')->name('api.v1.communications.threads.')->group(function () {
+            Route::get('/{threadKey}/older', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'threadOlder'])->name('older')->where('threadKey', '.*');
+            Route::get('/{threadKey}/search', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'threadSearch'])->name('search')->where('threadKey', '.*');
+        });
+
     // ── Admin: API Catalog (auto-generated from route table) ──
     Route::get('/admin/api', [\App\Http\Controllers\Admin\ApiCatalogController::class, 'index'])
         ->middleware('permission:manage_users')
@@ -1752,6 +1763,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-148 — manual retry for a pending/failed media download.
         Route::post('/attachment/{attachment}/retry', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'retryMedia'])->name('attachment.retry');
     });
+
 
     // ── Communication Archive — mailbox config (AT-33) — tighter: editing IMAP
     // credentials is admin/compliance-level, separate from viewing the archive.
