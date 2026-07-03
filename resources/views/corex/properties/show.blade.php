@@ -3649,13 +3649,13 @@
                     },
                     async upload() {
                         if (!this.files.length) return;
-                        // Reject anything over the server's per-file limit (50MB) up
+                        // Reject anything over the server's per-file limit (500MB) up
                         // front, with a clear message — beats a raw server error.
-                        const MAX_FILE = 50 * 1024 * 1024;
+                        const MAX_FILE = 500 * 1024 * 1024;
                         const tooBig = this.files.find(f => f.size > MAX_FILE);
                         if (tooBig) {
                             this.errorMsg = '"' + tooBig.name + '" is ' + Math.round(tooBig.size / 1048576) +
-                                'MB — the limit is 50MB per image. Please resize it and try again.';
+                                'MB — the limit is 500MB per image. Please resize it and try again.';
                             return;
                         }
                         this.uploading = true;
@@ -3665,10 +3665,10 @@
                         this.errorMsg = '';
                         // Group into POSTs bounded by BOTH file count (PHP
                         // max_file_uploads) AND total bytes (must stay under
-                        // post_max_size, ~60MB on the server). A count-only batch of
+                        // post_max_size, ~550MB on the server). A count-only batch of
                         // large photos previously blew past post_max_size and the
                         // server rejected the whole POST with HTTP 413.
-                        const batches = window.planUploadBatches(this.files, 10, 45 * 1024 * 1024);
+                        const batches = window.planUploadBatches(this.files, 10, 500 * 1024 * 1024);
                         try {
                             for (const chunk of batches) {
                                 await this.uploadChunk(chunk);
@@ -4374,7 +4374,7 @@
                     // Batch under BOTH PHP max_file_uploads (count) AND post_max_size
                     // (bytes) — a count-only batch of large photos overran
                     // post_max_size and the server rejected the POST with HTTP 413.
-                    const batches = window.planUploadBatches(files, 10, 45 * 1024 * 1024);
+                    const batches = window.planUploadBatches(files, 10, 500 * 1024 * 1024);
                     let done = 0, latest = null;
                     try {
                         for (const chunk of batches) {
@@ -7717,9 +7717,9 @@ function websiteSyndication(config) {
         var files = Array.from(galleryInput.files || []);
         var totalBytes = files.reduce(function (s, f) { return s + f.size; }, 0);
         // Native submit is safe only when the whole gallery fits in ONE POST —
-        // under both max_file_uploads (count) AND post_max_size (~60MB, bytes).
+        // under both max_file_uploads (count) AND post_max_size (~550MB, bytes).
         // Otherwise fall through to the AJAX batch path, which never trips 413.
-        if (files.length <= MAX_SINGLE_POST && totalBytes <= 45 * 1024 * 1024) return;
+        if (files.length <= MAX_SINGLE_POST && totalBytes <= 500 * 1024 * 1024) return;
         if (!hasLinkedContact()) return;                 // let the contact guard surface its modal
 
         e.preventDefault();
@@ -7772,7 +7772,7 @@ function websiteSyndication(config) {
         var id = created.property.id;
         var uploadUrl = UPLOAD_BASE + '/' + id + '/upload-images';
         var done = 0, failed = 0;
-        var batches = window.planUploadBatches(files, BATCH, 45 * 1024 * 1024);
+        var batches = window.planUploadBatches(files, BATCH, 500 * 1024 * 1024);
         for (var bi = 0; bi < batches.length; bi++) {
             var chunk = batches[bi];
             var body = new FormData();
