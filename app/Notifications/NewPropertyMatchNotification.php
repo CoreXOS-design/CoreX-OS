@@ -18,20 +18,20 @@ class NewPropertyMatchNotification extends Notification
         protected int $score
     ) {}
 
+    /**
+     * In-app (database) channel ONLY — the bell notification stays real-time so
+     * an agent sees a new match the moment it lands.
+     *
+     * The EMAIL is deliberately NOT sent here. Firing one email per (property,
+     * contact) match flooded agents' inboxes (a bulk import or re-save fanned out
+     * dozens of separate emails). Match emails are now coalesced into ONE daily
+     * digest per agent by `corex:matches:send-digests`, which reads the
+     * contact_match_notifications ledger. See .ai/specs/matches.md §Digest and
+     * the calendar-digest precedent ("one email per user, never one per item").
+     */
     public function via(object $notifiable): array
     {
-        $channels = ['database'];
-
-        try {
-            $settings = \App\Models\CommandCenter\UserDashboardSetting::getEffective($notifiable);
-            if ($settings && $settings->notify_email) {
-                $channels[] = 'mail';
-            }
-        } catch (\Throwable $e) {
-            // settings model not available — database-only is fine
-        }
-
-        return $channels;
+        return ['database'];
     }
 
     public function toMail(object $notifiable): MailMessage

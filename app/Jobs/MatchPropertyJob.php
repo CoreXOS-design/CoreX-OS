@@ -63,6 +63,13 @@ class MatchPropertyJob implements ShouldQueue
                 $agent->notify(new NewPropertyMatchNotification($match, $property, $score));
 
                 ContactMatchNotification::create([
+                    // MUST be set explicitly: this runs on the queue with no
+                    // Auth::user(), so BelongsToAgency can't infer agency_id and
+                    // the NOT NULL insert silently failed — which meant the dedup
+                    // row was NEVER written and every re-save of a property
+                    // re-notified every match (the match-email spam). Take the
+                    // owning agency straight off the property.
+                    'agency_id'        => $property->agency_id,
                     'contact_match_id' => $match->id,
                     'property_id'      => $property->id,
                     'score'            => $score,

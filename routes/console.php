@@ -94,6 +94,11 @@ Schedule::command('targets:carry-forward')->monthlyOn(1, '00:05')->withoutOverla
 // contact has a recent deal. Daily at 03:00.
 Schedule::command('corex:matches:archive-stale')->dailyAt('03:00')->withoutOverlapping();
 
+// Core Matches — the single daily digest email. Coalesces every new match
+// surfaced since the last run into ONE email per agent (never one per property).
+// The in-app bell stays real-time; only the email is batched. Daily at 07:00.
+Schedule::command('corex:matches:send-digests')->dailyAt('07:00')->onOneServer()->withoutOverlapping();
+
 // Agency Access Authorization — expire stale pending requests every minute.
 Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
 
