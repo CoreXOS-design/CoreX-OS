@@ -73,11 +73,42 @@ class MatchingService
         };
     }
 
-    /** Hard-fail statuses for the auto-match notification job. */
-    private const EXCLUDED_FOR_NOTIFY = ['sold', 'withdrawn', 'draft'];
+    /**
+     * Off-market / concluded statuses that make a property INELIGIBLE to match —
+     * in EITHER direction (agent notify OR display / shared page). A let-out or
+     * rented rental, a sold/transferred/withdrawn listing, an expired or
+     * cancelled mandate: none of these may ever surface as a "new match" or fire
+     * a match email. A property is "matchable" only while it is genuinely live.
+     *
+     * THE single source of truth for match eligibility. It replaces the earlier
+     * split EXCLUDED_FOR_NOTIFY / EXCLUDED_FOR_DISPLAY lists, which (a) disagreed
+     * — notify was missing let_out/expired/cancelled/unavailable — and (b) were
+     * compared with a case-SENSITIVE `in_array(..., true)` against a lowercase
+     * list, while the `status` column is stored mixed-case across ingress paths
+     * (P24 sync writes capitalised 'Sold'/'Withdrawn'/'Rented'; the wizard writes
+     * lowercase). The result: 769 `Sold` and every `let_out` rental leaked into
+     * agent match emails. Fix-the-class — one list, one normalised predicate
+     * (isMatchableStatus), every matching entry point routed through it.
+     */
+    private const NON_MATCHABLE_STATUSES = [
+        'sold', 'transferred', 'rented', 'let_out',
+        'withdrawn', 'expired', 'cancelled',
+        'unavailable', 'archived', 'draft', 'pending',
+    ];
 
-    /** Hard-fail statuses for display lists (match results / shared page). */
-    private const EXCLUDED_FOR_DISPLAY = ['sold', 'withdrawn', 'draft', 'archived', 'pending'];
+    /**
+     * Case-insensitive match-eligibility test for a property's lifecycle status.
+     *
+     * A NULL / blank status is treated as matchable: an incomplete-but-live
+     * listing must not be silently suppressed — the same "incomplete listings
+     * shouldn't be penalised" rule the scorer applies. Only an EXPLICIT
+     * off-market status blocks the match.
+     */
+    public static function isMatchableStatus(?string $status): bool
+    {
+        $s = strtolower(trim((string) $status));
+        return $s === '' || !in_array($s, self::NON_MATCHABLE_STATUSES, true);
+    }
 
     /**
      * All active matches in the same agency that this property could possibly satisfy.
@@ -85,7 +116,7 @@ class MatchingService
      */
     public function candidatesForProperty(Property $property): Collection
     {
-        if (!$property->id || in_array($property->status, self::EXCLUDED_FOR_NOTIFY, true)) {
+        if (!$property->id || !self::isMatchableStatus($property->status)) {
             return collect();
         }
 
@@ -105,7 +136,7 @@ class MatchingService
      */
     public function matchesForProperty(Property $property): Collection
     {
-        if (in_array($property->status, self::EXCLUDED_FOR_DISPLAY, true)) {
+        if (!self::isMatchableStatus($property->status)) {
             return collect();
         }
 
@@ -153,7 +184,15 @@ class MatchingService
 
         $relaxed = $overrides['relaxed'] ?? true;
         $query = Property::query()
-            ->whereNotIn('status', self::EXCLUDED_FOR_DISPLAY);
+            // Off-market listings never surface. Case-insensitive (statuses are
+            // stored mixed-case) and NULL-tolerant (an incomplete-but-live
+            // listing stays matchable) — mirrors isMatchableStatus() in SQL.
+            ->where(function (Builder $sub) {
+                $sub->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
+                        . collect(self::NON_MATCHABLE_STATUSES)->map(fn ($s) => "'$s'")->implode(',')
+                        . ')');
+            });
 
         if ($match->agency_id) {
             $query->where('agency_id', $match->agency_id);
