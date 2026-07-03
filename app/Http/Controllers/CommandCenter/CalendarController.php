@@ -1487,15 +1487,24 @@ class CalendarController extends Controller
                 $colour = $event->resolved_colour ?? 'neutral';
                 if (! isset($groups[$type])) {
                     $groups[$type] = [
-                        'group'    => $type,
-                        'label'    => $groupLabels[$type] ?? \Illuminate\Support\Str::headline($type),
-                        'count'    => 0,
-                        'worst'    => 'neutral',
-                        'item_ids' => [],
+                        'group' => $type,
+                        'label' => $groupLabels[$type] ?? \Illuminate\Support\Str::headline($type),
+                        'count' => 0,
+                        'worst' => 'neutral',
+                        'items' => [], // AT-164 Gate 2 — popover rows (title + RAG + due + new-tab link)
                     ];
                 }
                 $groups[$type]['count']++;
-                $groups[$type]['item_ids'][] = $event->id;
+                // Gate 2 — per-item drill-down: a deep link where the source resolves
+                // (new tab), else null → the client opens the event's in-page panel.
+                $link = $this->resolveSourceLink($event);
+                $groups[$type]['items'][] = [
+                    'id'    => $event->id,
+                    'title' => (string) $event->title,
+                    'rag'   => $colour,
+                    'due'   => $event->event_date ? $event->event_date->format('d M') : null,
+                    'url'   => $link['url'] ?? null,
+                ];
                 if (($rank[$colour] ?? 0) > ($rank[$groups[$type]['worst']] ?? 0)) {
                     $groups[$type]['worst'] = $colour;
                 }

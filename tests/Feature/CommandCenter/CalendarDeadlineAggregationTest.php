@@ -60,14 +60,23 @@ final class CalendarDeadlineAggregationTest extends TestCase
         ]);
     }
 
-    private function event(string $type, string $category, Carbon $date, bool $allDay): CalendarEvent
+    private function event(string $type, string $category, Carbon $date, bool $allDay, array $extra = []): CalendarEvent
     {
-        return CalendarEvent::create([
+        return CalendarEvent::create(array_merge([
             'user_id' => $this->user->id, 'created_by_id' => $this->user->id,
             'event_type' => $type, 'category' => $category, 'title' => Str::headline($category),
             'event_date' => $date, 'all_day' => $allDay, 'status' => 'pending',
             'branch_id' => $this->agencyId, 'agency_id' => $this->agencyId,
-        ]);
+        ], $extra));
+    }
+
+    private function property(): \App\Models\Property
+    {
+        return \App\Models\Property::withoutEvents(fn () => \App\Models\Property::withoutGlobalScopes()->create([
+            'external_id' => 'T-' . Str::random(8), 'title' => '8 Marine Drive', 'address' => '8 Marine Drive, Shelly Beach',
+            'suburb' => 'Shelly Beach', 'erf_number' => '1234',
+            'agent_id' => $this->user->id, 'branch_id' => $this->agencyId, 'agency_id' => $this->agencyId,
+        ]));
     }
 
     public function test_a_day_of_deadlines_collapses_to_one_chip_and_the_appointment_stays(): void
@@ -75,8 +84,12 @@ final class CalendarDeadlineAggregationTest extends TestCase
         // Mid-month day, ~10 days out → deadlines resolve amber (inside amber_days=14, outside red_days=7).
         $day = now()->startOfMonth()->addDays(14);
         $this->event('viewing', 'viewing', $day->copy()->setTime(10, 0), false);          // the real appointment
+        $prop = $this->property();
         foreach (range(1, 6) as $i) {
-            $this->event('property', 'portal_listing_expiry', $day->copy()->startOfDay(), true); // 6 deadlines
+            // 6 deadlines, each sourced at a real Property → Gate 2 resolves a new-tab deep link.
+            $this->event('property', 'portal_listing_expiry', $day->copy()->startOfDay(), true, [
+                'source_type' => \App\Models\Property::class, 'source_id' => $prop->id,
+            ]);
         }
 
         $resp = $this->actingAs($this->user)->get(
@@ -100,8 +113,15 @@ final class CalendarDeadlineAggregationTest extends TestCase
         $this->assertSame(6, $groups[0]['count']);
         $this->assertSame('amber', $groups[0]['worst']);
 
-        // And it renders on the page as an aggregate chip.
-        $resp->assertSee('6', false);
+        // Gate 2 — each group carries drill-down items with a resolved deep link.
+        $this->assertCount(6, $groups[0]['items'], 'popover items enriched per deadline');
+        $item = $groups[0]['items'][0];
+        $this->assertArrayHasKey('title', $item);
+        $this->assertSame('amber', $item['rag']);
+        $this->assertStringContainsString('/properties/', (string) $item['url'], 'Property-sourced deadline resolves a deep link');
+
+        // The page renders the aggregate chip + the Gate 2 popover items as new-tab links.
         $resp->assertSee('Listings', false);
+        $resp->assertSee('target="_blank"', false);
     }
 }
