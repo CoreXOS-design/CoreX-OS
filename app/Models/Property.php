@@ -1444,4 +1444,26 @@ class Property extends Model
     {
         return $this->morphToMany(CalendarEvent::class, 'linkable', 'calendar_event_links', null, 'calendar_event_id');
     }
+
+    // ── Communication links (AT-158 DR2 · WS5, §10) ──
+    // A property is a first-class pillar on the communication archive: DR2
+    // document distributions link the outbound Communication to the deal's
+    // property (alongside the deal + recipient contact). This is the read seam
+    // the property "Document distributions" surface queries.
+
+    public function communicationLinks(): MorphMany
+    {
+        return $this->morphMany(\App\Models\Communications\CommunicationLink::class, 'linkable');
+    }
+
+    public function communications()
+    {
+        return $this->morphToMany(
+            \App\Models\Communications\Communication::class,
+            'linkable',
+            'communication_links',
+            null,
+            'communication_id'
+        );
+    }
 }
