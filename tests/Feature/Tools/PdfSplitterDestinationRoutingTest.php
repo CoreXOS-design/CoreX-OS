@@ -227,16 +227,33 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         $this->assertSame($docId, $s1->fresh()->documents()->first()->id);
     }
 
-    public function test_contact_destined_doc_with_no_ticked_contact_falls_back_to_property(): void
+    public function test_contact_only_doc_with_no_ticked_contact_is_unfiled_not_property(): void
     {
+        // AT-167 — a contact-only type (ids) with NO ticked contact must NEVER be
+        // anchored to the property (that was the misfile). It stays unlinked and
+        // surfaces in the Misfiled Documents register.
         $p = $this->makeProperty();
-        // ids = contact-destined; ticked for NOBODY → no-orphan anchor to property.
         $groups = [$this->group('ids', [], $this->outFile('ids'))];
         $res = $this->callFile($p, $groups, $this->agency->id, $this->attached($p));
 
         $this->assertSame(0, $res['property']);
         $this->assertSame(0, $res['contact']);
-        $this->assertSame(1, $res['fallback']);
+        $this->assertSame(0, $res['fallback']);
+        $this->assertSame(1, $res['unfiled']);
+        // The document exists (created) but is NOT linked to the property.
+        $this->assertSame(0, $p->fresh()->documents()->count());
+        $this->assertSame(1, Document::where('source_type', 'pdf_splitter')->count());
+    }
+
+    public function test_property_type_with_no_contact_still_falls_back_to_property(): void
+    {
+        // A genuine property/shared type keeps the no-orphan property anchor.
+        $p = $this->makeProperty();
+        $groups = [$this->group('other', [], $this->outFile('other'))]; // 'other' = shared
+        $res = $this->callFile($p, $groups, $this->agency->id, $this->attached($p));
+
+        $this->assertSame(1, $res['property'] + $res['fallback']); // lands on the property
+        $this->assertSame(0, $res['unfiled']);
         $this->assertSame(1, $p->fresh()->documents()->count());
     }
 

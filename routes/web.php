@@ -297,6 +297,17 @@ Route::middleware('auth')->group(function () {
         ->where('suppression', '[0-9]+')
         ->name('admin.marketing-suppressions.lift');
 
+    // ── Admin: Misfiled Documents register (AT-167) ──
+    // Contact-only splitter docs with no contact assigned; Refile routes them to
+    // the correct person and removes the wrong property anchor (no hard delete).
+    Route::get('/admin/misfiled-documents', [\App\Http\Controllers\Admin\MisfiledDocumentsController::class, 'index'])
+        ->middleware('permission:access_misfiled_documents')
+        ->name('admin.misfiled-documents.index');
+    Route::post('/admin/misfiled-documents/{document}/refile', [\App\Http\Controllers\Admin\MisfiledDocumentsController::class, 'refile'])
+        ->middleware('permission:misfiled_documents.refile')
+        ->where('document', '[0-9]+')
+        ->name('admin.misfiled-documents.refile');
+
     // ── Admin: AI usage / cost dashboard (MIC Phase B2) ──
     Route::get('/admin/ai-usage', [\App\Http\Controllers\Admin\AiUsageController::class, 'index'])
         ->middleware('permission:mic.view_ai_costs')
