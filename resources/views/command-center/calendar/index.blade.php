@@ -248,10 +248,14 @@
          the calendar so the right-docked create-event aside can never
          squeeze it to zero — preserves the "calendar stays visible on the
          left" guarantee when filter panel + create panel are both open. --}}
-    <div class="flex-1 min-w-0 sm:min-w-[320px] overflow-y-auto space-y-4 pr-0">
+    {{-- AT-164 COCKPIT (Johan QA 21:41): the main column is a NON-scrolling flex-col
+         — [filter bar (pinned)] + [grid frame (flex-1, the ONLY scroll container)] +
+         [deck row (pinned)]. The page never scrolls; the GRID scrolls inside its
+         bounded frame. --}}
+    <div class="flex-1 min-w-0 sm:min-w-[320px] flex flex-col min-h-0 pr-0">
 
     {{-- ══════ FILTER BAR (compact — panel toggle + active filter summary) ══════ --}}
-    <div class="flex items-center gap-3 rounded-md px-4 py-2"
+    <div class="flex-shrink-0 flex items-center gap-3 rounded-md px-4 py-2 mb-3"
          style="background: var(--surface); border: 1px solid var(--border);">
         {{-- Scope pills (kept inline — primary control) --}}
         <form method="GET" action="{{ route('command-center.calendar') }}" id="calendar-filters" class="flex items-center gap-2">
@@ -342,12 +346,15 @@
         </button>
     </div>
 
+    {{-- ══════ GRID FRAME — the bounded scroll container (flex-1 fills the viewport
+         remainder; the view inside is the ONLY thing that scrolls) ══════ --}}
+    <div class="flex-1 min-h-0 flex flex-col">
     @if($currentView === 'month')
         {{-- ══════ MONTH VIEW — continuous vertical scroll (§15.3) ══════ --}}
         <div x-data="continuousMonth()" x-init="initMonth()" x-ref="scroller"
              @scroll.passive="onScroll()"
              class="rounded-md overflow-hidden flex flex-col"
-             style="background: var(--surface); border: 1px solid var(--border); max-height: 74vh; overflow-y: auto; position: relative;">
+             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; overflow-y: auto; position: relative;">
 
             {{-- Sticky day-of-week header (inline z-index — no new Tailwind arbitrary class, §3) --}}
             <div class="grid grid-cols-7 sticky top-0" style="z-index: 20; background: var(--surface-2); border-bottom: 1px solid var(--border);">
@@ -367,10 +374,14 @@
                  _month-block partial (via /calendar/month-block) — one renderer, full
                  interaction parity, no dual JS cell renderer. --}}
             <div x-ref="months">
-                @include('command-center.calendar.partials._month-block', [
-                    'year' => $year, 'month' => $month, 'grid' => $grid,
-                    'byDate' => $byDate, 'deadlineGroups' => $deadlineGroups, 'spanningBars' => $spanningBars,
-                ])
+                {{-- Preloaded prev + current + next months so the frame overflows on
+                     first paint → scrolling engages immediately (cockpit fix). --}}
+                @foreach(($monthBlocks ?? [['year'=>$year,'month'=>$month,'grid'=>$grid,'byDate'=>$byDate,'deadlineGroups'=>$deadlineGroups,'spanningBars'=>$spanningBars]]) as $mb)
+                    @include('command-center.calendar.partials._month-block', [
+                        'year' => $mb['year'], 'month' => $mb['month'], 'grid' => $mb['grid'],
+                        'byDate' => $mb['byDate'], 'deadlineGroups' => $mb['deadlineGroups'], 'spanningBars' => $mb['spanningBars'],
+                    ])
+                @endforeach
             </div>
 
             {{-- Bottom loading indicator (append later months) --}}
@@ -410,7 +421,7 @@
                 : 0;
         @endphp
 
-        <div class="rounded-md overflow-hidden overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 70vh;">
+        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; overflow-y: auto; overflow-x: auto;">
             {{-- Day headers (sticky inside week scroll container) --}}
             <div class="grid grid-cols-[56px_repeat(7,1fr)] sticky top-0 z-10" style="border-bottom: 1px solid var(--border); background: var(--surface);">
                 <div></div>
@@ -623,8 +634,8 @@
             $dayNowInRange = $dayNowHour >= $hourGridStart && $dayNowHour < $hourGridEnd;
         @endphp
 
-        <div class="max-w-3xl mx-auto rounded-md overflow-hidden"
-             style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="max-w-3xl mx-auto rounded-md overflow-hidden w-full"
+             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; overflow-y: auto;">
             {{-- Date header --}}
             <div class="text-center py-3" style="border-bottom: 1px solid var(--border);">
                 <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">{{ $anchorDate->format('l') }}</div>
@@ -756,10 +767,10 @@
 
     @elseif($currentView === 'agenda')
         {{-- ══════ AGENDA VIEW ══════ --}}
-        <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md flex flex-col" style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; overflow-y: auto;">
             {{-- Range filter bar --}}
             <form method="GET" action="{{ route('command-center.calendar') }}"
-                  class="flex flex-col gap-3 px-4 py-3"
+                  class="flex flex-col gap-3 px-4 py-3 flex-shrink-0"
                   style="border-bottom: 1px solid var(--border);">
                 <input type="hidden" name="year" value="{{ $year }}">
                 <input type="hidden" name="month" value="{{ $month }}">
@@ -895,6 +906,7 @@
             @endif
         </div>
     @endif
+    </div>{{-- END grid frame (bounded scroll container) --}}
 
     {{-- CREATE EVENT PANEL is rendered below as a flex sibling of the
          calendar grid + rightPanel aside (search for "CREATE EVENT PANEL
@@ -1655,13 +1667,14 @@
         </div>
     </div>
 
-    {{-- ══════ AT-164 Gate 4 — TILE DECK (below the grid, all views) ══════ --}}
+    {{-- ══════ AT-164 Gate 4 — TILE DECK (compact, PINNED below the grid, always in
+         the viewport — never scrolls off; a single horizontal card row) ══════ --}}
     <section x-data="calendarDeck()" x-init="init()"
              data-tour="cal-deck"
-             class="rounded-md px-4 py-4 mt-2"
+             class="flex-shrink-0 rounded-md px-4 py-3 mt-2"
              style="background: var(--surface); border: 1px solid var(--border);">
         {{-- Deck header --}}
-        <div class="flex items-center justify-between gap-3 mb-3">
+        <div class="flex items-center justify-between gap-3 mb-2">
             <div class="flex items-center gap-2 min-w-0">
                 <svg class="w-4 h-4 flex-shrink-0" style="color: var(--text-secondary);" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg>
                 <h2 class="text-sm font-semibold truncate" style="color: var(--text-primary);">My Deck</h2>
@@ -1714,10 +1727,13 @@
              Component-scoped CSS (STANDARDS: component-level CSS in the component). --}}
         @once
         <style>
-            .cal-deck-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+            /* AT-164 cockpit: the Deck is a COMPACT single horizontal card row on every
+               screen — pinned in the viewport, bounded height, cards scroll horizontally.
+               Each tile's body scrolls internally (Gate 3 delta 1). */
+            .cal-deck-grid { display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 0.25rem; }
+            .cal-deck-grid > * { scroll-snap-align: start; flex: 0 0 300px; height: 190px; }
             @media (max-width: 640px) {
-                .cal-deck-grid { display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 0.5rem; }
-                .cal-deck-grid > * { scroll-snap-align: start; flex: 0 0 85%; }
+                .cal-deck-grid > * { flex: 0 0 85%; }
             }
         </style>
         @endonce
@@ -4140,9 +4156,16 @@ function continuousMonth() {
             }
             this._params = carry.toString();
 
-            // Scroll-restore: ?anchor=YYYY-MM-DD returns to the same position after refresh.
+            // Scroll-restore: ?anchor=YYYY-MM-DD returns to the same position after refresh;
+            // otherwise open centred on the CURRENT month (prev month is preloaded ABOVE
+            // it, so without this the frame would open scrolled to the top / prev month).
             this._restoreAnchor = url.searchParams.get('anchor');
-            this.$nextTick(() => { if (this._restoreAnchor) this.scrollToDate(this._restoreAnchor); });
+            const anchorMonth = '{{ $anchorMonth ?? '' }}';
+            this.$nextTick(() => {
+                if (this._restoreAnchor) { this.scrollToDate(this._restoreAnchor); return; }
+                const cur = anchorMonth ? this.$refs.months?.querySelector('[data-month="' + anchorMonth + '"]') : null;
+                if (cur) cur.scrollIntoView({ block: 'start' });
+            });
 
             // Expose a scroll-to-today hook to the toolbar Today control.
             window.addEventListener('calendar:today', () => this.scrollToDate(new Date().toISOString().slice(0, 10)));

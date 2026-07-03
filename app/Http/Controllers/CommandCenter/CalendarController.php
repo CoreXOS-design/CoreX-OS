@@ -260,6 +260,22 @@ class CalendarController extends Controller
         $filteredSpanningBars = $block['spanningBars'];
         $filteredEvents       = $block['filteredEvents'];
 
+        // AT-164 cockpit (Johan QA) — PRELOAD prev + current + next month blocks so the
+        // grid frame has more content than its height on first paint → wheel scrolling
+        // engages immediately and lazy-load continues from there (a single short month
+        // never overflowed, so it read as "static"). Ordered [prev, current, next]; the
+        // client scrolls to the current month on init.
+        $curMonth  = Carbon::create($year, $month, 1)->startOfMonth();
+        $prevM     = $curMonth->copy()->subMonthNoOverflow();
+        $nextM     = $curMonth->copy()->addMonthNoOverflow();
+        $prevBlock = $this->monthBlockData($user, $prevM->year, $prevM->month, $typeFilter, $categoryFilter, $scope);
+        $nextBlock = $this->monthBlockData($user, $nextM->year, $nextM->month, $typeFilter, $categoryFilter, $scope);
+        $monthBlocks = [
+            ['year' => $prevM->year, 'month' => $prevM->month, 'grid' => $prevBlock['grid'], 'byDate' => $prevBlock['byDate'], 'deadlineGroups' => $prevBlock['deadlineGroups'], 'spanningBars' => $prevBlock['spanningBars']],
+            ['year' => $year,        'month' => $month,        'grid' => $grid,               'byDate' => $appointmentByDate,  'deadlineGroups' => $deadlineGroupsByDate,     'spanningBars' => $filteredSpanningBars],
+            ['year' => $nextM->year, 'month' => $nextM->month, 'grid' => $nextBlock['grid'], 'byDate' => $nextBlock['byDate'], 'deadlineGroups' => $nextBlock['deadlineGroups'], 'spanningBars' => $nextBlock['spanningBars']],
+        ];
+
         // Agenda range logic
         $rangeGroups = [
             'Current'  => ['month' => 'This month', 'year' => 'This year'],
@@ -330,6 +346,8 @@ class CalendarController extends Controller
             'byDate'           => $appointmentByDate,   // AT-164 Gate 1 — appointments only in cells
             'deadlineGroups'   => $deadlineGroupsByDate, // AT-164 Gate 1 — aggregate deadline chips
             'spanningBars'     => $filteredSpanningBars,
+            'monthBlocks'      => $monthBlocks,         // AT-164 cockpit — prev+current+next preloaded
+            'anchorMonth'      => sprintf('%04d-%02d', $year, $month),
             'colourMap'        => $colourMap,
             'colourPalettes'   => $colourPalettes,
             'classLabels'      => $classLabels,
