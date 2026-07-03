@@ -152,6 +152,76 @@
                             <button type="submit" class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" style="background: #2dd4bf; color: #04121f;">Upload</button>
                         </form>
                     @endif
+
+                    {{-- DISTRIBUTE (WS4 · §8) --}}
+                    @if($canDistribute && $deal->status === 'active')
+                        <div class="pt-3 mt-3" style="border-top: 1px solid var(--border);"
+                             x-data="{ open:false, loading:false, plan:[], async load(){ this.open=true; this.loading=true; try { const r = await fetch('{{ route('deals-v2.distribute.plan', $deal) }}', { headers:{'Accept':'application/json'}, credentials:'same-origin' }); const j = await r.json(); this.plan = j.plan || []; } catch(e) { this.plan = []; } this.loading=false; } }">
+                            <button type="button" @click="load()" class="px-3 py-1.5 rounded-lg text-xs font-medium" style="background: var(--surface-2); color: #2dd4bf; border: 1px solid var(--border);">Distribute documents…</button>
+
+                            <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @click.self="open=false">
+                                <div class="w-full max-w-lg rounded-xl p-5" style="background: var(--surface); border: 1px solid var(--border); max-height: 85vh; overflow-y:auto;">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Distribute documents</h3>
+                                        <button type="button" @click="open=false" style="color: var(--text-muted);">&times;</button>
+                                    </div>
+                                    <p class="text-xs mb-3" style="color: var(--text-muted);">Resolved from your distribution rules and this deal's parties. Only sendable rows can be ticked.</p>
+                                    <div x-show="loading" class="text-sm" style="color: var(--text-muted);">Resolving…</div>
+                                    <form x-show="!loading" method="POST" action="{{ route('deals-v2.distribute.send', $deal) }}">
+                                        @csrf
+                                        <template x-if="plan.length === 0">
+                                            <div class="text-sm" style="color: var(--text-muted);">No distribution rules apply to this deal's current stage.</div>
+                                        </template>
+                                        <template x-for="row in plan" :key="row.rule_id">
+                                            <label class="flex items-start gap-2 p-2 rounded-lg mb-1" style="background: var(--surface-2);" :style="row.sendable ? '' : 'opacity:.55'">
+                                                <input type="checkbox" name="rule_ids[]" :value="row.rule_id" :disabled="!row.sendable" :checked="row.sendable" class="mt-0.5" style="accent-color:#14b8a6;">
+                                                <span class="min-w-0">
+                                                    <span class="text-sm" style="color: var(--text-primary);" x-text="row.document_type + ' → ' + row.party_label"></span>
+                                                    <span class="block text-xs" style="color: var(--text-muted);">
+                                                        <span x-text="row.delivery_mode === 'secure_link' ? 'Secure link + PIN' : 'Email attachment'"></span>
+                                                        <span x-show="row.will_generate"> · will auto-generate</span>
+                                                        <template x-for="rc in row.recipients"><span x-text="' · ' + rc.name"></span></template>
+                                                    </span>
+                                                    <span x-show="row.skip_reason" class="block text-xs" style="color: #f59e0b;" x-text="row.skip_reason"></span>
+                                                </span>
+                                            </label>
+                                        </template>
+                                        <div class="flex justify-end gap-2 mt-3">
+                                            <button type="button" @click="open=false" class="px-3 py-1.5 rounded-lg text-xs" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">Cancel</button>
+                                            <button type="submit" class="px-3 py-1.5 rounded-lg text-xs font-medium" style="background: #2dd4bf; color: #04121f;">Send selected</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    @endif
+
+                    {{-- SENT (distributions) --}}
+                    @if($deal->distributions->isNotEmpty())
+                        <div class="pt-3 mt-3" style="border-top: 1px solid var(--border);">
+                            <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">Sent</div>
+                            <div class="space-y-1">
+                                @foreach($deal->distributions as $dist)
+                                    <div class="flex items-center justify-between gap-3 text-xs p-2 rounded-lg" style="background: var(--surface-2);">
+                                        <div class="min-w-0" style="color: var(--text-secondary);">
+                                            <span style="color: var(--text-primary);">{{ $dist->document->documentType->label ?? ($dist->document->original_name ?? 'Document') }}</span>
+                                            → {{ $dist->recipientName() }}
+                                            <span style="color: var(--text-muted);">· {{ $dist->delivery_mode === 'secure_link' ? 'secure link' : 'attachment' }} · {{ $dist->sent_at?->format('d M') }}</span>
+                                        </div>
+                                        <div class="flex items-center gap-2 flex-shrink-0">
+                                            <span class="px-1.5 py-0.5 rounded" style="background: var(--surface); color: {{ in_array($dist->status, ['downloaded','opened']) ? '#34d399' : ($dist->status === 'revoked' ? '#f87171' : 'var(--text-muted)') }};">{{ str_replace('_', ' ', $dist->status) }}</span>
+                                            @if($canDistribute && $dist->delivery_mode === 'secure_link' && $dist->status !== 'revoked')
+                                                <form method="POST" action="{{ route('deals-v2.distributions.revoke', $dist) }}" onsubmit="return confirm('Revoke this secure link?');">
+                                                    @csrf
+                                                    <button type="submit" style="color: #f87171;">Revoke</button>
+                                                </form>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
                 </div>
             </div>
 

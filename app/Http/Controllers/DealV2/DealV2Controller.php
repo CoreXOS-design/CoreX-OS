@@ -202,12 +202,14 @@ class DealV2Controller extends Controller
             'sellingAgent',
             'branch',
             'documents' => fn ($q) => $q->with('documentType', 'uploader'), // WS3 (D4) deal spine
+            'distributions' => fn ($q) => $q->with('document.documentType', 'recipientContact', 'recipientProvider')->latest(), // WS4 (§8)
         ]);
 
         $user = auth()->user();
         $canEdit = $user->hasPermission('deals_v2.edit');
         $canApprove = $user->hasPermission('deals_v2.manage_pipeline') || $user->is_admin;
         $canOverrideDates = $user->hasPermission('deals_v2.override_dates');
+        $canDistribute = $user->hasPermission('deals_v2.distribute_documents');
 
         // Doc-type picker + "satisfies which step" picker for the upload-onto-deal form.
         $documentTypes = \App\Models\DocumentType::query()->where('is_active', true)
@@ -218,7 +220,7 @@ class DealV2Controller extends Controller
             ->values();
 
         return view('deals-v2.show', compact(
-            'deal', 'canEdit', 'canApprove', 'canOverrideDates', 'documentTypes', 'documentSteps'
+            'deal', 'canEdit', 'canApprove', 'canOverrideDates', 'canDistribute', 'documentTypes', 'documentSteps'
         ));
     }
 

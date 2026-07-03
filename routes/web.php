@@ -622,6 +622,16 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
 });
 
 // ===== DEAL REGISTER V2 =====
+// WS4 (§8.2a) — PUBLIC secure-document recipient flow (tokened + OTP-gated).
+// No auth: the unguessable 40-char token is the credential; identity is proven
+// by an OTP to the recipient's own email before the document ever streams.
+Route::prefix('deals-v2/secure-doc')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'show'])->name('deals-v2.secure-doc.show');
+    Route::post('/{token}/otp', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'requestOtp'])->name('deals-v2.secure-doc.otp');
+    Route::post('/{token}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'verifyOtp'])->name('deals-v2.secure-doc.verify');
+    Route::get('/{token}/download', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'download'])->name('deals-v2.secure-doc.download');
+});
+
 Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:access_deal_register_v2');
     // WS2 — attach a directory provider to a deal under a provider role.
@@ -629,6 +639,10 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     // WS3 (D4) — upload a document directly onto a deal + gated download.
     Route::post('/{deal}/documents', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'storeDocument'])->name('deals-v2.documents.store')->middleware('permission:deals_v2.edit');
     Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'downloadDocument'])->name('deals-v2.documents.download')->middleware('permission:access_deal_register_v2');
+    // WS4 (§8.3) — distribute documents (matrix-resolved) + revoke a secure link.
+    Route::get('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'plan'])->name('deals-v2.distribute.plan')->middleware('permission:deals_v2.distribute_documents');
+    Route::post('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'send'])->name('deals-v2.distribute.send')->middleware('permission:deals_v2.distribute_documents');
+    Route::post('/distributions/{distribution}/revoke', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'revoke'])->name('deals-v2.distributions.revoke')->middleware('permission:deals_v2.distribute_documents');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create');
     Route::get('/search/properties', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchProperties'])->name('deals-v2.search.properties');
@@ -844,6 +858,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/admin/settings/document-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'index'])->middleware('permission:access_settings')->name('admin.settings.document-types.index');
     Route::post('/admin/settings/document-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'store'])->middleware('permission:access_settings')->name('admin.settings.document-types.store');
     Route::post('/admin/settings/document-types/bulk-save', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'bulkSave'])->middleware('permission:access_settings')->name('admin.settings.document-types.bulk-save');
+
+    // WS4 (§8.1) — Deal document distribution matrix (stage × doc-type × party role).
+    Route::get('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.index');
+    Route::post('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'store'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.store');
+    Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
 
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('permission:view_performance')->name('bm.my.dashboard');
