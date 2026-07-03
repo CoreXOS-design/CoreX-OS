@@ -106,22 +106,6 @@
     {{-- ══════ HEADER STRIP (fixed, compact — cockpit density) ══════ --}}
     <div class="flex-shrink-0 px-4 lg:px-6 pb-1.5 space-y-1.5 pt-2" style="background: var(--bg);">
 
-    {{-- ══════ PAGE HEADER (Pattern A — branded, compact single row) ══════ --}}
-    <div class="rounded-md px-4 py-1.5" style="background: var(--brand-default, #0b2a4a);">
-        <div class="flex items-center justify-between gap-3">
-            <div class="flex items-baseline gap-2 min-w-0" data-tour="cal-intro">
-                <h1 class="text-sm font-bold text-white leading-tight">Calendar</h1>
-                <p class="text-[11px] text-white/50 truncate">— deals, leases, compliance &amp; personal events.</p>
-            </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
-                @include('layouts.partials.tour-header-launcher')
-                <button type="button" @click="openBlank()" class="corex-btn-primary text-xs py-1" data-tour="cal-add">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                    Add Event
-                </button>
-            </div>
-        </div>
-    </div>
 
     {{-- ══════ TOOLBAR (nav + view switcher) ══════ --}}
     @php
@@ -225,6 +209,11 @@
                     class="px-2 py-1.5 rounded text-xs font-bold transition hover:opacity-80"
                     style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
                 ?
+            </button>
+            {{-- AT-164 cockpit — Add Event folded into the toolbar (branded band removed for density). --}}
+            <button type="button" @click="openBlank()" class="corex-btn-primary text-xs py-1" data-tour="cal-add">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                Add Event
             </button>
         </div>
     </div>
@@ -2417,7 +2406,7 @@
         @once
         <style>
             .cal-deck-grid { display: grid; gap: 0.75rem; }
-            .cal-deck-grid > * { height: 152px; min-width: 0; }
+            .cal-deck-grid > * { height: 118px; min-width: 0; }
         </style>
         @endonce
         <div class="cal-deck-grid" x-show="cards.length > 0" :style="'grid-template-columns: repeat(' + Math.max(1, cards.length) + ', minmax(0, 1fr));'">
