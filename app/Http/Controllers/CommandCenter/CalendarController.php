@@ -249,6 +249,12 @@ class CalendarController extends Controller
         }
         $filteredEvents = collect($filteredByDate)->flatten(1);
 
+        // AT-164 Gate 1 — split the grid: appointments keep their chips/bars; system
+        // deadlines collapse to one aggregate chip per (day × group). The grid cell
+        // now renders ONLY appointments as chips + the deadline group chips, so a day
+        // of portal expiries no longer buries the real viewing.
+        [$appointmentByDate, $deadlineGroupsByDate] = $this->splitSpeciesForGrid($filteredByDate, $user);
+
         // Filter spanning bars (multi-day events) through same filter logic
         $filteredSpanningBars = [];
         foreach ($grid['spanningBars'] ?? [] as $bar) {
@@ -329,7 +335,8 @@ class CalendarController extends Controller
             'anchorDate'       => Carbon::create($year, $month, 1)->startOfDay(),
             'grid'             => $grid,
             'events'           => $filteredEvents,
-            'byDate'           => $filteredByDate,
+            'byDate'           => $appointmentByDate,   // AT-164 Gate 1 — appointments only in cells
+            'deadlineGroups'   => $deadlineGroupsByDate, // AT-164 Gate 1 — aggregate deadline chips
             'spanningBars'     => $filteredSpanningBars,
             'colourMap'        => $colourMap,
             'colourPalettes'   => $colourPalettes,
@@ -1428,6 +1435,89 @@ class CalendarController extends Controller
      * selects one of these categories in the filter.
      */
     private const HIDDEN_BY_DEFAULT_CATEGORIES = ['agent_birthday', 'contact_birthday', 'employment_anniversary'];
+
+    /**
+     * AT-164 Gate 1 — species split + server-side deadline aggregation.
+     *
+     * Every calendar row is either an APPOINTMENT (a real timed thing —
+     * occupies_time=true — that keeps its bar/chip and can conflict) or a SYSTEM
+     * DEADLINE (a point-in-time all-day marker — occupies_time=false — the
+     * portal-expiry / compliance / rent noise). Deadlines no longer render one bar
+     * each; they collapse to ONE compact chip per (day × group), coloured by the
+     * WORST RAG in the group. `occupies_time` (per class, the conflict-detection
+     * source of truth) is the classifier — no feed change, no hardcoded class list.
+     *
+     * @param  array<string,array>  $filteredByDate  date => resolved-event[]
+     * @return array{0:array<string,array>,1:array<string,array>} [appointmentByDate, deadlineGroupsByDate]
+     */
+    private function splitSpeciesForGrid(array $filteredByDate, $user): array
+    {
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : ($user->agency_id ?? null);
+
+        // occupies_time per class, memoised. A class the settings don't cover is
+        // treated as an appointment (never silently aggregate an unknown class).
+        $occ = [];
+        $isDeadline = function ($event) use (&$occ, $agencyId): bool {
+            $class = (string) $event->category;
+            if (! array_key_exists($class, $occ)) {
+                $cfg = CalendarEventClassSetting::forAgencyAndClass($agencyId, $class);
+                $occ[$class] = $cfg ? (bool) $cfg->occupies_time : true;
+            }
+            return $occ[$class] === false;
+        };
+
+        $rank = ['red' => 3, 'amber' => 2, 'green' => 1, 'neutral' => 0];
+        $groupLabels = [
+            'deal' => 'Deals', 'document' => 'Documents', 'lease' => 'Rent & Lease',
+            'property' => 'Listings', 'people' => 'People', 'compliance' => 'Compliance',
+            'payroll' => 'Payroll', 'recurring' => 'Recurring', 'personal' => 'Personal',
+        ];
+
+        $appointmentByDate = [];
+        $deadlineGroupsByDate = [];
+
+        foreach ($filteredByDate as $dateStr => $events) {
+            $groups = []; // group key => aggregate
+            foreach ($events as $event) {
+                if (! $isDeadline($event)) {
+                    $appointmentByDate[$dateStr][] = $event;
+                    continue;
+                }
+                $type   = (string) ($event->event_type ?: 'other');
+                $colour = $event->resolved_colour ?? 'neutral';
+                if (! isset($groups[$type])) {
+                    $groups[$type] = [
+                        'group' => $type,
+                        'label' => $groupLabels[$type] ?? \Illuminate\Support\Str::headline($type),
+                        'count' => 0,
+                        'worst' => 'neutral',
+                        'items' => [], // AT-164 Gate 2 — popover rows (title + RAG + due + new-tab link)
+                    ];
+                }
+                $groups[$type]['count']++;
+                // Gate 2 — per-item drill-down: a deep link where the source resolves
+                // (new tab), else null → the client opens the event's in-page panel.
+                $link = $this->resolveSourceLink($event);
+                $groups[$type]['items'][] = [
+                    'id'    => $event->id,
+                    'title' => (string) $event->title,
+                    'rag'   => $colour,
+                    'due'   => $event->event_date ? $event->event_date->format('d M') : null,
+                    'url'   => $link['url'] ?? null,
+                ];
+                if (($rank[$colour] ?? 0) > ($rank[$groups[$type]['worst']] ?? 0)) {
+                    $groups[$type]['worst'] = $colour;
+                }
+            }
+            if ($groups) {
+                $list = array_values($groups);
+                usort($list, fn ($a, $b) => ($rank[$b['worst']] ?? 0) <=> ($rank[$a['worst']] ?? 0));
+                $deadlineGroupsByDate[$dateStr] = $list;
+            }
+        }
+
+        return [$appointmentByDate, $deadlineGroupsByDate];
+    }
 
     private function applyFilters(Collection $events, $user, array $typeFilter, array $categoryFilter, string $scope): Collection
     {

@@ -513,6 +513,59 @@
                                             </button>
                                         @endforeach
                                     </div>
+
+                                    {{-- AT-164 Gate 1 — aggregate deadline chips. All system deadlines for a
+                                         (day × group) collapse to ONE chip, coloured by the worst RAG in the
+                                         group, so a day of portal expiries shows "6 Listings" not 6 red bars.
+                                         (Gate 2 adds the click-through popover + per-item deep links.) --}}
+                                    @php $dayDeadlines = $deadlineGroups[$dateStr] ?? []; @endphp
+                                    @if(!empty($dayDeadlines))
+                                        <div class="space-y-0.5 mt-0.5">
+                                            @foreach($dayDeadlines as $grp)
+                                                @php $gChip = $ragChip[$grp['worst']] ?? $defaultChip; @endphp
+                                                {{-- AT-164 Gate 2 — chip opens a popover of the individual items,
+                                                     each a NEW-TAB deep link (where the source resolves) or the
+                                                     in-page event panel. Inline z-index for the overlay (no new
+                                                     Tailwind arbitrary class — blade-only deploy). --}}
+                                                <div class="relative" x-data="{ dlOpen: false }" @click.outside="dlOpen = false">
+                                                    <button type="button"
+                                                            data-deadline-group="{{ $grp['group'] }}"
+                                                            @click.stop="dlOpen = !dlOpen"
+                                                            class="flex w-full items-center gap-1 text-[11px] leading-tight px-1.5 py-0.5 rounded hover:opacity-80 transition-opacity cursor-pointer"
+                                                            style="{{ $gChip }}"
+                                                            title="{{ $grp['count'] }} {{ $grp['label'] }} due — click to list">
+                                                        <span class="font-bold">{{ $grp['count'] }}</span>
+                                                        <span class="truncate">{{ $grp['label'] }}</span>
+                                                    </button>
+                                                    <div x-show="dlOpen" x-cloak @click.stop
+                                                         class="absolute left-0 mt-1 w-64 max-h-64 overflow-y-auto rounded-lg text-left"
+                                                         style="z-index:30; background:var(--surface,#ffffff); border:1px solid var(--border,#e5e7eb); box-shadow:0 8px 24px rgba(0,0,0,0.18);">
+                                                        <div class="px-3 py-2 text-[11px] font-semibold" style="border-bottom:1px solid var(--border,#e5e7eb); color:var(--text-muted,#9ca3af);">
+                                                            {{ $grp['count'] }} {{ $grp['label'] }} · {{ $cellDate->format('d M') }}
+                                                        </div>
+                                                        @foreach($grp['items'] as $it)
+                                                            @php $dotBg = ['red'=>'#dc2626','amber'=>'#d97706','green'=>'#0d9488'][$it['rag']] ?? '#94a3b8'; @endphp
+                                                            @if($it['url'])
+                                                                <a href="{{ $it['url'] }}" target="_blank" rel="noopener"
+                                                                   class="flex items-center gap-2 px-3 py-1.5 text-xs hover:opacity-80" style="color:var(--text-primary,#111827);">
+                                                                    <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ $dotBg }};"></span>
+                                                                    <span class="flex-1 truncate">{{ $it['title'] }}</span>
+                                                                    @if($it['due'])<span style="color:var(--text-muted,#9ca3af);">{{ $it['due'] }}</span>@endif
+                                                                </a>
+                                                            @else
+                                                                <button type="button" @click.stop="dlOpen=false; openEventPanel({{ $it['id'] }})"
+                                                                        class="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-left hover:opacity-80" style="color:var(--text-primary,#111827);">
+                                                                    <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ $dotBg }};"></span>
+                                                                    <span class="flex-1 truncate">{{ $it['title'] }}</span>
+                                                                    @if($it['due'])<span style="color:var(--text-muted,#9ca3af);">{{ $it['due'] }}</span>@endif
+                                                                </button>
+                                                            @endif
+                                                        @endforeach
+                                                    </div>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @endif
                                 </div>
                             @endforeach
                         </div>

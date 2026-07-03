@@ -167,6 +167,15 @@ class DealV2 extends Model
         return $this->hasMany(\App\Models\Document::class, 'deal_id')->latest();
     }
 
+    /**
+     * AT-158 WS4 (§8) — document distributions sent from this deal (secure-link
+     * or direct-attachment sends, with their lifecycle status + comms anchor).
+     */
+    public function distributions(): HasMany
+    {
+        return $this->hasMany(DealDocumentDistribution::class, 'deal_id');
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);

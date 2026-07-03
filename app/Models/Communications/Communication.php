@@ -2,6 +2,7 @@
 
 namespace App\Models\Communications;
 
+use App\Models\Communications\CommunicationAttachment;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -23,11 +24,14 @@ class Communication extends Model
     const DIRECTION_OUTBOUND = 'outbound';
 
     protected $fillable = [
-        'agency_id', 'channel', 'direction', 'external_id', 'thread_key', 'counterpart_lid',
+        'agency_id', 'channel', 'direction', 'external_id', 'thread_key', 'wa_chat_id', 'counterpart_lid',
         'from_identifier', 'participant_identifiers', 'occurred_at', 'captured_at',
         'provisional_at', 'subject', 'body_text', 'body_preview', 'body_status', 'raw_path',
         'has_attachments', 'content_hash', 'text_hash', 'source_ref',
         'owner_user_id', 'purged_at', 'purged_reason',
+        // AT-163 — voice-note transcript (rides the message row, 1:1).
+        'transcript_text', 'transcript_preview', 'transcript_status', 'transcript_retry_count',
+        'transcript_lang', 'transcript_model', 'transcript_error', 'transcript_at',
     ];
 
     protected $casts = [
@@ -37,7 +41,41 @@ class Communication extends Model
         'provisional_at'         => 'datetime',
         'purged_at'              => 'datetime',
         'has_attachments'        => 'boolean',
+        'transcript_at'          => 'datetime',
     ];
+
+    /** AT-163 — a completed, non-empty voice-note transcript is present. */
+    public function hasTranscript(): bool
+    {
+        return $this->transcript_status === 'done' && filled($this->transcript_text);
+    }
+
+    /**
+     * AT-163 — messages that still need transcription: a WhatsApp note with a
+     * consent-captured (not withheld) stored audio attachment, not yet done.
+     * 'failed' is terminal (retry-capped) and excluded from the batch — a manual
+     * Retry re-dispatches it explicitly.
+     */
+    public function scopeNeedsTranscription($query)
+    {
+        return $query
+            ->where('channel', self::CHANNEL_WHATSAPP)
+            ->whereNull('purged_at')
+            // NOT a withheld body. A media-only note has body_status NULL — must be
+            // INCLUDED (SQL `NULL NOT IN (…)` is not true, so whereNotIn would drop it).
+            ->where(function ($q) {
+                $q->whereNull('body_status')
+                  ->orWhereNotIn('body_status', ['embargoed', 'consent_pending', 'embargo_purged']);
+            })
+            ->where(function ($q) {
+                $q->whereNull('transcript_status')->orWhere('transcript_status', 'pending');
+            })
+            ->whereHas('attachments', function ($a) {
+                $a->where('mime', 'like', 'audio%')
+                  ->where('media_status', CommunicationAttachment::MEDIA_STORED)
+                  ->whereNotNull('storage_path');
+            });
+    }
 
     // ── Relationships ──
 

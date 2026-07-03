@@ -462,6 +462,23 @@ class EllieController extends Controller
             }
         }
 
+        // ELLIE_TOUR_KNOWLEDGE_2026
+        // "How do I do X" — the 88 guided tours are step-by-step, agent-facing
+        // walkthroughs. Inject the matching tour's steps so Ellie explains the
+        // actual workflow, not just where the page is. Permission-gated via
+        // TourRegistry::visibleTo. Spec: .ai/specs/ellie-tour-knowledge.md
+        $tourService = app(\App\Services\AI\TourKnowledgeService::class);
+        $tours = $tourService->buildContext($data['message'], $user, 2);
+        if ($tours['context'] !== '') {
+            $knowledgeContext = trim($knowledgeContext . "\n\n" . $tours['context']);
+            $knowledgeSources = array_merge($knowledgeSources, $tours['sources']);
+
+            \Log::info('ELLIE_TOUR_RESULT', [
+                'user_id' => (int)($user->id ?? 0),
+                'matches' => array_map(fn($s) => $s['title'] ?? '?', $tours['sources']),
+            ]);
+        }
+
         $resp = Http::timeout(120)
             ->acceptJson()
             ->asJson()

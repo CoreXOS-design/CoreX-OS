@@ -54,6 +54,15 @@ Schedule::command('signatures:expire')->dailyAt('07:00');
 // Sales document reminders — runs daily at 09:00
 Schedule::command('sales-documents:send-reminders')->dailyAt('09:00');
 
+// AT-168 Part B — POPIA embargo purge: remove un-consented WhatsApp bodies past
+// each agency's retention window (envelopes retained). Runs daily at 03:30.
+Schedule::command('communications:purge-embargoed-bodies')->dailyAt('03:30')->withoutOverlapping();
+
+// AT-163 — voice-note transcription batch. Hourly; each run processes agencies
+// whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
+// the current hour. CPU-nice'd inside the worker.
+Schedule::command('communications:transcribe-voice-notes')->hourly()->withoutOverlapping();
+
 // Marketing insights sync — runs daily at 04:00
 Schedule::job(new \App\Jobs\SyncMarketingInsightsJob())->dailyAt('04:00');
 
@@ -84,6 +93,11 @@ Schedule::command('targets:carry-forward')->monthlyOn(1, '00:05')->withoutOverla
 // Core Matches — archive matches with no engagement, mark fulfilled where the
 // contact has a recent deal. Daily at 03:00.
 Schedule::command('corex:matches:archive-stale')->dailyAt('03:00')->withoutOverlapping();
+
+// Core Matches — the single daily digest email. Coalesces every new match
+// surfaced since the last run into ONE email per agent (never one per property).
+// The in-app bell stays real-time; only the email is batched. Daily at 07:00.
+Schedule::command('corex:matches:send-digests')->dailyAt('07:00')->onOneServer()->withoutOverlapping();
 
 // Agency Access Authorization — expire stale pending requests every minute.
 Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
@@ -181,6 +195,13 @@ Schedule::command('corex:calendar:reconcile')->dailyAt('03:00')->withoutOverlapp
 // Keeps persisted step/deal RAG + deal calendar-event colour in sync as deadlines
 // approach (green→amber→red→overdue), independent of user activity.
 Schedule::command('deals:process-rag')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+
+// ── Deal Register V2 (WS6) — escalation ladder + morning digest ──
+// process-rag flips a step overdue + nudges the agent; this escalates the still-
+// overdue step up the ladder (BM → admin) exactly once per rung, and sends each
+// agent a morning pipeline digest.
+Schedule::command('deals:process-escalations')->hourly()->withoutOverlapping()->onOneServer();
+Schedule::command('deals:daily-digest')->dailyAt(config('deals.digest.time', '07:00'))->withoutOverlapping()->onOneServer();
 
 // ── Leave Management ──
 Schedule::command('corex:leave:accrue-daily')->dailyAt('02:00')->onOneServer()->withoutOverlapping();

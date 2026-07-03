@@ -150,7 +150,9 @@ final class WaSessionWebhookTest extends TestCase
         $this->assertNotNull($comm);
         $this->assertSame(Communication::CHANNEL_WHATSAPP, $comm->channel);
         $this->assertSame(Communication::DIRECTION_INBOUND, $comm->direction);
-        $this->assertSame(self::LID, $comm->thread_key, 'thread keyed by the @lid chat');
+        // AT-168 Part A — canonical grouping key; raw @lid chat id kept on wa_chat_id.
+        $this->assertSame('wa:713510291', $comm->thread_key, 'thread keyed by the canonical number');
+        $this->assertSame(self::LID, $comm->wa_chat_id, 'raw @lid chat id preserved for WAHA addressing');
         $this->assertSame('Hello from Elize', $comm->body_text);
 
         // Zero raw @lid leakage: the resolved identity is the REAL phone, not @lid.
@@ -174,7 +176,8 @@ final class WaSessionWebhookTest extends TestCase
         $comm = Communication::firstWhere('agency_id', $this->agencyId);
         $this->assertNotNull($comm, 'outbound message must be archived, not dropped');
         $this->assertSame(Communication::DIRECTION_OUTBOUND, $comm->direction);
-        $this->assertSame(self::LID, $comm->thread_key, 'outbound threads on the same @lid chat');
+        $this->assertSame('wa:713510291', $comm->thread_key, 'outbound threads on the same canonical key');
+        $this->assertSame(self::LID, $comm->wa_chat_id, 'outbound keeps the raw @lid chat id');
         $this->assertSame('Reply from the agent', $comm->body_text);
         // Resolved to the contact via RecipientAlt (payload.to is NULL in GOWS).
         $this->assertDatabaseHas('communication_links', [

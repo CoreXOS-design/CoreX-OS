@@ -2,6 +2,7 @@
 
 namespace App\Services\DealV2;
 
+use App\Events\DealV2\DealStepCompleted;
 use App\Models\DealV2\DealActivityLog;
 use App\Models\DealV2\DealPipelineTemplate;
 use App\Models\DealV2\DealStepInstance;
@@ -188,7 +189,7 @@ class DealPipelineService
      */
     public function completeStep(DealStepInstance $step, User $user, array $completionData): void
     {
-        DB::transaction(function () use ($step, $user, $completionData) {
+        $ticked = DB::transaction(function () use ($step, $user, $completionData) {
             $outcome = $completionData['outcome'] ?? 'positive';
             $isNegative = $outcome === 'negative';
 
@@ -230,7 +231,7 @@ class DealPipelineService
             if ($isNegative && !$needsApproval && $step->negative_status_trigger) {
                 $this->changeDealStatus($step->deal, $step->negative_status_trigger, $step, $user);
                 $this->cancelDownstreamSteps($step);
-                return;
+                return false;
             }
 
             // Positive + no approval → change status + activate downstream
@@ -239,16 +240,35 @@ class DealPipelineService
                     $this->changeDealStatus($step->deal, $statusTrigger, $step, $user);
                 }
                 $this->activateDownstreamSteps($step);
-                return;
+                return true; // stage ticked (positive)
             }
 
-            // Needs approval — wait for BM
+            // Needs BM approval — the step is held (approval_status='pending' set
+            // above); the deal status does NOT change until a BM approves. Log it
+            // in the reachable path; the BM notification fires AFTER commit (WS6),
+            // same doctrine as the DealStepCompleted event below.
             if ($needsApproval) {
                 $this->logActivity($step->deal, $step, null, 'approval_pending',
                     "Status change to \"{$statusTrigger}\" pending BM approval");
-                // TODO: Fire notification to BM (Phase 5)
             }
+
+            return false;
         });
+
+        // WS4 — a positive stage tick reacts across pillars via the
+        // event/listener pattern (non-negotiable #9). Emitted AFTER the
+        // transaction commits so the distribution engine (email + PDF) never
+        // runs inside the completion transaction, and a distribution failure
+        // can never roll back a completed step.
+        if ($ticked) {
+            event(new DealStepCompleted($step->fresh(), $user->id));
+        }
+
+        // WS6 — a step held for BM approval notifies the BM (after commit).
+        $fresh = $step->fresh();
+        if ($fresh && $fresh->approval_status === 'pending') {
+            app(NotificationService::class)->notifyBmApprovalPending($fresh);
+        }
     }
 
     /**
@@ -256,7 +276,7 @@ class DealPipelineService
      */
     public function approveStep(DealStepInstance $step, User $approver, ?string $notes = null): void
     {
-        DB::transaction(function () use ($step, $approver, $notes) {
+        $ticked = DB::transaction(function () use ($step, $approver, $notes) {
             $completionData = $step->completion_data ?? [];
             $isNegative = ($completionData['outcome'] ?? 'positive') === 'negative';
             $statusTrigger = $isNegative ? $step->negative_status_trigger : $step->status_trigger;
@@ -278,10 +298,17 @@ class DealPipelineService
 
             if ($isNegative) {
                 $this->cancelDownstreamSteps($step);
-            } else {
-                $this->activateDownstreamSteps($step);
+                return false;
             }
+
+            $this->activateDownstreamSteps($step);
+            return true; // BM-approved positive completion ticks the stage
         });
+
+        // WS4 — emit after commit (same doctrine as completeStep).
+        if ($ticked) {
+            event(new DealStepCompleted($step->fresh(), $approver->id));
+        }
     }
 
     /**
@@ -304,8 +331,10 @@ class DealPipelineService
 
             $this->logActivity($step->deal, $step, $rejector->id, 'step_rejected',
                 "BM {$rejector->name} rejected: {$reason}");
-            // TODO: Notify agent (Phase 5)
         });
+
+        // WS6 — tell the responsible agent the step was sent back (after commit).
+        app(NotificationService::class)->notifyAgentStepRejected($step->fresh(), $reason);
     }
 
     /**

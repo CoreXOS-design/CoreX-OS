@@ -491,10 +491,34 @@ class PropertyController extends Controller
             $aiImageSuggestions = app(\App\Services\AI\PropertyAiSuggestionService::class)->forProperty($property);
         }
 
+        // AT-158 DR2 · WS5 (§10) — Document distributions on the PROPERTY pillar.
+        // DR2 outbound distributions link their Communication to the deal's
+        // property; this is the property's read surface for "one send, three
+        // pillars". Rows are scoped by the viewer's communications data-scope
+        // (own → the sending agent, branch, all) via Communication::scopeVisibleTo
+        // — a user without visibility receives no rows (not merely hidden in UI),
+        // matching the contact-tab discipline (AT-118). Only outbound rows carry
+        // property links today, but the query is direction-agnostic and future-proof.
+        $propertyComms = collect();
+        if ($property->exists && $user) {
+            $commsScope = \App\Services\PermissionService::getDataScope($user, 'communications');
+            $propertyComms = \App\Models\Communications\Communication::query()
+                ->notPurged()
+                ->with(['owner:id,name', 'attachments'])
+                ->whereHas('links', function ($q) use ($property) {
+                    $q->where('linkable_type', Property::class)
+                      ->where('linkable_id', $property->id);
+                })
+                ->visibleTo($user, $commsScope)
+                ->orderByDesc('occurred_at')
+                ->limit(50)
+                ->get();
+        }
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions'
+            'aiImageSuggestions', 'propertyComms'
         ));
     }
 
@@ -666,13 +690,13 @@ class PropertyController extends Controller
             'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'               => 'nullable|array',
-            'dawn_images.*'             => 'image|max:51200',
+            'dawn_images.*'             => 'image|max:512000',
             'noon_images'               => 'nullable|array',
-            'noon_images.*'             => 'image|max:51200',
+            'noon_images.*'             => 'image|max:512000',
             'dusk_images'               => 'nullable|array',
-            'dusk_images.*'             => 'image|max:51200',
+            'dusk_images.*'             => 'image|max:512000',
             'gallery_images'            => 'nullable|array',
-            'gallery_images.*'          => 'image|max:51200',
+            'gallery_images.*'          => 'image|max:512000',
             // Create-form extras
             'initial_note'              => 'nullable|string|max:5000',
             'drive_files'               => 'nullable|array',
@@ -1011,13 +1035,13 @@ class PropertyController extends Controller
             'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'      => 'nullable|array',
-            'dawn_images.*'    => 'image|max:51200',
+            'dawn_images.*'    => 'image|max:512000',
             'noon_images'      => 'nullable|array',
-            'noon_images.*'    => 'image|max:51200',
+            'noon_images.*'    => 'image|max:512000',
             'dusk_images'      => 'nullable|array',
-            'dusk_images.*'    => 'image|max:51200',
+            'dusk_images.*'    => 'image|max:512000',
             'gallery_images'   => 'nullable|array',
-            'gallery_images.*' => 'image|max:51200',
+            'gallery_images.*' => 'image|max:512000',
         ]);
 
         // Agent images for portal syndication
@@ -1246,13 +1270,13 @@ class PropertyController extends Controller
         $request->validate([
             'group'           => 'nullable|in:gallery_images,dawn_images,noon_images,dusk_images',
             'gallery_images'  => 'nullable|array',
-            'gallery_images.*'=> 'image|max:51200',
+            'gallery_images.*'=> 'image|max:512000',
             'dawn_images'     => 'nullable|array',
-            'dawn_images.*'   => 'image|max:51200',
+            'dawn_images.*'   => 'image|max:512000',
             'noon_images'     => 'nullable|array',
-            'noon_images.*'   => 'image|max:51200',
+            'noon_images.*'   => 'image|max:512000',
             'dusk_images'     => 'nullable|array',
-            'dusk_images.*'   => 'image|max:51200',
+            'dusk_images.*'   => 'image|max:512000',
         ]);
 
         $groups = ['gallery_images', 'dawn_images', 'noon_images', 'dusk_images'];
@@ -1329,7 +1353,7 @@ class PropertyController extends Controller
             'section'   => 'required|in:in_inspection,out_inspection,custom',
             'custom_id' => 'nullable|string|required_if:section,custom',
             'images'    => 'required|array',
-            'images.*'  => 'image|max:51200',
+            'images.*'  => 'image|max:512000',
         ]);
 
         $structure = $property->rentalImagesStructure();

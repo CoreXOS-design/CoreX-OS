@@ -672,9 +672,18 @@
              WhatsApp Capture + Message Triage + Communication Capture
              ═══════════════════════════════════════════ --}}
         @php
+            // AT-161 — Communications is now the single agent-facing home for comms.
+            // Visibility widened to any comms surface a user can reach (archive,
+            // flags, mailboxes) so the moved items are findable, not just capture/triage.
+            $u = auth()->user();
             $canSeeCommunication = auth()->check() && (
-                auth()->user()->hasPermission('access_communication')
-                || auth()->user()->hasPermission('triage_communications')
+                $u->hasPermission('access_communication')
+                || $u->hasPermission('triage_communications')
+                || $u->hasPermission('communications.view')
+                || $u->hasPermission('access_communication_archive')
+                || $u->hasPermission('view_communication_flag_register')
+                || $u->hasPermission('manage_communication_mailboxes')
+                || $u->hasPermission('communications.capture_review')
             );
         @endphp
         @if($canSeeCommunication)
@@ -684,7 +693,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
                 </svg>
-                <span>Communication</span>
+                <span>Communications</span>
                 <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
@@ -693,27 +702,59 @@
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     <span>Back</span>
                 </button>
-                <div class="corex-nav-panel-title">Communication</div>
+                <div class="corex-nav-panel-title">Communications</div>
 
+                {{-- AT-161 re-cut IA — sub-sections. Section labels use inline styles
+                     (blade-only deploy safe). Every item keeps its existing gate. --}}
+                @php $navSection = 'padding:10px 16px 4px; font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);'; @endphp
+
+                {{-- ── Archive & Review ── --}}
+                <div style="{{ $navSection }}">Archive &amp; Review</div>
+                @permission('access_communication_archive')
+                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}">Message Archive</a>
+                @endpermission
                 @permission('triage_communications')
                 <a href="{{ route('communications.triage.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.triage.*') ? 'active' : '' }}">Message Triage</a>
                 @endpermission
-
+                @permission('view_communication_flag_register')
+                <a href="{{ route('compliance.comm-flags.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-flags.*') ? 'active' : '' }}">Flagged Messages</a>
+                @endpermission
                 {{-- AT-118 — Communications Access Gate: approver inbox (owning agents + grant_access holders) --}}
                 @permission('communications.view')
-                <a href="{{ route('corex.comms-access.inbox') }}" class="corex-nav-subitem {{ request()->routeIs('corex.comms-access.inbox') ? 'active' : '' }}">Access Requests</a>
+                <a href="{{ route('corex.comms-access.inbox') }}" class="corex-nav-subitem {{ request()->routeIs('corex.comms-access.inbox') ? 'active' : '' }}">Archive Access Requests</a>
                 @endpermission
 
+                {{-- ── WhatsApp ── --}}
+                @php $canWa = $u->hasPermission('access_communication') || $u->hasPermission('communications.capture_review'); @endphp
+                @if($canWa)
+                <div style="{{ $navSection }}">WhatsApp</div>
                 @permission('access_communication')
-                <a href="{{ route('communications.wa-devices.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.wa-devices.*') ? 'active' : '' }}">WhatsApp Capture</a>
+                {{-- AT-156 — self-link QR lives on My Portal → Tools; deep-link to that tab. --}}
+                <a href="{{ route('agent.portal') }}#tools" class="corex-nav-subitem">Link My WhatsApp</a>
                 {{-- AT-136 — per-agent WhatsApp capture consent (which contacts I archive). --}}
-                <a href="{{ route('communications.capture.my') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.my') ? 'active' : '' }}">My WhatsApp Capture</a>
-                {{-- Communication Capture (AT-39) — user email self-service --}}
-                <a href="{{ route('my-portal.comm-capture.index') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.comm-capture.*') ? 'active' : '' }}">Communication Capture</a>
+                <a href="{{ route('communications.capture.my') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.my') ? 'active' : '' }}">My Capture Consent</a>
                 @endpermission
-                {{-- AT-136 — admin/CO review of capture opt-outs (declaration, never content). --}}
+                {{-- AT-136 — admin/CO review of capture consent decisions (declaration, never content). --}}
                 @permission('communications.capture_review')
-                <a href="{{ route('communications.capture.review') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.review') ? 'active' : '' }}">Capture Opt-outs (Review)</a>
+                <a href="{{ route('communications.capture.review') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.review') ? 'active' : '' }}">Capture Consent (Team)</a>
+                @endpermission
+                @permission('access_communication')
+                <a href="{{ route('communications.wa-devices.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.wa-devices.*') ? 'active' : '' }}">WhatsApp Capture (Browser Extension)</a>
+                @endpermission
+                @endif
+
+                {{-- ── Email ── --}}
+                @permission('manage_communication_mailboxes')
+                <div style="{{ $navSection }}">Email</div>
+                <a href="{{ route('settings.email-setup.index') }}" class="corex-nav-subitem {{ request()->routeIs('settings.email-setup.*') ? 'active' : '' }}">Email Capture Setup</a>
+                <a href="{{ route('compliance.comm-mailboxes.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-mailboxes.*') ? 'active' : '' }}">Archive Mailboxes</a>
+                @endpermission
+
+                {{-- ── Personal setup ── --}}
+                @permission('access_communication')
+                <div style="{{ $navSection }}">My Setup</div>
+                {{-- Communication Capture (AT-39) — user email self-service --}}
+                <a href="{{ route('my-portal.comm-capture.index') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.comm-capture.*') ? 'active' : '' }}">My Communication Setup</a>
                 @endpermission
             </div>
         </div>
@@ -1068,18 +1109,19 @@
                     @endif
                 </a>
                 @endpermission
-                @permission('compliance.whistleblow.view')
+                {{-- AT-161 — these stay in Compliance (audit/legal) but move OFF the
+                     borrowed `compliance.whistleblow.view` onto proper own gates. --}}
+                @permission('access_communication_archive')
                 <a href="{{ route('compliance.communications.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.communications.*') ? 'active' : '' }}">Communications Log</a>
+                @endpermission
+                @permission('outreach.compose')
                 <a href="{{ route('compliance.seller-info.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.seller-info.*') ? 'active' : '' }}">Send Standalone Info Pack</a>
                 @endpermission
+                {{-- AT-161 — Message Archive / Flagged Messages / Archive Mailboxes moved
+                     to the Communications menu. A read-only cross-link to the archive
+                     stays here (Elize's muscle memory); its home is Communications. --}}
                 @permission('access_communication_archive')
-                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}">Communication Archive</a>
-                @endpermission
-                @permission('view_communication_flag_register')
-                <a href="{{ route('compliance.comm-flags.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-flags.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Flag Register</a>
-                @endpermission
-                @permission('manage_communication_mailboxes')
-                <a href="{{ route('compliance.comm-mailboxes.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-mailboxes.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Archive Mailboxes</a>
+                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Message Archive &rarr;</a>
                 @endpermission
             </div>
         </div>
@@ -1396,6 +1438,16 @@
         </a>
         @endpermission
 
+        {{-- Misfiled Documents (AT-167) --}}
+        @permission('access_misfiled_documents')
+        <a href="{{ route('admin.misfiled-documents.index') }}" class="corex-nav-item {{ request()->routeIs('admin.misfiled-documents.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+            </svg>
+            <span>Misfiled Documents</span>
+        </a>
+        @endpermission
+
         {{-- Training Management (admin/owner only) --}}
         @if($isOwner || $effectiveRole === 'super_admin')
         <a href="{{ route('training.manage') }}" class="corex-nav-item {{ request()->routeIs('training.manage', 'training.create-course', 'training.edit-course', 'training.create-lesson', 'training.edit-lesson', 'training.store-course', 'training.update-course') ? 'active' : '' }}">
@@ -1492,6 +1544,11 @@
                 <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') ? 'active' : '' }}">Supplier Directory</a>
                 @endif
                 @endpermission
+                @permission('deals_v2.manage_distribution_rules')
+                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
+                <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-distribution-rules.*') ? 'active' : '' }}">Distribution Rules</a>
+                @endif
+                @endpermission
             </div>
         </div>
         @endif
@@ -1507,15 +1564,8 @@
         </a>
         @endpermission
 
-        {{-- Email Setup (AT-37) — per-user Communication Archive capture --}}
-        @permission('manage_communication_mailboxes')
-        <a href="{{ route('settings.email-setup.index') }}" class="corex-nav-item {{ request()->routeIs('settings.email-setup.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
-            </svg>
-            <span>Email Setup</span>
-        </a>
-        @endpermission
+        {{-- AT-161 — "Email Setup" moved to Communications → Email (as "Email Capture
+             Setup"). URL unchanged (settings/email-setup); only the nav home moved. --}}
         @endif
         @endpermission {{-- /sidebar.section.admin --}}
 

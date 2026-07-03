@@ -253,6 +253,17 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
     Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
 
+    // AT-168 Part C — conversation-thread paging + in-thread search (JSON).
+    // Under /api/v1 (URI starts with api/) so they appear in the Admin→API
+    // catalogue (non-negotiable #7). Called from the thread Blade over fetch with
+    // session cookies — same reason as the P24 tree above they live in web.php.
+    // Gated by the same archive permission as the thread view.
+    Route::middleware(['auth', 'verified', 'permission:access_communication_archive', 'agency.required'])
+        ->prefix('api/v1/communications/threads')->name('api.v1.communications.threads.')->group(function () {
+            Route::get('/{threadKey}/older', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'threadOlder'])->name('older')->where('threadKey', '.*');
+            Route::get('/{threadKey}/search', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'threadSearch'])->name('search')->where('threadKey', '.*');
+        });
+
     // ── Admin: API Catalog (auto-generated from route table) ──
     Route::get('/admin/api', [\App\Http\Controllers\Admin\ApiCatalogController::class, 'index'])
         ->middleware('permission:manage_users')
@@ -285,6 +296,17 @@ Route::middleware('auth')->group(function () {
         ->middleware('permission:marketing_suppressions.manage')
         ->where('suppression', '[0-9]+')
         ->name('admin.marketing-suppressions.lift');
+
+    // ── Admin: Misfiled Documents register (AT-167) ──
+    // Contact-only splitter docs with no contact assigned; Refile routes them to
+    // the correct person and removes the wrong property anchor (no hard delete).
+    Route::get('/admin/misfiled-documents', [\App\Http\Controllers\Admin\MisfiledDocumentsController::class, 'index'])
+        ->middleware('permission:access_misfiled_documents')
+        ->name('admin.misfiled-documents.index');
+    Route::post('/admin/misfiled-documents/{document}/refile', [\App\Http\Controllers\Admin\MisfiledDocumentsController::class, 'refile'])
+        ->middleware('permission:misfiled_documents.refile')
+        ->where('document', '[0-9]+')
+        ->name('admin.misfiled-documents.refile');
 
     // ── Admin: AI usage / cost dashboard (MIC Phase B2) ──
     Route::get('/admin/ai-usage', [\App\Http\Controllers\Admin\AiUsageController::class, 'index'])
@@ -622,6 +644,16 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
 });
 
 // ===== DEAL REGISTER V2 =====
+// WS4 (§8.2a) — PUBLIC secure-document recipient flow (tokened + OTP-gated).
+// No auth: the unguessable 40-char token is the credential; identity is proven
+// by an OTP to the recipient's own email before the document ever streams.
+Route::prefix('deals-v2/secure-doc')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'show'])->name('deals-v2.secure-doc.show');
+    Route::post('/{token}/otp', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'requestOtp'])->name('deals-v2.secure-doc.otp');
+    Route::post('/{token}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'verifyOtp'])->name('deals-v2.secure-doc.verify');
+    Route::get('/{token}/download', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'download'])->name('deals-v2.secure-doc.download');
+});
+
 Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:access_deal_register_v2');
     // WS2 — attach a directory provider to a deal under a provider role.
@@ -629,6 +661,10 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     // WS3 (D4) — upload a document directly onto a deal + gated download.
     Route::post('/{deal}/documents', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'storeDocument'])->name('deals-v2.documents.store')->middleware('permission:deals_v2.edit');
     Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'downloadDocument'])->name('deals-v2.documents.download')->middleware('permission:access_deal_register_v2');
+    // WS4 (§8.3) — distribute documents (matrix-resolved) + revoke a secure link.
+    Route::get('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'plan'])->name('deals-v2.distribute.plan')->middleware('permission:deals_v2.distribute_documents');
+    Route::post('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'send'])->name('deals-v2.distribute.send')->middleware('permission:deals_v2.distribute_documents');
+    Route::post('/distributions/{distribution}/revoke', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'revoke'])->name('deals-v2.distributions.revoke')->middleware('permission:deals_v2.distribute_documents');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create');
     Route::get('/search/properties', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchProperties'])->name('deals-v2.search.properties');
@@ -844,6 +880,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/admin/settings/document-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'index'])->middleware('permission:access_settings')->name('admin.settings.document-types.index');
     Route::post('/admin/settings/document-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'store'])->middleware('permission:access_settings')->name('admin.settings.document-types.store');
     Route::post('/admin/settings/document-types/bulk-save', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'bulkSave'])->middleware('permission:access_settings')->name('admin.settings.document-types.bulk-save');
+
+    // WS4 (§8.1) — Deal document distribution matrix (stage × doc-type × party role).
+    Route::get('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.index');
+    Route::post('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'store'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.store');
+    Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
 
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('permission:view_performance')->name('bm.my.dashboard');
@@ -1708,7 +1749,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Seller Information Pack ──
-    Route::middleware(['permission:compliance.whistleblow.view', 'agency.required'])->prefix('compliance/seller-info')->name('compliance.seller-info.')->group(function () {
+    // AT-161 — gate fix: this is a SEND action (the legal-info email for sellers who
+    // won't sign), not a whistleblow surface. Repointed off the borrowed
+    // `compliance.whistleblow.view` onto a proper own gate (outreach compose). Stays
+    // filed under Compliance per the re-cut IA.
+    Route::middleware(['permission:outreach.compose', 'agency.required'])->prefix('compliance/seller-info')->name('compliance.seller-info.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'index'])->name('index');
         Route::post('/preview', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'preview'])->name('preview');
         Route::post('/send', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'send'])->name('send');
@@ -1716,7 +1761,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Compliance Communications Log ──
-    Route::middleware(['permission:compliance.whistleblow.view', 'agency.required'])->prefix('compliance/communications')->name('compliance.communications.')->group(function () {
+    // AT-161 — gate fix: a comms audit/log view, repointed off the borrowed
+    // `compliance.whistleblow.view` onto the proper comms gate
+    // (`access_communication_archive`). Stays filed under Compliance per the re-cut IA.
+    Route::middleware(['permission:access_communication_archive', 'agency.required'])->prefix('compliance/communications')->name('compliance.communications.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationsLogController::class, 'index'])->name('index');
     });
 
@@ -1732,7 +1780,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/attachment/{attachment}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'attachment'])->name('attachment');
         // AT-148 — manual retry for a pending/failed media download.
         Route::post('/attachment/{attachment}/retry', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'retryMedia'])->name('attachment.retry');
+        // AT-163 — on-demand voice-note transcription (gated + consent-checked in the controller).
+        Route::post('/message/{communication}/transcribe', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'transcribeNote'])->name('transcribe');
     });
+
 
     // ── Communication Archive — mailbox config (AT-33) — tighter: editing IMAP
     // credentials is admin/compliance-level, separate from viewing the archive.
@@ -1750,6 +1801,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'index'])->name('index');
         Route::post('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'store'])->name('store');
         Route::post('/backfill-toggle', [\App\Http\Controllers\Communications\WaDeviceController::class, 'toggleBackfill'])->name('backfill-toggle'); // AT-135
+        Route::post('/embargo-retention', [\App\Http\Controllers\Communications\WaDeviceController::class, 'updateEmbargoRetention'])->name('embargo-retention'); // AT-168
         Route::delete('/{waDevice}', [\App\Http\Controllers\Communications\WaDeviceController::class, 'destroy'])->name('destroy');
     });
 

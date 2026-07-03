@@ -210,6 +210,16 @@ class NavigationAtlasService
     }
 
     /**
+     * Public helper: the relative URL for a route IF the user may open it,
+     * else null. Used by other AI services (e.g. TourKnowledgeService) to add a
+     * link to a destination without re-implementing the permission logic.
+     */
+    public function urlIfAccessible(string $routeName, ?User $user): ?string
+    {
+        return $this->resolve($routeName, $user);
+    }
+
+    /**
      * Resolve a route name to a relative URL, returning null if the route is
      * missing, needs parameters, or the user cannot access it.
      *

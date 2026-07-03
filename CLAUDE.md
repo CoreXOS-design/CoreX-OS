@@ -232,6 +232,12 @@ The reason: a stale demo is a dead demo. Walkthroughs that hit empty tables, mis
       local and report the verification result. If the feature added a
       must-travel GLOBAL reference row, either backfill it IN the migration or
       register its seeder in `deploy:sync-reference-data`.
+      **Env-parity (AT-169):** also diff the live FPM pool's `php -m` (and PHP
+      VERSION) against staging's — CoreX deploys are code-only `git pull`, so a
+      PHP extension or version the promoted code needs but live lacks will 500 a
+      code path (e.g. live php8.3 lacked `imagick` → Redact broke). Install the
+      matching `phpX.Y-<ext>` for the live pool's version and reload ONLY that
+      pool; never install unused extensions. Full rule in BUILD_STANDARD.md §8.
    i. Update `.ai/CHAT_STARTER.md` — move items between sections
       (LIVE / IN FLIGHT / SPECCED / PARKED) to reflect what landed, prepend a
       dated entry to the Recent decisions log if a decision was made, remove

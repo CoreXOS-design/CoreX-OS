@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
-         bootstrap="vendor/autoload.php"
+         bootstrap="tests/bootstrap.php"
          colors="true"
 >
     <testsuites>
@@ -29,13 +29,16 @@
         <env name="DB_CONNECTION" value="mysql"/>
         <env name="DB_HOST" value="127.0.0.1"/>
         <env name="DB_PORT" value="3306"/>
-        <!-- DB_DATABASE is pinned here as a SAFETY GUARD: tests must never run
-             against a real/dev database. Credentials (DB_USERNAME/DB_PASSWORD)
-             are intentionally NOT hardcoded — they come from .env.testing (or
-             .env), so the suite uses the box's real MySQL user (e.g. corexdev)
-             instead of root@localhost, which some hosts deny over TCP.
-             See .ai/TESTING.md (AT-30). -->
-        <env name="DB_DATABASE" value="hfc_dash_test"/>
+        <!-- DB_DATABASE is intentionally NOT pinned here. The SAFETY GUARD now
+             lives in tests/bootstrap.php, which resolves the throwaway test
+             schema per worktree/lane from the dedicated TEST_DB_DATABASE key
+             (defaulting to hfc_dash_test) and hard-refuses any name outside the
+             hfc_dash_test[_N] whitelist — so tests still can never touch a
+             real/dev database, and lanes no longer collide on one schema.
+             Tests\TestCase::setUp() re-asserts the same whitelist at runtime.
+             Credentials (DB_USERNAME/DB_PASSWORD) still come from .env, so the
+             suite uses the box's real MySQL user (e.g. corexdev) instead of
+             root@localhost. See .ai/TESTING.md (AT-30). -->
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

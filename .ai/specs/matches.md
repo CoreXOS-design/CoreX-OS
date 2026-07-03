@@ -138,17 +138,55 @@ Property::saved fires
 
 MatchPropertyJob (queued)
   → MatchingService::candidatesForProperty($property)
-       returns active ContactMatches in same agency where
-       hard filters pass (SQL query, indexed)
+       GUARD: MatchingService::isMatchableStatus($property->status) — an
+       off-market property (sold/transferred/rented/let_out/withdrawn/expired/
+       cancelled/unavailable/archived/draft/pending) returns NO candidates and
+       fires NOTHING. Case-insensitive (status is stored mixed-case, e.g.
+       P24 writes 'Sold'/'Withdrawn'). NULL/blank status = matchable.
+       Returns active ContactMatches in same agency where hard filters pass.
   → For each candidate:
        score = MatchingService::score($property, $match)
-       if score < 40 skip
-       if (match,property) already in contact_match_notifications skip
-       insert contact_match_notifications row
+       if score < min_score_to_notify skip
+       if (match,property) already in contact_match_notifications skip (dedup)
+       insert contact_match_notifications row — MUST set agency_id explicitly
+       (the job runs with no Auth::user(), so BelongsToAgency cannot infer it;
+       omitting it = NOT NULL insert failure = dedup row never written =
+       every re-save re-notifies. Take agency_id off the property.)
        notify $match->createdBy via NewPropertyMatchNotification
-       (channel: database always; mail if user opted in)
+       → channel: DATABASE ONLY (real-time bell). NO per-match email.
   → Touch each candidate's `last_engaged_at` with NULL — only updates on user action
 ```
+
+### 6.1 Match eligibility — single source of truth
+
+`MatchingService::isMatchableStatus(?string): bool` is THE predicate for whether
+a property may match, used in BOTH directions (candidatesForProperty /
+matchesForProperty for the property→match path, and propertiesForMatch for the
+match→property path). It replaced the earlier split, case-sensitive
+`EXCLUDED_FOR_NOTIFY` / `EXCLUDED_FOR_DISPLAY` lists that disagreed (notify was
+missing `let_out`/`expired`/`cancelled`/`unavailable`) and let 769 `Sold`
+listings and every `let_out` rental leak into match emails. One list
+(`NON_MATCHABLE_STATUSES`), one normalised predicate, every entry point routed
+through it. Fix-the-class, not the instance.
+
+### 6.2 Match email digest — one email per agent per day
+
+The per-match email (fired inside MatchPropertyJob) flooded inboxes: a bulk
+import or a property re-save fanned out one email per (property, contact). Match
+emails are now COALESCED, mirroring the calendar-digest rule ("one email per
+user, never one per item"):
+
+- `NewPropertyMatchNotification::via()` = `['database']` only — the bell stays
+  real-time; no email is sent from the notification.
+- `contact_match_notifications.emailed_at` (nullable) turns the dedup ledger into
+  the digest queue: NULL = surfaced (bell fired) but not yet emailed.
+- `corex:matches:send-digests` (scheduled daily 07:00, `onOneServer`) sweeps NULL
+  rows, groups per agent then per contact, and sends ONE `MatchDigestMail`
+  carrying every new match. It RE-CHECKS `isMatchableStatus` (and soft-delete) at
+  send time, so a match whose listing went off-market overnight is dropped from
+  the email. Every swept row is stamped `emailed_at` (included, off-market, or
+  email-off) so nothing re-sends. Agents with match email off keep the bell,
+  their rows are stamped without sending. Respects the same `notify_email` gate.
 
 ## 7. Flow — Contact-Triggered (existing form, kept + improved)
 
@@ -196,9 +234,13 @@ Property page Core Matches tab and the match results page each get a "Convert to
 - `database/migrations/2026_04_28_100001_extend_contact_matches.php`
 - `database/migrations/2026_04_28_100002_create_contact_match_feedback_table.php`
 - `database/migrations/2026_04_28_100003_create_contact_match_notifications_table.php`
+- `database/migrations/2026_07_03_120000_add_emailed_at_to_contact_match_notifications.php` — digest queue column
 - `app/Services/Matching/MatchingService.php`
 - `app/Jobs/MatchPropertyJob.php`
 - `app/Notifications/NewPropertyMatchNotification.php`
+- `app/Console/Commands/Matches/SendMatchDigests.php` — daily digest command
+- `app/Mail/Matches/MatchDigestMail.php` — the one-per-agent digest email
+- `resources/views/emails/matches/digest.blade.php` — digest template
 - `app/Models/ContactMatchFeedback.php`
 - `app/Models/ContactMatchNotification.php`
 - `app/Console/Commands/ArchiveStaleMatches.php`

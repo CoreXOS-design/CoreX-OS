@@ -1629,6 +1629,64 @@
                     </div>
                 @endif
 
+                {{-- AT-158 DR2 · WS5 (§10) — Document distributions on the PROPERTY.
+                     Every DR2 document sent to a party (attorney, electrician,
+                     buyer, seller) archives its outbound Communication against the
+                     deal's property. This is the property-side view of that: one
+                     send appears on the deal, the recipient contact AND here.
+                     Rows are already scoped to the viewer's comms visibility in the
+                     controller (No Silent Locks — nothing sensitive shown that the
+                     user couldn't see in the archive). --}}
+                @if(isset($propertyComms) && $propertyComms->isNotEmpty())
+                    <div class="lg:col-span-3 flex flex-col">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Document Distributions</h3>
+                            <span class="text-xs" style="color:var(--text-muted);">{{ $propertyComms->count() }} sent</span>
+                        </div>
+                        <div class="rounded-md overflow-hidden" style="background:var(--surface-2); border:1px solid var(--border);">
+                            @foreach($propertyComms as $i => $comm)
+                                @php
+                                    $recipientEmail = collect($comm->participant_identifiers ?? [])->first();
+                                    $isSecureLink   = ! $comm->has_attachments;
+                                    $openHref       = \Illuminate\Support\Facades\Route::has('compliance.comm-archive.show')
+                                        ? route('compliance.comm-archive.show', ['communication' => $comm->id, 'from' => 'property', 'property' => $property->id])
+                                        : null;
+                                    // Precompute the meta line in PHP — Blade will not parse glued
+                                    // inline directives (@endif@if) reliably (AT-150 gotcha).
+                                    $metaParts = [$isSecureLink ? 'Secure link' : 'Attachment'];
+                                    if ($recipientEmail) { $metaParts[] = 'to ' . $recipientEmail; }
+                                    if ($comm->from_display) { $metaParts[] = 'by ' . $comm->from_display; }
+                                    $metaLine = implode(' · ', $metaParts);
+                                @endphp
+                                <div class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
+                                    <div class="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5" style="background:var(--surface); color:var(--brand-icon, #0ea5e9);">
+                                        {{-- envelope / paperclip --}}
+                                        @if($isSecureLink)
+                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
+                                        @else
+                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"/></svg>
+                                        @endif
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-xs font-medium truncate" style="color:var(--text-primary);">
+                                            {{ $comm->subject ?: 'Document' }}
+                                        </div>
+                                        <div class="text-xs truncate" style="color:var(--text-muted);">
+                                            {{ $metaLine }}
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col items-end gap-1 flex-shrink-0">
+                                        <span class="text-xs" style="color:var(--text-muted);">{{ $comm->occurred_at?->diffForHumans() }}</span>
+                                        @if($openHref)
+                                            <a href="{{ $openHref }}" class="text-[11px] font-semibold" style="color:var(--brand-icon, #0ea5e9);">Open</a>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
                 {{-- Phase 3g V2 Part C — Property Location embedded map.
                      Centred on property's GPS (resolved by Phase 3f geocoding),
                      shows sold + active comps within 1km. Falls back to a
@@ -3588,6 +3646,23 @@
             </div>
 
             <script>
+            // Split a file selection into POST batches that stay under BOTH the
+            // server's max_file_uploads (count) AND post_max_size (bytes). A file
+            // larger than maxBytes still ships alone — the 50MB per-file rule keeps
+            // a lone file under post_max_size. Batching by count alone let large
+            // photo sets exceed post_max_size and the server returned HTTP 413.
+            window.planUploadBatches = window.planUploadBatches || function (files, maxCount, maxBytes) {
+                const batches = [];
+                let cur = [], curBytes = 0;
+                for (const f of files) {
+                    if (cur.length && (cur.length >= maxCount || curBytes + f.size > maxBytes)) {
+                        batches.push(cur); cur = []; curBytes = 0;
+                    }
+                    cur.push(f); curBytes += f.size;
+                }
+                if (cur.length) batches.push(cur);
+                return batches;
+            };
             function galleryUploader(endpoint, csrf) {
                 return {
                     files: [],
@@ -3632,15 +3707,28 @@
                     },
                     async upload() {
                         if (!this.files.length) return;
+                        // Reject anything over the server's per-file limit (500MB) up
+                        // front, with a clear message — beats a raw server error.
+                        const MAX_FILE = 500 * 1024 * 1024;
+                        const tooBig = this.files.find(f => f.size > MAX_FILE);
+                        if (tooBig) {
+                            this.errorMsg = '"' + tooBig.name + '" is ' + Math.round(tooBig.size / 1048576) +
+                                'MB — the limit is 500MB per image. Please resize it and try again.';
+                            return;
+                        }
                         this.uploading = true;
                         this.percent = 0;
                         this._done = 0;
                         this.statusText = 'Uploading...';
                         this.errorMsg = '';
-                        const BATCH = 10;
+                        // Group into POSTs bounded by BOTH file count (PHP
+                        // max_file_uploads) AND total bytes (must stay under
+                        // post_max_size, ~550MB on the server). A count-only batch of
+                        // large photos previously blew past post_max_size and the
+                        // server rejected the whole POST with HTTP 413.
+                        const batches = window.planUploadBatches(this.files, 10, 500 * 1024 * 1024);
                         try {
-                            for (let i = 0; i < this.files.length; i += BATCH) {
-                                const chunk = this.files.slice(i, i + BATCH);
+                            for (const chunk of batches) {
                                 await this.uploadChunk(chunk);
                                 this._done += chunk.length;
                                 this.percent = Math.min(99, Math.round((this._done / this.files.length) * 100));
@@ -4341,13 +4429,13 @@
                     this.uploadingKey = key;
                     this.percent = 0;
                     this.error = '';
-                    // Batch to stay under PHP max_file_uploads (default 20); the bar
-                    // climbs smoothly across all batches via `done`.
-                    const BATCH = 10;
+                    // Batch under BOTH PHP max_file_uploads (count) AND post_max_size
+                    // (bytes) — a count-only batch of large photos overran
+                    // post_max_size and the server rejected the POST with HTTP 413.
+                    const batches = window.planUploadBatches(files, 10, 500 * 1024 * 1024);
                     let done = 0, latest = null;
                     try {
-                        for (let i = 0; i < files.length; i += BATCH) {
-                            const chunk = files.slice(i, i + BATCH);
+                        for (const chunk of batches) {
                             latest = await this._uploadChunk(section, customId, chunk, done, files.length);
                             done += chunk.length;
                             this.percent = Math.min(99, Math.round((done / files.length) * 100));
@@ -7685,7 +7773,11 @@ function websiteSyndication(config) {
         if (form.dataset.galleryAjaxBypass === '1') { delete form.dataset.galleryAjaxBypass; return; }
         if (e.defaultPrevented) return;                  // required-fields modal already blocked
         var files = Array.from(galleryInput.files || []);
-        if (files.length <= MAX_SINGLE_POST) return;     // native submit handles it fine
+        var totalBytes = files.reduce(function (s, f) { return s + f.size; }, 0);
+        // Native submit is safe only when the whole gallery fits in ONE POST —
+        // under both max_file_uploads (count) AND post_max_size (~550MB, bytes).
+        // Otherwise fall through to the AJAX batch path, which never trips 413.
+        if (files.length <= MAX_SINGLE_POST && totalBytes <= 500 * 1024 * 1024) return;
         if (!hasLinkedContact()) return;                 // let the contact guard surface its modal
 
         e.preventDefault();
@@ -7732,12 +7824,15 @@ function websiteSyndication(config) {
             return;
         }
 
-        // 2) Batch-upload the gallery to the new property (each batch < cap).
+        // 2) Batch-upload the gallery to the new property. Batches are bounded by
+        //    BOTH file count (max_file_uploads) AND total bytes (post_max_size) so
+        //    a POST never overruns the server limit and returns HTTP 413.
         var id = created.property.id;
         var uploadUrl = UPLOAD_BASE + '/' + id + '/upload-images';
         var done = 0, failed = 0;
-        for (var i = 0; i < files.length; i += BATCH) {
-            var chunk = files.slice(i, i + BATCH);
+        var batches = window.planUploadBatches(files, BATCH, 500 * 1024 * 1024);
+        for (var bi = 0; bi < batches.length; bi++) {
+            var chunk = batches[bi];
             var body = new FormData();
             body.append('_token', token);
             body.append('group', 'gallery_images');

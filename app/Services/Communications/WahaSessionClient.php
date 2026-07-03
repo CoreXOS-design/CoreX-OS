@@ -181,6 +181,29 @@ class WahaSessionClient
         return null;
     }
 
+    /**
+     * AT-168 Part B — fetch a chat's recent messages from the WAHA session store,
+     * used to recover the body of a message that was embargoed/withheld at capture
+     * time (consent pending) and whose local raw no longer carries it. Returns the
+     * decoded message array (may be empty); the caller matches by message id.
+     *
+     * @return array<int,array<string,mixed>>
+     * @throws WahaUnavailableException on connection failure
+     */
+    public function fetchMessages(string $session, string $chat, int $limit = 100): array
+    {
+        try {
+            $res = $this->http(30)->get(
+                $this->base() . '/api/' . rawurlencode($session) . '/chats/' . rawurlencode($chat) . '/messages',
+                ['limit' => $limit, 'downloadMedia' => 'true']
+            );
+        } catch (\Throwable $e) {
+            throw new WahaUnavailableException('WAHA chat-messages fetch failed: ' . $e->getMessage(), 0, $e);
+        }
+
+        return $res->successful() ? (array) $res->json() : [];
+    }
+
     /** Restart a session (stop then start) — the FAILED-state recovery path. */
     public function restart(string $session, string $webhookUrl, string $secret): array
     {
