@@ -11,6 +11,7 @@ use App\Services\Leave\LeaveBalanceService;
 use App\Services\Leave\PublicHolidayService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class MyPortalLeaveController extends Controller
@@ -21,7 +22,7 @@ class MyPortalLeaveController extends Controller
         $employee = PayrollEmployee::where('user_id', $user->id)->where('is_active', true)->first();
 
         if (!$employee) {
-            return view('my-portal.leave.index', ['balances' => collect(), 'applications' => collect()->paginate(10), 'employee' => null]);
+            return view('my-portal.leave.index', ['balances' => collect(), 'applications' => new LengthAwarePaginator([], 0, 10, 1, ['path' => $request->url()]), 'employee' => null]);
         }
 
         $balanceService = new LeaveBalanceService();
