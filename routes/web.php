@@ -1295,6 +1295,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             return response()->json(['ok' => true, 'invitation_id' => $invitation->id, 'acknowledged_at' => $invitation->fresh()->acknowledged_at->toIso8601String()]);
         })->name('command-center.calendar.invitations.acknowledge');
 
+        // AT-164 Gate 5 — continuous-scroll month window (HTML block) + JSON range endpoint
+        Route::get('/calendar/month-block', [CommandCenterCalendarController::class, 'monthBlock'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.month-block');
+        Route::get('/calendar/grid-range', [CommandCenterCalendarController::class, 'gridRange'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.grid-range');
+
         // AT-164 Gate 4 — Tile Deck (JSON) — MUST be before /calendar/{calendarEvent} wildcard
         Route::get('/calendar/deck', [CommandCenterCalendarController::class, 'deck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck');
         Route::post('/calendar/deck', [CommandCenterCalendarController::class, 'saveDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.save');

@@ -247,35 +247,15 @@ class CalendarController extends Controller
         }
         $range = $request->get('range', 'month');
 
-        $grid = $this->service->getMonthGrid($user, $year, $month, [], $scope);
-
-        $filteredByDate = [];
-        foreach ($grid['byDate'] as $dateKey => $dayEvents) {
-            $resolved = $this->applyFilters(collect($dayEvents), $user, $typeFilter, $categoryFilter, $scope);
-            if ($resolved->isNotEmpty()) {
-                $filteredByDate[$dateKey] = $resolved->all();
-            }
-        }
-        $filteredEvents = collect($filteredByDate)->flatten(1);
-
-        // AT-164 Gate 1 — split the grid: appointments keep their chips/bars; system
-        // deadlines collapse to one aggregate chip per (day × group). The grid cell
-        // now renders ONLY appointments as chips + the deadline group chips, so a day
-        // of portal expiries no longer buries the real viewing.
-        [$appointmentByDate, $deadlineGroupsByDate] = $this->splitSpeciesForGrid($filteredByDate, $user);
-
-        // Filter spanning bars (multi-day events) through same filter logic
-        $filteredSpanningBars = [];
-        foreach ($grid['spanningBars'] ?? [] as $bar) {
-            $filtered = $this->applyFilters(collect([$bar['event']]), $user, $typeFilter, $categoryFilter, $scope);
-            if ($filtered->isNotEmpty()) {
-                $bar['event'] = $filtered->first();
-                // ITEM 4 — getMonthGrid stamped a separate 'title' before redaction;
-                // re-sync it so a redacted private bar never leaks its real title.
-                $bar['title'] = $bar['event']->title;
-                $filteredSpanningBars[] = $bar;
-            }
-        }
+        // AT-164 Gate 5 — the per-month block (grid + species split + spanning bars) is
+        // now built by one reusable method so the continuous-scroll endpoint renders
+        // through the identical pipeline.
+        $block = $this->monthBlockData($user, $year, $month, $typeFilter, $categoryFilter, $scope);
+        $grid                 = $block['grid'];
+        $appointmentByDate    = $block['byDate'];
+        $deadlineGroupsByDate = $block['deadlineGroups'];
+        $filteredSpanningBars = $block['spanningBars'];
+        $filteredEvents       = $block['filteredEvents'];
 
         // Agenda range logic
         $rangeGroups = [
@@ -1507,6 +1487,141 @@ class CalendarController extends Controller
      * @param  array<string,array>  $filteredByDate  date => resolved-event[]
      * @return array{0:array<string,array>,1:array<string,array>} [appointmentByDate, deadlineGroupsByDate]
      */
+    /**
+     * AT-164 Gate 5 — build ONE month's block data: the 6-week grid, the appointment
+     * species split by date, the aggregate deadline groups, and the filtered spanning
+     * bars. Shared by the full-page render and the /calendar/month-block endpoint so
+     * the continuous-scroll windows render through the identical pipeline.
+     *
+     * @return array{grid:array,byDate:array,deadlineGroups:array,spanningBars:array,filteredEvents:\Illuminate\Support\Collection}
+     */
+    private function monthBlockData($user, int $year, int $month, array $typeFilter, array $categoryFilter, string $scope): array
+    {
+        $grid = $this->service->getMonthGrid($user, $year, $month, [], $scope);
+
+        $filteredByDate = [];
+        foreach ($grid['byDate'] as $dateKey => $dayEvents) {
+            $resolved = $this->applyFilters(collect($dayEvents), $user, $typeFilter, $categoryFilter, $scope);
+            if ($resolved->isNotEmpty()) {
+                $filteredByDate[$dateKey] = $resolved->all();
+            }
+        }
+        $filteredEvents = collect($filteredByDate)->flatten(1);
+
+        // Gate 1 — appointments keep their chips/bars; deadlines collapse to one chip per group.
+        [$appointmentByDate, $deadlineGroupsByDate] = $this->splitSpeciesForGrid($filteredByDate, $user);
+
+        // Filter spanning bars (multi-day events) through the same filter logic.
+        $filteredSpanningBars = [];
+        foreach ($grid['spanningBars'] ?? [] as $bar) {
+            $filtered = $this->applyFilters(collect([$bar['event']]), $user, $typeFilter, $categoryFilter, $scope);
+            if ($filtered->isNotEmpty()) {
+                $bar['event'] = $filtered->first();
+                // ITEM 4 — re-sync title so a redacted private bar never leaks its real title.
+                $bar['title'] = $bar['event']->title;
+                $filteredSpanningBars[] = $bar;
+            }
+        }
+
+        return [
+            'grid'           => $grid,
+            'byDate'         => $appointmentByDate,
+            'deadlineGroups' => $deadlineGroupsByDate,
+            'spanningBars'   => $filteredSpanningBars,
+            'filteredEvents' => $filteredEvents,
+        ];
+    }
+
+    /**
+     * AT-164 Gate 5 — render ONE month block (HTML) for the continuous-scroll month
+     * view. The Alpine windowing controller lazy-appends/prepends these as the user
+     * scrolls, so every window uses the SAME _month-block partial as the initial render.
+     */
+    public function monthBlock(Request $request)
+    {
+        $user  = $request->user();
+        $year  = (int) $request->get('year', now()->year);
+        $month = (int) $request->get('month', now()->month);
+        // Clamp to a sane span so a crafted query can't expand thousands of months.
+        if ($month < 1 || $month > 12 || $year < 2000 || $year > 2100) {
+            abort(422, 'Invalid month.');
+        }
+
+        $typeFilter     = $request->input('types', []);
+        $categoryFilter = $request->input('categories', []);
+        $scope = PermissionService::clampScope($request->input('scope'), PermissionService::calendarScope($user));
+
+        $block = $this->monthBlockData($user, $year, $month, $typeFilter, $categoryFilter, $scope);
+
+        return view('command-center.calendar.partials._month-block', [
+            'year'           => $year,
+            'month'          => $month,
+            'grid'           => $block['grid'],
+            'byDate'         => $block['byDate'],
+            'deadlineGroups' => $block['deadlineGroups'],
+            'spanningBars'   => $block['spanningBars'],
+        ]);
+    }
+
+    /**
+     * AT-164 Gate 5/7 — JSON range endpoint returning the aggregated grid shape
+     * ({byDate, deadlineGroups, spanningBars}) for an arbitrary date range. Feeds the
+     * live-RAG refresh loop (Gate 7) and any programmatic windowing.
+     */
+    public function gridRange(Request $request)
+    {
+        $user  = $request->user();
+        $start = $request->get('start');
+        $end   = $request->get('end');
+        try {
+            $rangeStart = $start ? Carbon::parse($start)->startOfDay() : now()->startOfMonth();
+            $rangeEnd   = $end ? Carbon::parse($end)->endOfDay() : now()->endOfMonth();
+        } catch (\Throwable $e) {
+            abort(422, 'Invalid range.');
+        }
+        // Cap the window (agency expansion limit) so the endpoint can't be asked for years.
+        $maxDays = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarMaxExpansionDays();
+        if ($rangeStart->diffInDays($rangeEnd) > $maxDays) {
+            $rangeEnd = $rangeStart->copy()->addDays($maxDays)->endOfDay();
+        }
+
+        $typeFilter     = $request->input('types', []);
+        $categoryFilter = $request->input('categories', []);
+        $scope = PermissionService::clampScope($request->input('scope'), PermissionService::calendarScope($user));
+
+        $resolved = $this->applyFilters(
+            $this->service->getEventsForRange($user, $rangeStart->toDateString(), $rangeEnd->toDateString(), [], $scope),
+            $user, $typeFilter, $categoryFilter, $scope
+        );
+
+        // Species split by date (same aggregation the grid uses).
+        $byDateRaw = [];
+        foreach ($resolved as $e) {
+            if (! $e->event_date) continue;
+            $byDateRaw[$e->event_date->toDateString()][] = $e;
+        }
+        [$appointmentByDate, $deadlineGroupsByDate] = $this->splitSpeciesForGrid($byDateRaw, $user);
+
+        // Shape appointments to a lean JSON payload.
+        $byDate = [];
+        foreach ($appointmentByDate as $date => $events) {
+            $byDate[$date] = array_map(fn ($e) => [
+                'id' => $e->id, 'title' => $e->title,
+                'colour' => $e->resolved_colour, 'category' => $e->category,
+                'event_type' => $e->event_type, 'status' => $e->status,
+                'all_day' => (bool) $e->all_day,
+                'time' => $e->all_day ? null : $e->event_date->format('H:i'),
+            ], $events);
+        }
+
+        return response()->json([
+            'byDate'         => $byDate,
+            'deadlineGroups' => $deadlineGroupsByDate,
+            'start'          => $rangeStart->toDateString(),
+            'end'            => $rangeEnd->toDateString(),
+        ]);
+    }
+
     private function splitSpeciesForGrid(array $filteredByDate, $user): array
     {
         $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : ($user->agency_id ?? null);

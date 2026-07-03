@@ -168,10 +168,17 @@
     <div class="rounded-md px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
          style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex items-center gap-2">
+            {{-- AT-164 Gate 5 — month view scrolls continuously; prev/next month
+                 pagination is replaced by scroll (kept for week/day). --}}
+            @if($currentView !== 'month')
             <a href="{{ $prevUrl }}" class="corex-btn-outline" aria-label="Previous">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
             </a>
-            @if($showToday)
+            @endif
+            @if($currentView === 'month')
+                {{-- In-page Today anchor — scrolls the continuous month view to today. --}}
+                <button type="button" class="corex-btn-outline" @click="window.dispatchEvent(new Event('calendar:today'))">Today</button>
+            @elseif($showToday)
                 <a href="{{ $todayUrl }}" class="corex-btn-outline">Today</a>
             @else
                 <span class="corex-btn-outline opacity-40 cursor-default pointer-events-none" aria-disabled="true">Today</span>
@@ -206,9 +213,11 @@
                            pickerOpen = false;
                        ">
             </div>
+            @if($currentView !== 'month')
             <a href="{{ $nextUrl }}" class="corex-btn-outline" aria-label="Next">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </a>
+            @endif
         </div>
 
         <div class="flex items-center gap-2">
@@ -306,273 +315,38 @@
     </div>
 
     @if($currentView === 'month')
-        {{-- ══════ MONTH VIEW ══════ --}}
-        @php
-            // Build week rows: each row is an array of 7 date strings
-            $gridStart = $grid['start'];
-            $gridEnd = $grid['end'];
-            $weekRows = [];
-            $cursor = $gridStart->copy();
-            while ($cursor->lte($gridEnd)) {
-                $week = [];
-                for ($col = 0; $col < 7; $col++) {
-                    $week[] = $cursor->copy();
-                    $cursor->addDay();
-                }
-                $weekRows[] = $week;
-            }
+        {{-- ══════ MONTH VIEW — continuous vertical scroll (§15.3) ══════ --}}
+        <div x-data="continuousMonth()" x-init="initMonth()" x-ref="scroller"
+             @scroll.passive="onScroll()"
+             class="rounded-md overflow-hidden flex flex-col"
+             style="background: var(--surface); border: 1px solid var(--border); max-height: 74vh; overflow-y: auto; position: relative;">
 
-            // Group spanning bars by week_row
-            $barsByWeek = [];
-            foreach ($spanningBars ?? [] as $bar) {
-                $barsByWeek[$bar['week_row']][] = $bar;
-            }
-
-            // Assign vertical slots to spanning bars within each week (interval partitioning)
-            $barSlotsByWeek = [];
-            foreach ($barsByWeek as $weekIdx => $bars) {
-                // Sort by start_col, then by span descending (wider first)
-                usort($bars, function ($a, $b) {
-                    if ($a['start_col'] !== $b['start_col']) return $a['start_col'] - $b['start_col'];
-                    return $b['span'] - $a['span'];
-                });
-                $slots = []; // array of arrays, each slot = list of bars that fit in that row
-                foreach ($bars as $bar) {
-                    $placed = false;
-                    foreach ($slots as $si => &$slotBars) {
-                        $conflict = false;
-                        foreach ($slotBars as $existing) {
-                            if ($bar['start_col'] <= $existing['end_col'] && $bar['end_col'] >= $existing['start_col']) {
-                                $conflict = true;
-                                break;
-                            }
-                        }
-                        if (!$conflict) {
-                            $bar['slot'] = $si;
-                            $slotBars[] = $bar;
-                            $placed = true;
-                            break;
-                        }
-                    }
-                    unset($slotBars);
-                    if (!$placed) {
-                        $bar['slot'] = count($slots);
-                        $slots[] = [$bar];
-                    }
-                }
-                $barSlotsByWeek[$weekIdx] = $slots;
-            }
-        @endphp
-
-        <div class="rounded-md overflow-hidden flex flex-col" style="background: var(--surface); border: 1px solid var(--border);">
-            {{-- Day headers (sticky) --}}
-            <div class="grid grid-cols-7 sticky top-0 z-10" style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
+            {{-- Sticky day-of-week header (inline z-index — no new Tailwind arbitrary class, §3) --}}
+            <div class="grid grid-cols-7 sticky top-0" style="z-index: 20; background: var(--surface-2); border-bottom: 1px solid var(--border);">
                 @foreach(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as $dayName)
-                    <div class="px-2 py-2.5 text-xs font-semibold text-center uppercase tracking-wider"
+                    <div class="px-2 py-2 text-xs font-semibold text-center uppercase tracking-wider"
                          style="color: var(--text-muted); {{ !$loop->last ? 'border-right: 1px solid var(--border);' : '' }}">
                         {{ $dayName }}
                     </div>
                 @endforeach
             </div>
 
-            {{-- Calendar grid — scrollable container --}}
-            <div class="flex-1">
-                @foreach($weekRows as $weekIdx => $weekDates)
-                    @php
-                        $weekSlots = $barSlotsByWeek[$weekIdx] ?? [];
-                        $barCount = count($weekSlots);
-                    @endphp
-                    {{-- WEEK ROW STRUCTURE — do not change ordering:
-                         1. Date numbers strip (7-col grid with day numbers)
-                         2. Spanning bar zone (sits INSIDE row, between dates and chips)
-                         3. Cell grid with single-day chips
+            {{-- Top loading indicator (prepend earlier months) --}}
+            <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingTop" x-cloak>Loading…</div>
 
-                         Bug history: the bar zone has regressed THREE times when
-                         restructured. Bars MUST sit inside the row, between dates
-                         and chips. Never above the date numbers. Never in the gap
-                         between rows. This ordering is final. --}}
-                    <div style="border-bottom: 1px solid var(--border);">
-
-                        {{-- 1. DATE NUMBER STRIP --}}
-                        <div class="grid grid-cols-7">
-                            @foreach($weekDates as $colIdx => $cellDate)
-                                @php
-                                    $isCurrentMonth = $cellDate->month === $month;
-                                    $isToday = $cellDate->isSameDay($today);
-                                    $isWeekend = in_array($cellDate->dayOfWeekIso, [6, 7]);
-                                    $dateBg = $isWeekend ? 'var(--surface-2)' : 'transparent';
-                                @endphp
-                                <div @click="selectDate('{{ $cellDate->toDateString() }}')"
-                                     class="px-1.5 pt-1 pb-0.5 cursor-pointer"
-                                     style="opacity: {{ $isCurrentMonth ? '1' : '0.5' }}; background: {{ $dateBg }}; {{ $colIdx < 6 ? 'border-right: 1px solid var(--border);' : '' }}"
-                                     :class="selectedDate === '{{ $cellDate->toDateString() }}' && 'ring-2 ring-inset ring-[#00d4aa]'">
-                                    @if($isToday)
-                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
-                                              style="background: #00d4aa; color: #0f172a;">
-                                            {{ $cellDate->day }}
-                                        </span>
-                                    @else
-                                        <span class="text-xs font-semibold" style="color: var(--text-secondary);">
-                                            {{ $cellDate->day }}
-                                        </span>
-                                    @endif
-                                </div>
-                            @endforeach
-                        </div>
-
-                        {{-- 2. SPANNING BAR ZONE (between dates and chips — NEVER move this) --}}
-                        @if($barCount > 0)
-                            <div class="relative" style="min-height: {{ $barCount * 22 + 4 }}px; padding: 2px 0;">
-                                @foreach($weekSlots as $slotIdx => $slotBars)
-                                    @foreach($slotBars as $bar)
-                                        @php
-                                            $barEvt = $bar['event'];
-                                            $isInformational = ($barEvt->resolved_colour ?? 'neutral') === 'neutral';
-                                            $barBg = $isInformational ? '#0f172a' : match($barEvt->resolved_colour) {
-                                                'red'   => '#dc2626',
-                                                'amber' => '#d97706',
-                                                'green' => '#0d9488',
-                                                default => '#0f172a',
-                                            };
-                                            $barBorder = $isInformational ? '#1e293b' : match($barEvt->resolved_colour) {
-                                                'red'   => '#991b1b',
-                                                'amber' => '#92400e',
-                                                'green' => '#115e59',
-                                                default => '#1e293b',
-                                            };
-                                        @endphp
-                                        <button type="button"
-                                                data-event-id="{{ $bar['event_id'] }}"
-                                                @click.stop="openEventPanel({{ $bar['event_id'] }})"
-                                                class="absolute text-[11px] text-white font-medium px-2 truncate hover:opacity-90 transition-opacity cursor-pointer"
-                                                style="top: {{ $slotIdx * 22 + 2 }}px; height: 18px; line-height: 18px;
-                                                       left: calc(({{ $bar['start_col'] - 1 }} / 7) * 100% + 3px);
-                                                       width: calc(({{ $bar['span'] }} / 7) * 100% - 6px);
-                                                       background: {{ $barBg }};
-                                                       border: 2px solid {{ $barBorder }};
-                                                       border-radius:6px;"
-                                                title="{{ $barEvt->title }} ({{ \Carbon\Carbon::parse($bar['start_date'])->format('d M') }}–{{ \Carbon\Carbon::parse($bar['end_date'])->format('d M') }})">
-                                            {{ \Illuminate\Support\Str::limit($barEvt->title, 30) }}
-                                        </button>
-                                    @endforeach
-                                @endforeach
-                            </div>
-                        @endif
-
-                        {{-- 3. CELL GRID (single-day chips only — no date numbers, no bars) --}}
-                        <div class="grid grid-cols-7">
-                            @foreach($weekDates as $colIdx => $cellDate)
-                                @php
-                                    $dateStr = $cellDate->toDateString();
-                                    $dayEvents = $byDate[$dateStr] ?? [];
-                                    $isCurrentMonth = $cellDate->month === $month;
-                                    $isWeekend = in_array($cellDate->dayOfWeekIso, [6, 7]);
-                                    $cellBg = $isWeekend ? 'var(--surface-2)' : 'transparent';
-                                    $cellOpacity = $isCurrentMonth ? '1' : '0.5';
-                                    $chipCap = 6;
-                                @endphp
-                                <div @click="selectDate('{{ $dateStr }}')"
-                                     @dblclick="window.location.href='{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $dateStr])) }}'"
-                                     @dragover.prevent="rescheduleDragOver = '{{ $dateStr }}'"
-                                     @drop.prevent="rescheduleDropOnDate('{{ $dateStr }}')"
-                                     class="relative min-h-[2.5rem] px-1 pt-0.5 pb-1 cursor-pointer transition-colors hover:brightness-110"
-                                     style="opacity: {{ $cellOpacity }}; {{ $colIdx < 6 ? 'border-right: 1px solid var(--border);' : '' }}"
-                                     :class="[selectedDate === '{{ $dateStr }}' && 'ring-2 ring-inset ring-[#00d4aa]', rescheduleDragOver === '{{ $dateStr }}' && 'ring-2 ring-inset ring-amber-400']"
-                                     :style="selectedDate === '{{ $dateStr }}' ? 'background: color-mix(in srgb, #00d4aa 8%, {{ $cellBg === 'transparent' ? 'var(--surface)' : $cellBg }});' : 'background: {{ $cellBg }};'">
-                                    @if(count($dayEvents) > $chipCap)
-                                        <div class="flex justify-end mb-0.5">
-                                            <span class="text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
-                                                  style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
-                                                +{{ count($dayEvents) - $chipCap }}
-                                            </span>
-                                        </div>
-                                    @endif
-                                    <div class="space-y-0.5">
-                                        @foreach(array_slice($dayEvents, 0, $chipCap) as $evt)
-                                            @php
-                                                $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip;
-                                                $invStatus = $evt->user_invitation_status ?? null;
-                                                $isTentative = $invStatus === 'tentative';
-                                                $isPending = $invStatus === 'pending';
-                                                if ($isTentative) $chipStyle .= ' border: 2px dashed rgba(255,255,255,0.5); opacity: 0.75;';
-                                                if ($isPending) $chipStyle .= ' border: 2px dotted rgba(255,255,255,0.4); opacity: 0.6;';
-                                            @endphp
-                                            <button type="button"
-                                                    data-event-id="{{ $evt->id }}"
-                                                    draggable="true"
-                                                    @dragstart.stop="rescheduleStartDrag({{ $evt->id }}, '{{ $dateStr }}')"
-                                                    @dragend="rescheduleDragOver = null"
-                                                    @click.stop="openEventPanel({{ $evt->id }})"
-                                                    {{-- CAL-8 Part 1 — dismissed events get the same line-through+opacity treatment as completed.
-                                                         Belt-and-suspenders: getEventsForRange now excludes dismissed by default, but if a user
-                                                         opts into ?status=dismissed (or ?status=*) the chip must read visually as "inactive". --}}
-                                                    class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
-                                                    style="{{ $chipStyle }}"
-                                                    title="{{ $evt->title }}{{ $isTentative ? ' (Tentative)' : '' }}{{ $isPending ? ' (Pending — accept to confirm)' : '' }}">
-                                                <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>@if($isPending)<span class="text-[9px] font-bold uppercase mr-0.5" style="opacity:0.7;">PENDING</span> @endif{{ $timeRange($evt) ? $timeRange($evt) . ' ' : '' }}{{ \Illuminate\Support\Str::limit($evt->title, $isPending ? 14 : 20) }}
-                                            </button>
-                                        @endforeach
-                                    </div>
-
-                                    {{-- AT-164 Gate 1 — aggregate deadline chips. All system deadlines for a
-                                         (day × group) collapse to ONE chip, coloured by the worst RAG in the
-                                         group, so a day of portal expiries shows "6 Listings" not 6 red bars.
-                                         (Gate 2 adds the click-through popover + per-item deep links.) --}}
-                                    @php $dayDeadlines = $deadlineGroups[$dateStr] ?? []; @endphp
-                                    @if(!empty($dayDeadlines))
-                                        <div class="space-y-0.5 mt-0.5">
-                                            @foreach($dayDeadlines as $grp)
-                                                @php $gChip = $ragChip[$grp['worst']] ?? $defaultChip; @endphp
-                                                {{-- AT-164 Gate 2 — chip opens a popover of the individual items,
-                                                     each a NEW-TAB deep link (where the source resolves) or the
-                                                     in-page event panel. Inline z-index for the overlay (no new
-                                                     Tailwind arbitrary class — blade-only deploy). --}}
-                                                <div class="relative" x-data="{ dlOpen: false }" @click.outside="dlOpen = false">
-                                                    <button type="button"
-                                                            data-deadline-group="{{ $grp['group'] }}"
-                                                            @click.stop="dlOpen = !dlOpen"
-                                                            class="flex w-full items-center gap-1 text-[11px] leading-tight px-1.5 py-0.5 rounded hover:opacity-80 transition-opacity cursor-pointer"
-                                                            style="{{ $gChip }}"
-                                                            title="{{ $grp['count'] }} {{ $grp['label'] }} due — click to list">
-                                                        <span class="font-bold">{{ $grp['count'] }}</span>
-                                                        <span class="truncate">{{ $grp['label'] }}</span>
-                                                    </button>
-                                                    <div x-show="dlOpen" x-cloak @click.stop
-                                                         class="absolute left-0 mt-1 w-64 max-h-64 overflow-y-auto rounded-lg text-left"
-                                                         style="z-index:30; background:var(--surface,#ffffff); border:1px solid var(--border,#e5e7eb); box-shadow:0 8px 24px rgba(0,0,0,0.18);">
-                                                        <div class="px-3 py-2 text-[11px] font-semibold" style="border-bottom:1px solid var(--border,#e5e7eb); color:var(--text-muted,#9ca3af);">
-                                                            {{ $grp['count'] }} {{ $grp['label'] }} · {{ $cellDate->format('d M') }}
-                                                        </div>
-                                                        @foreach($grp['items'] as $it)
-                                                            @php $dotBg = ['red'=>'#dc2626','amber'=>'#d97706','green'=>'#0d9488'][$it['rag']] ?? '#94a3b8'; @endphp
-                                                            @if($it['url'])
-                                                                <a href="{{ $it['url'] }}" target="_blank" rel="noopener"
-                                                                   class="flex items-center gap-2 px-3 py-1.5 text-xs hover:opacity-80" style="color:var(--text-primary,#111827);">
-                                                                    <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ $dotBg }};"></span>
-                                                                    <span class="flex-1 truncate">{{ $it['title'] }}</span>
-                                                                    @if($it['due'])<span style="color:var(--text-muted,#9ca3af);">{{ $it['due'] }}</span>@endif
-                                                                </a>
-                                                            @else
-                                                                <button type="button" @click.stop="dlOpen=false; openEventPanel({{ $it['id'] }})"
-                                                                        class="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-left hover:opacity-80" style="color:var(--text-primary,#111827);">
-                                                                    <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ $dotBg }};"></span>
-                                                                    <span class="flex-1 truncate">{{ $it['title'] }}</span>
-                                                                    @if($it['due'])<span style="color:var(--text-muted,#9ca3af);">{{ $it['due'] }}</span>@endif
-                                                                </button>
-                                                            @endif
-                                                        @endforeach
-                                                    </div>
-                                                </div>
-                                            @endforeach
-                                        </div>
-                                    @endif
-                                </div>
-                            @endforeach
-                        </div>
-
-                    </div>
-                @endforeach
+            {{-- Month blocks. The initial month is server-rendered; the windowing
+                 controller lazy-prepends/appends adjacent months through the identical
+                 _month-block partial (via /calendar/month-block) — one renderer, full
+                 interaction parity, no dual JS cell renderer. --}}
+            <div x-ref="months">
+                @include('command-center.calendar.partials._month-block', [
+                    'year' => $year, 'month' => $month, 'grid' => $grid,
+                    'byDate' => $byDate, 'deadlineGroups' => $deadlineGroups, 'spanningBars' => $spanningBars,
+                ])
             </div>
+
+            {{-- Bottom loading indicator (append later months) --}}
+            <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingBottom" x-cloak>Loading…</div>
         </div>
     @elseif($currentView === 'week')
         {{-- ══════ WEEK VIEW — Time-slot grid ══════ --}}
@@ -4277,6 +4051,156 @@ function calendarDeck() {
                     if (typeof data.slots === 'number') this.slots = data.slots;
                 }
             } catch (e) { /* silent — degrade, never break the page */ }
+        },
+    };
+}
+
+/* ══════ AT-164 Gate 5 — continuous-scroll month controller ══════
+   Month weeks flow vertically and continuously (Outlook-web). The initial month is
+   server-rendered; earlier/later months lazy-load through /calendar/month-block (the
+   SAME _month-block partial), so there is no second JS cell renderer and every window
+   keeps full interaction parity (drag-reschedule, chips, deadline popovers, bars).
+   Sticky month labels come free from CSS position:sticky in the partial. Today anchor,
+   jump-to-date and ?anchor scroll-restore included. */
+function continuousMonth() {
+    return {
+        loadingTop: false,
+        loadingBottom: false,
+        minMonth: null,   // {y, m} earliest loaded
+        maxMonth: null,   // {y, m} latest loaded
+        _params: '',
+        _restoreAnchor: null,
+        _anchorTimer: null,
+
+        initMonth() {
+            const months = this.$refs.months;
+            const blocks = months ? months.querySelectorAll('.cal-month-block') : [];
+            if (blocks.length) {
+                const first = blocks[0].dataset.month.split('-').map(Number);
+                const last  = blocks[blocks.length - 1].dataset.month.split('-').map(Number);
+                this.minMonth = { y: first[0], m: first[1] };
+                this.maxMonth = { y: last[0], m: last[1] };
+            } else {
+                const now = new Date();
+                this.minMonth = this.maxMonth = { y: now.getFullYear(), m: now.getMonth() + 1 };
+            }
+
+            // Carry the active filters/scope to the month-block endpoint.
+            const url = new URL(window.location.href);
+            const carry = new URLSearchParams();
+            for (const k of ['scope']) if (url.searchParams.get(k)) carry.set(k, url.searchParams.get(k));
+            for (const k of ['types', 'categories']) {
+                url.searchParams.getAll(k + '[]').forEach(v => carry.append(k + '[]', v));
+                url.searchParams.getAll(k).forEach(v => carry.append(k + '[]', v));
+            }
+            this._params = carry.toString();
+
+            // Scroll-restore: ?anchor=YYYY-MM-DD returns to the same position after refresh.
+            this._restoreAnchor = url.searchParams.get('anchor');
+            this.$nextTick(() => { if (this._restoreAnchor) this.scrollToDate(this._restoreAnchor); });
+
+            // Expose a scroll-to-today hook to the toolbar Today control.
+            window.addEventListener('calendar:today', () => this.scrollToDate(new Date().toISOString().slice(0, 10)));
+            window.addEventListener('calendar:jump', (e) => { if (e.detail) this.scrollToDate(e.detail); });
+        },
+
+        _monthUrl(y, m) {
+            const base = '{{ route('command-center.calendar.month-block') }}';
+            const q = new URLSearchParams(this._params);
+            q.set('year', y); q.set('month', m);
+            return base + '?' + q.toString();
+        },
+        _prevOf(mm) { return mm.m === 1 ? { y: mm.y - 1, m: 12 } : { y: mm.y, m: mm.m - 1 }; },
+        _nextOf(mm) { return mm.m === 12 ? { y: mm.y + 1, m: 1 } : { y: mm.y, m: mm.m + 1 }; },
+
+        onScroll() {
+            const el = this.$refs.scroller;
+            if (!el) return;
+            if (el.scrollTop < 240 && !this.loadingTop) this.loadPrev();
+            if (el.scrollHeight - el.scrollTop - el.clientHeight < 320 && !this.loadingBottom) this.loadNext();
+            // Persist scroll-anchor to the URL (debounced) so refresh restores position.
+            clearTimeout(this._anchorTimer);
+            this._anchorTimer = setTimeout(() => this._syncAnchor(), 250);
+        },
+
+        _syncAnchor() {
+            const label = this._topVisibleMonth();
+            if (!label) return;
+            const url = new URL(window.location.href);
+            url.searchParams.set('anchor', label + '-01');
+            history.replaceState(null, '', url.toString());
+        },
+        _topVisibleMonth() {
+            const el = this.$refs.scroller;
+            const blocks = this.$refs.months?.querySelectorAll('.cal-month-block') || [];
+            const top = el.getBoundingClientRect().top + 40;
+            for (const b of blocks) {
+                const r = b.getBoundingClientRect();
+                if (r.bottom > top) return b.dataset.month;
+            }
+            return blocks.length ? blocks[blocks.length - 1].dataset.month : null;
+        },
+
+        async loadNext() {
+            if (!this.maxMonth) return;
+            const nxt = this._nextOf(this.maxMonth);
+            if (nxt.y > 2100) return;
+            this.loadingBottom = true;
+            const html = await this._fetchBlock(nxt.y, nxt.m);
+            if (html) { this._appendHtml(html, 'bottom'); this.maxMonth = nxt; }
+            this.loadingBottom = false;
+        },
+        async loadPrev() {
+            if (!this.minMonth) return;
+            const prv = this._prevOf(this.minMonth);
+            if (prv.y < 2000) return;
+            this.loadingTop = true;
+            const el = this.$refs.scroller;
+            const beforeH = el.scrollHeight;
+            const html = await this._fetchBlock(prv.y, prv.m);
+            if (html) {
+                this._appendHtml(html, 'top');
+                this.minMonth = prv;
+                // Keep the viewport stable after prepending taller content above.
+                this.$nextTick(() => { el.scrollTop += (el.scrollHeight - beforeH); });
+            }
+            this.loadingTop = false;
+        },
+
+        async _fetchBlock(y, m) {
+            try {
+                const r = await fetch(this._monthUrl(y, m), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin',
+                });
+                if (!r.ok) return null;
+                return await r.text();
+            } catch (e) { return null; }
+        },
+        _appendHtml(html, where) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html.trim();
+            const node = tmp.firstElementChild;
+            if (!node) return;
+            const months = this.$refs.months;
+            if (where === 'top') months.insertBefore(node, months.firstElementChild);
+            else months.appendChild(node);
+            // Initialise Alpine on the freshly-inserted block (chips, popovers, drag).
+            if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(node);
+        },
+
+        async scrollToDate(dateStr) {
+            // Ensure the target month is loaded (prepend/append until it exists), then scroll to it.
+            const target = dateStr.slice(0, 7); // YYYY-MM
+            let guard = 0;
+            const has = () => this.$refs.months?.querySelector('[data-month="' + target + '"]');
+            while (!has() && guard++ < 60) {
+                const [ty, tm] = target.split('-').map(Number);
+                const cmp = (a) => (ty * 12 + tm) - (a.y * 12 + a.m);
+                if (cmp(this.minMonth) < 0) await this.loadPrev();
+                else await this.loadNext();
+            }
+            const block = has();
+            if (block) block.scrollIntoView({ behavior: 'smooth', block: 'start' });
         },
     };
 }
