@@ -189,3 +189,50 @@ Assumptions (small agency, ~10–15 agents once WA capture is live): **~100 voic
 **POPIA rationale:** encryption at rest is a recognised technical safeguard for personal information (client conversations = personal info). It specifically hardens the "stolen/decommissioned disk" and "cloud-provider disk access" vectors that in-app access gates (AT-118/136) do not cover.
 
 **Recommendation (Johan picks):** **Option A (volume-level LUKS)** — it protects **all** data at rest (DB + media + documents), keeps the content-addressed storage + `response()->file()` streaming + dedup exactly as-is (zero app change), and costs only a few % CPU on the AES-capable ARM. Option B adds real complexity (breaks streaming + dedup, more code, key rotation pain) for little extra protection — root/app compromise still reads plaintext through the app. The real trade-off for A is operational: the one-time volume re-encryption window and the boot-unlock key policy (keyfile-auto-unlock vs passphrase-manual). Recommend LUKS with a keyfile stored on the OS disk (`/dev/sdb1`) so a stolen *volume* alone can't be read, accepting that an attacker with *both* disks (or root) can — which matches the realistic threat model (disk theft/decommission), while a stronger passphrase-at-boot posture is available if Johan wants it. **No build until Johan picks A / B / C.**
+
+---
+
+## PART 8 — OFF-BOX BACKUP: AS-BUILT + TESTED RESTORE PROCEDURE (BUILT 2026-07-03, AT-163)
+
+Durability Part 1 (§1.2) is **BUILT, RUN, and RESTORE-TESTED on the production host** — this closes the total-volume-loss exposure from PART 6. (Transcription Parts 2–5 remain specced, not built.)
+
+### 8.1 As-built
+- **Tool:** `restic 0.16.4` (apt), **encrypted** repository, **incremental**, content-defined chunking.
+- **Target:** Hetzner **Storage Box `u626487`** over **SFTP on port 23** (off-box + offsite). Repo `sftp:corex-storagebox:/home/corex-restic` (SSH alias `corex-storagebox` → key `/root/.ssh/storagebox_backup`, dedicated ed25519). Repo id `0b4d80265b`.
+- **Secrets:** repo password root-only at `/root/.corex-backup/restic-password` (0600) — never in git, never printed. Config `/root/.corex-backup/restic.env` (template committed as `scripts/backup/restic.env.example`).
+- **Scripts (committed under `scripts/backup/`, installed to `/usr/local/bin/`):**
+  - `corex-offbox-backup.sh` — nightly. Takes **fresh consistent** `mysqldump --single-transaction` of `nexus_os` + `hfc_staging` (stored **uncompressed** so restic dedups them night-to-night — a gzip stream would defeat dedup; restic compresses at rest via `RESTIC_COMPRESSION=auto`), then `restic backup` of the dumps + `/corex/storage/app` + `/corex-staging/storage/app` (WA media, documents, e-sign, viewing packs) + both `.env` + `/etc/nginx` + the scripts/cron. `nice`/`ionice`'d; `flock` single-instance; excludes `storage/framework`. On failure writes `status.json` state=FAIL + raises the health alert; temp dumps deleted after upload.
+  - `corex-backup-health.sh` — `check` (alert if last success stale > **36h** or missing) / `alert "<msg>"`. Primary channel = **log + `/var/lib/corex-backup/status.json`** (app-independent — survives a volume-death that also downs the app); secondary = best-effort mail to Johan via the app mailer. Healthy check clears a prior ALERT.
+- **Retention:** `restic forget --prune` **7 daily / 4 weekly / 6 monthly** (configurable via `KEEP_*` env in the script).
+- **Schedule (`/etc/cron.d/corex-offbox-backup`):** backup **03:30** daily (after the 02:30 DB dump); health check **09:15** daily.
+- **First run proof:** 42,687 files / 25.6 GiB processed in 5:01; 12.8 GiB added / **11.18 GiB stored** (compressed); snapshot `8ebbe487`. `restic check --read-data-subset=10%` → **no errors**. Restore of a WA media file → **sha256 == filename == original (byte-identical)**; restore of `hfc_staging.sql` → "Dump completed" marker + 409 tables. Health guard stale-detection + OK-clear proven.
+
+### 8.2 Restore procedure (2am disaster runbook)
+Full copy on the box at `/root/.corex-backup/RESTORE-PROCEDURE.md` and in `scripts/backup/RESTORE-PROCEDURE.md`. Essentials:
+
+```bash
+# ALWAYS load the env first
+set -a; . /root/.corex-backup/restic.env; set +a
+restic snapshots                         # list history
+restic check --read-data-subset=10%      # verify repo health
+
+# Restore ONE file (⚠ target the VOLUME, not /root — OS disk is small and will fill)
+restic restore latest --target /mnt/HC_Volume_103099143/restore \
+  --include /corex/storage/app/private/communications/1/whatsapp/ab/<sha256>
+#   → chown -R www-data:www-data the restored path. WA media is self-verifying (name==sha256).
+
+# Restore a DATABASE
+restic restore latest --target /mnt/HC_Volume_103099143/restore \
+  --include /mnt/HC_Volume_103099143/backup-staging/nexus_os.sql
+mysql -u root nexus_os < /mnt/.../restore/mnt/HC_Volume_103099143/backup-staging/nexus_os.sql   # DESTRUCTIVE
+
+# Restore EVERYTHING (volume died): restic restore latest --target /mnt/HC_Volume_103099143/restore
+#   → move trees back, chown www-data, nginx -t && systemctl reload nginx, load the .sql dumps.
+```
+
+**The 3 things needed to restore (keep an OFFLINE copy):** the repo password (`/root/.corex-backup/restic-password` — no password = unrecoverable, no reset), the SSH key (`/root/.ssh/storagebox_backup`), and the SSH alias block. **Fresh-box bootstrap** (whole server gone): install `restic` + `mysql-client`, restore the key + alias + password + `restic.env` from your offline copy, `restic snapshots`, then restore per above. Full steps in the runbook.
+
+### 8.3 Residual / follow-ups (flagged, not silently deferred)
+- **Encryption at rest** (PART 7) still open — restic encrypts the *off-box copy*; the on-volume primary is still plain ext4 until Johan picks LUKS A/B/C.
+- **Admin surfacing** of `status.json` (last-success + state) under the Communications area is an app-code follow-up (the health data is produced; the UI widget is not built).
+- **Live WA capture** is not yet active (webhook points at staging) — once live capture runs, live `communications/**` media is automatically included (the backup path already covers `/corex/storage/app`).
