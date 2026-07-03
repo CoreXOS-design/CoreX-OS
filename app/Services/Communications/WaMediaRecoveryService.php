@@ -35,7 +35,10 @@ class WaMediaRecoveryService
 
         $ref = (string) $att->remote_ref;
         [$sessionName, $filename] = $this->parseRef($ref);
-        $chat = (string) ($att->communication->thread_key ?? '');
+        // AT-168 Part A — address WAHA by the RAW chat id (wa_chat_id), not the
+        // now-canonical thread_key. Fall back to thread_key for any legacy row not
+        // yet carrying wa_chat_id (pre-migration).
+        $chat = (string) ($att->communication->wa_chat_id ?: ($att->communication->thread_key ?? ''));
 
         try {
             $url = $ref;

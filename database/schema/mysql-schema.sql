@@ -2798,6 +2798,7 @@ CREATE TABLE `communications` (
   `direction` enum('inbound','outbound') COLLATE utf8mb4_unicode_ci NOT NULL,
   `external_id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `thread_key` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `wa_chat_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `counterpart_lid` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `from_identifier` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `participant_identifiers` json DEFAULT NULL,
@@ -2830,6 +2831,7 @@ CREATE TABLE `communications` (
   KEY `comm_owner_user_fk` (`owner_user_id`),
   KEY `comm_agency_owner_idx` (`agency_id`,`owner_user_id`),
   KEY `communications_counterpart_lid_index` (`counterpart_lid`),
+  KEY `communications_wa_chat_id_index` (`wa_chat_id`),
   CONSTRAINT `comm_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `comm_owner_user_fk` FOREIGN KEY (`owner_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -12744,3 +12746,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (946,'2026_07_03_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (947,'2026_07_03_120002_create_deal_document_distributions_table',210);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (948,'2026_07_03_120003_create_deal_document_access_log_table',210);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (949,'2026_07_03_120004_seed_coc_request_document_type',210);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (950,'2026_07_20_000001_add_wa_chat_id_to_communications_table',211);

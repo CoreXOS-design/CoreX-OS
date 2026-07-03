@@ -200,7 +200,14 @@ class WaArchiveIngestor
             'channel'                => Communication::CHANNEL_WHATSAPP,
             'direction'              => $direction,
             'external_id'            => $externalId,
-            'thread_key'             => $chatId,
+            // AT-168 Part A — CANONICAL thread grouping key (wa:<last-9 of the
+            // resolved number>) so the SAME human captured via the extension (@lid)
+            // and via WAHA (@c.us) collapse into ONE thread instead of two. Every
+            // stored row is match-first (has a real $matchNumber), so canonical()
+            // resolves; the raw chat id (needed to address WAHA for media recovery)
+            // is preserved in wa_chat_id. Group/broadcast never reach here (noise gate).
+            'thread_key'             => WaThreadKey::canonical($matchNumber) ?: $chatId,
+            'wa_chat_id'             => $chatId,
             // AT-133 — store the RESOLVED real number (…@c.us / MSISDN), not the @lid
             // digits. from_identifier prefers the matched number; participants carry
             // it (+ the sender name) so the archive row shows who, not an @lid.
