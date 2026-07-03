@@ -146,3 +146,46 @@ Assumptions (small agency, ~10–15 agents once WA capture is live): **~100 voic
 - Backup target: offsite object store (recommended) vs second on-box volume (interim)?
 - Model: default to `medium` and only escalate to `large-v3` if the Afrikaans quality test demands it?
 - Nightly time/CPU-cap defaults (22:00 / N threads) — confirm.
+
+---
+
+## PART 6 — DISK / BACKUP TRUTH TABLE (as-built facts, 2026-07-03)
+
+**Disk layout (this box hosts BOTH live `/corex` and staging `/corex-staging`):**
+- **`/dev/sda` = 200 GB ext4 = the mounted HC Volume** (`/mnt/HC_Volume_103099143`), 54 GB free. **All app code, all media, the MySQL datadir, the DB dumps, and all document/e-sign files live here.**
+- **`/dev/sdb1` = 38 GB = the OS root `/`**, 6.2 GB free (OS + a stale 7 GB `/var/lib/mysql.OLD` + a March one-off tarball in `/root`).
+- MySQL `@@datadir = /mnt/HC_Volume_103099143/mysql-data/` (on the volume, NOT the OS default).
+- **`/dev/sda` is plain ext4 — NO LUKS/dm-crypt (unencrypted at rest).**
+- **Fact (Johan): Hetzner SERVER backups snapshot the server disk (`/dev/sdb1`) ONLY — not mounted volumes.**
+
+| Data class | Physical disk | Hetzner server backup? | Our nightly DB dump? | If OS disk (/dev/sdb1) dies | If volume (/dev/sda) dies |
+|---|---|---|---|---|---|
+| App code (`/corex`, `/corex-staging`) | **/dev/sda (volume)** | No | No | Intact | Lost (recoverable from git) |
+| `nexus_os` MySQL datadir (LIVE) | **/dev/sda (volume)** | No | **Yes** (nightly `nexus_os` dump) | Intact | Lost — recoverable ONLY from the last nightly dump, **but the dump is on /dev/sda too → also lost** |
+| `hfc_staging` MySQL | **/dev/sda (volume)** | No | No (ad-hoc only) | Intact | Lost |
+| **WA media — current** | **/dev/sda (volume)** | No | No | Intact | **Lost (single copy, no backup)** |
+| **WA media — "after the move"** | **/dev/sda (SAME — already on the volume; nothing to move)** | No | No | Intact | Lost (unchanged) |
+| Nightly DB dumps | **/dev/sda** (`/mnt/.../db-backups`) | No | n/a | Intact | **Lost (on the same volume they protect)** |
+| e-sign / document / property files | **/dev/sda (volume)** | No | No | Intact | Lost |
+
+**Net exposure:**
+- **OS disk (`/dev/sdb1`) dies:** Hetzner server backup restores the OS; the data volume is untouched → near-zero data loss.
+- **Volume (`/dev/sda`) dies:** **TOTAL loss** — every DB, all WA media, all app data, all document/e-sign files, AND every nightly DB dump (they live on the same volume). The Hetzner server backup (OS disk only) contains **none of the data**. The only off-volume artifact is the March `/root/hfc_files_backup` tarball — ~4 months stale and predates WA media entirely.
+
+**Correction to Task A:** WA media is **already on the mounted 200 GB volume** (`/dev/sda`). "Move media from /dev/sda to the mounted volume" is a no-op — `/dev/sda` **is** the mounted HC volume. No copy was performed (nothing to move); the media has always ingested to the volume. (Facts only — Johan judges Monday.)
+
+---
+
+## PART 7 — ENCRYPTION AT REST (as-built + options)
+
+**As-built truth:** WA media — and everything else on `/dev/sda` — is stored **PLAIN / UNENCRYPTED** (ext4, no LUKS). Anyone with block-level access to the volume (a stolen/decommissioned disk, Hetzner-side storage access, or root on the box) can read the `.oga`/`.jpg`/`.pdf` bytes directly off disk.
+
+| Option | What it encrypts | Protects against | Does NOT protect against | Key management | Perf cost | Migration cost |
+|---|---|---|---|---|---|---|
+| **A. Volume-level LUKS** (dm-crypt on `/dev/sda`) | The whole data volume (DB + media + everything) | **Stolen/discarded physical disk; Hetzner-side disk access** | Root on the running box (volume is mounted/unlocked); app compromise | LUKS passphrase or keyfile. Keyfile-on-OS-disk = auto-unlock at boot but weaker (attacker with both disks wins); passphrase = manual unlock → reboot downtime | ~low on AES-capable ARM (Ampere has AES extensions) — a few % | **High one-time:** encrypt-in-place (`cryptsetup reencrypt`) or migrate to a new encrypted volume; needs a maintenance window |
+| **B. Application-level file encryption** (encrypt media bytes before store, decrypt on serve) | The media files only | Stolen disk **and** partially root/other-app (files are ciphertext without the app key) | App compromise (the app holds the key); metadata in the DB | App key in `.env`/KMS; rotation is a re-encrypt of all files | Per-serve encrypt/decrypt (voice notes tiny → negligible), but **breaks `response()->file()` streaming** (must decrypt to a stream) and **breaks content-addressed dedup** (ciphertext differs unless deterministic) | Medium code; re-encrypt existing files; touches the AT-32 storage layer |
+| **C. No disk encryption** (rely on OS/app access control + POPIA gates) | Nothing at rest | — (only in-app access control) | Any disk-level access | n/a | none | none |
+
+**POPIA rationale:** encryption at rest is a recognised technical safeguard for personal information (client conversations = personal info). It specifically hardens the "stolen/decommissioned disk" and "cloud-provider disk access" vectors that in-app access gates (AT-118/136) do not cover.
+
+**Recommendation (Johan picks):** **Option A (volume-level LUKS)** — it protects **all** data at rest (DB + media + documents), keeps the content-addressed storage + `response()->file()` streaming + dedup exactly as-is (zero app change), and costs only a few % CPU on the AES-capable ARM. Option B adds real complexity (breaks streaming + dedup, more code, key rotation pain) for little extra protection — root/app compromise still reads plaintext through the app. The real trade-off for A is operational: the one-time volume re-encryption window and the boot-unlock key policy (keyfile-auto-unlock vs passphrase-manual). Recommend LUKS with a keyfile stored on the OS disk (`/dev/sdb1`) so a stolen *volume* alone can't be read, accepting that an attacker with *both* disks (or root) can — which matches the realistic threat model (disk theft/decommission), while a stronger passphrase-at-boot posture is available if Johan wants it. **No build until Johan picks A / B / C.**
