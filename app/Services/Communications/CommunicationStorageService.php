@@ -53,6 +53,18 @@ class CommunicationStorageService
     }
 
     /**
+     * AT-168 Part B — genuinely remove stored bytes (the embargo-purge POPIA
+     * contract). Content-addressed dedup means a path may be shared, so callers
+     * MUST confirm no other row references it before deleting. Best-effort.
+     */
+    public function delete(string $path): bool
+    {
+        $disk = Storage::disk($this->disk());
+
+        return $disk->exists($path) ? $disk->delete($path) : true;
+    }
+
+    /**
      * communications/{agencyId}/{kind}/{ab}/{sha256} — the two-char fan-out
      * keeps any single directory from growing unbounded.
      */

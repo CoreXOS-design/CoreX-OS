@@ -43,6 +43,33 @@
         @endif
     </div>
 
+    {{-- AT-168 Part B — consent-embargo retention window (admin/owner only).
+         A message captured while capture-consent is pending is stored embargoed
+         (never shown) so a later opt-in releases it instantly; if consent is never
+         granted the body is purged after this many days (POPIA). --}}
+    <div class="rounded-md p-4 flex items-start justify-between gap-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="min-w-0">
+            <div class="text-sm font-semibold" style="color: var(--text-primary);">Pending-consent embargo retention</div>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">
+                Messages captured before you opt in to a contact are held privately (never displayed) so opting in later reveals the full history. If consent is never given, the held body is permanently purged after this window — only the FICA envelope (who/when) is kept.
+            </p>
+            <p class="text-xs mt-1 font-semibold" style="color: var(--text-secondary);">
+                Currently {{ (int) $embargoRetentionDays }} day{{ (int) $embargoRetentionDays === 1 ? '' : 's' }}.
+            </p>
+        </div>
+        @if($canManageBackfill)
+        <form method="POST" action="{{ route('communications.wa-devices.embargo-retention') }}" class="shrink-0 flex items-center gap-2">
+            @csrf
+            <input type="number" name="days" min="1" max="365" value="{{ (int) $embargoRetentionDays }}"
+                   class="w-20 text-xs rounded px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
+            <button type="submit" class="text-xs font-semibold rounded px-3 py-2"
+                    style="background: var(--brand-button, #0ea5e9); color:#fff; border:1px solid var(--border);">
+                Save
+            </button>
+        </form>
+        @endif
+    </div>
+
     @if($plainToken)
     <div class="rounded-md p-4" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
         <div class="text-sm font-semibold mb-1">Your device token (shown once)</div>
