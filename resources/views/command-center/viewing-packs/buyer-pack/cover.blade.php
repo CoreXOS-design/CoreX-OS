@@ -8,7 +8,7 @@
      buyer name clamped. DomPDF-safe (no flex/min-height/color-mix). --}}
 <head>@include('command-center.viewing-packs.buyer-pack._head')</head>
 <body>
-    <div class="pg" style="height:1123px; overflow:hidden;">
+    <div class="pg" style="height:1020px; overflow:hidden;">
         {{-- Brand line (uppercase navy — mirrors the presentation .cover-brand) --}}
         <div style="display:flex; align-items:center; gap:14px;">
             @if($logo)<img src="{{ $logo }}" style="height:44px; width:auto;">@endif
