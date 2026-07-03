@@ -2206,6 +2206,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{userId}/toggle', [\App\Http\Controllers\Admin\DeveloperUserController::class, 'toggleActive'])->name('toggle');
     });
 
+    // Backups (AT-163) — off-box restic backup status/health/history + audited
+    // password reveal. Permission-gated (view_backups); the reveal is a SEPARATE
+    // principal-only permission. System Developer area.
+    Route::prefix('admin/backups')->name('admin.backups.')->group(function () {
+        Route::middleware('permission:view_backups')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Admin\BackupController::class, 'index'])->name('index');
+            Route::put('/threshold', [\App\Http\Controllers\Admin\BackupController::class, 'updateThreshold'])->name('threshold');
+        });
+        Route::middleware('permission:reveal_backup_password')
+            ->post('/reveal', [\App\Http\Controllers\Admin\BackupController::class, 'reveal'])->name('reveal');
+    });
+
     // Agency Management — index/create/store/destroy/toggle-active/toggle-maintenance are owner-only.
     Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
