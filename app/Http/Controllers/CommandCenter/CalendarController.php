@@ -89,6 +89,12 @@ class CalendarController extends Controller
         $raw = $this->service->getEventsForRange($user, $weekStart->toDateString(), $weekEnd->toDateString(), [], $scope);
         $filtered = $this->applyFilters($raw, $user, $typeFilter, $categoryFilter, $scope);
 
+        // AT-164 cockpit — continuous WEEK: a windowed horizontal strip of day columns
+        // (prev week + current + next two weeks = 28 days), centred on the anchor week;
+        // the client lazy-loads more days as it scrolls left/right.
+        $weekWindowStart = $weekStart->copy()->subDays(7);
+        $dayColumns = $this->dayColumnsData($user, $weekWindowStart, 28, $typeFilter, $categoryFilter, $scope);
+
         // Separate multi-day events (spanning bars) from single-day events
         $weekSpanningBars = [];
         $singleDayEvents = collect();
@@ -183,6 +189,9 @@ class CalendarController extends Controller
             'weekDays'        => $weekDays,
             'weekSpanningBars' => $weekSpanningBars,
             'weekBarSlots'    => $weekBarSlots,
+            'dayColumns'      => $dayColumns,                     // AT-164 cockpit — continuous week strip
+            'weekWindowStart' => $weekWindowStart->toDateString(),
+            'anchorMonday'    => $weekStart->toDateString(),
             'anchorDate'      => $anchor,
             'prevAnchor'      => $weekStart->copy()->subWeek()->toDateString(),
             'nextAnchor'      => $weekStart->copy()->addWeek()->toDateString(),
@@ -1599,6 +1608,57 @@ class CalendarController extends Controller
             'deadlineGroups' => $block['deadlineGroups'],
             'spanningBars'   => $block['spanningBars'],
         ]);
+    }
+
+    /**
+     * AT-164 cockpit — build a window of day columns for the continuous WEEK view.
+     * One query over the range, grouped by the event's start day.
+     *
+     * @return array<int,array{date:\Carbon\Carbon,events:\Illuminate\Support\Collection}>
+     */
+    private function dayColumnsData($user, Carbon $start, int $count, array $typeFilter, array $categoryFilter, string $scope): array
+    {
+        $start = $start->copy()->startOfDay();
+        $end   = $start->copy()->addDays($count)->endOfDay();
+
+        $resolved = $this->applyFilters(
+            $this->service->getEventsForRange($user, $start->toDateString(), $end->toDateTimeString(), [], $scope),
+            $user, $typeFilter, $categoryFilter, $scope
+        );
+
+        $byDay = [];
+        foreach ($resolved as $e) {
+            if (! $e->event_date) continue;
+            $byDay[$e->event_date->toDateString()][] = $e;
+        }
+
+        $cols = [];
+        for ($i = 0; $i < $count; $i++) {
+            $d = $start->copy()->addDays($i);
+            $cols[] = ['date' => $d, 'events' => collect($byDay[$d->toDateString()] ?? [])];
+        }
+        return $cols;
+    }
+
+    /**
+     * AT-164 cockpit — render a run of day columns (HTML) for the continuous WEEK strip.
+     * The Alpine windowing controller lazy-prepends/appends these as the user scrolls
+     * horizontally — the SAME _day-column partial as the initial render.
+     */
+    public function dayColumns(Request $request)
+    {
+        $user  = $request->user();
+        try { $start = Carbon::parse($request->get('start', now()->toDateString()))->startOfDay(); }
+        catch (\Throwable $e) { abort(422, 'Invalid start.'); }
+        $count = max(1, min(28, (int) $request->get('count', 7)));
+
+        $typeFilter     = $request->input('types', []);
+        $categoryFilter = $request->input('categories', []);
+        $scope = PermissionService::clampScope($request->input('scope'), PermissionService::calendarScope($user));
+
+        $cols = $this->dayColumnsData($user, $start, $count, $typeFilter, $categoryFilter, $scope);
+
+        return view('command-center.calendar.partials._day-columns', ['columns' => $cols]);
     }
 
     /**

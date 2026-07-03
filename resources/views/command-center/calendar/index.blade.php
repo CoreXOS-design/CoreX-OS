@@ -388,222 +388,43 @@
             <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingBottom" x-cloak>Loading…</div>
         </div>
     @elseif($currentView === 'week')
-        {{-- ══════ WEEK VIEW — Time-slot grid ══════ --}}
-        @php
-            $weekDaySplits = [];
-            foreach ($weekDays as $day) {
-                $allDay = collect();
-                $timedByHour = [];
-                foreach ($day['events'] as $evt) {
-                    if ($isAllDayEvent($evt)) {
-                        $allDay->push($evt);
-                    } else {
-                        $h = $eventHour($evt);
-                        if ($h === null) {
-                            $allDay->push($evt);
-                        } else {
-                            $timedByHour[$h] ??= collect();
-                            $timedByHour[$h]->push($evt);
-                        }
-                    }
-                }
-                $weekDaySplits[] = [
-                    'date'     => $day['date'],
-                    'is_today' => $day['is_today'],
-                    'all_day'  => $allDay,
-                    'timed'    => $timedByHour,
-                ];
-            }
-            $nowHour = now()->hour;
-            $nowMinute = now()->minute;
-            $nowOffsetPct = count($gridHours) > 0
-                ? (($nowHour - $hourGridStart) + ($nowMinute / 60)) / count($gridHours) * 100
-                : 0;
-        @endphp
+        {{-- ══════ WEEK VIEW — continuous HORIZONTAL scroll (§15.3, cockpit) ══════ --}}
+        <div x-data="continuousWeek()" x-init="initWeek()"
+             class="rounded-md overflow-hidden flex flex-col"
+             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0;">
 
-        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; overflow-y: auto; overflow-x: auto;">
-            {{-- Day headers (sticky inside week scroll container) --}}
-            <div class="grid grid-cols-[56px_repeat(7,1fr)] sticky top-0 z-10" style="border-bottom: 1px solid var(--border); background: var(--surface);">
-                <div></div>
-                @foreach($weekDaySplits as $day)
-                    <a href="{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $day['date']->toDateString()])) }}"
-                       @click="if (showCreateEvent) { $event.preventDefault(); selectDate('{{ $day['date']->toDateString() }}'); }"
-                       class="block text-center py-2 no-underline hover:opacity-80 transition-opacity"
-                       style="background: {{ $day['is_today'] ? 'color-mix(in srgb, var(--brand-button) 8%, transparent)' : 'var(--surface)' }}; border-left: 1px solid var(--border);">
-                        <div class="text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">{{ $day['date']->format('D') }}</div>
-                        <div class="text-lg font-semibold" style="color: {{ $day['is_today'] ? 'var(--brand-button)' : 'var(--text-primary)' }};">{{ $day['date']->format('j') }}</div>
-                    </a>
-                @endforeach
+            {{-- Sticky week/date-range label + in-frame Today anchor --}}
+            <div class="flex items-center justify-between px-3 py-1.5 flex-shrink-0"
+                 style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
+                <span class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);" x-text="rangeLabel"></span>
+                <button type="button" @click="scrollToDay('{{ now()->toDateString() }}')" class="corex-btn-outline text-[11px] py-0.5">Today</button>
             </div>
 
-            {{-- All-day swim-lane (spanning bars + single-day all-day chips) --}}
-            @php
-                $hasSpanningBars = !empty($weekSpanningBars);
-                $hasAnyAllDay = collect($weekDaySplits)->contains(fn ($d) => $d['all_day']->isNotEmpty());
-                $weekBarCount = count($weekBarSlots ?? []);
-            @endphp
-            @if($hasSpanningBars || $hasAnyAllDay)
-                <div style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
-                    {{-- Spanning bars (continuous, not repeated per-day) --}}
-                    @if($hasSpanningBars)
-                        <div class="grid grid-cols-[56px_1fr]">
-                            <div class="text-[10px] uppercase pt-2 pl-1.5" style="color: var(--text-muted);">all day</div>
-                            <div class="relative" style="min-height: {{ $weekBarCount * 22 + 4 }}px; padding: 2px 0;">
-                                @foreach($weekSpanningBars as $bar)
-                                    @php
-                                        $barEvt = $bar['event'];
-                                        $isInformational = ($barEvt->resolved_colour ?? 'neutral') === 'neutral';
-                                        $barBg = $isInformational ? '#0f172a' : match($barEvt->resolved_colour) {
-                                            'red'   => '#dc2626',
-                                            'amber' => '#d97706',
-                                            'green' => '#0d9488',
-                                            default => '#0f172a',
-                                        };
-                                        $barBorder = $isInformational ? '#1e293b' : match($barEvt->resolved_colour) {
-                                            'red'   => '#991b1b',
-                                            'amber' => '#92400e',
-                                            'green' => '#115e59',
-                                            default => '#1e293b',
-                                        };
-                                        $barSlot = $bar['slot'] ?? 0;
-                                    @endphp
-                                    <button type="button"
-                                            data-event-id="{{ $bar['event_id'] }}"
-                                            @click.stop="openEventPanel({{ $bar['event_id'] }})"
-                                            class="absolute text-[11px] text-white font-medium px-2 truncate hover:opacity-90 transition-opacity cursor-pointer"
-                                            style="top: {{ $barSlot * 22 + 2 }}px; height: 18px; line-height: 18px;
-                                                   left: calc(({{ $bar['start_col'] - 1 }} / 7) * 100% + 3px);
-                                                   width: calc(({{ $bar['span'] }} / 7) * 100% - 6px);
-                                                   background: {{ $barBg }};
-                                                   border: 2px solid {{ $barBorder }};
-                                                   border-radius:6px;"
-                                            title="{{ $barEvt->title }}">
-                                        {{ \Illuminate\Support\Str::limit($barEvt->title, 30) }}
-                                    </button>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
-
-                    {{-- Single-day all-day events (rendered per-cell below bars) --}}
-                    @if($hasAnyAllDay)
-                        <div class="grid grid-cols-[56px_repeat(7,1fr)]">
-                            <div class="@if(!$hasSpanningBars) text-[10px] uppercase pt-2 pl-1.5 @endif" style="color: var(--text-muted);">
-                                @if(!$hasSpanningBars) all day @endif
-                            </div>
-                            @foreach($weekDaySplits as $day)
-                                <div class="px-0.5 py-1 space-y-0.5" style="border-left: 1px solid var(--border);">
-                                    @foreach($day['all_day'] as $evt)
-                                        @php $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip; @endphp
-                                        <button type="button"
-                                                data-event-id="{{ $evt->id }}"
-                                                @click.stop="openEventPanel({{ $evt->id }})"
-                                                class="block w-full text-left px-1.5 py-0.5 rounded text-[10px] truncate transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
-                                                style="{{ $chipStyle }}"
-                                                title="{{ $evt->title }}">
-                                            {{ \Illuminate\Support\Str::limit($evt->title, 18) }}
-                                        </button>
-                                    @endforeach
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
-                </div>
-            @endif
-
-            {{-- Hour grid --}}
-            <div class="relative">
-                {{-- Now-line (only when today is in view and within grid hours) --}}
-                @php
-                    $todayInWeekView = collect($weekDaySplits)->contains(fn ($d) => $d['is_today']);
-                    $nowInRange = $nowHour >= $hourGridStart && $nowHour < $hourGridEnd;
-                @endphp
-                @if($todayInWeekView && $nowInRange)
-                    <div class="absolute left-[56px] right-0 z-10 pointer-events-none"
-                         style="top: {{ $nowOffsetPct }}%; border-top: 2px solid #ef4444;">
-                        <div class="absolute -top-1.5 -left-1.5 w-3 h-3 rounded-full" style="background: #ef4444;"></div>
-                    </div>
-                @endif
-
-                @foreach($gridHours as $hour)
-                    <div class="grid grid-cols-[56px_repeat(7,1fr)]" style="border-bottom: 1px solid var(--border);">
-                        <div class="text-[10px] pt-1 pl-1.5 select-none" style="color: var(--text-muted);">
-                            {{ str_pad((string)$hour, 2, '0', STR_PAD_LEFT) }}:00
-                        </div>
-                        @foreach($weekDaySplits as $day)
-                            <div class="min-h-[3rem] relative select-none" style="border-left: 1px solid var(--border); cursor: cell;">
-                                {{-- Top half (HH:00-HH:30) --}}
-                                <div class="absolute inset-x-0 top-0 h-1/2 z-[1]"
-                                     @mousedown="dragStart('{{ $day['date']->toDateString() }}', {{ $hour }}, 0, $event)"
-                                     @mousemove="dragMove({{ $hour }}, 0)"
-                                     @dragover.prevent
-                                     @drop.prevent="rescheduleDrop('{{ $day['date']->toDateString() }}', {{ $hour }}, 0)"></div>
-                                {{-- Bottom half (HH:30-HH+1:00) --}}
-                                <div class="absolute inset-x-0 top-1/2 h-1/2 z-[1]"
-                                     @mousedown="dragStart('{{ $day['date']->toDateString() }}', {{ $hour }}, 1, $event)"
-                                     @mousemove="dragMove({{ $hour }}, 1)"
-                                     @dragover.prevent
-                                     @drop.prevent="rescheduleDrop('{{ $day['date']->toDateString() }}', {{ $hour }}, 1)"></div>
-                                {{-- ITEM 3 — timed events are no longer rendered per-hour-cell;
-                                     they are positioned by duration in the absolute overlay
-                                     below (keeps each hour cell a fixed height so the % math aligns). --}}
+            {{-- The ONE scroller: sticky time gutter (left) + horizontal day strip. A
+                 vertical wheel is translated to horizontal so the mouse wheel advances
+                 days/weeks; drag-to-scroll on the headers/gutter also advances. Inline
+                 z-index only (§3). --}}
+            <div x-ref="weekScroller" @scroll.passive="onWeekScroll()" @wheel="onWheel($event)"
+                 @mousedown="dragScrollStart($event)" @mousemove.window="dragScrollMove($event)" @mouseup.window="dragScrollEnd()"
+                 class="flex-1 min-h-0 overflow-auto" style="cursor: grab;">
+                <div class="flex" style="width: max-content;">
+                    {{-- Sticky time gutter --}}
+                    <div class="flex-shrink-0 sticky left-0" style="width: 56px; z-index: 7; background: var(--surface);">
+                        <div class="sticky top-0" style="height: 44px; z-index: 8; background: var(--surface-2); border-bottom: 1px solid var(--border);"></div>
+                        <div style="height: 40px; border-bottom: 1px solid var(--border);"></div>
+                        @foreach(range(6, 19) as $gh)
+                            <div class="text-[10px] pt-1 pl-1.5 select-none" style="height: 48px; color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                                {{ str_pad((string)$gh, 2, '0', STR_PAD_LEFT) }}:00
                             </div>
                         @endforeach
                     </div>
-                @endforeach
-
-                {{-- ITEM 3 — timed events, absolutely positioned by start + duration
-                     (same %-geometry as the now-line above). Overlapping events are
-                     lane-split side by side. Empty grid space still falls through to the
-                     per-cell drag layers (click-to-create + drag-to-reschedule). --}}
-                @php $gridMinutesWk = max(1, count($gridHours) * 60); @endphp
-                @foreach($weekDaySplits as $dIdx => $day)
-                    @foreach($layoutDayColumn(collect($day['timed'] ?? [])->flatMap(fn($c) => is_iterable($c) ? collect($c)->all() : []), $hourGridStart, count($gridHours)) as $r)
-                        @php
-                            $evt = $r['e'];
-                            $topPct = $r['s'] / $gridMinutesWk * 100;
-                            $heightPct = ($r['en'] - $r['s']) / $gridMinutesWk * 100;
-                            $lane = $r['lane']; $lanes = $r['lanes'];
-                            $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip;
-                            $isDraggable = in_array($evt->source_type, ['manual', 'manual:demo']);
-                            $tr = $timeRange($evt);
-                            $isDone = in_array($evt->status, ['completed', 'dismissed'], true);
-                        @endphp
-                        <button type="button"
-                                data-event-id="{{ $evt->id }}"
-                                @click.stop="openEventPanel({{ $evt->id }})"
-                                @mousedown.stop
-                                @if($isDraggable)
-                                    draggable="true"
-                                    @dragstart="rescheduleStart({{ $evt->id }}, '{{ $day['date']->toDateString() }}', $event)"
-                                    @dragend="rescheduleEnd()"
-                                @endif
-                                :class="{ 'pointer-events-none': reschedule.dragging }"
-                                {{-- z-index is INLINE (not a z-[3] Tailwind class): the arbitrary
-                                     class was new in ITEM 3 and absent from the compiled CSS, so the
-                                     tile fell to z:auto BELOW the z-1 drag layers, which swallowed the
-                                     click. Inline z-index needs no asset rebuild — always applies. --}}
-                                class="absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
-                                style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 14px; left: calc(56px + (100% - 56px) * {{ $dIdx * $lanes + $lane }} / {{ 7 * $lanes }}); width: calc((100% - 56px) / {{ 7 * $lanes }} - 2px);"
-                                title="{{ $tr }} {{ $evt->title }}">
-                            <span class="block px-1 pt-0.5 text-[9px] opacity-80 leading-none">{{ $tr }}</span>
-                            <span class="block px-1 text-[10px] font-medium leading-tight truncate">{{ \Illuminate\Support\Str::limit($evt->title, 16) }}</span>
-                        </button>
-                    @endforeach
-                @endforeach
-
-                {{-- Drag overlay per day-column --}}
-                @foreach($weekDaySplits as $dIdx => $day)
-                    <div x-show="drag.active && drag.dayDate === '{{ $day['date']->toDateString() }}'"
-                         x-cloak
-                         class="absolute pointer-events-none z-[5]"
-                         :style="(() => {
-                             const ov = dragOverlay('{{ $day['date']->toDateString() }}');
-                             if (!ov) return 'display:none';
-                             return `top:${ov.top}%;height:${ov.height}%;left:calc(56px + (100% - 56px) * {{ $dIdx }} / 7);width:calc((100% - 56px) / 7);background:color-mix(in srgb, var(--brand-icon) 20%, transparent);border:1px solid var(--brand-button);border-radius:4px;`;
-                         })()">
+                    {{-- Day-column strip (windowed; lazy prepend/append) --}}
+                    <div x-ref="days" class="flex">
+                        @foreach(($dayColumns ?? []) as $col)
+                            @include('command-center.calendar.partials._day-column', ['date' => $col['date'], 'events' => $col['events']])
+                        @endforeach
                     </div>
-                @endforeach
+                </div>
             </div>
         </div>
 
@@ -4313,6 +4134,176 @@ function continuousMonth() {
             }
             const block = has();
             if (block) block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+    };
+}
+
+/* ══════ AT-164 cockpit — continuous HORIZONTAL week ══════
+   Days flow left→right as a windowed strip inside the bounded frame (mirrors the
+   month windowing). Lazy prepend/append day columns via /calendar/day-columns (the
+   same _day-column partial), sticky date-range label, Today snap, a vertical wheel
+   translated to horizontal, drag-to-scroll on the headers/gutter, and a live-RAG
+   refetch on focus/poll. The create/reschedule drag inside a day column is untouched. */
+function continuousWeek() {
+    return {
+        rangeLabel: '',
+        minDay: null, maxDay: null,      // YYYY-MM-DD earliest/latest loaded
+        loading: false,
+        pollSeconds: {{ (int) ($pollSeconds ?? 60) }},
+        _params: '',
+        _drag: { on: false, x: 0, left: 0, moved: false },
+        _pollTimer: null,
+
+        initWeek() {
+            const cols = this.$refs.days ? this.$refs.days.querySelectorAll('.cal-day-col') : [];
+            if (cols.length) {
+                this.minDay = cols[0].dataset.day;
+                this.maxDay = cols[cols.length - 1].dataset.day;
+            }
+            // Carry active filters/scope to the day-columns endpoint.
+            const url = new URL(window.location.href);
+            const carry = new URLSearchParams();
+            if (url.searchParams.get('scope')) carry.set('scope', url.searchParams.get('scope'));
+            for (const k of ['types', 'categories']) {
+                url.searchParams.getAll(k + '[]').forEach(v => carry.append(k + '[]', v));
+                url.searchParams.getAll(k).forEach(v => carry.append(k + '[]', v));
+            }
+            this._params = carry.toString();
+
+            const anchorMonday = '{{ $anchorMonday ?? '' }}';
+            this.$nextTick(() => {
+                if (anchorMonday) this.scrollToDay(anchorMonday, false);
+                this.updateLabel();
+            });
+
+            // Live-RAG loop (focus/visibility + light poll).
+            window.addEventListener('focus', () => this.refreshWeek());
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refreshWeek(); });
+            const secs = Math.max(15, this.pollSeconds || 60);
+            this._pollTimer = setInterval(() => { if (!document.hidden) this.refreshWeek(); }, secs * 1000);
+        },
+
+        _url(start, count) {
+            const q = new URLSearchParams(this._params);
+            q.set('start', start); q.set('count', count);
+            return '{{ route('command-center.calendar.day-columns') }}?' + q.toString();
+        },
+        _addDays(dateStr, n) { const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); },
+
+        onWheel(e) {
+            // Translate a (mouse) vertical wheel into horizontal advance; honour a real
+            // horizontal trackpad gesture as-is.
+            const el = this.$refs.weekScroller; if (!el) return;
+            const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            if (dx) { el.scrollLeft += dx; e.preventDefault(); this.onWeekScroll(); }
+        },
+        dragScrollStart(e) {
+            if (e.button !== 0) return;
+            if (e.target.closest('.cal-timed-grid') || e.target.closest('[data-event-id]')) return; // let create/open happen
+            const el = this.$refs.weekScroller; if (!el) return;
+            this._drag = { on: true, x: e.clientX, left: el.scrollLeft, moved: false };
+            el.style.cursor = 'grabbing';
+        },
+        dragScrollMove(e) {
+            if (!this._drag.on) return;
+            const el = this.$refs.weekScroller; if (!el) return;
+            const dx = e.clientX - this._drag.x;
+            if (Math.abs(dx) > 3) this._drag.moved = true;
+            el.scrollLeft = this._drag.left - dx;
+            this.onWeekScroll();
+        },
+        dragScrollEnd() {
+            if (!this._drag.on) return;
+            this._drag.on = false;
+            const el = this.$refs.weekScroller; if (el) el.style.cursor = 'grab';
+        },
+
+        onWeekScroll() {
+            const el = this.$refs.weekScroller; if (!el) return;
+            if (el.scrollLeft < 300 && !this.loading) this.prependDays();
+            if (el.scrollWidth - el.scrollLeft - el.clientWidth < 400 && !this.loading) this.appendDays();
+            this.updateLabel();
+        },
+
+        async _fetch(start, count) {
+            try {
+                const r = await fetch(this._url(start, count), { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+                return r.ok ? await r.text() : null;
+            } catch (e) { return null; }
+        },
+        _insert(html, where) {
+            const tmp = document.createElement('div'); tmp.innerHTML = html.trim();
+            const nodes = Array.from(tmp.children);
+            const days = this.$refs.days;
+            if (where === 'start') { for (let i = nodes.length - 1; i >= 0; i--) days.insertBefore(nodes[i], days.firstElementChild); }
+            else { nodes.forEach(n => days.appendChild(n)); }
+            nodes.forEach(n => { if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(n); });
+            window.dispatchEvent(new Event('calendar:block-appended')); // re-apply layers if any
+        },
+        async appendDays() {
+            if (!this.maxDay) return;
+            this.loading = true;
+            const start = this._addDays(this.maxDay, 1);
+            const html = await this._fetch(start, 7);
+            if (html) { this._insert(html, 'end'); this.maxDay = this._addDays(this.maxDay, 7); }
+            this.loading = false;
+        },
+        async prependDays() {
+            if (!this.minDay) return;
+            this.loading = true;
+            const el = this.$refs.weekScroller; const beforeW = el.scrollWidth;
+            const start = this._addDays(this.minDay, -7);
+            const html = await this._fetch(start, 7);
+            if (html) {
+                this._insert(html, 'start');
+                this.minDay = start;
+                this.$nextTick(() => { el.scrollLeft += (el.scrollWidth - beforeW); });
+            }
+            this.loading = false;
+        },
+
+        async scrollToDay(dateStr, smooth = true) {
+            const day = dateStr.slice(0, 10);
+            let guard = 0;
+            const has = () => this.$refs.days?.querySelector('[data-day="' + day + '"]');
+            while (!has() && guard++ < 20) {
+                if (this.minDay && day < this.minDay) await this.prependDays();
+                else await this.appendDays();
+            }
+            const col = has();
+            if (col) { col.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', inline: 'start', block: 'nearest' }); this.$nextTick(() => this.updateLabel()); }
+        },
+
+        updateLabel() {
+            const el = this.$refs.weekScroller; const cols = this.$refs.days?.querySelectorAll('.cal-day-col') || [];
+            if (!el || !cols.length) return;
+            const left = el.getBoundingClientRect().left + 60; // past the sticky gutter
+            let vis = null;
+            for (const c of cols) { const r = c.getBoundingClientRect(); if (r.right > left) { vis = c; break; } }
+            vis = vis || cols[0];
+            const mon = vis.dataset.week;
+            const d = new Date(mon + 'T00:00:00'); const end = new Date(d); end.setDate(d.getDate() + 6);
+            const fmt = (x) => x.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+            this.rangeLabel = fmt(d) + ' – ' + fmt(end);
+        },
+
+        async refreshWeek() {
+            if (this._drag.on || document.hidden) return;
+            const el = this.$refs.weekScroller; const days = this.$refs.days;
+            if (!el || !days) return;
+            const cols = Array.from(days.querySelectorAll('.cal-day-col'));
+            if (!cols.length) return;
+            // Refetch the currently-visible span in one call, replace those columns.
+            const vLeft = el.getBoundingClientRect().left, vRight = vLeft + el.clientWidth;
+            const visible = cols.filter(c => { const r = c.getBoundingClientRect(); return r.right > vLeft - 200 && r.left < vRight + 200; });
+            if (!visible.length) return;
+            const start = visible[0].dataset.day;
+            const html = await this._fetch(start, visible.length);
+            if (!html) return;
+            const tmp = document.createElement('div'); tmp.innerHTML = html.trim();
+            const fresh = Array.from(tmp.children);
+            visible.forEach((old, i) => { if (fresh[i]) { old.replaceWith(fresh[i]); if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(fresh[i]); } });
+            window.dispatchEvent(new Event('calendar:block-appended'));
         },
     };
 }

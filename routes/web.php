@@ -1303,6 +1303,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-164 Gate 5 — continuous-scroll month window (HTML block) + JSON range endpoint
         Route::get('/calendar/month-block', [CommandCenterCalendarController::class, 'monthBlock'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.month-block');
         Route::get('/calendar/grid-range', [CommandCenterCalendarController::class, 'gridRange'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.grid-range');
+        Route::get('/calendar/day-columns', [CommandCenterCalendarController::class, 'dayColumns'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.day-columns');
 
         // AT-164 Gate 4 — Tile Deck (JSON) — MUST be before /calendar/{calendarEvent} wildcard
         Route::get('/calendar/deck', [CommandCenterCalendarController::class, 'deck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck');
