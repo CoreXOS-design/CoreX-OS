@@ -103,28 +103,19 @@
 
 <div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (open) { this.showCreateEvent = false; } if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
-    {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
-    <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-4 lg:pt-6" style="background: var(--bg);">
+    {{-- ══════ HEADER STRIP (fixed, compact — cockpit density) ══════ --}}
+    <div class="flex-shrink-0 px-4 lg:px-6 pb-1.5 space-y-1.5 pt-2" style="background: var(--bg);">
 
-    {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div data-tour="cal-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Calendar</h1>
-                <p class="text-sm text-white/60">
-                    @if($currentView === 'week' && isset($weekStart))
-                        Week of {{ $weekStart->format('j M Y') }}
-                    @elseif($currentView === 'day' && isset($anchorDate))
-                        {{ $anchorDate->format('l, j F Y') }}
-                    @elseif(isset($monthLabel))
-                        {{ $monthLabel }}
-                    @endif
-                    — deals, leases, compliance and personal events.
-                </p>
+    {{-- ══════ PAGE HEADER (Pattern A — branded, compact single row) ══════ --}}
+    <div class="rounded-md px-4 py-1.5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex items-center justify-between gap-3">
+            <div class="flex items-baseline gap-2 min-w-0" data-tour="cal-intro">
+                <h1 class="text-sm font-bold text-white leading-tight">Calendar</h1>
+                <p class="text-[11px] text-white/50 truncate">— deals, leases, compliance &amp; personal events.</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-shrink-0">
                 @include('layouts.partials.tour-header-launcher')
-                <button type="button" @click="openBlank()" class="corex-btn-primary" data-tour="cal-add">
+                <button type="button" @click="openBlank()" class="corex-btn-primary text-xs py-1" data-tour="cal-add">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     Add Event
                 </button>
@@ -165,7 +156,7 @@
             'agenda' => route('command-center.calendar', array_merge($kbParams, ['view' => 'agenda', 'date' => $kbDate])),
         ];
     @endphp
-    <div class="rounded-md px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+    <div class="rounded-md px-3 py-1.5 flex flex-row items-center justify-between gap-3"
          style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex items-center gap-2">
             {{-- AT-164 Gate 5 — month view scrolls continuously; prev/next month
@@ -243,7 +234,7 @@
     </div>{{-- END sticky header band --}}
 
     {{-- ══════ FLEX ROW: Calendar grid + Right panel (fills remaining height) ══════ --}}
-    <div class="flex gap-0 flex-1 min-h-0 overflow-hidden px-4 lg:px-6">
+    <div class="flex gap-3 flex-1 min-h-0 overflow-hidden px-4 lg:px-6 pb-1.5">
     {{-- Main calendar column (scrolls independently). CAL-2: min-w pins
          the calendar so the right-docked create-event aside can never
          squeeze it to zero — preserves the "calendar stays visible on the
@@ -252,10 +243,11 @@
          — [filter bar (pinned)] + [grid frame (flex-1, the ONLY scroll container)] +
          [deck row (pinned)]. The page never scrolls; the GRID scrolls inside its
          bounded frame. --}}
-    <div class="flex-1 min-w-0 sm:min-w-[320px] flex flex-col min-h-0 pr-0">
+    {{-- CALENDAR BLOCK (~73% width; the grid scroll frame lives inside) --}}
+    <div class="flex flex-col min-h-0" style="flex: 1 1 0%; min-width: 0;">
 
     {{-- ══════ FILTER BAR (compact — panel toggle + active filter summary) ══════ --}}
-    <div class="flex-shrink-0 flex items-center gap-3 rounded-md px-4 py-2 mb-3"
+    <div class="flex-shrink-0 flex items-center gap-3 rounded-md px-3 py-1 mb-1.5"
          style="background: var(--surface); border: 1px solid var(--border);">
         {{-- Scope pills (kept inline — primary control) --}}
         <form method="GET" action="{{ route('command-center.calendar') }}" id="calendar-filters" class="flex items-center gap-2">
@@ -1488,104 +1480,84 @@
         </div>
     </div>
 
-    {{-- ══════ AT-164 Gate 4 — TILE DECK (compact, PINNED below the grid, always in
-         the viewport — never scrolls off; a single horizontal card row) ══════ --}}
-    <section x-data="calendarDeck()" x-init="init()"
-             data-tour="cal-deck"
-             class="flex-shrink-0 rounded-md px-4 py-3 mt-2"
-             style="background: var(--surface); border: 1px solid var(--border);">
-        {{-- Deck header --}}
-        <div class="flex items-center justify-between gap-3 mb-2">
-            <div class="flex items-center gap-2 min-w-0">
-                <svg class="w-4 h-4 flex-shrink-0" style="color: var(--text-secondary);" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg>
-                <h2 class="text-sm font-semibold truncate" style="color: var(--text-primary);">My Deck</h2>
-                <span class="text-xs" style="color: var(--text-muted);" x-text="'· ' + cards.length + '/' + slots"></span>
-                <span x-show="saving" x-cloak class="text-[11px]" style="color: var(--text-muted);">Saving…</span>
-            </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
-                {{-- Add-tile picker (edit mode) --}}
-                <div x-show="editing" x-cloak class="relative" @click.outside="pickerOpen = false">
-                    <button type="button" @click="pickerOpen = !pickerOpen" :disabled="!canAddMore"
-                            class="corex-btn-outline text-xs disabled:opacity-40"
-                            :title="canAddMore ? 'Add a tile' : 'Deck is full ('+slots+' slots)'">
-                        + Add tile
-                    </button>
-                    <div x-show="pickerOpen" x-cloak
-                         class="absolute right-0 mt-1 w-64 max-h-72 overflow-y-auto rounded-md z-30 py-1"
-                         style="background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.35);">
-                        <template x-if="availableToAdd.length === 0">
-                            <div class="px-3 py-2 text-xs" style="color: var(--text-muted);">All tiles are on your Deck.</div>
-                        </template>
-                        <template x-for="t in availableToAdd" :key="t.tile_id">
-                            <button type="button" @click="addTile(t.tile_id)"
-                                    class="w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors hover:bg-[color:var(--surface)]"
-                                    style="color: var(--text-secondary);">
-                                <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="t.launch ? 'background: var(--brand-button);' : 'background: var(--text-muted);'"></span>
-                                <span class="truncate" x-text="t.title"></span>
-                            </button>
-                        </template>
+</div>{{-- END main calendar column --}}
+
+{{-- ══════ AT-164 COCKPIT — RIGHT CONTEXT PANEL (fixed ~27%; quick-create by default,
+     event details on click; scrolls its OWN contents, never the page) ══════ --}}
+<div class="flex flex-col min-h-0 rounded-md" style="flex: 0 0 27%; max-width: 27%; min-width: 300px; background: var(--surface); border: 1px solid var(--border);">
+    <div class="flex-shrink-0 flex items-center justify-between px-3 py-1.5" style="border-bottom: 1px solid var(--border);">
+        <span class="text-[11px] font-bold uppercase tracking-wider" style="color: var(--text-secondary);" x-text="contextMode === 'event' ? 'Event' : 'New event'"></span>
+        <button type="button" x-show="contextMode === 'event'" @click="contextMode='create'" class="text-[11px] font-semibold" style="color: var(--brand-button);" title="New event">+ New</button>
+    </div>
+    <div class="flex-1 min-h-0 overflow-y-auto px-3 py-2.5">
+        {{-- QUICK-CREATE (default) --}}
+        <div x-show="contextMode !== 'event'">
+            <form @submit.prevent="quickCreateSubmit()" class="space-y-2">
+                <div>
+                    <label class="block text-[11px] font-medium mb-0.5" style="color: var(--text-secondary);">Title</label>
+                    <input type="text" x-model="quick.title" required placeholder="e.g. Viewing at 8 Marine Dr"
+                           class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-medium mb-0.5" style="color: var(--text-secondary);">Type</label>
+                    <select x-model="quick.category" class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        @foreach($manualCreatableClasses as $cls)
+                            <option value="{{ $cls->event_class }}">{{ $cls->label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-[11px] font-medium mb-0.5" style="color: var(--text-secondary);">Date</label>
+                        <input type="date" x-model="quick.date" required class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium mb-0.5" style="color: var(--text-secondary);">Time</label>
+                        <input type="time" x-model="quick.time" :disabled="quick.allDay" class="w-full rounded px-2 py-1.5 text-xs disabled:opacity-40" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                 </div>
-                <button type="button" x-show="editing" x-cloak @click="reset()" class="corex-btn-outline text-xs" title="Reset to default layout">Reset</button>
-                <button type="button" @click="toggleEdit()"
-                        class="corex-btn-outline text-xs inline-flex items-center gap-1"
-                        :style="editing ? 'background: var(--brand-button); color:#fff;' : ''">
-                    <span x-text="editing ? 'Done' : 'Edit Deck'"></span>
-                </button>
-            </div>
+                <label class="flex items-center gap-2 text-[11px]" style="color: var(--text-secondary);">
+                    <input type="checkbox" x-model="quick.allDay"> All-day
+                </label>
+                <div class="flex items-center gap-2 pt-1">
+                    <button type="submit" :disabled="quick.saving" class="corex-btn-primary text-xs flex-1 disabled:opacity-50">
+                        <span x-show="!quick.saving">Create</span><span x-show="quick.saving" x-cloak>Saving…</span>
+                    </button>
+                    <button type="button" @click="openBlank()" class="corex-btn-outline text-xs" title="Open the full form">Full form</button>
+                </div>
+                <p x-show="quick.error" x-cloak class="text-[11px]" style="color: var(--ds-crimson, #c41e3a);" x-text="quick.error"></p>
+                <p x-show="quick.ok" x-cloak class="text-[11px]" style="color: var(--ds-green, #059669);">Created ✓</p>
+            </form>
         </div>
-
-        {{-- Empty deck --}}
-        <template x-if="cards.length === 0">
-            <div class="py-8 text-center">
-                <p class="text-sm" style="color: var(--text-muted);">Your Deck is empty.</p>
-                <button type="button" @click="editing = true" class="corex-btn-outline text-xs mt-2">Add tiles</button>
-            </div>
-        </template>
-
-        {{-- Deck grid — a responsive grid on desktop; a horizontally swipeable,
-             scroll-snapped card row on small screens (§15.8 mobile cockpit).
-             Component-scoped CSS (STANDARDS: component-level CSS in the component). --}}
-        @once
-        <style>
-            /* AT-164 cockpit: the Deck is a COMPACT single horizontal card row on every
-               screen — pinned in the viewport, bounded height, cards scroll horizontally.
-               Each tile's body scrolls internally (Gate 3 delta 1). */
-            .cal-deck-grid { display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 0.25rem; }
-            .cal-deck-grid > * { scroll-snap-align: start; flex: 0 0 300px; height: 190px; }
-            @media (max-width: 640px) {
-                .cal-deck-grid > * { flex: 0 0 85%; }
-            }
-        </style>
-        @endonce
-        <div class="cal-deck-grid">
-            <template x-for="(card, idx) in cards" :key="card.card_id">
-                <div class="relative h-full"
-                     :draggable="editing"
-                     @dragstart="dragStart(idx, $event)" @dragover.prevent="dragOver(idx)" @drop.prevent="drop(idx)" @dragend="dragEndDeck()"
-                     :style="editing ? 'cursor: move;' : ''"
-                     :class="editing && dragIndex === idx && 'opacity-50'">
-                    {{-- Edit overlay: drag hint + remove --}}
-                    <div x-show="editing" x-cloak class="absolute top-2 right-2 z-20 flex items-center gap-1">
-                        <span class="w-6 h-6 rounded flex items-center justify-center" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);" title="Drag to reorder">
-                            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-                        </span>
-                        <button type="button" @click="removeTile(card.card_id)" class="w-6 h-6 rounded flex items-center justify-center transition hover:opacity-80"
-                                style="background: var(--surface); border: 1px solid var(--border); color: var(--ds-crimson, #c41e3a);" title="Remove from Deck">
-                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
-                        </button>
+        {{-- EVENT DETAILS (on click) --}}
+        <div x-show="contextMode === 'event'" x-cloak>
+            <template x-if="panelData">
+                <div class="space-y-2 text-xs">
+                    <div class="font-semibold text-sm leading-tight" style="color: var(--text-primary);" x-text="panelData.title"></div>
+                    <div x-show="panelData.when_label" style="color: var(--text-secondary);" x-text="panelData.when_label"></div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="px-2 py-0.5 rounded-full text-[10px]" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);" x-text="(panelData.category_label || panelData.category || '').toString().replace(/_/g,' ')"></span>
+                        <span x-show="panelData.status" class="text-[10px] uppercase tracking-wide" style="color: var(--text-muted);" x-text="(panelData.status||'').toString().replace(/_/g,' ')"></span>
                     </div>
-                    <x-tile :var="'card'" />
+                    <template x-if="panelData.property_label"><div style="color: var(--text-secondary);"><span style="color:var(--text-muted);">Property: </span><span x-text="panelData.property_label"></span></div></template>
+                    <template x-if="panelData.attendees_label"><div style="color: var(--text-secondary);"><span style="color:var(--text-muted);">With: </span><span x-text="panelData.attendees_label"></span></div></template>
+                    <template x-if="panelData.description"><div class="leading-relaxed" style="color: var(--text-secondary);" x-text="panelData.description"></div></template>
+                    <div class="flex flex-wrap items-center gap-2 pt-2" style="border-top: 1px solid var(--border);">
+                        <button type="button" @click="panelOpen = true" class="corex-btn-outline text-xs mt-2">Full details / Edit</button>
+                        <button type="button" x-show="panelData.is_actionable && panelData.status !== 'completed'" @click="completeFromContext()" class="corex-btn-outline text-xs mt-2">Complete</button>
+                        <template x-if="panelData.source_link && panelData.source_link.url">
+                            <a :href="panelData.source_link.url" target="_blank" rel="noopener" class="corex-btn-outline text-xs mt-2">Open <span class="text-[10px]">↗</span></a>
+                        </template>
+                    </div>
                 </div>
             </template>
         </div>
-    </section>
-
-</div>{{-- END main calendar column --}}
+    </div>
+</div>
 
 {{-- ══════ RIGHT SIDE PANEL ══════ --}}
 <aside x-show="rightPanelOpen" x-cloak x-transition:enter="transition ease-out duration-200" x-transition:leave="transition ease-in duration-150"
-       class="hidden lg:block flex-shrink-0 relative"
+       class="block fixed top-0 right-0 h-full relative" style="z-index: 45;"
        :style="'width:' + panelWidth + 'px; border-left: 1px solid var(--border); background: var(--surface);'">
     {{-- Drag resize handle (outside content flow, wider hit target) --}}
     <div class="absolute top-0 -left-[3px] w-[6px] h-full cursor-col-resize z-20 group"
@@ -1746,7 +1718,7 @@
        x-transition:leave-start="translate-x-0 opacity-100"
        x-transition:leave-end="translate-x-full opacity-0"
        @keydown.escape.window="showCreateEvent = false"
-       class="w-full sm:w-[420px] flex-shrink-0 flex flex-col overflow-hidden"
+       class="w-[420px] fixed top-0 right-0 h-full flex flex-col overflow-hidden" style="z-index: 45;"
        style="background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 12px rgba(0,0,0,0.08);">
 
     {{-- Header --}}
@@ -2098,7 +2070,7 @@
        x-transition:leave-start="translate-x-0 opacity-100"
        x-transition:leave-end="translate-x-full opacity-0"
        @keydown.escape.window="panelOpen = false"
-       class="w-full max-w-md flex-shrink-0 flex flex-col overflow-hidden"
+       class="w-[420px] fixed top-0 right-0 h-full flex flex-col overflow-hidden" style="z-index: 45;"
        style="background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 12px rgba(0,0,0,0.08);">
 
     {{-- Scrollable content --}}
@@ -2396,6 +2368,80 @@
 </div>
 
 </div>{{-- END flex row (grid + panel) --}}
+
+{{-- ══════ AT-164 COCKPIT — BOTTOM TILE STRIP (fixed height; N EQUAL columns; NEVER
+     scrolls horizontally and never grows; each tile scrolls its own list) ══════ --}}
+<section x-data="calendarDeck()" x-init="init()" data-tour="cal-deck"
+         class="flex-shrink-0 px-4 lg:px-6 pt-1.5 pb-2" style="background: var(--bg);">
+    <div class="rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border);">
+        {{-- Compact header --}}
+        <div class="flex items-center justify-between gap-3 mb-1.5">
+            <div class="flex items-center gap-2 min-w-0">
+                <h2 class="text-xs font-semibold truncate" style="color: var(--text-primary);">My Deck</h2>
+                <span class="text-[11px]" style="color: var(--text-muted);" x-text="'· ' + cards.length + '/' + slots"></span>
+                <span x-show="saving" x-cloak class="text-[11px]" style="color: var(--text-muted);">Saving…</span>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <div x-show="editing" x-cloak class="relative" @click.outside="pickerOpen = false">
+                    <button type="button" @click="pickerOpen = !pickerOpen" :disabled="!canAddMore"
+                            class="corex-btn-outline text-[11px] py-0.5 disabled:opacity-40"
+                            :title="canAddMore ? 'Add a tile' : 'Deck is full ('+slots+' slots)'">+ Add tile</button>
+                    <div x-show="pickerOpen" x-cloak class="absolute right-0 bottom-full mb-1 w-64 max-h-72 overflow-y-auto rounded-md py-1"
+                         style="z-index: 30; background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.35);">
+                        <template x-if="availableToAdd.length === 0"><div class="px-3 py-2 text-xs" style="color: var(--text-muted);">All tiles are on your Deck.</div></template>
+                        <template x-for="t in availableToAdd" :key="t.tile_id">
+                            <button type="button" @click="addTile(t.tile_id)" class="w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors hover:bg-[color:var(--surface)]" style="color: var(--text-secondary);">
+                                <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="t.launch ? 'background: var(--brand-button);' : 'background: var(--text-muted);'"></span>
+                                <span class="truncate" x-text="t.title"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <button type="button" x-show="editing" x-cloak @click="reset()" class="corex-btn-outline text-[11px] py-0.5" title="Reset to default layout">Reset</button>
+                <button type="button" @click="toggleEdit()" class="corex-btn-outline text-[11px] py-0.5 inline-flex items-center gap-1" :style="editing ? 'background: var(--brand-button); color:#fff;' : ''">
+                    <span x-text="editing ? 'Done' : 'Edit Deck'"></span>
+                </button>
+            </div>
+        </div>
+
+        {{-- Empty deck --}}
+        <template x-if="cards.length === 0">
+            <div class="py-4 text-center">
+                <p class="text-xs" style="color: var(--text-muted);">Your Deck is empty.</p>
+                <button type="button" @click="editing = true" class="corex-btn-outline text-[11px] mt-1">Add tiles</button>
+            </div>
+        </template>
+
+        {{-- N EQUAL columns — grid-template-columns set from the tile count so 3 tiles =
+             3 equal columns, 5 = 5; there is never a horizontal scrollbar. Component CSS. --}}
+        @once
+        <style>
+            .cal-deck-grid { display: grid; gap: 0.75rem; }
+            .cal-deck-grid > * { height: 152px; min-width: 0; }
+        </style>
+        @endonce
+        <div class="cal-deck-grid" x-show="cards.length > 0" :style="'grid-template-columns: repeat(' + Math.max(1, cards.length) + ', minmax(0, 1fr));'">
+            <template x-for="(card, idx) in cards" :key="card.card_id">
+                <div class="relative"
+                     :draggable="editing"
+                     @dragstart="dragStart(idx, $event)" @dragover.prevent="dragOver(idx)" @drop.prevent="drop(idx)" @dragend="dragEndDeck()"
+                     :style="editing ? 'cursor: move;' : ''"
+                     :class="editing && dragIndex === idx && 'opacity-50'">
+                    <div x-show="editing" x-cloak class="absolute top-1.5 right-1.5 z-20 flex items-center gap-1">
+                        <span class="w-5 h-5 rounded flex items-center justify-center" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);" title="Drag to reorder">
+                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+                        </span>
+                        <button type="button" @click="removeTile(card.card_id)" class="w-5 h-5 rounded flex items-center justify-center transition hover:opacity-80"
+                                style="background: var(--surface); border: 1px solid var(--border); color: var(--ds-crimson, #c41e3a);" title="Remove from Deck">
+                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                    <x-tile :var="'card'" />
+                </div>
+            </template>
+        </div>
+    </div>
+</section>
 </div>{{-- END outer x-data wrapper --}}
 
 <script>
@@ -2433,6 +2479,11 @@ function calendarPage() {
         submitting: false,
         panelOpen: false,
         panelData: {},
+        // AT-164 cockpit — fixed right context panel: 'create' (quick-create, default)
+        // or 'event' (clicked-event details). The full create/edit slide-over stays as
+        // an overlay opened via "Full form" / "Full details / Edit".
+        contextMode: 'create',
+        quick: { title: '', category: '{{ ($manualCreatableClasses->first()->event_class ?? 'viewing') }}', date: '{{ ($anchorDate ?? now())->toDateString() }}', time: '09:00', allDay: false, saving: false, error: '', ok: false },
         helpOpen: false,
         drag: { active: false, dayDate: null, startHour: null, startHalf: null, currentHour: null, currentHalf: null },
         reschedule: { dragging: false, eventId: null, originalDate: null },
@@ -2664,6 +2715,10 @@ function calendarPage() {
         selectDate(dateStr, time = null) {
             this.selectedDate = dateStr;
             this.pendingCreateDate = dateStr;
+            // AT-164 cockpit — clicking an empty day/slot pre-fills the quick-create panel.
+            this.quick.date = dateStr;
+            if (time) this.quick.time = time;
+            if (!this.showCreateEvent && !this.panelOpen) this.contextMode = 'create';
             if (this.showCreateEvent) {
                 this.form.startDate = dateStr;
                 if (time) this.form.startTime = time;
@@ -3477,11 +3532,11 @@ function calendarPage() {
         },
 
         openEventPanel(eventId) {
-            // ITEM 2 \u2014 only one side panel at a time. Opening a detail panel
-            // always closes the create panel (the $watch('panelOpen') below is
-            // the reactive backstop; this makes the intent explicit at the call).
+            // AT-164 cockpit \u2014 a clicked event populates the FIXED right context panel
+            // (not a slide-over). The full detail/edit slide-over opens from there via
+            // "Full details / Edit". panelData is loaded exactly as before.
             this.showCreateEvent = false;
-            this.panelOpen = true;
+            this.contextMode = 'event';
             this.panelData = { title: 'Loading\u2026', colour: null, days_diff: 0 };
 
             // Synthetic occurrence id (>= 1e8) \u2192 real parent id + ?occurrence=date,
@@ -3500,6 +3555,44 @@ function calendarPage() {
                 this.panelData = { title: 'Could not load event', colour: null, days_diff: 0 };
                 console.warn('Calendar event load failed:', err);
             });
+        },
+
+        // AT-164 cockpit — quick-create from the right context panel.
+        async quickCreateSubmit() {
+            this.quick.error = ''; this.quick.ok = false; this.quick.saving = true;
+            try {
+                const fd = new FormData();
+                fd.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+                fd.append('title', this.quick.title);
+                fd.append('category', this.quick.category);
+                fd.append('event_date', this.quick.allDay ? this.quick.date : (this.quick.date + 'T' + (this.quick.time || '09:00')));
+                fd.append('all_day', this.quick.allDay ? '1' : '0');
+                const r = await fetch('{{ route('command-center.calendar.store') }}', {
+                    method: 'POST', body: fd,
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                if (r.ok) {
+                    this.quick.ok = true; this.quick.title = '';
+                    window.dispatchEvent(new Event('focus')); // repaint grid + deck
+                    setTimeout(() => { this.quick.ok = false; }, 2500);
+                } else {
+                    let msg = 'Could not create the event.';
+                    try { const j = await r.json(); if (j.errors) msg = Object.values(j.errors).flat()[0] || msg; else if (j.message) msg = j.message; } catch (e) {}
+                    this.quick.error = msg;
+                }
+            } catch (e) { this.quick.error = 'Network error — please retry.'; }
+            this.quick.saving = false;
+        },
+
+        // AT-164 cockpit — mark the panel's event complete without opening the slide-over.
+        completeFromContext() {
+            if (!this.panelData || !this.panelData.id) return;
+            const fd = new FormData();
+            fd.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+            fetch('/corex/command-center/calendar/' + this.panelData.id + '/complete', {
+                method: 'POST', body: fd, headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
+            }).then(r => { if (r.ok) { this.panelData.status = 'completed'; window.dispatchEvent(new Event('focus')); } });
         },
 
         // \u2500\u2500 Recurrence helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500

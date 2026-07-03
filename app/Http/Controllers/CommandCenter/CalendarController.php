@@ -37,7 +37,17 @@ class CalendarController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $view = $request->get('view', 'month');
+
+        // AT-164 cockpit — layout memory: no ?view= → last used view (per-user);
+        // an explicit ?view= is remembered for next time.
+        $pref = \App\Models\CommandCenter\CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
+        $view = $request->get('view');
+        if (! $view) {
+            $view = in_array($pref->default_view, ['month', 'week', 'day', 'agenda'], true) ? $pref->default_view : 'month';
+        } elseif (in_array($view, ['month', 'week', 'day', 'agenda'], true) && $pref->default_view !== $view) {
+            $pref->default_view = $view;
+            $pref->save();
+        }
 
         // Filter params (shared across all views)
         $typeFilter     = $request->input('types', []);
