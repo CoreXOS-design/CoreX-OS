@@ -48,9 +48,14 @@ return new class extends Migration {
             DB::table('nexus_permissions')->insert(array_merge(['key' => $this->key, 'created_at' => $now], $payload));
         }
 
-        // Clone the sibling BM+admin perm's grant distribution onto the new key.
+        // Clone the sibling perm's (agency_id, scope) distribution onto the new
+        // key, but ONLY for the intended manager roles. Filtering by role — rather
+        // than trusting the sibling's role set — makes this robust against
+        // environment drift (staging had `manage_pipeline` wrongly granted to
+        // agent/office_admin; the overview must stay branch_manager + admin only).
         $siblingGrants = DB::table('role_permissions')
             ->where('permission_key', $this->sibling)
+            ->whereIn('role', ['super_admin', 'admin', 'branch_manager'])
             ->whereNull('deleted_at')
             ->get(['role', 'agency_id', 'scope']);
 
