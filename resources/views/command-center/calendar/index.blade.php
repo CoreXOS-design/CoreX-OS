@@ -1709,8 +1709,19 @@
             </div>
         </template>
 
-        {{-- Deck grid --}}
-        <div class="grid gap-4" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));">
+        {{-- Deck grid — a responsive grid on desktop; a horizontally swipeable,
+             scroll-snapped card row on small screens (§15.8 mobile cockpit).
+             Component-scoped CSS (STANDARDS: component-level CSS in the component). --}}
+        @once
+        <style>
+            .cal-deck-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+            @media (max-width: 640px) {
+                .cal-deck-grid { display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 0.5rem; }
+                .cal-deck-grid > * { scroll-snap-align: start; flex: 0 0 85%; }
+            }
+        </style>
+        @endonce
+        <div class="cal-deck-grid">
             <template x-for="(card, idx) in cards" :key="card.card_id">
                 <div class="relative h-full"
                      :draggable="editing"
