@@ -404,7 +404,7 @@
                  vertical wheel is translated to horizontal so the mouse wheel advances
                  days/weeks; drag-to-scroll on the headers/gutter also advances. Inline
                  z-index only (§3). --}}
-            <div x-ref="weekScroller" @scroll.passive="onWeekScroll()" @wheel="onWheel($event)"
+            <div x-ref="weekScroller" @scroll.passive="onWeekScroll()"
                  @mousedown="dragScrollStart($event)" @mousemove.window="dragScrollMove($event)" @mouseup.window="dragScrollEnd()"
                  class="flex-1 min-h-0 overflow-auto" style="cursor: grab;">
                 <div class="flex" style="width: max-content;">
@@ -4174,6 +4174,10 @@ function continuousWeek() {
             this.$nextTick(() => {
                 if (anchorMonday) this.scrollToDay(anchorMonday, false);
                 this.updateLabel();
+                // Non-passive wheel listener so a vertical mouse wheel can be translated
+                // to horizontal (Alpine's @wheel is passive → preventDefault is ignored).
+                const sc = this.$refs.weekScroller;
+                if (sc) sc.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
             });
 
             // Live-RAG loop (focus/visibility + light poll).
