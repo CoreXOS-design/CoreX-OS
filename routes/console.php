@@ -196,6 +196,13 @@ Schedule::command('corex:calendar:reconcile')->dailyAt('03:00')->withoutOverlapp
 // approach (green→amber→red→overdue), independent of user activity.
 Schedule::command('deals:process-rag')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 
+// ── Deal Register V2 (WS6) — escalation ladder + morning digest ──
+// process-rag flips a step overdue + nudges the agent; this escalates the still-
+// overdue step up the ladder (BM → admin) exactly once per rung, and sends each
+// agent a morning pipeline digest.
+Schedule::command('deals:process-escalations')->hourly()->withoutOverlapping()->onOneServer();
+Schedule::command('deals:daily-digest')->dailyAt(config('deals.digest.time', '07:00'))->withoutOverlapping()->onOneServer();
+
 // ── Leave Management ──
 Schedule::command('corex:leave:accrue-daily')->dailyAt('02:00')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:cycle-rollover')->dailyAt('02:30')->onOneServer()->withoutOverlapping();

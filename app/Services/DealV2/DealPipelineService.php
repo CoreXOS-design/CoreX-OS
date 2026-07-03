@@ -243,13 +243,13 @@ class DealPipelineService
                 return true; // stage ticked (positive)
             }
 
-            return false;
-
-            // Needs approval — wait for BM
+            // Needs BM approval — the step is held (approval_status='pending' set
+            // above); the deal status does NOT change until a BM approves. Log it
+            // in the reachable path; the BM notification fires AFTER commit (WS6),
+            // same doctrine as the DealStepCompleted event below.
             if ($needsApproval) {
                 $this->logActivity($step->deal, $step, null, 'approval_pending',
                     "Status change to \"{$statusTrigger}\" pending BM approval");
-                // TODO: Fire notification to BM (Phase 5)
             }
 
             return false;
@@ -262,6 +262,12 @@ class DealPipelineService
         // can never roll back a completed step.
         if ($ticked) {
             event(new DealStepCompleted($step->fresh(), $user->id));
+        }
+
+        // WS6 — a step held for BM approval notifies the BM (after commit).
+        $fresh = $step->fresh();
+        if ($fresh && $fresh->approval_status === 'pending') {
+            app(NotificationService::class)->notifyBmApprovalPending($fresh);
         }
     }
 
@@ -325,8 +331,10 @@ class DealPipelineService
 
             $this->logActivity($step->deal, $step, $rejector->id, 'step_rejected',
                 "BM {$rejector->name} rejected: {$reason}");
-            // TODO: Notify agent (Phase 5)
         });
+
+        // WS6 — tell the responsible agent the step was sent back (after commit).
+        app(NotificationService::class)->notifyAgentStepRejected($step->fresh(), $reason);
     }
 
     /**
