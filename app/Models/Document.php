@@ -21,6 +21,7 @@ class Document extends Model
         'branch_id',
         'original_name', 'storage_path', 'disk', 'mime_type', 'size',
         'document_type_id', 'source_type', 'source_id', 'uploaded_by',
+        'deal_id', // AT-158 WS3 (D4) — DR2 deal anchor
     ];
 
     protected $casts = ['size' => 'integer'];
@@ -48,6 +49,16 @@ class Document extends Model
     {
         return $this->belongsToMany(Property::class, 'document_properties')
             ->withTimestamps();
+    }
+
+    /**
+     * AT-158 WS3 (D4) — the DR2 deal this document is filed against (if any).
+     * Nullable: most documents are not deal-anchored; a deleted deal clears
+     * the anchor (nullOnDelete) rather than orphaning the file.
+     */
+    public function deal(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\DealV2\DealV2::class, 'deal_id');
     }
 
     // ── Helpers ──

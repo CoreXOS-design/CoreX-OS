@@ -491,10 +491,34 @@ class PropertyController extends Controller
             $aiImageSuggestions = app(\App\Services\AI\PropertyAiSuggestionService::class)->forProperty($property);
         }
 
+        // AT-158 DR2 · WS5 (§10) — Document distributions on the PROPERTY pillar.
+        // DR2 outbound distributions link their Communication to the deal's
+        // property; this is the property's read surface for "one send, three
+        // pillars". Rows are scoped by the viewer's communications data-scope
+        // (own → the sending agent, branch, all) via Communication::scopeVisibleTo
+        // — a user without visibility receives no rows (not merely hidden in UI),
+        // matching the contact-tab discipline (AT-118). Only outbound rows carry
+        // property links today, but the query is direction-agnostic and future-proof.
+        $propertyComms = collect();
+        if ($property->exists && $user) {
+            $commsScope = \App\Services\PermissionService::getDataScope($user, 'communications');
+            $propertyComms = \App\Models\Communications\Communication::query()
+                ->notPurged()
+                ->with(['owner:id,name', 'attachments'])
+                ->whereHas('links', function ($q) use ($property) {
+                    $q->where('linkable_type', Property::class)
+                      ->where('linkable_id', $property->id);
+                })
+                ->visibleTo($user, $commsScope)
+                ->orderByDesc('occurred_at')
+                ->limit(50)
+                ->get();
+        }
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions'
+            'aiImageSuggestions', 'propertyComms'
         ));
     }
 

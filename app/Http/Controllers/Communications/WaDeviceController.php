@@ -31,7 +31,31 @@ class WaDeviceController extends Controller
             // AT-135 — agency-wide read-only body backfill toggle (default on).
             'backfillEnabled' => $agency ? (bool) $agency->wa_history_backfill : true,
             'canManageBackfill' => Auth::user()->hasPermission('manage_communication_mailboxes') || Auth::user()->isOwnerRole(),
+            // AT-168 Part B — pending-consent embargo retention window (days).
+            'embargoRetentionDays' => $agency ? (int) ($agency->wa_embargo_retention_days ?: 30) : 30,
         ]);
+    }
+
+    /**
+     * AT-168 Part B — set the agency's pending-consent embargo retention window
+     * (admin/owner only). After this many days a still-un-consented WhatsApp body
+     * is purged by the daily job (POPIA); the FICA envelope is retained.
+     */
+    public function updateEmbargoRetention(Request $request)
+    {
+        $user = $request->user();
+        if (! $user->hasPermission('manage_communication_mailboxes') && ! $user->isOwnerRole()) {
+            abort(403, 'Only an administrator can change the embargo retention window.');
+        }
+
+        $data = $request->validate(['days' => 'required|integer|min:1|max:365']);
+
+        $agency = \App\Models\Agency::find($user->effectiveAgencyId());
+        if ($agency) {
+            $agency->update(['wa_embargo_retention_days' => (int) $data['days']]);
+        }
+
+        return back()->with('success', "Embargo retention set to {$data['days']} day(s) for this agency.");
     }
 
     /**

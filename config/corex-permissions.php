@@ -422,6 +422,9 @@ return [
         ['key' => 'deals_v2.archive',            'label' => 'Archive',                     'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 13],
         ['key' => 'deals_v2.manage_pipeline',    'label' => 'Manage Pipeline Templates',   'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 14],
         ['key' => 'deals_v2.override_dates',     'label' => 'Override Due Dates',          'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 15],
+        ['key' => 'deals_v2.manage_suppliers',   'label' => 'Manage Supplier Directory',   'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 16],
+        ['key' => 'deals_v2.distribute_documents',   'label' => 'Distribute Documents',        'section' => 'deals-v2',     'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 17],
+        ['key' => 'deals_v2.manage_distribution_rules', 'label' => 'Manage Distribution Rules', 'section' => 'deals-v2',   'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 18],
 
         // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
         // Routes now gated by `owner_only` middleware. No permission keys needed.
@@ -669,7 +672,8 @@ return [
                 'view_branch_stats', 'manage_branch',
                 'access_deal_register_v2',
                 'deals_v2.view', 'deals_v2.create', 'deals_v2.edit', 'deals_v2.archive',
-                'deals_v2.manage_pipeline', 'deals_v2.override_dates',
+                'deals_v2.manage_pipeline', 'deals_v2.override_dates', 'deals_v2.manage_suppliers',
+                'deals_v2.distribute_documents', 'deals_v2.manage_distribution_rules',
                 // Branches — can switch between branches of their own agency
                 // (testing / training), but does NOT bypass BranchScope by default.
                 'branches.switch',

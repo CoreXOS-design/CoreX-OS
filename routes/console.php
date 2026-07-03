@@ -54,6 +54,15 @@ Schedule::command('signatures:expire')->dailyAt('07:00');
 // Sales document reminders — runs daily at 09:00
 Schedule::command('sales-documents:send-reminders')->dailyAt('09:00');
 
+// AT-168 Part B — POPIA embargo purge: remove un-consented WhatsApp bodies past
+// each agency's retention window (envelopes retained). Runs daily at 03:30.
+Schedule::command('communications:purge-embargoed-bodies')->dailyAt('03:30')->withoutOverlapping();
+
+// AT-163 — voice-note transcription batch. Hourly; each run processes agencies
+// whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
+// the current hour. CPU-nice'd inside the worker.
+Schedule::command('communications:transcribe-voice-notes')->hourly()->withoutOverlapping();
+
 // Marketing insights sync — runs daily at 04:00
 Schedule::job(new \App\Jobs\SyncMarketingInsightsJob())->dailyAt('04:00');
 

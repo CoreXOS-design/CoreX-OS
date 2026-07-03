@@ -26,6 +26,7 @@ class DealV2 extends Model
 
     protected $fillable = [
         'agency_id',
+        'legacy_deal_id', // WS1 — DR1↔DR2 link (deals.id of the mirrored DR1 twin)
         'reference',
         'deal_type',
         'status',
@@ -105,6 +106,18 @@ class DealV2 extends Model
             ->withPivot('role');
     }
 
+    /**
+     * WS2 (D2) — provider parties on the deal: rows of deal_v2_contacts keyed by
+     * agency_service_provider_id (contact_id NULL). A deal party is a contact OR
+     * a directory provider; this is the provider side.
+     */
+    public function providerParties(): BelongsToMany
+    {
+        return $this->belongsToMany(AgencyServiceProvider::class, 'deal_v2_contacts', 'deal_id', 'agency_service_provider_id')
+            ->withPivot('role')
+            ->wherePivotNotNull('agency_service_provider_id');
+    }
+
     public function agents(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'deal_v2_agents', 'deal_id', 'user_id')
@@ -140,6 +153,27 @@ class DealV2 extends Model
     public function activityLog(): HasMany
     {
         return $this->hasMany(DealActivityLog::class, 'deal_id')->orderBy('created_at', 'desc');
+    }
+
+    /**
+     * AT-158 WS3 (D4) — unified documents anchored directly to this deal
+     * (upload-onto-deal, PDF-splitter deal target, e-sign auto-file). This is
+     * the deal-level document spine; per-step files live on
+     * stepInstances()->documents() and, once populated, also point back to a
+     * unified document via DealStepDocument::document().
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(\App\Models\Document::class, 'deal_id')->latest();
+    }
+
+    /**
+     * AT-158 WS4 (§8) — document distributions sent from this deal (secure-link
+     * or direct-attachment sends, with their lifecycle status + comms anchor).
+     */
+    public function distributions(): HasMany
+    {
+        return $this->hasMany(DealDocumentDistribution::class, 'deal_id');
     }
 
     public function branch(): BelongsTo

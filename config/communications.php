@@ -27,6 +27,13 @@ return [
     'debug_dropped_wa' => (bool) env('COMMUNICATIONS_DEBUG_DROPPED_WA', false),
 
     /*
+    | AT-168 Part C — conversation-thread paging. The thread view loads the newest
+    | page and lazy-loads older messages on scroll-up so a years-long thread never
+    | renders at once. Configurable, not hardcoded.
+    */
+    'thread_page_size' => (int) env('COMMUNICATIONS_THREAD_PAGE_SIZE', 40),
+
+    /*
     | Inbound grace window (calendar days) before an unmatched inbound item
     | prunes. Clamped to a maximum of 5 by CommunicationPending::graceDays().
     */
@@ -172,6 +179,37 @@ return [
         // sits on "processing" forever.
         'media_max_retries'           => (int) env('WAHA_MEDIA_MAX_RETRIES', 3),
         'media_retry_backoff_seconds' => (int) env('WAHA_MEDIA_RETRY_BACKOFF', 30),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | AT-163 Stage 2 — on-box voice-note transcription (whisper.cpp)
+    |--------------------------------------------------------------------------
+    | Local, on-box transcription of Afrikaans/English/mixed voice notes so
+    | client conversations never leave the box (POPIA). A thin PHP
+    | TranscriptionService shells out to the worker CLI (mirrors WahaMediaClient):
+    | ffmpeg decodes the .oga/.opus → 16 kHz mono WAV, whisper.cpp transcribes.
+    |
+    |   binary        — the worker CLI (wraps ffmpeg + whisper.cpp, emits JSON).
+    |   model         — default whisper model (Johan-locked: medium multilingual;
+    |                   escalate to large-v3 only if medium's Afrikaans fails the test).
+    |   models_dir    — where the ggml-*.bin models live.
+    |   threads       — CPU cap: whisper thread count. Default HALF the cores so
+    |                   transcription never starves the app (nice'd in the worker).
+    |   timeout_seconds — hard wall-clock cap per note (shell-out kill).
+    |   max_retries   — terminal 'failed' after this many (mirrors AT-148).
+    |   load_avg_ceiling — "Transcribe now" is refused/queued above this 1-min
+    |                   load average (CPU guard, §2.3).
+    */
+    'transcription' => [
+        'enabled'     => (bool) env('COREX_TRANSCRIBE_ENABLED', true),
+        'binary'      => env('COREX_TRANSCRIBE_BIN', '/opt/corex-transcribe/transcribe.sh'),
+        'model'       => env('COREX_TRANSCRIBE_MODEL', 'medium'),
+        'models_dir'  => env('COREX_TRANSCRIBE_MODELS_DIR', '/opt/corex-transcribe/models'),
+        'threads'     => (int) env('COREX_TRANSCRIBE_THREADS', 8), // half of the box's 16 cores
+        'timeout_seconds' => (int) env('COREX_TRANSCRIBE_TIMEOUT', 900),
+        'max_retries' => (int) env('COREX_TRANSCRIBE_MAX_RETRIES', 3),
+        'load_avg_ceiling' => (float) env('COREX_TRANSCRIBE_LOAD_CEILING', 12.0),
     ],
 
 ];

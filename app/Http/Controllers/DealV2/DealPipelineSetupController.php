@@ -92,10 +92,14 @@ class DealPipelineSetupController extends Controller
                 'negative_status_trigger' => $s->negative_status_trigger,
                 'negative_outcome_label' => $s->negative_outcome_label,
                 'requires_bm_approval' => $s->requires_bm_approval,
+                'expected_document_type_id' => data_get($s->completion_config, 'document_type_id'), // WS3 (D4)
             ];
         })->values();
 
-        return view('deals-v2.pipeline-setup.edit', compact('template', 'branches', 'stepsJson'));
+        $documentTypes = \App\Models\DocumentType::query()->where('is_active', true)
+            ->orderBy('sort_order')->get(['id', 'label']);
+
+        return view('deals-v2.pipeline-setup.edit', compact('template', 'branches', 'stepsJson', 'documentTypes'));
     }
 
     public function update(Request $request, DealPipelineTemplate $template)

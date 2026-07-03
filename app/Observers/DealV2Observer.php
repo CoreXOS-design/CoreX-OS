@@ -19,6 +19,10 @@ class DealV2Observer
         if (!empty(array_intersect(array_keys($dirty), $dateFields)) || $deal->wasRecentlyCreated) {
             $this->syncDealCalendarEvents($deal);
         }
+
+        // WS1 — mirror the shared core fields onto the linked DR1 twin (no-op
+        // if unlinked). Single-writer service; quiet writes + re-entrancy guard.
+        app(\App\Services\DealV2\DealSyncService::class)->syncFromV2($deal);
     }
 
     /**

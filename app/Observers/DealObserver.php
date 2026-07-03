@@ -77,6 +77,9 @@ class DealObserver
     public function saved(Deal $deal): void
     {
         Artisan::call('deals:recalc-money-lines');
+        // WS1 — mirror the shared core fields onto the linked DR2 twin (no-op
+        // if unlinked). Single-writer service; quiet writes + re-entrancy guard.
+        app(\App\Services\DealV2\DealSyncService::class)->syncFromV1($deal);
     }
 
     /**

@@ -90,9 +90,11 @@ final class WaGroupBroadcastFilterTest extends TestCase
     public function test_real_one_to_one_lid_chat_still_archives(): void
     {
         // Control: the real 1:1 @lid conversation is NOT noise and still archives.
+        // AT-168 Part A — it archives under the CANONICAL key (wa:<last-9>), with the
+        // raw @lid preserved on wa_chat_id.
         $this->assertSame(WaArchiveIngestor::RESULT_ARCHIVED, $this->ingest(['chat_id' => self::LID]));
         $this->assertSame(1, Communication::where('agency_id', $this->agencyId)
-            ->where('thread_key', self::LID)->count());
+            ->where('thread_key', 'wa:713510291')->where('wa_chat_id', self::LID)->count());
     }
 
     // ── B — remediation command ──────────────────────────────────────────────

@@ -111,13 +111,10 @@ trait ViewingPackPdfSupport
 
     protected function addressLine(Property $property): string
     {
-        $street = trim((string) $property->address);
-        if ($street === '') {
-            $street = trim(trim((string) $property->street_number) . ' ' . trim((string) $property->street_name));
-        }
-        $parts = array_filter([$street, $property->suburb], fn ($v) => trim((string) $v) !== '');
-
-        return implode(', ', $parts);
+        // Reuse the canonical display-address convention (Property::buildDisplayAddress)
+        // instead of a local reinvention, so every viewing/buyer-pack surface — the web
+        // panel and the generated PDFs — shows the identical address. (AT-170)
+        return $property->buildDisplayAddress();
     }
 
     protected function money($price): ?string

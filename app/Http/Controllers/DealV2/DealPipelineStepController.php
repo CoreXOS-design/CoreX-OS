@@ -14,6 +14,7 @@ class DealPipelineStepController extends Controller
         abort_unless(auth()->user()?->hasPermission('deals_v2.manage_pipeline'), 403);
 
         $data = $this->validateStep($request, $template);
+        $data = $this->applyCompletionConfig($data, null);
 
         $data['pipeline_template_id'] = $template->id;
         $data['position'] = ($template->steps()->max('position') ?? 0) + 1;
@@ -34,7 +35,10 @@ class DealPipelineStepController extends Controller
         $template = $step->template;
         $data = $this->validateStep($request, $template);
 
-        // Locked steps: restrict what can be changed
+        // Locked steps: restrict what can be changed. The document-type binding
+        // (completion_config.document_type_id) is config, not structure, so it
+        // stays editable even on locked steps — an agency can bind "Electrical
+        // COC" (locked) to its COC doc type for auto-completion (WS3 · D4).
         if ($step->is_locked) {
             $data = array_intersect_key($data, array_flip([
                 'name', 'description', 'days_offset',
@@ -42,9 +46,11 @@ class DealPipelineStepController extends Controller
                 'notify_agent', 'notify_bm', 'notify_admin',
                 'trigger_step_id',
                 'status_trigger', 'negative_status_trigger', 'negative_outcome_label',
-                'requires_bm_approval',
+                'requires_bm_approval', 'document_type_id',
             ]));
         }
+
+        $data = $this->applyCompletionConfig($data, $step);
 
         $step->update($data);
         $step->load('triggerStep');
@@ -120,7 +126,37 @@ class DealPipelineStepController extends Controller
             'negative_status_trigger' => ['nullable', 'in:cancelled'],
             'negative_outcome_label' => ['nullable', 'string', 'max:255', 'required_with:negative_status_trigger'],
             'requires_bm_approval' => ['boolean'],
+            // WS3 (D4) — which document type satisfies this step. Only meaningful
+            // for document_upload / document_signed steps; drives config-driven
+            // auto-completion when a matching document is filed against the deal.
+            'document_type_id' => ['nullable', 'integer', 'exists:document_types,id'],
         ]);
+    }
+
+    /**
+     * Fold the standalone document_type_id field into the step's
+     * completion_config JSON (merging with any existing config), then drop the
+     * loose key so it never reaches a non-existent column. A non-document
+     * completion type clears the binding.
+     */
+    private function applyCompletionConfig(array $data, ?DealPipelineStep $step): array
+    {
+        $documentTypeId = $data['document_type_id'] ?? null;
+        unset($data['document_type_id']);
+
+        $completionType = $data['completion_type'] ?? $step?->completion_type;
+        $isDocStep = in_array($completionType, ['document_upload', 'document_signed'], true);
+
+        $config = $step?->completion_config ?? [];
+        if ($isDocStep && $documentTypeId) {
+            $config['document_type_id'] = (int) $documentTypeId;
+        } else {
+            unset($config['document_type_id']);
+        }
+
+        $data['completion_config'] = $config ?: null;
+
+        return $data;
     }
 
     private function formatStep(DealPipelineStep $step): array
@@ -147,6 +183,7 @@ class DealPipelineStepController extends Controller
             'negative_status_trigger' => $step->negative_status_trigger,
             'negative_outcome_label' => $step->negative_outcome_label,
             'requires_bm_approval' => $step->requires_bm_approval,
+            'expected_document_type_id' => data_get($step->completion_config, 'document_type_id'),
         ];
     }
 }
