@@ -4192,7 +4192,9 @@ function continuousWeek() {
             q.set('start', start); q.set('count', count);
             return '{{ route('command-center.calendar.day-columns') }}?' + q.toString();
         },
-        _addDays(dateStr, n) { const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); },
+        // UTC-safe: parse + shift + format all in UTC so a +2 timezone never bumps the
+        // date back a day (that off-by-one duplicated the boundary column on append).
+        _addDays(dateStr, n) { const d = new Date(dateStr + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); },
 
         onWheel(e) {
             // Translate a (mouse) vertical wheel into horizontal advance; honour a real
@@ -4286,8 +4288,8 @@ function continuousWeek() {
             for (const c of cols) { const r = c.getBoundingClientRect(); if (r.right > left) { vis = c; break; } }
             vis = vis || cols[0];
             const mon = vis.dataset.week;
-            const d = new Date(mon + 'T00:00:00'); const end = new Date(d); end.setDate(d.getDate() + 6);
-            const fmt = (x) => x.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+            const d = new Date(mon + 'T00:00:00Z'); const end = new Date(d); end.setUTCDate(d.getUTCDate() + 6);
+            const fmt = (x) => x.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', timeZone: 'UTC' });
             this.rangeLabel = fmt(d) + ' – ' + fmt(end);
         },
 
