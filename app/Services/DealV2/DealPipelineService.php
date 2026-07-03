@@ -208,7 +208,14 @@ class DealPipelineService
             $description = $isNegative
                 ? "Step \"{$step->name}\" completed with negative outcome: {$step->negative_outcome_label}"
                 : "Step \"{$step->name}\" completed";
-            if (!empty($completionData['notes'])) {
+            // Anti-gaming: a step completed WITHOUT its requirement is stamped with
+            // the reason in the deal timeline (who/when = completed_by_id/at above).
+            if (! $isNegative && ! empty($completionData['completed_with_reason'])) {
+                $cat = $completionData['reason_category'] ?? 'other';
+                $catLabel = config("deals.completion.override_reasons.{$cat}", $cat);
+                $description .= " WITHOUT its requirement — reason: {$catLabel}"
+                    . (! empty($completionData['reason']) ? " ({$completionData['reason']})" : '');
+            } elseif (!empty($completionData['notes'])) {
                 $description .= " — {$completionData['notes']}";
             }
             $this->logActivity($step->deal, $step, $user->id, 'step_completed', $description);

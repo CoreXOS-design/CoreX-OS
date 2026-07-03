@@ -4,6 +4,7 @@ namespace App\Http\Controllers\DealV2;
 
 use App\Http\Controllers\Controller;
 use App\Models\DealV2\DealStepInstance;
+use App\Models\DealV2\DealV2;
 use App\Services\DealV2\DealDocumentService;
 use App\Services\DealV2\DealPipelineService;
 use Illuminate\Http\Request;
@@ -18,35 +19,52 @@ class DealStepController extends Controller
 
     public function complete(Request $request, DealStepInstance $step)
     {
-        abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('deals_v2.edit'), 403);
 
+        // Scope gate (anti-gaming, own-deals discipline): the actor must be
+        // entitled to THIS deal at their permitted scope — agent → own only,
+        // BM → branch, admin → all — via visibleTo (the clampScope discipline;
+        // no override = full permitted scope). An agent cannot complete a step
+        // on someone else's deal.
+        abort_unless(
+            DealV2::query()->whereKey($step->deal_id)->visibleTo($user)->exists(),
+            403,
+            'You can only complete steps on deals within your scope.'
+        );
+
+        // Requirement inputs are now OPTIONAL — an unmet requirement is ALLOWED
+        // WITH a structured reason (below), not hard-blocked. Format is still
+        // validated when a value/file IS supplied.
         $rules = [
-            'outcome' => ['required', 'in:positive,negative'],
-            'notes' => ['nullable', 'string', 'max:2000'],
+            'outcome'         => ['required', 'in:positive,negative'],
+            'notes'           => ['nullable', 'string', 'max:2000'],
+            'reason_category' => ['nullable', 'string', 'max:100'],
+            'reason'          => ['nullable', 'string', 'max:1000'],
         ];
-
-        // Validate based on completion type
         switch ($step->completion_type) {
-            case 'date_input':
-                $rules['value'] = ['required', 'date'];
-                break;
-            case 'amount_input':
-                $rules['value'] = ['required', 'numeric', 'min:0'];
-                break;
-            case 'text_input':
-                $rules['value'] = ['required', 'string', 'max:1000'];
-                break;
-            case 'document_upload':
-                $rules['file'] = ['required', 'file', 'max:10240'];
-                break;
-        }
-
-        // Negative outcome requires reason
-        if ($request->input('outcome') === 'negative' && $step->negative_status_trigger) {
-            $rules['reason'] = ['required', 'string', 'max:1000'];
+            case 'date_input':      $rules['value'] = ['nullable', 'date']; break;
+            case 'amount_input':    $rules['value'] = ['nullable', 'numeric', 'min:0']; break;
+            case 'text_input':      $rules['value'] = ['nullable', 'string', 'max:1000']; break;
+            case 'document_upload': $rules['file']  = ['nullable', 'file', 'max:10240']; break;
         }
 
         $data = $request->validate($rules);
+        $isNegative = $data['outcome'] === 'negative';
+        $met = $this->requirementsMet($step, $request, $data);
+
+        // A negative outcome (with a status trigger) already requires a reason;
+        // an unmet POSITIVE completion now requires a structured reason too. This
+        // is the anti-gaming escape valve: frictionless when requirements are met,
+        // a stamped reason when they are not.
+        $reasonRequired = ($isNegative && $step->negative_status_trigger) || (! $isNegative && ! $met);
+        if ($reasonRequired && ! filled($data['reason'] ?? null)) {
+            return back()->withInput()->withErrors([
+                'reason' => $isNegative
+                    ? 'A reason is required for a negative outcome.'
+                    : "This step is being completed without its required {$this->requirementLabel($step)}. Choose a reason and add a short note.",
+            ]);
+        }
 
         $completionData = [
             'outcome' => $data['outcome'],
@@ -54,8 +72,14 @@ class DealStepController extends Controller
             'notes' => $data['notes'] ?? null,
         ];
 
-        if ($data['outcome'] === 'negative') {
+        if ($isNegative) {
             $completionData['reason'] = $data['reason'] ?? null;
+        } elseif (! $met) {
+            // Anti-gaming stamp: who/when comes from completeStep (completed_by_id
+            // + completed_at); the category + note live here + the activity log.
+            $completionData['completed_with_reason'] = true;
+            $completionData['reason_category'] = $data['reason_category'] ?? 'other';
+            $completionData['reason'] = $data['reason'];
         }
 
         // Handle file upload. WS3 (D4): file a unified Document anchored to the
@@ -85,6 +109,30 @@ class DealStepController extends Controller
 
         return redirect()->route('deals-v2.show', $step->deal_id)
             ->with('status', "Step \"{$step->name}\" completed.");
+    }
+
+    /** Does this completion satisfy the step's normal requirement (no reason needed)? */
+    private function requirementsMet(DealStepInstance $step, Request $request, array $data): bool
+    {
+        return match ($step->completion_type) {
+            'date_input', 'amount_input', 'text_input', 'multi_field' => filled($data['value'] ?? null),
+            'document_upload', 'document_signed' => $request->hasFile('file')
+                || filled($request->input('document_id'))
+                || $step->documents()->exists(),
+            default => true, // manual_tick / auto_from_linked_deal — nothing to attach
+        };
+    }
+
+    /** Human label for the missing requirement, used in the "reason required" message. */
+    private function requirementLabel(DealStepInstance $step): string
+    {
+        return match ($step->completion_type) {
+            'document_upload', 'document_signed' => 'document',
+            'date_input'   => 'date',
+            'amount_input' => 'amount',
+            'text_input'   => 'details',
+            default        => 'information',
+        };
     }
 
     public function approve(Request $request, DealStepInstance $step)

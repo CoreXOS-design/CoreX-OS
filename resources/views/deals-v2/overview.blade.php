@@ -81,11 +81,17 @@
                         </div>
                         <div class="p-2 space-y-2" style="max-height: 60vh; overflow-y: auto;">
                             @foreach($deals as $d)
+                                @php($hasOverride = $d->stepInstances->contains(fn ($s) => data_get($s->completion_data, 'completed_with_reason')))
                                 <a href="{{ route('deals-v2.show', $d) }}" target="_blank" rel="noopener"
                                    class="block rounded p-2.5" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb); border-left: 3px solid {{ $ragColour($d->overall_rag) }};">
                                     <div class="text-sm font-semibold truncate" style="color: var(--text-primary, #111827);">{{ $d->reference ?: 'Deal #' . $d->id }}</div>
                                     <div class="text-xs truncate" style="color: var(--text-muted, #6b7280);">{{ $d->property?->address ?: '—' }}</div>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted, #9ca3af);">{{ $d->listingAgent?->name }}</div>
+                                    @if($hasOverride)
+                                        {{-- Anti-gaming oversight marker: a step was completed without its requirement. --}}
+                                        <span class="inline-block mt-1 rounded px-1.5 py-0.5" style="font-size:10px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color: var(--ds-amber, #b45309);"
+                                              title="A step was completed without its normal requirement — reason recorded on the deal timeline.">⚑ completed with reason</span>
+                                    @endif
                                 </a>
                             @endforeach
                         </div>

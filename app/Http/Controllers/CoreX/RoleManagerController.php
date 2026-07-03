@@ -84,6 +84,7 @@ class RoleManagerController extends Controller
             'command_center_tasks'    => 'Tasks',
             'agency_tracker'   => 'Agency Tracker',
             'deals'            => 'Deals',
+            'deals_v2'         => 'Deal Register V2',
             'listings'         => 'Listings',
             'rentals'          => 'Rentals',
             'daily_activity'   => 'Daily Activity',
@@ -127,6 +128,7 @@ class RoleManagerController extends Controller
         $sectionLabels = [
             'dashboard'              => 'Dashboard',
             'agency-tracker'         => 'Agency Tracker',
+            'deals-v2'               => 'Deal Register V2',
             'compliance'             => 'Compliance & Supervision',
             'supervision'            => 'Compliance & Supervision',
             'training'               => 'Training & Communication',

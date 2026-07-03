@@ -34,4 +34,21 @@ return [
         // Per-user morning digest send time (server tz). Scheduled in routes/console.php.
         'time' => env('DEALS_DIGEST_TIME', '07:00'),
     ],
+
+    /*
+     * WS "complete-with-reason" (anti-gaming escape valve). When a step is
+     * marked complete WITHOUT meeting its normal requirement (e.g. a doc-bearing
+     * step with no document), a structured reason is required. These are the
+     * common-reason dropdown options (agency-configurable; "Other" always allows
+     * freetext). Config-driven — never hardcoded in the view/controller.
+     */
+    'completion' => [
+        'override_reasons' => [
+            'document_filed_elsewhere' => 'Document already filed elsewhere',
+            'confirmed_verbally'       => 'Confirmed verbally / by email',
+            'client_provided_offline'  => 'Client provided outside CoreX',
+            'not_applicable'           => 'Not applicable to this deal',
+            'other'                    => 'Other (explain)',
+        ],
+    ],
 ];

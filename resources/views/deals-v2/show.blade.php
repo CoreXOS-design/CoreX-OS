@@ -376,25 +376,43 @@
                                             @if($step->completion_type === 'date_input')
                                                 <div>
                                                     <label class="block text-xs mb-1" style="color: var(--text-muted);">Date</label>
-                                                    <input type="date" name="value" required class="w-full md:w-1/2 rounded-md text-sm px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                                    <input type="date" name="value" class="w-full md:w-1/2 rounded-md text-sm px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500"
                                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                                 </div>
                                             @elseif($step->completion_type === 'amount_input')
                                                 <div>
                                                     <label class="block text-xs mb-1" style="color: var(--text-muted);">Amount (R)</label>
-                                                    <input type="number" name="value" step="0.01" min="0" required class="w-full md:w-1/2 rounded-md text-sm px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                                    <input type="number" name="value" step="0.01" min="0" class="w-full md:w-1/2 rounded-md text-sm px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500"
                                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                                 </div>
                                             @elseif($step->completion_type === 'text_input')
                                                 <div>
                                                     <label class="block text-xs mb-1" style="color: var(--text-muted);">Details</label>
-                                                    <input type="text" name="value" required maxlength="1000" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                                    <input type="text" name="value" maxlength="1000" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500"
                                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                                 </div>
                                             @elseif($step->completion_type === 'document_upload')
                                                 <div>
-                                                    <label class="block text-xs mb-1" style="color: var(--text-muted);">Upload Document (required)</label>
-                                                    <input type="file" name="file" required class="text-sm" style="color: var(--text-primary);">
+                                                    <label class="block text-xs mb-1" style="color: var(--text-muted);">Upload Document</label>
+                                                    <input type="file" name="file" class="text-sm" style="color: var(--text-primary);">
+                                                </div>
+                                            @endif
+
+                                            {{-- Complete-with-reason (anti-gaming escape valve). If the above
+                                                 requirement can't be met, a structured reason is required; normal
+                                                 met-requirements completion stays frictionless. Reasons config-driven. --}}
+                                            @if(in_array($step->completion_type, ['date_input','amount_input','text_input','document_upload','document_signed','multi_field'], true))
+                                                <div class="rounded-md p-2.5" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);">
+                                                    <label class="block text-xs mb-1 font-medium" style="color: var(--text-secondary);">Completing without the above requirement? Give a reason</label>
+                                                    <select name="reason_category" class="w-full md:w-1/2 rounded-md text-sm px-3 py-1.5 mb-2" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                        <option value="">— select a reason —</option>
+                                                        @foreach(config('deals.completion.override_reasons', []) as $rk => $rlabel)
+                                                            <option value="{{ $rk }}">{{ $rlabel }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                    <textarea name="reason" rows="2" maxlength="1000" placeholder="Short note (required only when completing without the requirement)"
+                                                              class="w-full rounded-md text-sm px-3 py-1.5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
+                                                    @error('reason')<div class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</div>@enderror
                                                 </div>
                                             @endif
 
