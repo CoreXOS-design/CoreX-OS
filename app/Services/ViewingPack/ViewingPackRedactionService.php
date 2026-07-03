@@ -38,7 +38,10 @@ class ViewingPackRedactionService
     {
         $dpi = (int) (Agency::query()->whereKey($agencyId)->value('viewing_pack_redaction_dpi') ?? 0);
         if ($dpi <= 0) {
-            return self::DEFAULT_DPI;
+            // AT-160 items 2+4 — default lowered (150→110) to shrink the embedded
+            // redacted-doc raster AND speed the on-screen redaction load. The
+            // per-agency override column still wins when set.
+            return max(self::MIN_DPI, min(self::MAX_DPI, (int) config('viewingpack.redaction_default_dpi', self::DEFAULT_DPI)));
         }
 
         return max(self::MIN_DPI, min(self::MAX_DPI, $dpi));
@@ -60,14 +63,18 @@ class ViewingPackRedactionService
         $out = [];
         try {
             foreach ($pages as $i => $img) {
+                // AT-160 item 2 — JPEG (q80), not lossless PNG: a document page is
+                // 3–10× smaller as JPEG, so the preview payload (and load time)
+                // drops sharply. The burn still rasterises from the source, so the
+                // flattened artifact is unaffected by this preview encoding.
                 ob_start();
-                imagepng($img);
+                imagejpeg($img, null, 80);
                 $bytes = (string) ob_get_clean();
                 $out[] = [
                     'index'    => $i,
                     'width'    => imagesx($img),
                     'height'   => imagesy($img),
-                    'data_uri' => 'data:image/png;base64,' . base64_encode($bytes),
+                    'data_uri' => 'data:image/jpeg;base64,' . base64_encode($bytes),
                 ];
             }
         } finally {

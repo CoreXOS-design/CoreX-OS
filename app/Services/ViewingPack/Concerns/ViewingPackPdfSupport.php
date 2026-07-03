@@ -157,13 +157,58 @@ trait ViewingPackPdfSupport
             throw new \RuntimeException('No PDF segments to assemble.');
         }
 
-        $proc = new Process(array_merge(['pdfunite'], $inputs, [$out]));
+        $merged = $out . '.merged.pdf';
+        $proc = new Process(array_merge(['pdfunite'], $inputs, [$merged]));
         $proc->setTimeout(180);
         $proc->run();
 
-        if (! $proc->isSuccessful() || ! is_file($out)) {
+        if (! $proc->isSuccessful() || ! is_file($merged)) {
             throw new \RuntimeException('pdfunite failed: ' . trim($proc->getErrorOutput()));
         }
+
+        // AT-160 item 4 — Ghostscript post-pass: pdfunite re-embeds the subset
+        // fonts once PER segment and leaves oversized raw images; a single gs
+        // pdfwrite dedupes the fonts and downsamples images. Best-effort and
+        // size-guarded — a failure or a NON-smaller result keeps the plain merge,
+        // so the pack can never regress.
+        if (! $this->optimizePdf($merged, $out)) {
+            if (! @rename($merged, $out)) {
+                copy($merged, $out);
+                @unlink($merged);
+            }
+            return;
+        }
+        @unlink($merged);
+    }
+
+    /** @return bool true only when a valid, strictly-smaller optimised PDF was written to $out. */
+    private function optimizePdf(string $in, string $out): bool
+    {
+        if (! (bool) config('viewingpack.ghostscript_optimize', true)) {
+            return false;
+        }
+
+        $proc = new Process([
+            (string) config('viewingpack.ghostscript_path', 'gs'),
+            '-sDEVICE=pdfwrite', '-dCompatibilityLevel=1.5',
+            '-dPDFSETTINGS=' . (string) config('viewingpack.gs_pdf_settings', '/ebook'),
+            '-dDownsampleColorImages=true', '-dColorImageResolution=' . (int) config('viewingpack.gs_image_dpi', 150),
+            '-dDownsampleGrayImages=true', '-dGrayImageResolution=' . (int) config('viewingpack.gs_image_dpi', 150),
+            '-dDetectDuplicateImages=true', '-dCompressFonts=true', '-dSubsetFonts=true',
+            '-dNOPAUSE', '-dBATCH', '-dQUIET', '-dSAFER',
+            '-o', $out, $in,
+        ]);
+        $proc->setTimeout(180);
+
+        try {
+            $proc->run();
+        } catch (\Throwable $e) {
+            return false;
+        }
+
+        return $proc->isSuccessful()
+            && is_file($out) && filesize($out) > 0
+            && filesize($out) <= filesize($in);
     }
 
     /** Web-process-writable dompdf font cache dir (mirrors PropertyBrochureService). */
