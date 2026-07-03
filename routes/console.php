@@ -177,6 +177,11 @@ Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOver
 Schedule::command('corex:calendar:send-digests')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
 Schedule::command('corex:calendar:reconcile')->dailyAt('03:00')->withoutOverlapping()->onOneServer();
 
+// ── Deal Register V2 (WS0) — RAG timer ──
+// Keeps persisted step/deal RAG + deal calendar-event colour in sync as deadlines
+// approach (green→amber→red→overdue), independent of user activity.
+Schedule::command('deals:process-rag')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+
 // ── Leave Management ──
 Schedule::command('corex:leave:accrue-daily')->dailyAt('02:00')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:cycle-rollover')->dailyAt('02:30')->onOneServer()->withoutOverlapping();

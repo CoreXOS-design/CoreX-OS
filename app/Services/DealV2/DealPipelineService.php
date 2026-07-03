@@ -155,6 +155,7 @@ class DealPipelineService
             }
 
             $this->recalculateExpectedRegistration($deal);
+            $this->updateDealOverallRag($deal); // WS0: seed the deal board RAG at creation
 
             $this->logActivity($deal, null, $data['created_by_id'], 'deal_created',
                 "Deal {$reference} created");
@@ -317,6 +318,7 @@ class DealPipelineService
         }
 
         $this->recalculateExpectedRegistration($completedStep->deal);
+        $this->updateDealOverallRag($completedStep->deal); // WS0: keep the deal board RAG fresh on advance
     }
 
     /**
@@ -375,6 +377,22 @@ class DealPipelineService
             return 'amber';
         }
         return 'green';
+    }
+
+    /**
+     * WS0 — canonical RAG → hex colour map. Used to paint deal calendar events
+     * so the deal board (persisted current_rag) and the calendar tile agree.
+     * Values track the design tokens (ds-green/amber/red).
+     */
+    public static function ragColour(string $rag): string
+    {
+        return match ($rag) {
+            'overdue' => '#dc2626', // deeper red — past due
+            'red'     => '#ef4444',
+            'amber'   => '#f59e0b',
+            'green'   => '#10b981',
+            default   => '#9ca3af', // grey / not-yet-tracked
+        };
     }
 
     /**

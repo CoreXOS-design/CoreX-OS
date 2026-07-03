@@ -69,6 +69,9 @@ class DealStepInstanceObserver
                     'branch_id' => $deal->branch_id,
                     'property_id' => $deal->property_id,
                     'status' => 'pending',
+                    // WS0: paint the event with the step's RAG colour so the calendar
+                    // tile and the deal board agree (deals:process-rag repaints on change).
+                    'colour' => \App\Services\DealV2\DealPipelineService::ragColour($step->current_rag ?? 'grey'),
                     'metadata' => [
                         'deal_id' => $deal->id,
                         'deal_ref' => $deal->reference,
