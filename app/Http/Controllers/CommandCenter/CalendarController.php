@@ -60,6 +60,9 @@ class CalendarController extends Controller
         $shared['deckSlots']   = $this->tiles->slotCount($user);
         // AT-164 Gate 7 — live-RAG light-poll interval (agency-configurable).
         $shared['pollSeconds'] = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarPollSeconds();
+        // AT-164 Gate 6 — layer toggles: the layer catalogue + the user's active set.
+        $shared['layerCatalog'] = \App\Services\CommandCenter\Calendar\CalendarLayers::LAYERS;
+        $shared['activeLayers'] = \App\Services\CommandCenter\Calendar\CalendarLayers::resolveActive($user, $request->input('layers'));
 
         // ── Week view ──
         if ($view === 'week') {
@@ -483,6 +486,19 @@ class CalendarController extends Controller
             'layout' => $layout,
             'cards'  => $this->tiles->buildDeck($user),
         ]);
+    }
+
+    /** AT-164 Gate 6 — persist this user's active layer set (cross-device). */
+    public function saveLayers(Request $request)
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'layers'   => ['present', 'array'],
+            'layers.*' => ['string', 'max:32'],
+        ]);
+        $active = \App\Services\CommandCenter\Calendar\CalendarLayers::save($user, $data['layers']);
+
+        return response()->json(['ok' => true, 'layers' => $active]);
     }
 
     public function show(Request $request, CalendarEvent $calendarEvent)
@@ -1519,6 +1535,10 @@ class CalendarController extends Controller
                 $bar['event'] = $filtered->first();
                 // ITEM 4 — re-sync title so a redacted private bar never leaks its real title.
                 $bar['title'] = $bar['event']->title;
+                // AT-164 Gate 6 — tag the bar with its layer so the client can show/hide it.
+                $bar['layer'] = \App\Services\CommandCenter\Calendar\CalendarLayers::layerFor(
+                    $bar['event'], $this->isAppointmentEvent($bar['event'], $user)
+                );
                 $filteredSpanningBars[] = $bar;
             }
         }
@@ -1620,6 +1640,21 @@ class CalendarController extends Controller
             'start'          => $rangeStart->toDateString(),
             'end'            => $rangeEnd->toDateString(),
         ]);
+    }
+
+    /** Memo of occupies_time by class (per request). */
+    private array $occByClass = [];
+
+    /** AT-164 Gate 6 — is this event an appointment species (occupies_time=true)? */
+    private function isAppointmentEvent($event, $user): bool
+    {
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : ($user->agency_id ?? null);
+        $class = (string) $event->category;
+        if (! array_key_exists($class, $this->occByClass)) {
+            $cfg = CalendarEventClassSetting::forAgencyAndClass($agencyId, $class);
+            $this->occByClass[$class] = $cfg ? (bool) $cfg->occupies_time : true; // unknown → appointment
+        }
+        return $this->occByClass[$class] === true;
     }
 
     private function splitSpeciesForGrid(array $filteredByDate, $user): array

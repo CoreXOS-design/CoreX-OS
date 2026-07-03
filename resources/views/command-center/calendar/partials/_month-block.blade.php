@@ -128,8 +128,9 @@
                             @endphp
                             <button type="button"
                                     data-event-id="{{ $bar['event_id'] }}"
+                                    data-layer="{{ $bar['layer'] ?? 'appointments' }}"
                                     @click.stop="openEventPanel({{ $bar['event_id'] }})"
-                                    class="absolute text-[11px] text-white font-medium px-2 truncate hover:opacity-90 transition-opacity cursor-pointer"
+                                    class="cal-layerable absolute text-[11px] text-white font-medium px-2 truncate hover:opacity-90 transition-opacity cursor-pointer"
                                     style="top: {{ $slotIdx * 22 + 2 }}px; height: 18px; line-height: 18px;
                                            left: calc(({{ $bar['start_col'] - 1 }} / 7) * 100% + 3px);
                                            width: calc(({{ $bar['span'] }} / 7) * 100% - 6px);
@@ -182,11 +183,12 @@
                                 @endphp
                                 <button type="button"
                                         data-event-id="{{ $evt->id }}"
+                                        data-layer="appointments"
                                         draggable="true"
                                         @dragstart.stop="rescheduleStartDrag({{ $evt->id }}, '{{ $dateStr }}')"
                                         @dragend="rescheduleDragOver = null"
                                         @click.stop="openEventPanel({{ $evt->id }})"
-                                        class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
+                                        class="cal-layerable block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
                                         style="{{ $chipStyle }}"
                                         title="{{ $evt->title }}{{ $isTentative ? ' (Tentative)' : '' }}{{ $isPending ? ' (Pending — accept to confirm)' : '' }}">
                                     <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>@if($isPending)<span class="text-[9px] font-bold uppercase mr-0.5" style="opacity:0.7;">PENDING</span> @endif{{ $timeRange($evt) ? $timeRange($evt) . ' ' : '' }}{{ \Illuminate\Support\Str::limit($evt->title, $isPending ? 14 : 20) }}
@@ -200,7 +202,7 @@
                             <div class="space-y-0.5 mt-0.5">
                                 @foreach($dayDeadlines as $grp)
                                     @php $gChip = $ragChip[$grp['worst']] ?? $defaultChip; @endphp
-                                    <div class="relative" x-data="{ dlOpen: false }" @click.outside="dlOpen = false">
+                                    <div class="cal-layerable relative" data-layer="{{ \App\Services\CommandCenter\Calendar\CalendarLayers::layerForType($grp['group']) }}" x-data="{ dlOpen: false }" @click.outside="dlOpen = false">
                                         <button type="button"
                                                 data-deadline-group="{{ $grp['group'] }}"
                                                 @click.stop="dlOpen = !dlOpen"

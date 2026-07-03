@@ -1304,6 +1304,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/calendar/deck', [CommandCenterCalendarController::class, 'saveDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.save');
         Route::post('/calendar/deck/reset', [CommandCenterCalendarController::class, 'resetDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.reset');
 
+        // AT-164 Gate 6 — persist the user's active layer toggles
+        Route::post('/calendar/layers', [CommandCenterCalendarController::class, 'saveLayers'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.layers.save');
+
         // Conflict check — MUST be before /calendar/{calendarEvent} wildcard
         Route::get('/calendar/check-conflicts', function (\Illuminate\Http\Request $request) {
             $svc = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class);

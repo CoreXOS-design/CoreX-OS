@@ -291,6 +291,34 @@
 
         <div class="flex-1"></div>
 
+        {{-- AT-164 Gate 6 — Layer toggles. Show/hide event species on the grid
+             (instant, client-side) + filter the Notifications tile (server-side);
+             persisted per-user (cross-device). Inline z-index (no new Tailwind
+             arbitrary class, §3). --}}
+        <div x-data="layerFilter()" x-init="initLayers()" class="relative" @click.outside="open=false">
+            <button type="button" @click="open=!open"
+                    class="corex-btn-outline text-xs inline-flex items-center gap-1.5" title="Show or hide event layers">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 6 8.25 4.5L20.25 6M3.75 12l8.25 4.5L20.25 12M3.75 18l8.25 4.5L20.25 18"/></svg>
+                <span>Layers</span>
+                <span x-show="hiddenCount>0" x-cloak class="text-[10px] px-1.5 rounded-full font-semibold"
+                      style="background: var(--brand-button); color:#fff;" x-text="hiddenCount + ' off'"></span>
+            </button>
+            <div x-show="open" x-cloak
+                 class="absolute right-0 mt-1 w-52 rounded-md py-1"
+                 style="z-index:30; background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.35);">
+                <template x-for="l in catalog" :key="l.key">
+                    <label class="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer transition-colors hover:bg-[color:var(--surface)]">
+                        <input type="checkbox" :checked="active.includes(l.key)" @change="toggle(l.key)">
+                        <span style="color: var(--text-secondary);" x-text="l.label"></span>
+                    </label>
+                </template>
+                <div class="flex justify-between px-3 py-1.5 mt-1" style="border-top: 1px solid var(--border);">
+                    <button type="button" @click="setAll(true)" class="text-[11px] font-semibold" style="color: var(--brand-button);">All</button>
+                    <button type="button" @click="setAll(false)" class="text-[11px] font-semibold" style="color: var(--text-muted);">None</button>
+                </div>
+            </div>
+        </div>
+
         {{-- Active filter badges --}}
         @if(!empty($typeFilter))
             <span class="text-[10px] px-2 py-0.5 rounded-full font-medium" style="background: var(--brand-button); color: #fff;">{{ count($typeFilter) }} types</span>
@@ -3981,6 +4009,8 @@ function calendarDeck() {
             // Live-RAG loop (Gate 7): refetch on focus/visibility + a light poll.
             window.addEventListener('focus', () => this.refresh());
             document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refresh(); });
+            // Gate 6 — when layer toggles change, the Notifications tile must re-filter server-side.
+            window.addEventListener('calendar:layers-changed', () => this.refresh());
             const secs = Math.max(15, this.pollSeconds || 60);
             this._pollTimer = setInterval(() => { if (!document.hidden && !this.editing) this.refresh(); }, secs * 1000);
         },
@@ -4186,6 +4216,8 @@ function continuousMonth() {
             else months.appendChild(node);
             // Initialise Alpine on the freshly-inserted block (chips, popovers, drag).
             if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(node);
+            // Let the layer-toggle controller hide any inactive layers in the new block.
+            window.dispatchEvent(new Event('calendar:block-appended'));
         },
 
         async scrollToDate(dateStr) {
@@ -4201,6 +4233,60 @@ function continuousMonth() {
             }
             const block = has();
             if (block) block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+    };
+}
+
+/* ══════ AT-164 Gate 6 — layer toggles ══════
+   Show/hide event species on the grid instantly (client-side, via data-layer tags)
+   and filter the Deck's Notifications tile server-side. Persisted per-user
+   (cross-device) so the choice survives reloads and other devices. Re-applies to
+   lazy-loaded month blocks; the server is authoritative — toggles never widen the
+   visibility/RAG gate, they only hide already-authorised rows. */
+function layerFilter() {
+    return {
+        open: false,
+        catalog: @json($layerCatalog ?? []),
+        active: @json($activeLayers ?? []),
+        _csrf: document.querySelector('meta[name="csrf-token"]')?.content || '',
+        _url: '{{ route('command-center.calendar.layers.save') }}',
+
+        get hiddenCount() { return Math.max(0, this.catalog.length - this.active.length); },
+
+        initLayers() {
+            this.apply();
+            // Re-apply when the continuous-scroll controller appends a new month block.
+            window.addEventListener('calendar:block-appended', () => this.apply());
+        },
+        toggle(key) {
+            this.active = this.active.includes(key)
+                ? this.active.filter(k => k !== key)
+                : [...this.active, key];
+            this.apply();
+            this.persist();
+        },
+        setAll(on) {
+            this.active = on ? this.catalog.map(l => l.key) : [];
+            this.apply();
+            this.persist();
+        },
+        apply() {
+            document.querySelectorAll('.cal-layerable').forEach(el => {
+                const layer = el.dataset.layer || 'appointments';
+                el.style.display = this.active.includes(layer) ? '' : 'none';
+            });
+        },
+        async persist() {
+            try {
+                await fetch(this._url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ layers: this.active }),
+                });
+            } catch (e) { /* silent — the client hide already applied */ }
+            // Ask the Deck to re-read (its Notifications tile filters by layer server-side).
+            window.dispatchEvent(new Event('calendar:layers-changed'));
         },
     };
 }

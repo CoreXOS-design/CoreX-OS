@@ -9,6 +9,7 @@ use App\Models\CommandCenter\CalendarUserPreference;
 use App\Models\CommandCenter\CommandTask;
 use App\Models\DealV2\DealV2;
 use App\Models\User;
+use App\Services\CommandCenter\Calendar\CalendarLayers;
 use App\Services\CommandCenter\Calendar\CalendarSourceLinkResolver;
 use App\Services\CommandCenter\Calendar\CalendarThresholdResolver;
 use App\Services\CommandCenter\Calendar\CalendarVisibilityResolver;
@@ -208,7 +209,9 @@ class CalendarTileService
         $visible = collect($this->visibility->filterVisible($raw, $user));
 
         $agencyId = $user->effectiveAgencyId();
-        $items = $visible
+        // Gate 6 — Upcoming Events is the Appointments layer; hidden when it is toggled off.
+        $appointmentsOn = in_array('appointments', CalendarLayers::resolveActive($user), true);
+        $items = ($appointmentsOn ? $visible : collect())
             ->filter(fn ($e) => $this->isAppointment($e, $agencyId))
             ->map(function ($e) {
                 $e->resolved_colour = $this->threshold->resolveForEvent($e);
@@ -252,8 +255,11 @@ class CalendarTileService
         $visible = collect($this->visibility->filterVisible($raw, $user));
 
         $agencyId = $user->effectiveAgencyId();
+        // Gate 6 — the Notifications tile respects the user's active layer toggles.
+        $active = CalendarLayers::resolveActive($user);
         $items = $visible
             ->filter(fn ($e) => ! $this->isAppointment($e, $agencyId)) // deadline species
+            ->filter(fn ($e) => in_array(CalendarLayers::layerFor($e, false), $active, true))
             ->map(function ($e) {
                 $e->resolved_colour = $this->threshold->resolveForEvent($e);
                 return $e;
