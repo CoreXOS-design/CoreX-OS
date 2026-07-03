@@ -63,6 +63,7 @@
                                             : null;
                                         $durSuffix = $duration ? ' · '.$duration : '';
                                     @endphp
+                                    @php $label = $att->isAudio() ? ('Voice note'.$durSuffix) : ('Attachment: '.($att->filename ?? 'file')); @endphp
                                     @if($att->isAudio() && $att->isPlayable())
                                         <div class="flex flex-col gap-1 w-full">
                                             <span class="text-xs" style="color:var(--text-secondary,#4b5563);">{{ 'Voice note'.$durSuffix }}</span>
@@ -71,10 +72,26 @@
                                                 Your browser cannot play this voice note.
                                             </audio>
                                         </div>
-                                    @elseif($att->isAudio())
-                                        <span class="text-xs px-2 py-1 rounded" style="background:var(--surface-2,#f0f2f8); color:var(--text-muted,#9ca3af);">{{ 'Voice note — processing'.$durSuffix }}</span>
+                                    @elseif($att->isPlayable())
+                                        {{-- Stored non-audio (image / document) — open/download. --}}
+                                        <a href="{{ route('compliance.comm-archive.attachment', $att->id) }}" target="_blank" rel="noopener"
+                                           class="text-xs px-2 py-1 rounded inline-block" style="background:var(--surface-2,#f0f2f8); color:var(--text-secondary,#4b5563);">{{ $label }}</a>
+                                    @elseif($att->isFailed())
+                                        {{-- Terminal failure — never a silent "processing" forever; offer Retry. --}}
+                                        <span class="text-xs px-2 py-1 rounded inline-flex items-center gap-2" style="background:var(--surface-2,#f0f2f8); color:var(--ds-red,#c0392b);">
+                                            {{ $label }} — unavailable
+                                            <form method="POST" action="{{ route('compliance.comm-archive.attachment.retry', $att->id) }}" class="inline">@csrf
+                                                <button type="submit" class="underline" style="color:var(--ds-blue,#2563eb);">Retry</button>
+                                            </form>
+                                        </span>
                                     @else
-                                        <span class="text-xs px-2 py-1 rounded inline-block" style="background:var(--surface-2,#f0f2f8); color:var(--text-secondary,#4b5563);">{{ 'Attachment: '.($att->filename ?? 'file') }}</span>
+                                        {{-- Pending — a background retry is running; allow a manual nudge. --}}
+                                        <span class="text-xs px-2 py-1 rounded inline-flex items-center gap-2" style="background:var(--surface-2,#f0f2f8); color:var(--text-muted,#9ca3af);">
+                                            {{ ($att->isAudio() ? 'Voice note — processing'.$durSuffix : $label.' — processing') }}
+                                            <form method="POST" action="{{ route('compliance.comm-archive.attachment.retry', $att->id) }}" class="inline">@csrf
+                                                <button type="submit" class="underline" style="color:var(--text-muted,#9ca3af);">Retry now</button>
+                                            </form>
+                                        </span>
                                     @endif
                                 @endforeach
                             </div>

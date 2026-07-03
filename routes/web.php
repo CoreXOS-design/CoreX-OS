@@ -1713,6 +1713,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-148 — authenticated media serve (WhatsApp voice notes). Streamed from
         // the mounted volume through Laravel; per-thread gated in the controller.
         Route::get('/attachment/{attachment}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'attachment'])->name('attachment');
+        // AT-148 — manual retry for a pending/failed media download.
+        Route::post('/attachment/{attachment}/retry', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'retryMedia'])->name('attachment.retry');
     });
 
     // ── Communication Archive — mailbox config (AT-33) — tighter: editing IMAP

@@ -165,6 +165,13 @@ return [
             ',',
             (string) env('WAHA_ALLOWED_MEDIA_HOSTS', '127.0.0.1,localhost')
         )))),
+        // AT-148 media retry — a download that fails at ingest is retried (the
+        // GOWS /tmp media is short-lived, so recovery re-requests it from WAHA)
+        // up to this many times with a growing backoff; after that the attachment
+        // is marked terminally 'failed' with a visible Retry affordance. Never
+        // sits on "processing" forever.
+        'media_max_retries'           => (int) env('WAHA_MEDIA_MAX_RETRIES', 3),
+        'media_retry_backoff_seconds' => (int) env('WAHA_MEDIA_RETRY_BACKOFF', 30),
     ],
 
 ];

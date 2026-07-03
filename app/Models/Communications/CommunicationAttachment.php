@@ -25,12 +25,26 @@ class CommunicationAttachment extends Model
         'agency_id', 'communication_id', 'filename', 'mime',
         'size_bytes', 'content_hash', 'storage_path',
         'media_status', 'remote_ref', 'duration_seconds',
+        'retry_count', 'last_media_error',
     ];
 
     protected $casts = [
         'size_bytes'       => 'integer',
         'duration_seconds' => 'integer',
+        'retry_count'      => 'integer',
     ];
+
+    /** Download failed at ingest; awaiting retry (renders as "processing"). */
+    public function isPending(): bool
+    {
+        return $this->media_status === self::MEDIA_PENDING;
+    }
+
+    /** Terminal give-up after max retries — the UI shows a Retry affordance. */
+    public function isFailed(): bool
+    {
+        return $this->media_status === self::MEDIA_FAILED;
+    }
 
     public function communication(): BelongsTo
     {

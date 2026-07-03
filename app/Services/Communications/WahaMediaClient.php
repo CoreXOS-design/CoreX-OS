@@ -73,15 +73,33 @@ class WahaMediaClient
         return ['bytes' => $bytes, 'mime' => $mime, 'size' => $size];
     }
 
-    /** Resolve a relative media path against the configured WAHA base URL. */
+    /**
+     * Resolve a WAHA media URL against the configured, reachable base URL.
+     *
+     * A relative path is prefixed with base_url. An ABSOLUTE url has its
+     * authority (scheme://host:port) rewritten to base_url's, keeping path+query
+     * — because the GOWS engine emits the CONTAINER-INTERNAL address
+     * (http://localhost:3000/api/files/…) which is unreachable from the CoreX app
+     * on the host (WAHA is published at 127.0.0.1:3111). Sending the raw
+     * localhost:3000 url was the cause of voice notes stuck on "processing"
+     * (AT-148 media download silently failed → media_status='pending' forever).
+     */
     private function normalizeUrl(string $url): string
     {
         if ($url === '') {
             throw new RuntimeException('Empty WAHA media URL');
         }
+        $base = rtrim((string) config('communications.waha.base_url', ''), '/');
+
         if (! preg_match('#^https?://#i', $url)) {
-            $base = (string) config('communications.waha.base_url', '');
-            $url = $base . '/' . ltrim($url, '/');
+            return $base === '' ? $url : $base . '/' . ltrim($url, '/');
+        }
+
+        // Absolute — rewrite the authority to base_url, keep the path+query.
+        if ($base !== '') {
+            $parts = parse_url($url);
+            $pathQuery = ($parts['path'] ?? '') . (isset($parts['query']) ? '?' . $parts['query'] : '');
+            return $base . $pathQuery;
         }
 
         return $url;

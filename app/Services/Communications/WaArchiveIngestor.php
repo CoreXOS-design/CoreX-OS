@@ -396,12 +396,16 @@ class WaArchiveIngestor
                         $url,
                     );
                 } catch (\Throwable $e) {
-                    Log::warning('AT-148 WA media download failed — archived media-pending', [
+                    Log::warning('AT-148 WA media download failed — archived media-pending, retry queued', [
                         'communication_id' => $communication->id,
                         'media_host'       => parse_url($url, PHP_URL_HOST),
                         'error'            => $e->getMessage(),
                     ]);
-                    $this->persistPendingAttachment($communication, $agencyId, $mime, $filename, $duration, $url);
+                    $pending = $this->persistPendingAttachment($communication, $agencyId, $mime, $filename, $duration, $url);
+                    // Never leave media stuck on "processing": a background retry
+                    // recovers it (re-requesting from WAHA) or terminally fails it.
+                    \App\Jobs\Communications\RetryWaMediaDownloadJob::dispatch($pending->id)
+                        ->delay(now()->addSeconds(max(5, (int) config('communications.waha.media_retry_backoff_seconds', 30))));
                 }
                 continue;
             }
@@ -446,8 +450,8 @@ class WaArchiveIngestor
         ?string $filename,
         ?int $duration,
         string $remoteRef,
-    ): void {
-        CommunicationAttachment::create([
+    ): CommunicationAttachment {
+        return CommunicationAttachment::create([
             'agency_id'        => $agencyId,
             'communication_id' => $communication->id,
             'filename'         => $filename,

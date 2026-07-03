@@ -157,6 +157,32 @@ class CommunicationArchiveController extends Controller
         ]);
     }
 
+    /**
+     * AT-148 — manual retry for a pending/failed media attachment (the Retry
+     * affordance in the thread). Same per-thread visibility gate as serving; runs
+     * the recovery synchronously so the user sees the result immediately.
+     */
+    public function retryMedia(CommunicationAttachment $attachment, Request $request, \App\Services\Communications\WaMediaRecoveryService $recovery)
+    {
+        $visible = $this->grants->applyArchiveVisibility(
+            Communication::query()->notPurged()->whereKey($attachment->communication_id),
+            $request->user()
+        )->exists();
+        abort_unless($visible, 404);
+
+        if (! $attachment->isPlayable()) {
+            $attachment->forceFill(['media_status' => CommunicationAttachment::MEDIA_PENDING])->save();
+            $recovery->recover($attachment->refresh());
+        }
+
+        return back()->with(
+            $attachment->refresh()->isPlayable() ? 'success' : 'error',
+            $attachment->isPlayable()
+                ? 'Media downloaded — the voice note is now playable.'
+                : 'Could not fetch the media from WhatsApp. It may no longer be available on the phone.'
+        );
+    }
+
     /** A human filename for the inline player, inferring an audio extension. */
     private function downloadName(CommunicationAttachment $attachment): string
     {
