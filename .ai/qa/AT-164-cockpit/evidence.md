@@ -30,11 +30,30 @@ preloaded so the frame overflows on first paint; the client scrolls to the curre
 | Sticky month label changes on scroll | **July → September** | **July → September** |
 | Lazy-load adds month blocks on scroll | 3 → 6 | 3 → 5 |
 
-Week view (1366×768): page does NOT scroll; the week frame is bounded and scrolls within
-the cockpit. `weekScrollableX=false` at full width (7 days fit) — true week-to-week
-horizontal windowing is a follow-up increment, not yet built.
-
 Mobile: `CalendarMobileContractTest` 2/2 — frozen envelope + opt-in deck/layers intact.
+
+## Week — horizontal continuous scroll (built + verified)
+Week now flows HORIZONTALLY as a windowed strip of day columns inside the bounded frame
+(one `_day-column` partial, lazy prepend/append via `/calendar/day-columns`, sticky time
+gutter, sticky date-range label, in-frame Today snap). Headless-measured:
+
+| Check | 1920×1080 | 1366×768 |
+|---|---|---|
+| Page scrollbar (want none) | none | none |
+| Horizontal scroll container exists | yes | yes |
+| Opens on the current week | 29 Jun – 05 Jul | 29 Jun – 05 Jul |
+| **Wheel** advances weeks (scrollLeft ↑) + label | 1232→4306, → 13 Jul–19 Jul | 1232→4084, → 13 Jul–19 Jul |
+| **Drag** advances weeks (scrollLeft ↑) + label | 4306→5006, → 20 Jul–26 Jul | 4084→4784, → 20 Jul–26 Jul |
+| Lazy-load adds day columns | 28 → 42 | 28 → 42 |
+| Deck row within viewport | yes | yes |
+
+Duplicate-day assertion after 25 appends: **0 duplicates** (unique 22 Jun → 6 Sep) — this
+caught a UTC off-by-one in the day math that was duplicating the boundary column; fixed.
+
+Day view: single day + toolbar prev/next continuity, fills the frame (per spec; no rebuild).
+
+Screenshot: `cockpit-week-1920x1080.png` — day columns flowing across week boundaries with
+the sticky "20 JUL – 26 JUL" range label and the pinned deck.
 
 ## Screenshots
 - `cockpit-month-1920x1080.png` — grid scrolled (Sep/Oct), **My Deck pinned + fully visible
