@@ -513,6 +513,28 @@
                                             </button>
                                         @endforeach
                                     </div>
+
+                                    {{-- AT-164 Gate 1 — aggregate deadline chips. All system deadlines for a
+                                         (day × group) collapse to ONE chip, coloured by the worst RAG in the
+                                         group, so a day of portal expiries shows "6 Listings" not 6 red bars.
+                                         (Gate 2 adds the click-through popover + per-item deep links.) --}}
+                                    @php $dayDeadlines = $deadlineGroups[$dateStr] ?? []; @endphp
+                                    @if(!empty($dayDeadlines))
+                                        <div class="space-y-0.5 mt-0.5">
+                                            @foreach($dayDeadlines as $grp)
+                                                @php $gChip = $ragChip[$grp['worst']] ?? $defaultChip; @endphp
+                                                <button type="button"
+                                                        data-deadline-group="{{ $grp['group'] }}"
+                                                        @click.stop="selectDate('{{ $dateStr }}')"
+                                                        class="flex w-full items-center gap-1 text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity cursor-pointer"
+                                                        style="{{ $gChip }}"
+                                                        title="{{ $grp['count'] }} {{ $grp['label'] }} due this day">
+                                                    <span class="font-bold">{{ $grp['count'] }}</span>
+                                                    <span class="truncate">{{ $grp['label'] }}</span>
+                                                </button>
+                                            @endforeach
+                                        </div>
+                                    @endif
                                 </div>
                             @endforeach
                         </div>
