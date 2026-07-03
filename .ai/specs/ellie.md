@@ -1,9 +1,12 @@
 # Spec: Ellie
 
-**Status:** Live (KB + web search + Navigation Atlas) — pillar awareness and document review are Phase 2
+**Status:** Live (KB + web search + Navigation Atlas + Tour Knowledge) — pillar awareness and document review are Phase 2
 
 > **Navigation Atlas (live).** Ellie answers "where do I go to…" questions with the
 > real, permission-filtered page link. See `.ai/specs/ellie-navigation-atlas.md`.
+>
+> **Tour Knowledge (live).** Ellie answers "how do I do X" by reading the 88 guided
+> tours (step-by-step, agent-facing, permission-gated). See `.ai/specs/ellie-tour-knowledge.md`.
 
 ---
 
