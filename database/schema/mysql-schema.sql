@@ -4000,7 +4000,7 @@ CREATE TABLE `deals_v2` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `reference` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `deal_type` enum('bond','cash','sale_of_2nd') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `status` enum('active','completed','cancelled','on_hold') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `status` enum('active','granted','completed','cancelled','on_hold') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `property_id` bigint unsigned NOT NULL,
   `listing_agent_id` bigint unsigned NOT NULL,
   `selling_agent_id` bigint unsigned DEFAULT NULL,
@@ -12600,3 +12600,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (936,'2026_07_02_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (937,'2026_07_02_100001_add_calendar_recurrence_limits_to_agency_contact_settings',203);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (938,'2026_07_02_120000_add_wa_self_link_to_agencies',203);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (939,'2026_07_03_090000_add_media_retry_to_communication_attachments',204);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (940,'2026_07_03_000001_add_granted_to_deals_v2_status_enum',205);
