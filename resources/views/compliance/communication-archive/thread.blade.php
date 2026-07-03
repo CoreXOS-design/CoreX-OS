@@ -21,12 +21,19 @@
         total: @js((int) ($total ?? 0)),
      })"
      x-init="init()">
-    <x-page-header title="Conversation Thread" :back-route="$backRoute" :back-label="$backLabel" :flush="true" />
+    {{-- AT-168 defect fix — the page header is NOT sticky on this page: it and the
+         toolbar below both defaulted to `sticky top-0` inside the scrolling <main>,
+         and the header (z-30) then rendered OVER the toolbar (z-10), clipping it.
+         The toolbar is the only sticky control here, so the header scrolls away and
+         the toolbar always stays fully visible. --}}
+    <x-page-header title="Conversation Thread" :back-route="$backRoute" :back-label="$backLabel" :flush="true" :sticky="false" />
 
     {{-- AT-168 Part C — thread toolbar: in-thread search (jump + highlight),
-         oldest/newest jump, date jump. Sticky so it stays reachable while scrolling. --}}
-    <div class="px-4 lg:px-6 py-2 sticky top-0 z-10 flex flex-wrap items-center gap-2"
-         style="background:var(--surface-1,var(--surface,#fff)); border-bottom:1px solid var(--border,#e5e7eb);">
+         oldest/newest jump, date jump. The ONLY sticky element on the page (see
+         above), so nothing overlaps it. Inline z-index (critical layering — a
+         Tailwind arbitrary z class wouldn't compile on a blade-only deploy). --}}
+    <div class="px-4 lg:px-6 py-2 sticky flex flex-wrap items-center gap-2"
+         style="top:0; z-index:20; background:var(--surface-1,var(--surface,#fff)); border-bottom:1px solid var(--border,#e5e7eb);">
         <div class="flex items-center gap-1">
             <input type="search" placeholder="Search this conversation…" x-model.debounce.300ms="term" @keydown.enter.prevent="runSearch()" @input="if(term.length<2) clearSearch()"
                    class="text-sm rounded px-3 py-1.5" style="background:var(--surface-2,#f0f2f8); color:var(--text-primary,#111827); border:1px solid var(--border,#e5e7eb); min-width:200px;">
@@ -85,6 +92,7 @@ function waThread(cfg) {
         cursor: cfg.cursor,
         total: cfg.total,
         loading: false,
+        ready: false,
         term: '',
         matches: [],
         matchIndex: -1,
@@ -92,13 +100,26 @@ function waThread(cfg) {
         jumpDate: '',
 
         init() {
-            // Open on the newest message (WhatsApp-style).
-            this.$nextTick(() => this.scrollToBottom());
-            // Lazy-load older when the top sentinel scrolls into view.
+            // Open on the NEWEST message (WhatsApp-style), on EVERY entry path.
+            this.openAtNewest();
+            // Lazy-load older when the top sentinel scrolls into view — but ONLY
+            // after the initial scroll-to-newest has settled. Otherwise the sentinel
+            // is in view on first paint and auto-loads older pages all the way to the
+            // top ("opened at Start of conversation" — the reported defect).
             const obs = new IntersectionObserver((entries) => {
-                if (entries.some(e => e.isIntersecting)) this.loadOlder();
+                if (this.ready && entries.some(e => e.isIntersecting)) this.loadOlder();
             }, { root: this.$refs.scroller, threshold: 0.1 });
             obs.observe(this.$refs.sentinel);
+        },
+
+        openAtNewest() {
+            // Double-rAF so layout (audio players, transcript rows) is settled before
+            // we measure scrollHeight; re-assert once more, THEN arm the loader.
+            const raf2 = (cb) => requestAnimationFrame(() => requestAnimationFrame(cb));
+            raf2(() => {
+                this.scrollToBottom();
+                raf2(() => { this.scrollToBottom(); this.ready = true; });
+            });
         },
 
         loadedCount() { return this.$refs.messages ? this.$refs.messages.querySelectorAll('.cx-msg').length : 0; },
