@@ -165,6 +165,33 @@ Each form opts in by composing `draft({...})` with its allowlist. Effort buckets
 Roll-out order: land the module + the reference form (property capture) first, prove the pattern, then the S
 forms, then M, then L. Each form's PR includes its allowlist and a note of excluded sensitive fields.
 
+## 9A. Complements folded in (from §2A alternatives — approved for this build)
+Client-side draft *recovers* work; these two cheap complements *prevent* the loss so the agent rarely sees it. Both
+ship in the same increment as the draft layer, as separate opt-in modules so a form can adopt any subset.
+
+**Resilient submit (complement C)** — `resources/js/resilient-submit.js`. Wraps a form's submit: on a failed POST
+(offline / 419 CSRF / 5xx) it does NOT blank the form — it holds the payload (the live draft is already the backing
+store), refreshes the CSRF token from the `meta[name=csrf-token]`, shows a quiet "Couldn't reach the server — your
+work is safe; retrying…" line, and auto-retries when `navigator.onLine` returns (with a manual "Retry now" button).
+Opt in with `data-resilient-submit` on the `<form>`. For full-page-POST forms it intercepts submit, POSTs via fetch,
+and on success follows the redirect; on failure it stays put with the form intact.
+
+**Session keepalive + offline indicator (complements D + E)** — `resources/js/session-keepalive.js` + a global
+indicator. While a registered long form is on screen, a lightweight heartbeat pings `GET /api/v1/session/ping`
+(registered, name `api.v1.session.ping`, discoverable in the API catalog per non-negotiable #7) on a configurable
+interval (default 4 min, under the session lifetime) so a 40-minute capture doesn't lapse into a 419 on submit. A
+global connectivity indicator (driven by `online`/`offline` events) shows "Offline — your work is being saved on this
+device" so silent loss becomes a visible, trusted state. The ping is a no-op JSON `{ok:true}` that also refreshes the
+session cookie; it is skipped when `navigator.onLine` is false (no point pinging into a dead network).
+
+**Clear-on-save honesty (full-page-POST forms)** — a pure-client layer cannot detect a successful submit *after* the
+browser redirects away, so clear-on-save for redirect forms uses a minimal, reusable server signal: on a successful
+`store`/`update` the controller calls `CoreXDraft::clearOnSave($form, $recordId)` (helper flashes
+`corex_clear_drafts` to the session); the layout renders it into a `meta[name=corex-clear-drafts]` tag; the module
+clears those keys on the next load. AJAX forms (deals-v2, e-sign) call `clear()` directly and need no server signal.
+This is the one deliberate, honest server touch — everything else remains 100% client. (Supersedes the "server touch
+= none" line in §3 for the specific case of redirect-based forms.)
+
 ## 10. Doctrine
 - **Configurable:** `autosaveMs`, `ttlDays`, storage backend threshold, and per-form allowlists — agency/global
   configurable where it makes sense (autosave interval, TTL); allowlists are per-form code (not user-editable).

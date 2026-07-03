@@ -40,12 +40,24 @@
         </div>
     @endif
 
+    {{-- AT-165 offline draft persistence: declarative opt-in. Allowlist is POPIA-safe
+         (public-ish listing data only — no ID/bank/tax fields exist on this form).
+         gallery_images[] (file input) and publish buttons are intentionally excluded. --}}
     <form method="POST"
           action="{{ $property ? route('corex.properties.update', $property) : route('corex.properties.store') }}"
           enctype="multipart/form-data"
           class="space-y-5"
           id="property-form"
-          novalidate>
+          novalidate
+          data-draft='@json([
+              "form"      => "property_capture",
+              "recordId"  => $property?->id,
+              "version"   => $property?->updated_at?->toIso8601String(),
+              "autosaveMs"=> 1500,
+              "ttlDays"   => 7,
+              "storage"   => "auto",
+          ])'
+          data-draft-fields="listing_type,title,agent_id,price,property_type,street_number,street_name,address,latitude,longitude,excerpt,description,region,mandate_type,branch_id,status,property_number,complex_name,unit_number,district,rental_amount,deposit_amount,lease_start_date,lease_end_date,suburb,city,province">
         @csrf
         @if($property) @method('PUT') @endif
 
