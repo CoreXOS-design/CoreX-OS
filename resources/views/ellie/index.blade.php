@@ -135,7 +135,7 @@
               @php $isUser = ($m->role ?? '') === 'user'; @endphp
               <div class="bubble {{ $isUser ? 'user' : 'assistant' }}">
                 <div class="role">{{ $isUser ? 'You' : 'Ellie' }}</div>
-                {{ $m->content }}
+                <span class="bubble-content">{{ $m->content }}</span>
               </div>
             @empty
               <div class="ellie-empty">Hi, I'm Ellie. Ask me anything about your performance, targets, listings, or next actions.</div>
@@ -193,5 +193,33 @@
       }
     });
   })();
+
+  // ELLIE_LINKIFY_FOLLOW_2026: make bare internal paths in Ellie's replies
+  // clickable, and when the user clicks one, hand off to the floating widget so
+  // Ellie "follows" onto the destination page with the same steps.
+  (function(){
+    const FOLLOW_KEY = 'ellie_follow_v1';
+    const OPEN_KEY = 'ellie_open_v1';
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function linkify(text){
+      return escapeHtml(text).replace(/(^|[\s(])(\/[A-Za-z][\w\-\/]*)/g,
+        (m, pre, path) => pre + '<a href="' + path + '" class="ellie-link" data-ellie-link="1">' + path + '</a>');
+    }
+    document.querySelectorAll('.bubble.assistant .bubble-content').forEach(el => {
+      el.innerHTML = linkify(el.textContent);
+    });
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest('a[data-ellie-link]');
+      if (!a) return;
+      const bubble = a.closest('.bubble.assistant');
+      const stepsText = bubble ? (bubble.querySelector('.bubble-content')?.textContent || '') : '';
+      if (stepsText) { try { localStorage.setItem(FOLLOW_KEY, JSON.stringify({ text: stepsText, ts: Date.now() })); } catch(_){} }
+      localStorage.setItem(OPEN_KEY, '1');
+    });
+  })();
 </script>
+<style>
+  .bubble.assistant .ellie-link { color: var(--brand-button); font-weight: 600; text-decoration: underline; word-break: break-all; }
+  .bubble.assistant .ellie-link:hover { opacity: 0.85; }
+</style>
 @endsection

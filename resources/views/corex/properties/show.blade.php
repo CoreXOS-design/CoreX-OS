@@ -3646,6 +3646,23 @@
             </div>
 
             <script>
+            // Split a file selection into POST batches that stay under BOTH the
+            // server's max_file_uploads (count) AND post_max_size (bytes). A file
+            // larger than maxBytes still ships alone — the 50MB per-file rule keeps
+            // a lone file under post_max_size. Batching by count alone let large
+            // photo sets exceed post_max_size and the server returned HTTP 413.
+            window.planUploadBatches = window.planUploadBatches || function (files, maxCount, maxBytes) {
+                const batches = [];
+                let cur = [], curBytes = 0;
+                for (const f of files) {
+                    if (cur.length && (cur.length >= maxCount || curBytes + f.size > maxBytes)) {
+                        batches.push(cur); cur = []; curBytes = 0;
+                    }
+                    cur.push(f); curBytes += f.size;
+                }
+                if (cur.length) batches.push(cur);
+                return batches;
+            };
             function galleryUploader(endpoint, csrf) {
                 return {
                     files: [],
@@ -3690,15 +3707,28 @@
                     },
                     async upload() {
                         if (!this.files.length) return;
+                        // Reject anything over the server's per-file limit (500MB) up
+                        // front, with a clear message — beats a raw server error.
+                        const MAX_FILE = 500 * 1024 * 1024;
+                        const tooBig = this.files.find(f => f.size > MAX_FILE);
+                        if (tooBig) {
+                            this.errorMsg = '"' + tooBig.name + '" is ' + Math.round(tooBig.size / 1048576) +
+                                'MB — the limit is 500MB per image. Please resize it and try again.';
+                            return;
+                        }
                         this.uploading = true;
                         this.percent = 0;
                         this._done = 0;
                         this.statusText = 'Uploading...';
                         this.errorMsg = '';
-                        const BATCH = 10;
+                        // Group into POSTs bounded by BOTH file count (PHP
+                        // max_file_uploads) AND total bytes (must stay under
+                        // post_max_size, ~550MB on the server). A count-only batch of
+                        // large photos previously blew past post_max_size and the
+                        // server rejected the whole POST with HTTP 413.
+                        const batches = window.planUploadBatches(this.files, 10, 500 * 1024 * 1024);
                         try {
-                            for (let i = 0; i < this.files.length; i += BATCH) {
-                                const chunk = this.files.slice(i, i + BATCH);
+                            for (const chunk of batches) {
                                 await this.uploadChunk(chunk);
                                 this._done += chunk.length;
                                 this.percent = Math.min(99, Math.round((this._done / this.files.length) * 100));
@@ -4399,13 +4429,13 @@
                     this.uploadingKey = key;
                     this.percent = 0;
                     this.error = '';
-                    // Batch to stay under PHP max_file_uploads (default 20); the bar
-                    // climbs smoothly across all batches via `done`.
-                    const BATCH = 10;
+                    // Batch under BOTH PHP max_file_uploads (count) AND post_max_size
+                    // (bytes) — a count-only batch of large photos overran
+                    // post_max_size and the server rejected the POST with HTTP 413.
+                    const batches = window.planUploadBatches(files, 10, 500 * 1024 * 1024);
                     let done = 0, latest = null;
                     try {
-                        for (let i = 0; i < files.length; i += BATCH) {
-                            const chunk = files.slice(i, i + BATCH);
+                        for (const chunk of batches) {
                             latest = await this._uploadChunk(section, customId, chunk, done, files.length);
                             done += chunk.length;
                             this.percent = Math.min(99, Math.round((done / files.length) * 100));
@@ -7743,7 +7773,11 @@ function websiteSyndication(config) {
         if (form.dataset.galleryAjaxBypass === '1') { delete form.dataset.galleryAjaxBypass; return; }
         if (e.defaultPrevented) return;                  // required-fields modal already blocked
         var files = Array.from(galleryInput.files || []);
-        if (files.length <= MAX_SINGLE_POST) return;     // native submit handles it fine
+        var totalBytes = files.reduce(function (s, f) { return s + f.size; }, 0);
+        // Native submit is safe only when the whole gallery fits in ONE POST —
+        // under both max_file_uploads (count) AND post_max_size (~550MB, bytes).
+        // Otherwise fall through to the AJAX batch path, which never trips 413.
+        if (files.length <= MAX_SINGLE_POST && totalBytes <= 500 * 1024 * 1024) return;
         if (!hasLinkedContact()) return;                 // let the contact guard surface its modal
 
         e.preventDefault();
@@ -7790,12 +7824,15 @@ function websiteSyndication(config) {
             return;
         }
 
-        // 2) Batch-upload the gallery to the new property (each batch < cap).
+        // 2) Batch-upload the gallery to the new property. Batches are bounded by
+        //    BOTH file count (max_file_uploads) AND total bytes (post_max_size) so
+        //    a POST never overruns the server limit and returns HTTP 413.
         var id = created.property.id;
         var uploadUrl = UPLOAD_BASE + '/' + id + '/upload-images';
         var done = 0, failed = 0;
-        for (var i = 0; i < files.length; i += BATCH) {
-            var chunk = files.slice(i, i + BATCH);
+        var batches = window.planUploadBatches(files, BATCH, 500 * 1024 * 1024);
+        for (var bi = 0; bi < batches.length; bi++) {
+            var chunk = batches[bi];
             var body = new FormData();
             body.append('_token', token);
             body.append('group', 'gallery_images');
