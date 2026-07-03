@@ -106,6 +106,18 @@ class DealV2 extends Model
             ->withPivot('role');
     }
 
+    /**
+     * WS2 (D2) — provider parties on the deal: rows of deal_v2_contacts keyed by
+     * agency_service_provider_id (contact_id NULL). A deal party is a contact OR
+     * a directory provider; this is the provider side.
+     */
+    public function providerParties(): BelongsToMany
+    {
+        return $this->belongsToMany(AgencyServiceProvider::class, 'deal_v2_contacts', 'deal_id', 'agency_service_provider_id')
+            ->withPivot('role')
+            ->wherePivotNotNull('agency_service_provider_id');
+    }
+
     public function agents(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'deal_v2_agents', 'deal_id', 'user_id')
