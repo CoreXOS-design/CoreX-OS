@@ -25,8 +25,35 @@ returns, and it does **not** make CoreX usable with no server. That is a separat
 "AT-xxx offline-first sync") with its own spec. The draft layer's honesty contract: **it never tells the user
 their work is "saved" — only "draft saved on this device."**
 
+## 2A. Alternative solutions considered — "is there a better fix for the internet-loss problem?"
+The incident: a connection/session drop **on submit** discarded an hour of typed capture. The full solution space,
+ranked honestly. **The disqualifier that shapes everything:** the failure *is the network being gone*, so any fix
+that needs the network *at the moment of loss* cannot be the primary defence. That single fact eliminates
+server-side approaches as the primary answer.
+
+| Option | What it is | Verdict |
+|---|---|---|
+| **B. Client-side draft autosave** (this spec) | Writes form state to browser storage as you type; never leaves the device | **Correct primary.** The only approach that works with **zero network**. Weaknesses (single-device, PII-on-device, no cross-device resume) are bounded by TTL + allowlist + clear-on-save. |
+| A. Server-side incremental autosave | POST each field/step to a draft record (as e-sign & property wizard already do) | Excellent *complement* (survives device loss/theft, cross-device resume, no PII-on-device) but **useless as the primary** — it needs the very network that failed. Best used as the flush target once connectivity returns. |
+| **C. Resilient submit (hold-payload-and-retry)** | On a failed submit (offline / 419 CSRF / 5xx) **don't navigate away**: keep the payload (backed by the client draft), refresh CSRF, show "couldn't save — retrying," auto-retry when `navigator.onLine` returns | **Strongly recommend pairing with AT-165.** The incident's *proximate* cause was a failed POST that blanked the form. Draft autosave *recovers* from that; resilient submit *prevents* it. Cheap, per-form. Together they mean the agent rarely even sees a loss. |
+| D. Session-expiry hardening | Keepalive heartbeat on long forms + CSRF token refresh + longer session lifetime on capture routes | Attacks the specific "DB session dropped on submit" (419) failure mode that draft autosave only recovers from. Cheap add-on. |
+| E. Connectivity awareness | Online/offline indicator ("You're offline — saving on this device") + `beforeunload` guard | Doesn't save data itself but converts silent loss into a visible, trusted state. Cheap, high-trust, pairs with B. |
+| F. Wizardisation / shorter forms | Break long captures into small server-saved steps | Partial mitigation, large UX rework, no help *within* a step. Structural nice-to-have, not a substitute. |
+| **G. Full offline-first sync** | Service worker + background-sync queue of submissions + offline reads + conflict merge | The **north star superset** (§2 boundary). A programme, not a layer. AT-165's client draft store is its first load-bearing brick — build the keyed store so the future sync queue can adopt it. |
+
+**Recommendation:** client-side draft autosave (B) is the right primary — nothing else survives a dead network. To
+actually kill the *incident class* rather than just recover from it, pair AT-165 with **C (resilient submit)** and
+**D/E (session keepalive + connectivity indicator)**. Those three are small, complementary, and each attacks a
+different link in the failure chain. The hybrid client→server flush (A) and full offline-first (G) are the roadmap
+*beyond* this ticket. This spec builds B and is written so C/D/E slot in without rework.
+
 ## 3. The one layer (not per-form hacks)
-Generalise the **existing** reference implementation `resources/views/marketing/hub.blade.php:27-59` (per-record
+Three client-side draft precedents already exist in the codebase (audit "Existing client-side persistence"):
+`marketing/hub` (localStorage, long-term — the reference), `command-center/calendar` create-event (sessionStorage,
+view-switch survival), and `docuperfect/templates/cds-builder` (its own `manualSaveDraft`). The module **generalises
+hub and reconciles the other two** so CoreX ships one draft layer with one "draft saved" language, not three dialects.
+
+Generalise the **existing** reference implementation `resources/views/marketing/hub.blade.php:27-58` (per-record
 key, `$watch` allowlist, restore, clear-on-publish) into a single Alpine-compatible module. Ship it as an
 Alpine plugin/mixin registered globally (e.g. `resources/js/draft-persistence.js`, imported in the app bundle),
 exposing a small contract a form's `x-data` composes in:
@@ -121,6 +148,10 @@ required (keeps the M-effort forms cheap; see the audit's effort buckets).
   version, so no conflict path.)
 
 ## 9. Per-form registration (from the audit)
+**Scope note:** the audit's original 15 forms was **not complete** — a verification sweep found ~11 more qualifying
+long forms (commercial evaluation, payroll take-on, admin user create/edit, whistleblow intake, calendar/task create,
+doc-pack & ad builders, training content) plus 2 already-drafting precedents (calendar, cds-builder). The real
+roll-out surface is **~26 forms**, so §9's phased order matters more than first thought — do NOT wire all at once.
 Each form opts in by composing `draft({...})` with its allowlist. Effort buckets (full table in the audit):
 - **S (already Alpine):** deals-v2 create, property wizard (bridge pre-server-draft only), prospecting contact,
   FICA (strict allowlist).
