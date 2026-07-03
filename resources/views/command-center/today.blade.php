@@ -68,111 +68,13 @@
 
             {{-- Card grid: capped at 4 cols, responsive --}}
             <div class="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {{-- AT-164 Gate 3 — unified <x-tile> shell (shared with the Calendar Deck).
+                     Replaces the bespoke inline card markup; same data, richer contract
+                     (independent scroll, RAG accent, per-row new-tab, collapse). --}}
                 <template x-for="card in group.cards" :key="card.card_id">
-                    <a :href="card.view_all_url || '#'"
-                       class="group flex flex-col rounded-md overflow-hidden transition-all no-underline hover:-translate-y-0.5 shadow-sm hover:shadow h-full"
-                       :style="cardStyle(card)"
-                       @mouseenter="hoveredCard = card.card_id" @mouseleave="hoveredCard = null">
-
-                        {{-- ─── Compact (disabled — always detailed) ─── --}}
-                        <div x-show="false" class="p-4 flex flex-col gap-3 min-h-[140px]">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="flex items-center gap-2 min-w-0">
-                                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
-                                         :style="'background: color-mix(in srgb, ' + urgencyColour(card.urgency) + ' 15%, transparent); color: ' + urgencyColour(card.urgency)">
-                                        <span x-html="cardIcon(card.icon)" class="w-4 h-4"></span>
-                                    </div>
-                                    <span class="text-[0.6875rem] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded-md"
-                                          :style="'background: color-mix(in srgb, ' + urgencyColour(card.urgency) + ' 12%, transparent); color: ' + urgencyColour(card.urgency)"
-                                          x-text="urgencyLabel(card.urgency)"></span>
-                                </div>
-                                <span class="font-bold tabular-nums leading-none text-3xl"
-                                      :style="card.count > 0 ? 'color:' + urgencyColour(card.urgency) : 'color:var(--text-muted);opacity:0.35;'"
-                                      x-text="card.count > 99 ? '99+' : (card.count || '0')"></span>
-                            </div>
-                            <div class="mt-auto">
-                                <div class="text-sm font-semibold leading-tight truncate" style="color:var(--text-primary);" x-text="card.title"></div>
-                                <div class="text-xs mt-1 truncate" style="color:var(--text-muted);" x-text="compactPreview(card)"></div>
-                            </div>
-                        </div>
-
-                        {{-- ─── Detailed ─── --}}
-                        <div class="p-5 flex flex-col flex-1 min-h-[190px]">
-                            <div class="flex items-center justify-between mb-4 gap-3">
-                                <div class="flex items-center gap-3 min-w-0">
-                                    <div class="w-10 h-10 rounded-md flex items-center justify-center flex-shrink-0"
-                                         :style="'background: color-mix(in srgb, ' + urgencyColour(card.urgency) + ' 15%, transparent); color: ' + urgencyColour(card.urgency)">
-                                        <span x-html="cardIcon(card.icon)" class="w-[1.125rem] h-[1.125rem]"></span>
-                                    </div>
-                                    <div class="min-w-0">
-                                        <h3 class="text-sm font-semibold truncate leading-tight" style="color: var(--text-primary);" x-text="card.title"></h3>
-                                        <span class="text-[0.6875rem] uppercase tracking-wider font-semibold"
-                                              :style="'color: ' + urgencyColour(card.urgency)"
-                                              x-text="urgencyLabel(card.urgency)"></span>
-                                    </div>
-                                </div>
-                                <span x-show="card.count > 0" class="text-2xl font-bold flex-shrink-0 tabular-nums leading-none"
-                                      :style="'color:' + urgencyColour(card.urgency)" x-text="card.count > 99 ? '99+' : card.count"></span>
-                            </div>
-
-                            {{-- Inline invitation actions --}}
-                            <template x-if="card.card_id === 'pending_invitations'">
-                                <div class="flex-1 space-y-2 text-xs">
-                                    <template x-for="item in card.items.slice(0,3)" :key="item.id">
-                                        <div>
-                                            <div class="truncate font-medium" style="color:var(--text-primary);" x-text="item.title"></div>
-                                            <div class="flex items-center gap-1 mt-1">
-                                                <button type="button" @click.prevent="respondInvitation(item, 'accepted')" class="text-[0.6875rem] px-2 py-0.5 rounded-md text-white font-semibold" style="background: var(--ds-green, #059669);">Accept</button>
-                                                <button type="button" @click.prevent="respondInvitation(item, 'tentative')" class="text-[0.6875rem] px-2 py-0.5 rounded-md font-semibold" style="color: var(--ds-amber, #f59e0b); background: var(--surface); border: 1px solid var(--border);">Tentative</button>
-                                                <button type="button" @click.prevent="respondInvitation(item, 'declined')" class="text-[0.6875rem] px-2 py-0.5 rounded-md font-semibold" style="color: var(--ds-crimson, #c41e3a); background: var(--surface); border: 1px solid var(--border);">Decline</button>
-                                            </div>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
-
-                            {{-- Pipeline / breakdown --}}
-                            <template x-if="['active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing'].includes(card.card_id)">
-                                <div class="flex-1 space-y-2.5 text-xs min-w-0">
-                                    <template x-for="item in card.items" :key="item.label">
-                                        <div class="flex items-center justify-between gap-2 min-w-0">
-                                            <div class="flex items-center gap-2 min-w-0 flex-1">
-                                                <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + item.colour"></span>
-                                                <span class="truncate" style="color:var(--text-secondary);" x-text="item.label"></span>
-                                            </div>
-                                            <span class="font-bold tabular-nums flex-shrink-0" style="color:var(--text-primary);" x-text="item.value"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
-
-                            {{-- Agency snapshot --}}
-                            <template x-if="card.card_id === 'agency_health'">
-                                <div class="flex-1 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-                                    <template x-for="item in card.items" :key="'ah'"><template x-if="true"><div class="contents">
-                                        <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.agents"></span> <span style="color:var(--text-muted);">agents</span></div>
-                                        <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.listings"></span> <span style="color:var(--text-muted);">listings</span></div>
-                                        <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.active_buyers"></span> <span style="color:var(--text-muted);">buyers</span></div>
-                                        <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.lost_value_30d"></span> <span style="color:var(--text-muted);">lost</span></div>
-                                    </div></template></template>
-                                </div>
-                            </template>
-
-                            {{-- Generic list --}}
-                            <template x-if="!['pending_invitations','active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing','agency_health'].includes(card.card_id)">
-                                <div class="flex-1 space-y-2 text-xs">
-                                    <template x-for="(item, idx) in card.items.slice(0, 4)" :key="idx">
-                                        <div class="truncate leading-relaxed" style="color:var(--text-secondary);" x-text="detailedItemText(card, item)"></div>
-                                    </template>
-                                    <template x-if="card.items.length > 4"><div class="text-[0.6875rem]" style="color: var(--text-muted);" x-text="'+ ' + (card.items.length - 4) + ' more'"></div></template>
-                                </div>
-                            </template>
-
-                            <div class="mt-auto pt-3 text-xs font-semibold flex items-center gap-1" style="color:var(--brand-button);border-top:1px solid var(--border);">
-                                <span>View all</span><span class="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
-                            </div>
-                        </div>
-                    </a>
+                    <div class="h-full">
+                        <x-tile :var="'card'" />
+                    </div>
                 </template>
             </div>
         </section>
