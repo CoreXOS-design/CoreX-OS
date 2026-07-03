@@ -4,6 +4,7 @@ namespace App\Http\Controllers\DealV2;
 
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
+use App\Models\CommandCenter\CalendarUserPreference;
 use App\Models\Contact;
 use App\Models\DealV2\DealPipelineTemplate;
 use App\Models\DealV2\DealStepInstance;
@@ -104,11 +105,14 @@ class DealV2Controller extends Controller
                 return $ms?->name ?? 'Not started';
             });
 
+        $icalToken = optional(CalendarUserPreference::where('user_id', $user->id)->first())->ical_token;
+
         return view('deals-v2.overview', [
             'cards'          => $cards,
             'board'          => $board,
             'scope'          => $scope,
             'permittedScope' => $permitted ?: 'own',
+            'icalToken'      => $icalToken,
         ]);
     }
 

@@ -654,8 +654,15 @@ Route::prefix('deals-v2/secure-doc')->group(function () {
     Route::get('/{token}/download', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'download'])->name('deals-v2.secure-doc.download');
 });
 
+// WS8 (§12) — PUBLIC per-user iCal deal feed (no auth: calendar apps poll the raw
+// tokenised URL). Read-only; the token resolves the user + their permitted scope.
+Route::get('/deals-v2/ical/{token}.ics', [\App\Http\Controllers\DealV2\DealIcalController::class, 'feed'])->name('deals-v2.ical');
+
 Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:access_deal_register_v2');
+    // WS8 — manage the personal iCal feed token (rotate / disable).
+    Route::post('/ical/regenerate', [\App\Http\Controllers\DealV2\DealIcalController::class, 'regenerate'])->name('deals-v2.ical.regenerate')->middleware('permission:access_deal_register_v2');
+    Route::post('/ical/disable', [\App\Http\Controllers\DealV2\DealIcalController::class, 'disable'])->name('deals-v2.ical.disable')->middleware('permission:access_deal_register_v2');
     // WS8 (§12) — pipeline overview (KPI cards + milestone board), branch_manager
     // + admin only; and CSV export of the filtered register. Static paths BEFORE
     // the /{deal} wildcard so they are not captured as a deal id.

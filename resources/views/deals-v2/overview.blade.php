@@ -94,5 +94,34 @@
             </div>
         @endif
     </div>
+
+    {{-- WS8 (§12) — subscribe: per-user iCal feed of your deal deadlines. --}}
+    <div class="rounded-md p-4" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <div class="text-sm font-semibold" style="color: var(--text-primary, #111827);">Subscribe in your calendar</div>
+                <p class="text-xs" style="color: var(--text-muted, #6b7280);">A private, read-only feed of your deal-step deadlines. Paste this URL into Google/Apple/Outlook calendar subscriptions.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                @if($icalToken)
+                    <input type="text" readonly value="{{ route('deals-v2.ical', $icalToken) }}" onclick="this.select()"
+                           class="text-xs rounded px-2 py-1.5" style="min-width: 320px; background: var(--surface-2, #f0f2f8); color: var(--text-secondary, #374151); border: 1px solid var(--border, #e5e7eb);">
+                    <form method="POST" action="{{ route('deals-v2.ical.regenerate') }}">@csrf
+                        <button type="submit" class="text-xs px-2.5 py-1.5 rounded font-semibold" style="border: 1px solid var(--border, #e5e7eb); color: var(--text-secondary, #4b5563);" title="Issue a new link; the old one stops working">Regenerate</button>
+                    </form>
+                    <form method="POST" action="{{ route('deals-v2.ical.disable') }}">@csrf
+                        <button type="submit" class="text-xs px-2.5 py-1.5 rounded" style="border: 1px solid var(--border, #e5e7eb); color: var(--ds-red, #c0392b);">Disable</button>
+                    </form>
+                @else
+                    <form method="POST" action="{{ route('deals-v2.ical.regenerate') }}">@csrf
+                        <button type="submit" class="text-sm px-3 py-1.5 rounded-md font-semibold" style="background: var(--brand-default, #0b2a4a); color: #fff;">Generate feed link</button>
+                    </form>
+                @endif
+            </div>
+        </div>
+        @if(session('status'))
+            <div class="mt-2 text-xs" style="color: var(--ds-green, #059669);">{{ session('status') }}</div>
+        @endif
+    </div>
 </div>
 @endsection
