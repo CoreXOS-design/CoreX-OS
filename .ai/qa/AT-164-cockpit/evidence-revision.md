@@ -45,3 +45,17 @@ Last view (month/week/day) persisted per user (`CalendarUserPreference.default_v
 
 Screenshots: `cockpit2-month-1920x1080.png`, `cockpit2-month-1366x768.png`, `cockpit2-week-1366x768.png`.
 Mobile Gate 8 (`CalendarMobileContractTest`): green (app API contract untouched).
+
+## Defect pair (02:30 smoke test) — fixed + verified
+1. **Tiles were all chrome.** `<x-tile>` gained a compact mode: one thin header line (small icon,
+   name, count badge, View-all) so the CONTENT LIST gets the height. Headless (staging data):
+   Notifications tile shows 10 rows, To-dos 14, Upcoming 2 — each data-bearing tile shows its
+   first lines with internal scroll (empty tiles like My Deals correctly show their empty state).
+2. **New Event form floated over the page.** Root cause: create/detail/color-by panels were
+   `position:fixed` overlays (from the region restructure) — one matched a hidden helper div so a
+   prior move corrupted the DOM. Now re-parented (via `<aside>`-depth scan) as `absolute inset-0`
+   children of the relative, overflow-hidden right panel. Bounding-box proofs both sizes:
+   - New Event form: `asideWithinPanel = true` (form rect ⊆ panel rect), **Create button reachable
+     via panel-internal scroll**, no page scroll, nothing over header/calendar/tiles.
+   - Event detail: renders inside the panel (`withinPanel = true`), actions visible.
+Screenshots: `defect-month-1920x1080.png`, `defect-month-1366x768.png`.
