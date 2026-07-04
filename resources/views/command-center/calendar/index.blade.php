@@ -332,13 +332,14 @@
     <div class="flex-1 min-h-0 flex flex-col">
     @if($currentView === 'month')
         {{-- ══════ MONTH VIEW — continuous vertical scroll (§15.3) ══════ --}}
-        <div x-data="continuousMonth()" x-init="initMonth()" x-ref="scroller"
-             @scroll.passive="onScroll()"
+        <div x-data="continuousMonth()" x-init="initMonth()"
              class="rounded-md overflow-hidden flex flex-col"
-             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; overflow-y: auto; position: relative;">
+             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; position: relative;">
 
-            {{-- Sticky day-of-week header (inline z-index — no new Tailwind arbitrary class, §3) --}}
-            <div class="grid grid-cols-7 sticky top-0" style="z-index: 20; background: var(--surface-2); border-bottom: 1px solid var(--border);">
+            {{-- Day-of-week header — PINNED outside the scroll region: it is a flex-shrink-0
+                 sibling above the scroller, so it never scrolls and stays visible at ANY
+                 calendar/strip split (Johan 05:45 — resize must never hide the headers). --}}
+            <div class="grid grid-cols-7 flex-shrink-0" style="z-index: 20; background: var(--surface-2); border-bottom: 1px solid var(--border);">
                 @foreach(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as $dayName)
                     <div class="px-2 py-2 text-xs font-semibold text-center uppercase tracking-wider"
                          style="color: var(--text-muted); {{ !$loop->last ? 'border-right: 1px solid var(--border);' : '' }}">
@@ -346,6 +347,9 @@
                     </div>
                 @endforeach
             </div>
+
+            {{-- Scroll region — ONLY the day cells / months scroll here. --}}
+            <div x-ref="scroller" @scroll.passive="onScroll()" class="flex-1 min-h-0 overflow-y-auto" style="position: relative;">
 
             {{-- Top loading indicator (prepend earlier months) --}}
             <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingTop" x-cloak>Loading…</div>
@@ -367,6 +371,7 @@
 
             {{-- Bottom loading indicator (append later months) --}}
             <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingBottom" x-cloak>Loading…</div>
+            </div>{{-- END scroll region --}}
         </div>
     @elseif($currentView === 'week')
         {{-- ══════ WEEK VIEW — continuous HORIZONTAL scroll (§15.3, cockpit) ══════ --}}
@@ -4041,6 +4046,16 @@ function calendarDeck() {
         },
 
         init() {
+            // AT-164 SELF-HEAL (Johan 05:45): if a previously-persisted strip height is
+            // egregiously out of range (e.g. a pre-clamp stuck arrangement), correct it to
+            // the viewport-safe value AND persist the correction so it recovers permanently.
+            // (The stripHeight getter also clamps DISPLAY per-viewport, so headers can never
+            // be pushed off regardless.)
+            const raw = this.cockpit.strip_height;
+            if (raw != null && (!isFinite(raw) || raw > 450 || raw < 100)) {
+                this.cockpit.strip_height = this.stripHeight;
+                this.persistCockpit();
+            }
             // Live-RAG loop (Gate 7): refetch on focus/visibility + a light poll.
             window.addEventListener('focus', () => this.refresh());
             document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refresh(); });

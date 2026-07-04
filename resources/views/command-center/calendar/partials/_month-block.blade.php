@@ -75,7 +75,7 @@
     {{-- Sticky month/year label (§15.3). Inline z-index (no new Tailwind arbitrary
          class — Blade-only deploy, §3 invariant). --}}
     <div class="cal-month-label sticky px-3 py-1.5 text-xs font-bold uppercase tracking-wider"
-         style="top: 34px; z-index: 15; background: var(--surface-2); color: var(--text-secondary); border-bottom: 1px solid var(--border);">
+         style="top: 0; z-index: 15; background: var(--surface-2); color: var(--text-secondary); border-bottom: 1px solid var(--border);">
         {{ $monthLabel }}
     </div>
 
