@@ -170,6 +170,52 @@ class CalendarTileService
         return $cards;
     }
 
+    /**
+     * AT-164 cockpit v2 — the right panel's resident AGENDA: today + upcoming events
+     * and deadlines for the user's scope, chronological, layer-filtered. Each item
+     * clicks through to its detail (openEventPanel) in the panel.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function panelAgenda(User $user, int $days = 30): array
+    {
+        try {
+            $scope = PermissionService::calendarScope($user);
+            $from  = Carbon::today();
+            $to    = Carbon::today()->addDays($days)->endOfDay();
+            $raw   = $this->events->getEventsForRange($user, $from->toDateString(), $to->toDateTimeString(), [], $scope);
+            $visible = collect($this->visibility->filterVisible($raw, $user));
+
+            $active   = CalendarLayers::resolveActive($user);
+            $agencyId = $user->effectiveAgencyId();
+
+            return $visible
+                ->map(function ($e) { $e->resolved_colour = $this->threshold->resolveForEvent($e); return $e; })
+                ->filter(fn ($e) => $e->resolved_colour !== null && $e->event_date)
+                ->filter(function ($e) use ($active, $agencyId) {
+                    return in_array(CalendarLayers::layerFor($e, $this->isAppointment($e, $agencyId)), $active, true);
+                })
+                ->sortBy('event_date')
+                ->take(40)
+                ->map(function ($e) use ($agencyId) {
+                    $appt = $this->isAppointment($e, $agencyId);
+                    return [
+                        'id'          => $e->id,
+                        'title'       => (string) $e->title,
+                        'rag'         => $e->resolved_colour,
+                        'day'         => $e->event_date->isToday() ? 'Today' : ($e->event_date->isTomorrow() ? 'Tomorrow' : $e->event_date->format('D d M')),
+                        'time'        => $e->all_day ? null : $e->event_date->format('H:i'),
+                        'is_deadline' => ! $appt,
+                    ];
+                })
+                ->values()
+                ->all();
+        } catch (\Throwable $e) {
+            report($e);
+            return [];
+        }
+    }
+
     /** Dispatch a single tile-id to its builder. Null = not available to this user. */
     public function buildTile(User $user, string $tileId): ?array
     {

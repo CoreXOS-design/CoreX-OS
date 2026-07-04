@@ -13,6 +13,8 @@ class CalendarUserPreference extends Model
         'weekend_visible', 'ical_token', 'email_reminders', 'app_reminders', 'digest_email',
         // AT-164 — per-user calendar layout memory (Deck slots + layer toggles).
         'calendar_deck_layout', 'calendar_layers',
+        // AT-164 cockpit v2 — adjustable arrangement (split height, tile ratios, collapse).
+        'calendar_cockpit',
     ];
 
     protected $casts = [
@@ -21,6 +23,7 @@ class CalendarUserPreference extends Model
         'app_reminders'    => 'boolean',
         'calendar_deck_layout' => 'array',
         'calendar_layers'      => 'array',
+        'calendar_cockpit'     => 'array',
     ];
 
     public function user(): BelongsTo

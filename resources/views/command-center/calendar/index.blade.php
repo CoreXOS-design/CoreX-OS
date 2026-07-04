@@ -1473,72 +1473,44 @@
 
 {{-- ══════ AT-164 COCKPIT — RIGHT CONTEXT PANEL (fixed ~27%; quick-create by default,
      event details on click; scrolls its OWN contents, never the page) ══════ --}}
-<div class="flex flex-col min-h-0 rounded-md relative overflow-hidden" style="flex: 0 0 27%; max-width: 27%; min-width: 300px; background: var(--surface); border: 1px solid var(--border);">
-    <div class="flex-shrink-0 flex items-center justify-between px-3 py-1.5" style="border-bottom: 1px solid var(--border);">
-        <span class="text-[11px] font-bold uppercase tracking-wider" style="color: var(--text-secondary);" x-text="contextMode === 'event' ? 'Event' : 'New event'"></span>
-        <button type="button" x-show="contextMode === 'event'" @click="contextMode='create'" class="text-[11px] font-semibold" style="color: var(--brand-button);" title="New event">+ New</button>
-    </div>
-    <div class="flex-1 min-h-0 overflow-y-auto px-3 py-2.5">
-        {{-- QUICK-CREATE (default) --}}
-        <div x-show="contextMode !== 'event'">
-            <form @submit.prevent="quickCreateSubmit()" class="space-y-2">
-                <div>
-                    <label class="block text-[11px] font-medium mb-0.5" style="color: var(--text-secondary);">Title</label>
-                    <input type="text" x-model="quick.title" required placeholder="e.g. Viewing at 8 Marine Dr"
-                           class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                </div>
-                <div>
-                    <label class="block text-[11px] font-medium mb-0.5" style="color: var(--text-secondary);">Type</label>
-                    <select x-model="quick.category" class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                        @foreach($manualCreatableClasses as $cls)
-                            <option value="{{ $cls->event_class }}">{{ $cls->label }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div class="grid grid-cols-2 gap-2">
-                    <div>
-                        <label class="block text-[11px] font-medium mb-0.5" style="color: var(--text-secondary);">Date</label>
-                        <input type="date" x-model="quick.date" required class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-medium mb-0.5" style="color: var(--text-secondary);">Time</label>
-                        <input type="time" x-model="quick.time" :disabled="quick.allDay" class="w-full rounded px-2 py-1.5 text-xs disabled:opacity-40" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    </div>
-                </div>
-                <label class="flex items-center gap-2 text-[11px]" style="color: var(--text-secondary);">
-                    <input type="checkbox" x-model="quick.allDay"> All-day
-                </label>
-                <div class="flex items-center gap-2 pt-1">
-                    <button type="submit" :disabled="quick.saving" class="corex-btn-primary text-xs flex-1 disabled:opacity-50">
-                        <span x-show="!quick.saving">Create</span><span x-show="quick.saving" x-cloak>Saving…</span>
-                    </button>
-                    <button type="button" @click="openBlank()" class="corex-btn-outline text-xs" title="Open the full form">Full form</button>
-                </div>
-                <p x-show="quick.error" x-cloak class="text-[11px]" style="color: var(--ds-crimson, #c41e3a);" x-text="quick.error"></p>
-                <p x-show="quick.ok" x-cloak class="text-[11px]" style="color: var(--ds-green, #059669);">Created ✓</p>
-            </form>
+<div class="flex flex-col min-h-0 rounded-md relative overflow-hidden"
+     :style="panelCollapsed
+        ? 'flex: 0 0 40px; max-width: 40px; min-width: 40px; background: var(--surface); border: 1px solid var(--border);'
+        : 'flex: 0 0 27%; max-width: 27%; min-width: 300px; background: var(--surface); border: 1px solid var(--border);'">
+    {{-- AT-164 cockpit v2 — panel RESIDENT default = AGENDA. Event click → detail
+         overlay (panelOpen); Add-Event/empty-day → New Event form overlay
+         (showCreateEvent); closing either returns here. Collapses to a thin rail. --}}
+    {{-- Collapsed rail (reopen) --}}
+    <button type="button" x-show="panelCollapsed" x-cloak @click="togglePanelCollapse()"
+            class="absolute inset-0 flex flex-col items-center gap-2 pt-3 hover:opacity-80 transition-opacity" style="z-index: 30;" title="Open agenda panel">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="color: var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+        <span class="text-[10px] font-bold uppercase tracking-wider" style="color: var(--text-muted); writing-mode: vertical-rl;">Agenda</span>
+    </button>
+    <div x-show="!panelCollapsed" class="flex-shrink-0 flex items-center justify-between px-3 py-1.5" style="border-bottom: 1px solid var(--border);">
+        <span class="text-[11px] font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Agenda</span>
+        <div class="flex items-center gap-2">
+            <button type="button" @click="openBlank()" class="text-[11px] font-semibold" style="color: var(--brand-button);" title="Create a new event">+ New event</button>
+            <button type="button" @click="togglePanelCollapse()" class="w-5 h-5 rounded flex items-center justify-center hover:opacity-70" style="color: var(--text-muted);" title="Collapse panel">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+            </button>
         </div>
-        {{-- EVENT DETAILS (on click) --}}
-        <div x-show="contextMode === 'event'" x-cloak>
-            <template x-if="panelData">
-                <div class="space-y-2 text-xs">
-                    <div class="font-semibold text-sm leading-tight" style="color: var(--text-primary);" x-text="panelData.title"></div>
-                    <div x-show="panelData.when_label" style="color: var(--text-secondary);" x-text="panelData.when_label"></div>
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <span class="px-2 py-0.5 rounded-full text-[10px]" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);" x-text="(panelData.category_label || panelData.category || '').toString().replace(/_/g,' ')"></span>
-                        <span x-show="panelData.status" class="text-[10px] uppercase tracking-wide" style="color: var(--text-muted);" x-text="(panelData.status||'').toString().replace(/_/g,' ')"></span>
-                    </div>
-                    <template x-if="panelData.property_label"><div style="color: var(--text-secondary);"><span style="color:var(--text-muted);">Property: </span><span x-text="panelData.property_label"></span></div></template>
-                    <template x-if="panelData.attendees_label"><div style="color: var(--text-secondary);"><span style="color:var(--text-muted);">With: </span><span x-text="panelData.attendees_label"></span></div></template>
-                    <template x-if="panelData.description"><div class="leading-relaxed" style="color: var(--text-secondary);" x-text="panelData.description"></div></template>
-                    <div class="flex flex-wrap items-center gap-2 pt-2" style="border-top: 1px solid var(--border);">
-                        <button type="button" @click="panelOpen = true" class="corex-btn-outline text-xs mt-2">Full details / Edit</button>
-                        <button type="button" x-show="panelData.is_actionable && panelData.status !== 'completed'" @click="completeFromContext()" class="corex-btn-outline text-xs mt-2">Complete</button>
-                        <template x-if="panelData.source_link && panelData.source_link.url">
-                            <a :href="panelData.source_link.url" target="_blank" rel="noopener" class="corex-btn-outline text-xs mt-2">Open <span class="text-[10px]">↗</span></a>
-                        </template>
-                    </div>
-                </div>
+    </div>
+    <div x-show="!panelCollapsed" class="flex-1 min-h-0 overflow-y-auto px-2 py-1.5">
+        <template x-if="agenda.length === 0">
+            <div class="py-8 text-center text-xs leading-relaxed" style="color: var(--text-muted);">Nothing coming up.<br>Click a day, or “+ New event”, to add one.</div>
+        </template>
+        <div class="space-y-0.5">
+            <template x-for="(it, idx) in agenda" :key="it.id + '-' + idx">
+                <button type="button" @click="openEventPanel(it.id)"
+                        class="w-full text-left flex items-start gap-2 px-2 py-1.5 rounded transition-colors hover:bg-[color:var(--surface-2)]">
+                    <span class="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5" :style="'background:' + (window.CoreXTile ? window.CoreXTile.ragColour(it.rag) : '#94a3b8')"></span>
+                    <span class="flex-1 min-w-0">
+                        <span class="block text-xs font-medium truncate" style="color: var(--text-primary);" x-text="(it.title||'').split('\n')[0]"></span>
+                        <span class="block text-[10px]" style="color: var(--text-muted);">
+                            <span x-text="it.day"></span><span x-show="it.time" x-text="' · ' + it.time"></span><span x-show="it.is_deadline"> · due</span>
+                        </span>
+                    </span>
+                </button>
             </template>
         </div>
     </div>
@@ -2362,16 +2334,38 @@
 {{-- ══════ AT-164 COCKPIT — BOTTOM TILE STRIP (fixed height; N EQUAL columns; NEVER
      scrolls horizontally and never grows; each tile scrolls its own list) ══════ --}}
 <section x-data="calendarDeck()" x-init="init()" data-tour="cal-deck"
-         class="flex-shrink-0 px-4 lg:px-6 pt-1.5 pb-2" style="background: var(--bg);">
+         @pointermove.window="stripResizeMove($event); ratioMove($event)"
+         @pointerup.window="stripResizeEnd(); ratioEnd()"
+         class="flex-shrink-0 px-4 lg:px-6 pb-2 relative" style="background: var(--bg);">
+    {{-- Top-edge resize handle — drag to change the calendar/strip vertical split
+         (inline critical styling; pointer events). Hidden when collapsed. --}}
+    <div x-show="!stripCollapsed" @pointerdown="stripResizeStart($event)"
+         class="h-2.5 flex items-center justify-center cursor-ns-resize" title="Drag to resize the calendar / deck split">
+        <div class="w-10 h-1 rounded-full transition-colors" style="background: var(--border);" :style="_resize.on ? 'background: var(--brand-button);' : ''"></div>
+    </div>
     <div class="rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border);">
         {{-- Compact header --}}
-        <div class="flex items-center justify-between gap-3 mb-1.5">
+        <div class="flex items-center justify-between gap-3" :class="stripCollapsed ? '' : 'mb-1.5'">
             <div class="flex items-center gap-2 min-w-0">
-                <h2 class="text-xs font-semibold truncate" style="color: var(--text-primary);">My Deck</h2>
-                <span class="text-[11px]" style="color: var(--text-muted);" x-text="'· ' + cards.length + '/' + slots"></span>
-                <span x-show="saving" x-cloak class="text-[11px]" style="color: var(--text-muted);">Saving…</span>
+                <button type="button" @click="toggleStripCollapse()" class="w-5 h-5 rounded flex items-center justify-center hover:opacity-70 flex-shrink-0" style="color: var(--text-muted);" :title="stripCollapsed ? 'Expand deck' : 'Collapse deck'">
+                    <svg class="w-4 h-4 transition-transform" :class="stripCollapsed && '-rotate-90'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </button>
+                <h2 class="text-xs font-semibold truncate flex-shrink-0" style="color: var(--text-primary);">My Deck</h2>
+                <span class="text-[11px] flex-shrink-0" style="color: var(--text-muted);" x-text="'· ' + cards.length + '/' + slots"></span>
+                {{-- Collapsed: tile name chips + count badges (one slim bar) --}}
+                <div x-show="stripCollapsed" x-cloak class="flex items-center gap-1.5 overflow-x-auto min-w-0">
+                    <template x-for="c in cards" :key="'chip'+c.card_id">
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] flex-shrink-0" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                            <span class="truncate" style="max-width: 120px;" x-text="c.title"></span>
+                            <span x-show="(c.count||0)>0" class="font-bold" :style="'color:' + (window.CoreXTile ? window.CoreXTile.accent(c) : 'var(--brand-button)')" x-text="c.count>99?'99+':c.count"></span>
+                        </span>
+                    </template>
+                </div>
+                <span x-show="saving" x-cloak class="text-[11px] flex-shrink-0" style="color: var(--text-muted);">Saving…</span>
             </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
+            <div class="flex items-center gap-2 flex-shrink-0" x-show="!stripCollapsed">
+                {{-- Reset the whole cockpit arrangement to the role default --}}
+                <button type="button" @click="resetView()" class="corex-btn-outline text-[11px] py-0.5" title="Reset the whole cockpit arrangement to the default">Reset view</button>
                 <div x-show="editing" x-cloak class="relative" @click.outside="pickerOpen = false">
                     <button type="button" @click="pickerOpen = !pickerOpen" :disabled="!canAddMore"
                             class="corex-btn-outline text-[11px] py-0.5 disabled:opacity-40"
@@ -2395,28 +2389,35 @@
         </div>
 
         {{-- Empty deck --}}
-        <template x-if="cards.length === 0">
+        <template x-if="!stripCollapsed && cards.length === 0">
             <div class="py-4 text-center">
                 <p class="text-xs" style="color: var(--text-muted);">Your Deck is empty.</p>
                 <button type="button" @click="editing = true" class="corex-btn-outline text-[11px] mt-1">Add tiles</button>
             </div>
         </template>
 
-        {{-- N EQUAL columns — grid-template-columns set from the tile count so 3 tiles =
-             3 equal columns, 5 = 5; there is never a horizontal scrollbar. Component CSS. --}}
+        {{-- N columns — widths from the saved per-user ratios (equal by default); the
+             column count always matches the tile count so there is never a horizontal
+             scrollbar. Height comes from the (draggable) strip split. --}}
         @once
         <style>
             .cal-deck-grid { display: grid; gap: 0.75rem; }
-            .cal-deck-grid > * { height: 132px; min-width: 0; }
+            .cal-deck-grid > * { min-width: 0; }
         </style>
         @endonce
-        <div class="cal-deck-grid" x-show="cards.length > 0" :style="'grid-template-columns: repeat(' + Math.max(1, cards.length) + ', minmax(0, 1fr));'">
+        <div class="cal-deck-grid" x-show="!stripCollapsed && cards.length > 0" x-ref="deckGrid"
+             :style="'grid-template-columns:' + gridTemplate() + '; height:' + (stripHeight - 6) + 'px;'">
             <template x-for="(card, idx) in cards" :key="card.card_id">
                 <div class="relative"
                      :draggable="editing"
                      @dragstart="dragStart(idx, $event)" @dragover.prevent="dragOver(idx)" @drop.prevent="drop(idx)" @dragend="dragEndDeck()"
                      :style="editing ? 'cursor: move;' : ''"
                      :class="editing && dragIndex === idx && 'opacity-50'">
+                    {{-- Column-ratio resize handle (between this tile and the next) --}}
+                    <div x-show="idx < cards.length - 1" @pointerdown="ratioStart(idx, $event)"
+                         class="absolute top-0 flex items-center justify-center cursor-col-resize" style="right: -0.5rem; width: 0.75rem; height: 100%; z-index: 15;" title="Drag to resize columns">
+                        <div class="rounded-full transition-colors" style="width: 2px; height: 2rem; background: var(--border);" :style="(_ratio.on && _ratio.i === idx) ? 'background: var(--brand-button);' : ''"></div>
+                    </div>
                     <div x-show="editing" x-cloak class="absolute top-1.5 right-1.5 z-20 flex items-center gap-1">
                         <span class="w-5 h-5 rounded flex items-center justify-center" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);" title="Drag to reorder">
                             <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
@@ -2469,10 +2470,11 @@ function calendarPage() {
         submitting: false,
         panelOpen: false,
         panelData: {},
-        // AT-164 cockpit — fixed right context panel: 'create' (quick-create, default)
-        // or 'event' (clicked-event details). The full create/edit slide-over stays as
-        // an overlay opened via "Full form" / "Full details / Edit".
         contextMode: 'create',
+        // AT-164 cockpit v2 — panel resident agenda + per-user panel collapse.
+        agenda: @json($agenda ?? []),
+        panelCollapsed: {{ !empty($cockpit['panel_collapsed']) ? 'true' : 'false' }},
+        _panelSaveTimer: null,
         quick: { title: '', category: '{{ ($manualCreatableClasses->first()->event_class ?? 'viewing') }}', date: '{{ ($anchorDate ?? now())->toDateString() }}', time: '09:00', allDay: false, saving: false, error: '', ok: false },
         helpOpen: false,
         drag: { active: false, dayDate: null, startHour: null, startHalf: null, currentHour: null, currentHalf: null },
@@ -3583,6 +3585,30 @@ function calendarPage() {
             }).then(r => { if (r.ok) { this.panelData.status = 'completed'; window.dispatchEvent(new Event('focus')); } });
         },
 
+        // AT-164 cockpit v2 — right-panel collapse (persisted, debounced).
+        togglePanelCollapse() {
+            this.panelCollapsed = !this.panelCollapsed;
+            if (this.panelCollapsed) { this.showCreateEvent = false; this.panelOpen = false; }
+            clearTimeout(this._panelSaveTimer);
+            this._panelSaveTimer = setTimeout(() => {
+                fetch('{{ route('command-center.calendar.cockpit.save') }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ panel_collapsed: this.panelCollapsed }),
+                }).catch(() => {});
+            }, 400);
+        },
+
+        // AT-164 cockpit v2 — reset the WHOLE arrangement to the role default, then reload.
+        resetCockpit() {
+            fetch('{{ route('command-center.calendar.cockpit.reset') }}', {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, 'Accept': 'application/json' },
+                credentials: 'same-origin',
+            }).then(() => { const u = new URL(window.location.href); u.searchParams.delete('anchor'); window.location.href = u.pathname; });
+        },
+
         // \u2500\u2500 Recurrence helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
         // Mirror of RecurrenceExpander::syntheticId \u2014 parentId*1e8 + YYYYMMDD.
         // Any id >= 1e8 is a virtual occurrence; decode it to {parentId, date}.
@@ -3932,6 +3958,78 @@ function calendarDeck() {
             deck:  '{{ route('command-center.calendar.deck') }}',
             save:  '{{ route('command-center.calendar.deck.save') }}',
             reset: '{{ route('command-center.calendar.deck.reset') }}',
+            cockpit: '{{ route('command-center.calendar.cockpit.save') }}',
+        },
+        // AT-164 cockpit v2 — resizable/collapsible strip + adjustable tile ratios.
+        cockpit: @json($cockpit ?? []),
+        _cockpitTimer: null,
+        _resize: { on: false, y: 0, h: 0 },
+        _ratio: { on: false, i: -1, x: 0, a: 0, b: 0 },
+
+        get stripCollapsed() { return !!this.cockpit.strip_collapsed; },
+        get stripHeight() { return Math.max(120, Math.min(560, this.cockpit.strip_height || 176)); },
+        // grid-template-columns from saved ratios (fallback: equal columns).
+        gridTemplate() {
+            const n = this.cards.length || 1;
+            let r = Array.isArray(this.cockpit.tile_ratios) ? this.cockpit.tile_ratios.slice(0, n) : [];
+            while (r.length < n) r.push(1);
+            return r.map(v => (Math.max(0.2, +v || 1)) + 'fr').join(' ');
+        },
+        persistCockpit() {
+            clearTimeout(this._cockpitTimer);
+            this._cockpitTimer = setTimeout(() => {
+                fetch(this._urls.cockpit, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        strip_height: Math.round(this.stripHeight),
+                        strip_collapsed: this.stripCollapsed,
+                        tile_ratios: (this.cockpit.tile_ratios || []).map(v => +v),
+                    }),
+                }).catch(() => {});
+            }, 450);
+        },
+        toggleStripCollapse() { this.cockpit.strip_collapsed = !this.cockpit.strip_collapsed; this.persistCockpit(); },
+        // Strip vertical resize (pointer) — bounded so the calendar never drops below ~45vh.
+        stripResizeStart(e) {
+            this._resize = { on: true, y: e.clientY, h: this.stripHeight };
+            e.preventDefault();
+        },
+        stripResizeMove(e) {
+            if (!this._resize.on) return;
+            const dy = this._resize.y - e.clientY;         // drag up = taller strip
+            const maxByVh = Math.round(window.innerHeight * 0.40);
+            const h = Math.max(120, Math.min(maxByVh, this._resize.h + dy));
+            this.cockpit.strip_height = h;
+        },
+        stripResizeEnd() { if (this._resize.on) { this._resize.on = false; this.persistCockpit(); } },
+        // Tile column-ratio resize (pointer) between column i and i+1.
+        ratioStart(i, e) {
+            const n = this.cards.length;
+            let r = Array.isArray(this.cockpit.tile_ratios) ? this.cockpit.tile_ratios.slice(0, n) : [];
+            while (r.length < n) r.push(1);
+            this.cockpit.tile_ratios = r;
+            this._ratio = { on: true, i, x: e.clientX, a: r[i], b: r[i + 1] };
+            e.preventDefault(); e.stopPropagation();
+        },
+        ratioMove(e) {
+            if (!this._ratio.on) return;
+            const grid = this.$refs.deckGrid; if (!grid) return;
+            const per = grid.getBoundingClientRect().width / Math.max(1, this.cards.length);
+            const dfr = (e.clientX - this._ratio.x) / Math.max(1, per);   // px → fr
+            const a = Math.max(0.3, this._ratio.a + dfr);
+            const b = Math.max(0.3, this._ratio.b - dfr);
+            const r = this.cockpit.tile_ratios.slice();
+            r[this._ratio.i] = a; r[this._ratio.i + 1] = b;
+            this.cockpit.tile_ratios = r;
+        },
+        ratioEnd() { if (this._ratio.on) { this._ratio.on = false; this.persistCockpit(); } },
+        // AT-164 cockpit v2 — reset the WHOLE arrangement to the role default + reload.
+        resetView() {
+            fetch('{{ route('command-center.calendar.cockpit.reset') }}', {
+                method: 'POST', headers: { 'X-CSRF-TOKEN': this._csrf, 'Accept': 'application/json' }, credentials: 'same-origin',
+            }).then(() => { const u = new URL(location.href); u.searchParams.delete('anchor'); location.href = u.pathname; });
         },
 
         init() {
@@ -4278,11 +4376,18 @@ function continuousWeek() {
         _addDays(dateStr, n) { const d = new Date(dateStr + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); },
 
         onWheel(e) {
-            // Translate a (mouse) vertical wheel into horizontal advance; honour a real
-            // horizontal trackpad gesture as-is.
+            // Week scrolls on BOTH axes. A plain VERTICAL wheel (deltaY) is the time axis —
+            // native scroll through the hours; NEVER hijacked. Horizontal ADVANCE across
+            // days/weeks happens only on explicit horizontal intent: a trackpad deltaX, or
+            // shift+wheel. (Drag-to-scroll is the other horizontal path.)
             const el = this.$refs.weekScroller; if (!el) return;
-            const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-            if (dx) { el.scrollLeft += dx; e.preventDefault(); this.onWeekScroll(); }
+            const horizIntent = Math.abs(e.deltaX) > Math.abs(e.deltaY) || (e.shiftKey && e.deltaY);
+            if (horizIntent) {
+                el.scrollLeft += (e.deltaX || e.deltaY);
+                e.preventDefault();
+            }
+            // else: let the browser scroll the hours vertically (default).
+            this.onWeekScroll();
         },
         dragScrollStart(e) {
             if (e.button !== 0) return;

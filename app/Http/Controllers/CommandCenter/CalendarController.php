@@ -74,6 +74,11 @@ class CalendarController extends Controller
         $shared['layerCatalog'] = \App\Services\CommandCenter\Calendar\CalendarLayers::LAYERS;
         $shared['activeLayers'] = \App\Services\CommandCenter\Calendar\CalendarLayers::resolveActive($user, $request->input('layers'));
 
+        // AT-164 cockpit v2 — the user's saved arrangement (split height / tile ratios /
+        // collapsed states), with code defaults; and the resident agenda for the panel.
+        $shared['cockpit'] = $this->resolveCockpit($pref);
+        $shared['agenda']  = $this->tiles->panelAgenda($user);
+
         // ── Week view ──
         if ($view === 'week') {
             return $this->renderWeek($request, $user, $shared, $typeFilter, $categoryFilter, $scope);
@@ -523,6 +528,59 @@ class CalendarController extends Controller
             'layout' => $layout,
             'cards'  => $this->tiles->buildDeck($user),
         ]);
+    }
+
+    /** AT-164 cockpit v2 — resolve the saved arrangement (code defaults, clamped). */
+    private function resolveCockpit($pref): array
+    {
+        $c = is_array($pref->calendar_cockpit ?? null) ? $pref->calendar_cockpit : [];
+        return [
+            'strip_height'    => isset($c['strip_height']) ? max(60, min(600, (int) $c['strip_height'])) : 176,
+            'strip_collapsed' => (bool) ($c['strip_collapsed'] ?? false),
+            'panel_collapsed' => (bool) ($c['panel_collapsed'] ?? false),
+            'tile_ratios'     => (isset($c['tile_ratios']) && is_array($c['tile_ratios']))
+                                    ? array_values(array_map(fn ($v) => max(0.2, min(20, (float) $v)), $c['tile_ratios']))
+                                    : [],
+        ];
+    }
+
+    /** AT-164 cockpit v2 — persist the arrangement (debounced auto-save from the client). */
+    public function saveCockpit(Request $request)
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'strip_height'    => ['nullable', 'integer', 'min:40', 'max:800'],
+            'strip_collapsed' => ['nullable', 'boolean'],
+            'panel_collapsed' => ['nullable', 'boolean'],
+            'tile_ratios'     => ['nullable', 'array', 'max:12'],
+            'tile_ratios.*'   => ['numeric', 'min:0.1', 'max:20'],
+        ]);
+
+        $pref = CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
+        $cur  = is_array($pref->calendar_cockpit) ? $pref->calendar_cockpit : [];
+        foreach (['strip_height', 'strip_collapsed', 'panel_collapsed', 'tile_ratios'] as $k) {
+            if (array_key_exists($k, $data) && $data[$k] !== null) {
+                $cur[$k] = $data[$k];
+            }
+        }
+        $pref->calendar_cockpit = $cur;
+        $pref->save();
+
+        return response()->json(['ok' => true, 'cockpit' => $this->resolveCockpit($pref)]);
+    }
+
+    /** AT-164 cockpit v2 — reset the WHOLE arrangement to the role/agency default. */
+    public function resetCockpit(Request $request)
+    {
+        $user = $request->user();
+        $pref = CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
+        $pref->calendar_cockpit    = null;  // arrangement → defaults
+        $pref->calendar_deck_layout = null; // deck → role default
+        $pref->calendar_layers     = null;  // layers → agency default
+        $pref->default_view        = null;  // view → month
+        $pref->save();
+
+        return response()->json(['ok' => true, 'reload' => true]);
     }
 
     /** AT-164 Gate 6 — persist this user's active layer set (cross-device). */
