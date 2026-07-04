@@ -366,7 +366,6 @@ $summary_per_agent = collect(array_values($agentSplit))->sortBy('name')->values(
             'created_by_user_id' => $user->id,
         ]);
 
-        \App\Support\CoreXDraft::clearOnSave('rental_capture'); // AT-165: drop the local "new" draft
         return redirect()->route('rentals.index')->with('success', 'Rental created');
     }
 
@@ -464,7 +463,6 @@ $summary_per_agent = collect(array_values($agentSplit))->sortBy('name')->values(
             ]);
         }
 
-        \App\Support\CoreXDraft::clearOnSave('rental_capture', $id); // AT-165: drop this record's local draft
         return redirect()->route('rentals.index')->with('success', 'Rental updated');
     }
 }

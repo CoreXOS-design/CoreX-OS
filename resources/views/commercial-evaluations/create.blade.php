@@ -93,11 +93,7 @@
 
     {{-- Step 2: Property Details Form (shows after type selected) --}}
     <div x-show="propertyType !== ''" x-transition class="ds-status-card" style="border-left-color: var(--ds-cyan);">
-        {{-- AT-165 offline draft persistence — property_type EXCLUDED (Alpine :value-bound
-             via out-of-form Step-1 radios; a form-scan restore can't rehydrate it). --}}
-        <form method="POST" action="{{ route('commercial-evaluations.store') }}"
-              data-draft='@json(["form" => "commercial_eval", "recordId" => null, "version" => null])'
-              data-draft-fields="property_name,address,suburb,town,province,erf_number,zoning,total_land_size_m2,total_land_size_ha,total_building_size_m2,year_built,condition,asking_price,municipal_evaluation,seller_name,notes,branch_id">
+        <form method="POST" action="{{ route('commercial-evaluations.store') }}">
             @csrf
             <input type="hidden" name="property_type" :value="propertyType">
 

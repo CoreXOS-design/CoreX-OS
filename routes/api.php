@@ -245,15 +245,6 @@ Route::middleware('auth:sanctum')->group(function () {
             ]);
         })->name('v1.logged-user');
 
-        // Session keepalive — AT-165 (offline draft persistence, complement D).
-        // A long capture (property, FICA, staff take-on) can sit open for 40+ min;
-        // this heartbeat (fired by resources/js/session-keepalive.js while a
-        // draft-registered form is on screen) touches the session so submit does
-        // not lapse into a 419. No-op JSON; the request itself refreshes the cookie.
-        Route::get('/session/ping', function (Request $request) {
-            return response()->json(['ok' => true, 'ts' => now()->toIso8601String()]);
-        })->name('v1.session.ping');
-
         // Mobile app theme preference (light/dark)
         Route::get('/me/theme', function (Request $request) {
             return response()->json([

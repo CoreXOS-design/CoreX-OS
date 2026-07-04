@@ -93,7 +93,6 @@ class OnboardingController extends Controller
         $application = AgentApplication::create($validated);
         $application->seedChecklist();
 
-        \App\Support\CoreXDraft::clearOnSave('agent_onboarding'); // AT-165: drop the local "new" draft
         return redirect()->route('onboarding.show', $application)
             ->with('success', 'Application created. Checklist has been seeded.');
     }
