@@ -234,7 +234,10 @@ class AutoEventService
             ->chunk(50, function ($properties) use (&$flagged, &$critical, $criticalDays) {
                 foreach ($properties as $property) {
                     $lastActivity = $property->last_activity_at ?? $property->updated_at;
-                    $daysSince = $lastActivity ? now()->diffInDays($lastActivity) : 999;
+                    // Whole calendar days idle — never the signed float Carbon 3
+                    // returns (that baked "-0.605…days" into the to-do title and
+                    // broke the >= criticalDays test). See App\Support\HumanDiff.
+                    $daysSince = $lastActivity ? \App\Support\HumanDiff::daysBetween($lastActivity) : 999;
                     $isCritical = $daysSince >= $criticalDays;
 
                     // Check if an idle task already exists and is still open
@@ -247,7 +250,7 @@ class AutoEventService
                     if ($existing) continue;
 
                     CommandTask::create([
-                        'title'       => ($isCritical ? 'URGENT: ' : '') . "Property needs attention — no activity in {$daysSince} days — " . ($property->buildDisplayAddress() ?: 'Property #' . $property->id),
+                        'title'       => ($isCritical ? 'URGENT: ' : '') . 'Property needs attention — no activity for ' . \App\Support\HumanDiff::days($lastActivity) . ' — ' . ($property->buildDisplayAddress() ?: 'Property #' . $property->id),
                         'task_type'   => 'review',
                         'priority'    => $isCritical ? 'critical' : 'high',
                         'assigned_to' => $property->agent_id,

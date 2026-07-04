@@ -16,21 +16,23 @@ class PropertyHealthCalculator
         $score   = 100;
         $factors = [];
 
-        // Factor 1: Last activity recency
+        // Factor 1: Last activity recency. Whole calendar days idle — NOT Carbon 3's
+        // signed float (a negative float is never > 30, so a genuinely-idle property
+        // silently scored as healthy). See App\Support\HumanDiff.
         $lastActivity = $property->last_activity_at ?? $property->updated_at;
-        $daysSince    = $lastActivity ? now()->diffInDays($lastActivity) : 999;
+        $daysSince    = $lastActivity ? \App\Support\HumanDiff::daysBetween($lastActivity) : 999;
 
         if ($daysSince > 30) {
             $penalty = 25;
-            $factors['activity'] = ['label' => "No activity in {$daysSince} days", 'penalty' => $penalty, 'status' => 'critical'];
+            $factors['activity'] = ['label' => 'No activity in ' . \App\Support\HumanDiff::days($lastActivity), 'penalty' => $penalty, 'status' => 'critical'];
             $score -= $penalty;
         } elseif ($daysSince > 14) {
             $penalty = 15;
-            $factors['activity'] = ['label' => "No activity in {$daysSince} days", 'penalty' => $penalty, 'status' => 'warning'];
+            $factors['activity'] = ['label' => 'No activity in ' . \App\Support\HumanDiff::days($lastActivity), 'penalty' => $penalty, 'status' => 'warning'];
             $score -= $penalty;
         } elseif ($daysSince > 7) {
             $penalty = 5;
-            $factors['activity'] = ['label' => "Last activity {$daysSince} days ago", 'penalty' => $penalty, 'status' => 'info'];
+            $factors['activity'] = ['label' => 'Last activity ' . \App\Support\HumanDiff::days($lastActivity) . ' ago', 'penalty' => $penalty, 'status' => 'info'];
             $score -= $penalty;
         } else {
             $factors['activity'] = ['label' => 'Activity recent', 'penalty' => 0, 'status' => 'good'];

@@ -274,7 +274,7 @@ class CommandCentreService
                 'id' => $t->id,
                 'title' => $t->title,
                 'due' => $t->due_date?->format('d M') ?? '',
-                'days_overdue' => $t->due_date ? (int) $t->due_date->diffInDays(now()) : 0,
+                'days_overdue' => $t->due_date ? \App\Support\HumanDiff::daysBetween($t->due_date) : 0,
             ]);
         }
         foreach ($overdueEvents as $e) {
@@ -283,7 +283,7 @@ class CommandCentreService
                 'id' => $e->id,
                 'title' => $e->title,
                 'due' => $e->event_date?->format('d M') ?? '',
-                'days_overdue' => $e->event_date ? (int) $e->event_date->diffInDays(now()) : 0,
+                'days_overdue' => $e->event_date ? \App\Support\HumanDiff::daysBetween($e->event_date) : 0,
             ]);
         }
 
@@ -335,7 +335,7 @@ class CommandCentreService
         }
         foreach ($stale as $b) {
             if (!$items->contains('id', $b->id)) {
-                $days = $b->last_activity_at ? (int) now()->diffInDays($b->last_activity_at) : 999;
+                $days = $b->last_activity_at ? \App\Support\HumanDiff::daysBetween($b->last_activity_at) : 999;
                 $items->push([
                     'id' => $b->id,
                     'name' => trim($b->first_name . ' ' . $b->last_name),
@@ -413,7 +413,7 @@ class CommandCentreService
             'items' => $stale->map(fn($p) => [
                 'id' => $p->id,
                 'title' => $p->title,
-                'days_on_market' => (int) now()->diffInDays($p->created_at),
+                'days_on_market' => \App\Support\HumanDiff::daysBetween($p->created_at),
             ])->toArray(),
             'view_all_url' => '/corex/command-center/properties',
         ];
@@ -519,7 +519,7 @@ class CommandCentreService
                 'id' => $f->id,
                 'contact' => $contactNames[$f->contact_id] ?? 'Contact',
                 'status' => str_replace('_', ' ', $f->status),
-                'days_waiting' => (int) now()->diffInDays($f->created_at),
+                'days_waiting' => \App\Support\HumanDiff::daysBetween($f->created_at),
             ])->toArray(),
             'view_all_url' => '/corex/compliance/fica',
         ];
@@ -654,7 +654,7 @@ class CommandCentreService
             'items' => $stale->map(fn($p) => [
                 'id' => $p->id,
                 'title' => $p->title,
-                'days_on_market' => (int) now()->diffInDays($p->created_at),
+                'days_on_market' => \App\Support\HumanDiff::daysBetween($p->created_at),
                 'agent' => $agents[$p->agent_id] ?? 'Unassigned',
             ])->toArray(),
             'view_all_url' => '/corex/command-center/properties',
