@@ -556,7 +556,7 @@ class CalendarController extends Controller
             'tile_ratios.*'   => ['numeric', 'min:0.1', 'max:20'],
         ]);
 
-        $pref = CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
+        $pref = \App\Models\CommandCenter\CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
         $cur  = is_array($pref->calendar_cockpit) ? $pref->calendar_cockpit : [];
         foreach (['strip_height', 'strip_collapsed', 'panel_collapsed', 'tile_ratios'] as $k) {
             if (array_key_exists($k, $data) && $data[$k] !== null) {
@@ -573,7 +573,7 @@ class CalendarController extends Controller
     public function resetCockpit(Request $request)
     {
         $user = $request->user();
-        $pref = CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
+        $pref = \App\Models\CommandCenter\CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
         $pref->calendar_cockpit    = null;  // arrangement → defaults
         $pref->calendar_deck_layout = null; // deck → role default
         $pref->calendar_layers     = null;  // layers → agency default
