@@ -440,7 +440,10 @@ class CalendarController extends Controller
                 ->where('is_active', true)
                 ->whereIn('event_class', self::MANUAL_CREATABLE_CLASSES)
                 ->orderBy('label')
-                ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour', 'event_nature', 'autofill_buyers']),
+                ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour', 'event_nature', 'autofill_buyers', 'default_reminder_offsets', 'default_reminder_channels']),
+            // AT-178 — agency lead-time option list for the reminder selector.
+            'reminderLeadOptions' => \App\Models\AgencyContactSettings::forAgency((int) ($user->agency_id ?: 0))
+                ->calendarReminderLeadOptions(),
         ];
     }
 
@@ -725,6 +728,11 @@ class CalendarController extends Controller
             // Recurrence markers — the panel offers the this/future/all edit-scope
             // prompt when is_recurring (occurrence carries the specific date).
             'is_recurring' => (bool) $calendarEvent->is_recurring,
+            // AT-178 — EFFECTIVE reminder config (per-event ?? class ?? system) so the
+            // edit form shows the reminder that will actually fire and round-trips it.
+            'send_reminder' => (bool) $calendarEvent->send_reminder,
+            'reminder_offsets' => $calendarEvent->effectiveReminderOffsets(),
+            'reminder_channels' => $calendarEvent->effectiveReminderChannels(),
             'is_occurrence' => $isOccurrence,
             'occurrence_date' => $isOccurrence ? $occurrenceDate : null,
             'recurrence_label' => $recurrenceLabel,
@@ -1250,11 +1258,19 @@ class CalendarController extends Controller
             'recur_end_type'    => 'nullable|in:never,until,count',
             'recur_until'       => 'nullable|date',
             'recur_count'       => 'nullable|integer|min:1|max:1000',
+            // AT-178 — reminder config. offset must be one of the agency options.
+            'send_reminder'     => 'nullable|boolean',
+            'reminder_offset'   => 'nullable|integer|min:0|max:43200',
+            'reminder_popup'    => 'nullable|boolean',
+            'reminder_email'    => 'nullable|boolean',
         ]);
 
         // Build the RRULE from the recurrence inputs (if any) → is_recurring +
         // recurrence_rule on the parent. The creator writes them onto the event.
         $data = $this->applyRecurrenceInputs($data);
+
+        // Assemble per-event reminder offsets + channels from the form (§8).
+        $data = array_merge($data, $this->reminderFieldsFromRequest($request, $user));
 
         // Create + link + invite through the shared CalendarEventCreator so the
         // web cockpit and the v1 mobile API build events identically.
@@ -1267,6 +1283,45 @@ class CalendarController extends Controller
         return redirect()
             ->route('command-center.calendar', ['view' => 'day', 'date' => Carbon::parse($event->event_date)->toDateString()])
             ->with('success', 'Event created.');
+    }
+
+    /**
+     * AT-178 — assemble per-event reminder config from the request into the shape the
+     * creator/updater persist: send_reminder (bool), reminder_offsets (int[]),
+     * reminder_channels (string[]).
+     *
+     * Rules: the single form lead-time becomes a 1-element offsets array, snapped to
+     * the agency option list (a tampered value falls back to the system default rather
+     * than 500ing). Channels are the chosen popup/email set. Both channels off ⇒
+     * send_reminder=false (prevent the "enabled but goes nowhere" state — §8).
+     * When the request carries NO reminder fields at all (legacy/API), return [] so
+     * the event falls through to the effective defaults.
+     */
+    private function reminderFieldsFromRequest(Request $request, $user): array
+    {
+        if (!$request->has('send_reminder') && !$request->has('reminder_offset')
+            && !$request->has('reminder_popup') && !$request->has('reminder_email')) {
+            return [];
+        }
+
+        $channels = [];
+        if ($request->boolean('reminder_popup')) $channels[] = 'popup';
+        if ($request->boolean('reminder_email')) $channels[] = 'email';
+
+        $sendReminder = $request->boolean('send_reminder') && !empty($channels);
+
+        $options = \App\Models\AgencyContactSettings::forAgency((int) ($user->agency_id ?: 0))
+            ->calendarReminderLeadOptions();
+        $offset = (int) $request->input('reminder_offset', 60);
+        if (!in_array($offset, $options, true)) {
+            $offset = in_array(60, $options, true) ? 60 : ($options[0] ?? 60);
+        }
+
+        return [
+            'send_reminder'     => $sendReminder,
+            'reminder_offsets'  => [$offset],
+            'reminder_channels' => $channels ?: null,
+        ];
     }
 
     /** Build recurrence_rule + is_recurring from the form's recur_* inputs. */
@@ -1374,7 +1429,16 @@ class CalendarController extends Controller
             'recur_count'       => 'nullable|integer|min:1|max:1000',
             'recur_scope'       => 'nullable|in:this,future,all',
             'occurrence_date'   => 'nullable|date',
+            // AT-178 — reminder config (same shape as store()).
+            'send_reminder'     => 'nullable|boolean',
+            'reminder_offset'   => 'nullable|integer|min:0|max:43200',
+            'reminder_popup'    => 'nullable|boolean',
+            'reminder_email'    => 'nullable|boolean',
         ]);
+
+        // Assemble per-event reminder offsets + channels from the form (§8).
+        $reminderData = $this->reminderFieldsFromRequest($request, $user);
+        $data = array_merge($data, $reminderData);
 
         // Recurring series edit with an explicit scope. "this"/"future" fork into
         // the RecurrenceEditService (exception child / series split); "all" and
@@ -1402,7 +1466,10 @@ class CalendarController extends Controller
                 'title', 'category', 'event_date', 'end_date', 'description',
                 'status', 'priority', 'property_id',
                 'is_recurring', 'recurrence_rule',
-            ])->filter(fn ($v, $k) => $v !== null || in_array($k, ['end_date', 'description', 'property_id', 'recurrence_rule']))->all());
+                // AT-178 — reminder config (send_reminder may legitimately be false;
+                // reminder_channels may be null to clear both channels).
+                'send_reminder', 'reminder_offsets', 'reminder_channels',
+            ])->filter(fn ($v, $k) => $v !== null || in_array($k, ['end_date', 'description', 'property_id', 'recurrence_rule', 'reminder_channels']))->all());
 
             // Per-event "requires feedback" choice → metadata['event_nature'].
             // Merge (don't clobber other metadata keys); absent input leaves it as-is.

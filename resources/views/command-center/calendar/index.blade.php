@@ -1865,6 +1865,9 @@
                       class="w-full rounded-md px-3 py-2 text-sm"
                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
         </div>
+
+        {{-- Reminder (AT-178) — self-contained partial; binds form.reminder* keys --}}
+        @include('command-center.calendar.partials.reminder-fields')
     </form>
 
     {{-- Footer --}}
@@ -2486,7 +2489,9 @@ function calendarPage() {
         selfConflicts: [],
         _selfConflictTimer: null,
         form: { title: '', category: '', startDate: '', startTime: '', endDate: '', endTime: '', description: '', allDay: false, eventNature: 'actionable',
-                recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '' },
+                recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '',
+                // AT-178 reminder keys. Defaults: popup ON, email OFF, 60 min (Johan).
+                sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false },
         // Recurring edit/delete scope modal state.
         recurScopeModalOpen: false,
         recurScopeMode: 'edit',        // 'edit' | 'delete'
@@ -2635,7 +2640,8 @@ function calendarPage() {
 
         openForDate(dateStr) {
             const nextQ = this.nextQuarterHour();
-            this.form = { title: '', category: '', startDate: dateStr, startTime: nextQ, endDate: dateStr, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable' };
+            this.form = { title: '', category: '', startDate: dateStr, startTime: nextQ, endDate: dateStr, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable',
+                          sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false };
             this.endManuallyEdited = false;
             this.editMode = false;
             this.editingEventId = null;
@@ -2780,7 +2786,8 @@ function calendarPage() {
             const dateToUse = this.pendingCreateDate || this.selectedDate || today;
             const nextQ = this.nextQuarterHour();
             this.form = { title: '', category: '', startDate: dateToUse, startTime: nextQ, endDate: dateToUse, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable',
-                          recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '' };
+                          recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '',
+                          sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false };
             this.endManuallyEdited = false;
             this.editMode = false;
             this.editingEventId = null;
@@ -2851,6 +2858,7 @@ function calendarPage() {
                     endTime: prefillClass === 'viewing' ? '15:00' : '10:00',
                     description: '',
                     allDay: false,
+                    sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false,
                 };
                 this.editMode = false;
                 this.editingEventId = null;
@@ -3173,6 +3181,13 @@ function calendarPage() {
                 recurCount: rc ? (rc.count || 10) : 10,
                 recurScope: '',
                 occurrenceDate: '',
+                // AT-178 — round-trip the saved reminder config. Offsets is an array
+                // in the schema; the single-lead-time UI uses the first (or effective
+                // default). Channels are the effective popup/email set.
+                sendReminder: d.send_reminder !== undefined ? !!d.send_reminder : true,
+                reminderOffset: (Array.isArray(d.reminder_offsets) && d.reminder_offsets.length) ? Number(d.reminder_offsets[0]) : 60,
+                reminderPopup: Array.isArray(d.reminder_channels) ? d.reminder_channels.includes('popup') : true,
+                reminderEmail: Array.isArray(d.reminder_channels) ? d.reminder_channels.includes('email') : false,
             };
             this.endManuallyEdited = !!endD;
             this.editMode = true;
