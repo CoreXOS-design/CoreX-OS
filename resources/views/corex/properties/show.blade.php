@@ -1254,6 +1254,14 @@
                                 <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
                             </div>
 
+                            {{-- Deferred-sync note: the listing is LIVE on P24 (has a ref,
+                                 status active/submitted) but the last push didn't land
+                                 because Property24 was temporarily unavailable. Shown amber
+                                 (not the crimson hard-'error' line) so the agent keeps every
+                                 recovery button and knows to tap Refresh to re-push. --}}
+                            <div x-show="p24Ref && lastError && (status === 'active' || status === 'submitted')" x-cloak
+                                 class="text-xs px-1" style="color:var(--ds-amber);" x-text="lastError"></div>
+
                             <div x-show="enabled && !resolvedP24AgencyId" x-cloak class="text-xs px-1" style="color:var(--ds-amber);">
                                 No Property24 agency ID configured on branch or agency.
                             </div>
@@ -7497,8 +7505,17 @@ function p24Syndication(config) {
                     this.p24Ref = data.p24_ref || this.p24Ref;
                     if (st === 'active' || st === 'submitted') {
                         this.lastSubmitted = data.p24_last_submitted_at || this.lastSubmitted;
-                        this.lastError = ''; this.debugErrors = []; this.showDebug = false;
-                        this.showMessage(successMsg);
+                        if (data.p24_last_error) {
+                            // Live on P24, but the last push deferred (transient P24
+                            // outage). Surface the note honestly rather than a false
+                            // "success" toast — the listing is live with its previous
+                            // content; the latest changes re-sync on the next Refresh.
+                            this.lastError = data.p24_last_error;
+                            this.showMessage(data.p24_last_error);
+                        } else {
+                            this.lastError = ''; this.debugErrors = []; this.showDebug = false;
+                            this.showMessage(successMsg);
+                        }
                     } else if (st === 'error' || st === 'rejected') {
                         this.lastError = data.p24_last_error || 'Sync failed';
                         this.debugErrors = [this.lastError]; this.showDebug = true;

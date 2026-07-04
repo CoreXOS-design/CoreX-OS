@@ -153,6 +153,23 @@ class Property24SyndicationService
         $result = $this->client->saveListing($property->id, $payload);
 
         if (!$result['success']) {
+            // AT-P24 remediation (#5) extended to the submit/update path. A
+            // TRANSIENT Property24 failure (connection timeout / 5xx / 429 — no
+            // definitive HTTP status) must NOT be written as a permanent 'error':
+            //  • A read-timeout on POST /listings returns 0 bytes (cURL 28), so we
+            //    cannot tell whether P24 accepted the save.
+            //  • A listing that already has a p24_ref is STILL LIVE on the portal.
+            //    The old path clobbered it to 'error', which (a) mislabels a live
+            //    listing as broken, (b) hides every recovery button in the UI
+            //    (View/Refresh/Deactivate require active|submitted|submitting), and
+            //    (c) strands it out of syncAllActivations() (error rows aren't
+            //    reconciled) — exactly the class of bug already fixed for
+            //    deactivate/reactivate but never for submit. See handleTransientSubmitFailure.
+            if ($this->isTransientFailure($result)) {
+                return $this->handleTransientSubmitFailure($property, $result);
+            }
+
+            // Permanent failure (4xx validation etc.) — surface the real error.
             $property->update(['p24_syndication_status' => 'error', 'p24_last_error' => $result['message'] ?? 'Unknown API error']);
             return ['success' => false, 'message' => $result['message'] ?? 'Unknown API error'];
         }
@@ -213,6 +230,44 @@ class Property24SyndicationService
             'status'  => $updateData['p24_syndication_status'],
             'p24_ref' => $updateData['p24_ref'] ?? null,
         ];
+    }
+
+    /**
+     * A TRANSIENT Property24 failure (timeout / 5xx / 429) during submit/update —
+     * never a permanent 'error'. See performSubmit for the full rationale.
+     *
+     *  • Already on the portal (has p24_ref): keep it 'active'. The listing is
+     *    still live with its previous content; only THIS update didn't reach P24.
+     *    Staying 'active' preserves the UI recovery buttons and keeps the row in
+     *    syncAllActivations()'s reconcile set, and the deferred note tells the
+     *    agent the latest changes haven't synced yet (tap Refresh to re-push).
+     *  • Never submitted (no p24_ref): 'pending' + a retryable note. Nothing is on
+     *    the portal to mislabel; the agent (or the observer re-dispatch on the next
+     *    save) retries. P24 dedupes by sourceReference, so a retry updates the same
+     *    listing rather than creating a duplicate.
+     *
+     * Either way the caller gets ['transient' => true] so the HTTP layer can show
+     * a soft "temporarily unavailable" state instead of a hard failure.
+     */
+    private function handleTransientSubmitFailure(Property $property, array $result): array
+    {
+        $code = $result['status_code'] ?? 'timeout';
+
+        if (!empty($property->p24_ref)) {
+            $property->update([
+                'p24_syndication_status' => 'active',
+                'p24_last_error'         => "Sync deferred — Property24 temporarily unavailable ({$code}). Your listing is still live on Property24; the latest changes haven't synced yet — tap Refresh to retry.",
+            ]);
+            $this->log('warning', "Submit transient-failed for property #{$property->id} — kept live (ref {$property->p24_ref})", ['status_code' => $result['status_code'] ?? null]);
+            return ['success' => false, 'transient' => true, 'message' => 'Property24 is temporarily unavailable — your listing is still live and the latest changes will re-sync when you retry.'];
+        }
+
+        $property->update([
+            'p24_syndication_status' => 'pending',
+            'p24_last_error'         => "Submission deferred — Property24 temporarily unavailable ({$code}). Not yet on the portal; please retry shortly.",
+        ]);
+        $this->log('warning', "First submit transient-failed for property #{$property->id} — marked pending/retryable", ['status_code' => $result['status_code'] ?? null]);
+        return ['success' => false, 'transient' => true, 'message' => 'Property24 is temporarily unavailable — please retry the submission shortly.'];
     }
 
     public function deactivateListing(Property $property): array
