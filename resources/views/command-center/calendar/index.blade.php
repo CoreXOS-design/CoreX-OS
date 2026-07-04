@@ -3999,8 +3999,11 @@ function calendarDeck() {
         stripResizeMove(e) {
             if (!this._resize.on) return;
             const dy = this._resize.y - e.clientY;         // drag up = taller strip
-            const maxByVh = Math.round(window.innerHeight * 0.40);
-            const h = Math.max(120, Math.min(maxByVh, this._resize.h + dy));
+            // Cap the TILE-AREA height so the whole strip SECTION (tile area + ~66px of
+            // header/padding/handle chrome) never exceeds ~40vh — which keeps the
+            // calendar block above ~45vh at both proof sizes.
+            const maxTile = Math.max(120, Math.round(window.innerHeight * 0.40) - 66);
+            const h = Math.max(120, Math.min(maxTile, this._resize.h + dy));
             this.cockpit.strip_height = h;
         },
         stripResizeEnd() { if (this._resize.on) { this._resize.on = false; this.persistCockpit(); } },
