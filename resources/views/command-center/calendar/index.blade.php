@@ -3967,7 +3967,12 @@ function calendarDeck() {
         _ratio: { on: false, i: -1, x: 0, a: 0, b: 0 },
 
         get stripCollapsed() { return !!this.cockpit.strip_collapsed; },
-        get stripHeight() { return Math.max(120, Math.min(560, this.cockpit.strip_height || 176)); },
+        // Clamp to the CURRENT viewport so a height saved on a big screen can't push the
+        // calendar below ~45vh on a smaller one (section chrome ≈ 66px; strip ≤ 40vh).
+        get stripHeight() {
+            const maxTile = Math.max(120, Math.round(window.innerHeight * 0.40) - 66);
+            return Math.max(120, Math.min(maxTile, this.cockpit.strip_height || 176));
+        },
         // grid-template-columns from saved ratios (fallback: equal columns).
         gridTemplate() {
             const n = this.cards.length || 1;
