@@ -120,30 +120,40 @@ class AgencyContactSettings extends Model
      */
     public static function forAgency(int $agencyId): self
     {
-        return self::withoutGlobalScopes()->firstOrCreate(
-            ['agency_id' => $agencyId],
-            [
-                'sharing_mode' => 'branch',
-                'buyer_pipeline_default_scope' => 'own',
-                'duplicate_mode' => 'soft_warn',
-                'duplicate_match_fields' => ['phone', 'email', 'id_number'],
-                'address_match_mode' => 'standard',
-                'warn_on_held_address_capture' => true,
-                'portal_lead_auto_seed_buyer' => true,
-                'buyer_warm_days' => 14,
-                'buyer_cold_days' => 30,
-                'buyer_lost_days' => 60,
-                'outreach_no_response_days' => self::DEFAULT_OUTREACH_NO_RESPONSE_DAYS,
-                'min_countable_criteria' => self::DEFAULT_MIN_COUNTABLE_CRITERIA,
-                'mic_match_threshold' => self::DEFAULT_MIC_MATCH_THRESHOLD,
-                'mic_price_band_pct' => self::DEFAULT_MIC_PRICE_BAND_PCT,
-                'contact_retention_years' => 5,
-                'consent_retention_years' => 5,
-                'access_log_retention_years' => 5,
-                'calendar_max_occurrences' => self::DEFAULT_CALENDAR_MAX_OCCURRENCES,
-                'calendar_max_expansion_days' => self::DEFAULT_CALENDAR_MAX_EXPANSION_DAYS,
-            ]
-        );
+        $defaults = [
+            'sharing_mode' => 'branch',
+            'buyer_pipeline_default_scope' => 'own',
+            'duplicate_mode' => 'soft_warn',
+            'duplicate_match_fields' => ['phone', 'email', 'id_number'],
+            'address_match_mode' => 'standard',
+            'warn_on_held_address_capture' => true,
+            'portal_lead_auto_seed_buyer' => true,
+            'buyer_warm_days' => 14,
+            'buyer_cold_days' => 30,
+            'buyer_lost_days' => 60,
+            'outreach_no_response_days' => self::DEFAULT_OUTREACH_NO_RESPONSE_DAYS,
+            'min_countable_criteria' => self::DEFAULT_MIN_COUNTABLE_CRITERIA,
+            'mic_match_threshold' => self::DEFAULT_MIC_MATCH_THRESHOLD,
+            'mic_price_band_pct' => self::DEFAULT_MIC_PRICE_BAND_PCT,
+            'contact_retention_years' => 5,
+            'consent_retention_years' => 5,
+            'access_log_retention_years' => 5,
+            'calendar_max_occurrences' => self::DEFAULT_CALENDAR_MAX_OCCURRENCES,
+            'calendar_max_expansion_days' => self::DEFAULT_CALENDAR_MAX_EXPANSION_DAYS,
+        ];
+
+        // No agency context (e.g. a global super_admin whose agency_id is null →
+        // coerced to 0 by callers): NEVER persist a row. agency_id 0 has no parent
+        // in `agencies`, so firstOrCreate would 1452-violate the FK and 500 the
+        // page (AT-178 calendar reminder-lead lookup hit exactly this). Return an
+        // unsaved defaults instance instead — every accessor on this model is
+        // null-safe and falls back to the same defaults, so read-only callers
+        // (the only kind for a no-agency user) get correct values with no write.
+        if ($agencyId <= 0) {
+            return (new self())->forceFill(array_merge(['agency_id' => $agencyId], $defaults));
+        }
+
+        return self::withoutGlobalScopes()->firstOrCreate(['agency_id' => $agencyId], $defaults);
     }
 
     /** Recurring-events: resolved max occurrences per series per query (null-safe, clamped 1–1000). */
