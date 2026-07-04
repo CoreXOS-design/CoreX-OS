@@ -8,7 +8,7 @@
 @endphp
 
 @section('corex-content')
-<div class="space-y-5"
+<div class="w-full space-y-5"
      x-data="{
         tab: (window.location.hash || '#overview').replace('#', ''),
         setTab(t) { this.tab = t; history.replaceState(null, '', '#' + t); }
@@ -53,7 +53,7 @@
     </div>
 
     <div>
-        <div class="max-w-5xl mx-auto space-y-4">
+        <div class="w-full space-y-4">
 
     {{-- Flash messages (alert block §3.9) --}}
     @if(session('success'))
@@ -196,20 +196,20 @@
                 </div>
                 <div style="background:var(--surface);padding:14px;text-align:center;">
                     <div style="font-size:0.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600;">Awaiting outcome</div>
-                    <div style="font-size:1.5rem;font-weight:700;margin-top:3px;color:{{ $presentationStats['awaiting_outcome_count'] > 0 ? '#d97706' : 'var(--text-primary)' }};">
+                    <div style="font-size:1.5rem;font-weight:700;margin-top:3px;color:{{ $presentationStats['awaiting_outcome_count'] > 0 ? 'var(--ds-amber, #f59e0b)' : 'var(--text-primary)' }};">
                         {{ $presentationStats['awaiting_outcome_count'] }}
                     </div>
                     @if($presentationStats['awaiting_outcome_count'] > 0 && \Illuminate\Support\Facades\Route::has('corex.presentations.outcomes.index'))
-                        <a href="{{ route('corex.presentations.outcomes.index') }}?status=open" style="font-size:0.625rem;color:#d97706;text-decoration:none;">Record →</a>
+                        <a href="{{ route('corex.presentations.outcomes.index') }}?status=open" style="font-size:0.625rem;color:var(--ds-amber, #f59e0b);text-decoration:none;">Record →</a>
                     @endif
                 </div>
                 <div style="background:var(--surface);padding:14px;text-align:center;">
                     <div style="font-size:0.625rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600;">Refresh requests</div>
-                    <div style="font-size:1.5rem;font-weight:700;margin-top:3px;color:{{ $presentationStats['refresh_requests_count'] > 0 ? '#dc2626' : 'var(--text-primary)' }};">
+                    <div style="font-size:1.5rem;font-weight:700;margin-top:3px;color:{{ $presentationStats['refresh_requests_count'] > 0 ? 'var(--ds-amber, #f59e0b)' : 'var(--text-primary)' }};">
                         {{ $presentationStats['refresh_requests_count'] }}
                     </div>
                     @if($presentationStats['refresh_requests_count'] > 0 && \Illuminate\Support\Facades\Route::has('corex.presentations.refresh-requests.index'))
-                        <a href="{{ route('corex.presentations.refresh-requests.index') }}" style="font-size:0.625rem;color:#dc2626;text-decoration:none;">Open inbox →</a>
+                        <a href="{{ route('corex.presentations.refresh-requests.index') }}" style="font-size:0.625rem;color:var(--ds-amber, #f59e0b);text-decoration:none;">Open inbox →</a>
                     @endif
                 </div>
             </div>
@@ -874,7 +874,7 @@
             {{-- WAHA unavailable --}}
             <div x-show="state === 'waha_down'">
                 <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 10px;">The WhatsApp capture service is temporarily unavailable.</p>
-                <button type="button" class="corex-btn-secondary" @click="retry()">Retry</button>
+                <button type="button" class="corex-btn-outline" @click="retry()">Retry</button>
             </div>
 
             {{-- not linked --}}
@@ -907,7 +907,7 @@
                             <li>Tap <b>Linked devices → Link a device</b>.</li>
                             <li>Scan the code on the left.</li>
                         </ol>
-                        <button type="button" class="corex-btn-secondary" @click="unlink()">Cancel</button>
+                        <button type="button" class="corex-btn-outline" @click="unlink()">Cancel</button>
                     </div>
                 </div>
             </div>
@@ -915,7 +915,7 @@
             {{-- linked --}}
             <div x-show="state === 'linked'">
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-                    <span style="width:9px; height:9px; border-radius:999px; background:#22a06b; display:inline-block;"></span>
+                    <span style="width:9px; height:9px; border-radius:999px; background:var(--ds-green, #059669); display:inline-block;"></span>
                     <span style="font-size:0.875rem; font-weight:700; color:var(--text-primary);">Linked &amp; capturing</span>
                 </div>
                 <div style="font-size:0.8125rem; color:var(--text-secondary); line-height:1.7; margin-bottom:14px;">
@@ -923,14 +923,14 @@
                     <div>Linked since: <span x-text="device?.linked_since || '—'"></span></div>
                     <div>Session health: <span x-text="wahaStatus || 'WORKING'"></span></div>
                 </div>
-                <button type="button" class="corex-btn-secondary" @click="unlink()" x-bind:disabled="busy"
-                        style="border-color:#c0392b; color:#c0392b;">Unlink</button>
+                <button type="button" class="corex-btn-outline" @click="unlink()" x-bind:disabled="busy"
+                        style="border-color:var(--ds-crimson, #c41e3a); color:var(--ds-crimson, #c41e3a);">Unlink</button>
             </div>
 
             {{-- failed --}}
             <div x-show="state === 'failed'">
-                <p style="font-size:0.8125rem; color:#c0392b; margin:0 0 10px;">The WhatsApp session failed. Restart to try again.</p>
-                <button type="button" class="corex-btn-secondary" @click="restart()" x-bind:disabled="busy">Restart session</button>
+                <p style="font-size:0.8125rem; color:var(--ds-crimson, #c41e3a); margin:0 0 10px;">The WhatsApp session failed. Restart to try again.</p>
+                <button type="button" class="corex-btn-outline" @click="restart()" x-bind:disabled="busy">Restart session</button>
             </div>
         </div>
 
@@ -1367,7 +1367,7 @@
             <h3 class="text-sm font-semibold" style="color:var(--text-primary); margin:0 0 6px; border-left:3px solid var(--ds-crimson); padding-left:12px;">Delete Account</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 16px;">Once your account is deleted, all of its resources and data will be permanently deleted.</p>
 
-            <button @click="confirmDelete = true" x-show="!confirmDelete" type="button" class="corex-btn-primary" style="background:var(--ds-crimson, #dc2626); box-shadow:none;">Delete Account</button>
+            <button @click="confirmDelete = true" x-show="!confirmDelete" type="button" class="corex-btn-primary" style="background:var(--ds-crimson, #c41e3a); box-shadow:none;">Delete Account</button>
 
             <div x-show="confirmDelete" x-cloak x-transition class="rounded-md" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); padding:16px; max-width:400px;">
                 <p style="font-size:0.8125rem; font-weight:600; color:var(--ds-crimson); margin:0 0 4px;">Are you sure?</p>
@@ -1380,7 +1380,7 @@
                     @error('password', 'userDeletion') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-bottom:8px;">{{ $message }}</p> @enderror
                     <div class="flex gap-2">
                         <button type="button" @click="confirmDelete = false" class="corex-btn-outline">Cancel</button>
-                        <button type="submit" class="corex-btn-primary" style="background:var(--ds-crimson, #dc2626); box-shadow:none;">Confirm Delete</button>
+                        <button type="submit" class="corex-btn-primary" style="background:var(--ds-crimson, #c41e3a); box-shadow:none;">Confirm Delete</button>
                     </div>
                 </form>
             </div>
@@ -1436,7 +1436,7 @@
     </div>
     @endif
 
-        </div>{{-- .max-w-5xl --}}
+        </div>{{-- .w-full content --}}
     </div>{{-- .p-4 --}}
 </div>{{-- .-m-4 x-data --}}
 @endsection

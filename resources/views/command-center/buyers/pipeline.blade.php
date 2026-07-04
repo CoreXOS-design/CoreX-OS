@@ -2,38 +2,38 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="space-y-4">
+<div class="w-full space-y-5">
     {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="buyers-intro">
-                <h1 class="text-xl font-bold text-white">Buyer Pipeline</h1>
+                <h1 class="text-xl font-bold text-white leading-tight">Buyer Pipeline</h1>
                 <p class="text-sm text-white/60">Track buyer lifecycle: New → Warm → Cold → Lost</p>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
                 {{-- Pipeline scope toggle (Layer 3) --}}
-                <div data-tour="buyers-scope" class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);">
+                <div data-tour="buyers-scope" class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);">
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'own'])) }}"
-                       class="px-2.5 py-1 text-[10px] font-semibold {{ ($pipelineScope ?? 'own') === 'own' ? 'text-white' : 'text-white/50' }}"
-                       style="{{ ($pipelineScope ?? 'own') === 'own' ? 'background: var(--brand-button);' : '' }}">Mine</a>
+                       class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ ($pipelineScope ?? 'own') === 'own' ? 'text-white' : 'text-white/60' }}"
+                       style="{{ ($pipelineScope ?? 'own') === 'own' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">Mine</a>
                     @if($canSeeBranch ?? false)
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'branch'])) }}"
-                       class="px-2.5 py-1 text-[10px] font-semibold {{ ($pipelineScope ?? '') === 'branch' ? 'text-white' : 'text-white/50' }}"
-                       style="{{ ($pipelineScope ?? '') === 'branch' ? 'background: var(--brand-button);' : '' }}">Branch</a>
+                       class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ ($pipelineScope ?? '') === 'branch' ? 'text-white' : 'text-white/60' }}"
+                       style="{{ ($pipelineScope ?? '') === 'branch' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">Branch</a>
                     @endif
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'agency'])) }}"
-                       class="px-2.5 py-1 text-[10px] font-semibold {{ ($pipelineScope ?? '') === 'agency' ? 'text-white' : 'text-white/50' }}"
-                       style="{{ ($pipelineScope ?? '') === 'agency' ? 'background: var(--brand-button);' : '' }}">All</a>
+                       class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ ($pipelineScope ?? '') === 'agency' ? 'text-white' : 'text-white/60' }}"
+                       style="{{ ($pipelineScope ?? '') === 'agency' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">All</a>
                 </div>
                 {{-- View toggle --}}
-                <div data-tour="buyers-view" class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
+                <div data-tour="buyers-view" class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);">
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('scope', 'state'), ['view' => 'kanban'])) }}"
-                       class="px-3 py-1.5 text-xs font-semibold {{ $view === 'kanban' ? 'text-white' : 'text-white/60' }}"
-                       style="{{ $view === 'kanban' ? 'background: var(--brand-button);' : '' }}">Kanban</a>
+                       class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ $view === 'kanban' ? 'text-white' : 'text-white/60' }}"
+                       style="{{ $view === 'kanban' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">Kanban</a>
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('scope', 'state'), ['view' => 'list'])) }}"
-                       class="px-3 py-1.5 text-xs font-semibold {{ $view === 'list' ? 'text-white' : 'text-white/60' }}"
-                       style="{{ $view === 'list' ? 'background: var(--brand-button);' : '' }}">List</a>
+                       class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ $view === 'list' ? 'text-white' : 'text-white/60' }}"
+                       style="{{ $view === 'list' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">List</a>
                 </div>
             </div>
         </div>
@@ -43,9 +43,9 @@
          "N buyers" badge click from the prospecting tab). --}}
     @if(!empty($contextListing))
         <div class="rounded-md px-4 py-3 flex items-center justify-between gap-3"
-             style="background: color-mix(in srgb, var(--brand-button) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-button) 30%, transparent);">
+             style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-button, #0ea5e9) 30%, transparent);">
             <div class="min-w-0">
-                <div class="text-[10px] uppercase tracking-wider" style="color: var(--brand-button);">
+                <div class="text-[10px] uppercase tracking-wider" style="color: var(--brand-button, #0ea5e9);">
                     Filtered to buyers matching prospecting listing
                 </div>
                 <div class="text-sm font-semibold truncate mt-0.5" style="color: var(--text-primary);">
@@ -65,7 +65,7 @@
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
                 <a href="{{ route('market-intelligence.show', $contextListing->id) }}"
-                   class="text-xs no-underline hover:underline" style="color: var(--brand-button);">View listing →</a>
+                   class="text-xs no-underline hover:underline" style="color: var(--brand-button, #0ea5e9);">View listing →</a>
                 <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->except('prospecting_listing_id'), [])) }}"
                    class="text-xs no-underline hover:underline" style="color: var(--text-muted);">Clear filter</a>
             </div>
@@ -119,7 +119,7 @@
                                 </div>
                                 @unless($buyer->hasCountableWishlist())
                                     <div class="mt-1">
-                                        <span class="inline-block text-[9px] font-semibold px-1.5 py-0.5 rounded"
+                                        <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap"
                                               style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);"
                                               title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
                                     </div>
@@ -127,11 +127,11 @@
                                 <div class="flex items-center justify-between text-[10px] mt-1" style="color: var(--text-muted);">
                                     <span>{{ $buyer->last_activity_at ? $buyer->last_activity_at->diffForHumans() : 'No activity' }}</span>
                                     {{-- AT-108 — canonical Core Match count (same number as Core Matches surface + detail). NOT viewings. --}}
-                                    <span>{{ $coreMatchCounts->get($buyer->id, 0) }} matches</span>
+                                    <span>{{ number_format($coreMatchCounts->get($buyer->id, 0)) }} matches</span>
                                 </div>
                             </a>
                             <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
-                               class="block mt-1 text-center text-[10px] font-medium py-1 rounded no-underline hover:opacity-80 transition"
+                               class="block mt-1 text-center text-[10px] font-medium py-1 rounded-md no-underline hover:opacity-80 transition"
                                style="color: var(--ds-green, #059669); background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);">
                                 Schedule Viewing
                             </a>
@@ -145,14 +145,15 @@
     @else
         {{-- List View --}}
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-            <table class="w-full text-sm">
+            <div class="overflow-x-auto">
+            <table class="min-w-full text-sm ds-table">
                 <thead>
                     <tr style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
-                        <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">Name</th>
-                        <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">State</th>
-                        <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">Agent</th>
-                        <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">Last Activity</th>
-                        <th class="text-left px-4 py-3 text-xs font-medium" style="color: var(--text-muted);">Core Matches</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Name</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">State</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Last Activity</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Core Matches</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -172,7 +173,7 @@
                                     {{ $buyer->full_name }}
                                 </a>
                                 @unless($buyer->hasCountableWishlist())
-                                    <span class="inline-block ml-2 text-[9px] font-semibold px-1.5 py-0.5 rounded align-middle"
+                                    <span class="inline-block ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-md align-middle whitespace-nowrap"
                                           style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);"
                                           title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
                                 @endunless
@@ -191,6 +192,7 @@
                     @endforelse
                 </tbody>
             </table>
+            </div>
             @if($view === 'list' && method_exists($buyers, 'links'))
                 <div class="px-4 py-3" style="border-top: 1px solid var(--border);">{{ $buyers->links() }}</div>
             @endif
