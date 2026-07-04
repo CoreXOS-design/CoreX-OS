@@ -98,33 +98,56 @@ final class CalendarLayerToggleTest extends TestCase
         $this->assertSame(['appointments', 'deal'], $pref->calendar_layers);
     }
 
-    public function test_notifications_tile_drops_a_toggled_off_layer(): void
+    public function test_deck_tiles_never_respect_layer_toggles(): void
     {
-        // A property (Listings) deadline due soon.
+        // AT-164 doctrine (Johan): DECK TILES are independent instruments — their content
+        // contracts are their own and NEVER a projection of the calendar's layer lens.
+        // Toggling a layer off must NOT change any tile's count. (Previously the
+        // Notifications tile server-filtered by layer, which emptied it when the user hid
+        // layers on the grid — the reported defect.)
         $this->event('property', 'portal_listing_expiry', now()->addDays(3)->startOfDay(), true);
 
         $svc = app(CalendarTileService::class);
 
-        // With Listings ON, the deadline is in the Notifications tile.
         CalendarLayers::save($this->user, ['property']);
-        $card = $svc->buildTile($this->user->fresh(), CalendarTileService::TILE_DEADLINES);
-        $this->assertSame(1, $card['count'], 'Listings layer on → deadline shows');
+        $withLayerOn = $svc->buildTile($this->user->fresh(), CalendarTileService::TILE_DEADLINES)['count'];
+        $this->assertSame(1, $withLayerOn, 'deadline present in the tile');
 
-        // Toggle Listings OFF → the deadline drops out of the tile (server-side).
+        // Hide the Listings layer entirely — the deck tile is unaffected.
         CalendarLayers::save($this->user, ['deal']);
-        $card = $svc->buildTile($this->user->fresh(), CalendarTileService::TILE_DEADLINES);
-        $this->assertSame(0, $card['count'], 'Listings layer off → deadline hidden');
+        $withLayerOff = $svc->buildTile($this->user->fresh(), CalendarTileService::TILE_DEADLINES)['count'];
+        $this->assertSame(1, $withLayerOff, 'deck tile count unchanged when a layer is hidden');
+
+        // Same for Upcoming Events (was gated behind the Appointments layer).
+        $this->event('viewing', 'viewing', now()->addDays(2)->setTime(9, 0), false);
+        CalendarLayers::save($this->user, []); // ALL layers off
+        $upcoming = $svc->buildTile($this->user->fresh(), CalendarTileService::TILE_UPCOMING)['count'];
+        $this->assertGreaterThanOrEqual(1, $upcoming, 'Upcoming Events shows appointments even with all layers off');
     }
 
-    public function test_month_block_tags_elements_with_data_layer(): void
+    public function test_grid_and_panel_agenda_carry_the_layer_for_client_side_hiding(): void
     {
-        $this->event('viewing', 'viewing', now()->startOfMonth()->addDays(9)->setTime(10, 0), false);
+        // The CALENDAR surfaces (grid week rows + panel agenda) respect layers the SAME
+        // client-side way — every chip/item carries data-layer / a layer key, and the
+        // client hides it via cal-layerable. Nothing is server-filtered by layer (so a
+        // layer toggled back ON always reveals its items).
+        // A clearly-future event so it falls inside the panel-agenda window (today..+30)
+        // regardless of which weekday the test runs on.
+        $future = now()->addDays(3)->setTime(10, 0);
+        $this->event('viewing', 'viewing', $future, false);
 
-        $resp = $this->actingAs($this->user)->get(route('command-center.calendar.month-block', [
-            'year' => now()->year, 'month' => now()->month,
+        // Grid (week rows) tags every chip.
+        $resp = $this->actingAs($this->user)->get(route('command-center.calendar.week-rows', [
+            'start' => $future->copy()->startOfWeek(\Illuminate\Support\Carbon::MONDAY)->toDateString(), 'count' => 2,
         ]));
         $resp->assertOk();
         $resp->assertSee('cal-layerable', false);
-        $resp->assertSee('data-layer="appointments"', false);
+        $resp->assertSee('data-layer=', false);
+
+        // Panel agenda items carry a 'layer' and are NOT server-filtered by the active set.
+        CalendarLayers::save($this->user, []); // hide everything
+        $agenda = app(CalendarTileService::class)->panelAgenda($this->user->fresh());
+        $this->assertNotEmpty($agenda, 'panel agenda still returns items with all layers off (client hides them)');
+        $this->assertArrayHasKey('layer', $agenda[0], 'each agenda item carries its layer');
     }
 }

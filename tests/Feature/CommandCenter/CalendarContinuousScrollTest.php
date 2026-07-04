@@ -69,15 +69,44 @@ final class CalendarContinuousScrollTest extends TestCase
         ]);
     }
 
-    public function test_month_view_renders_the_continuous_container_and_initial_block(): void
+    public function test_month_view_renders_the_continuous_week_stream(): void
     {
+        // AT-164 single week-stream — the month view is now ONE continuous stream of
+        // week rows (each week exactly once; no month-block splitter, no duplicated
+        // boundary weeks). Windows are addressed by WEEK.
         $resp = $this->actingAs($this->user)->get(route('command-center.calendar', ['view' => 'month']));
         $resp->assertOk();
         $resp->assertSee('continuousMonth()', false);
-        $resp->assertSee('cal-month-block', false);
-        $resp->assertSee('data-month=', false);
+        $resp->assertSee('cal-week-row', false);
+        $resp->assertSee('data-week=', false);
+        // The old month-block splitter must NOT be in the month view any more.
+        $resp->assertDontSee('cal-month-block', false);
         // In-page Today anchor replaces pagination (§15.3).
         $resp->assertSee('calendar:today', false);
+
+        // Every rendered week appears exactly once (no duplicated boundary weeks).
+        preg_match_all('/data-week="(\d{4}-\d{2}-\d{2})"/', $resp->getContent(), $m);
+        $this->assertNotEmpty($m[1], 'week rows rendered');
+        $this->assertSame(count($m[1]), count(array_unique($m[1])), 'no week is rendered twice');
+    }
+
+    public function test_week_rows_endpoint_renders_the_same_partial_with_interactions(): void
+    {
+        $monday = now()->startOfWeek(Carbon::MONDAY);
+        $this->event('viewing', 'viewing', $monday->copy()->addDays(2)->setTime(9, 0), false);
+
+        $resp = $this->actingAs($this->user)->get(
+            route('command-center.calendar.week-rows', ['start' => $monday->toDateString(), 'count' => 4])
+        );
+        $resp->assertOk();
+        $resp->assertSee('data-week="' . $monday->toDateString() . '"', false);
+        $resp->assertSee('cal-week-row', false);
+        // Interaction parity — chips still open the in-page slide-over + carry a layer.
+        $resp->assertSee('openEventPanel', false);
+        $resp->assertSee('data-layer=', false);
+
+        preg_match_all('/data-week="(\d{4}-\d{2}-\d{2})"/', $resp->getContent(), $m);
+        $this->assertSame(count($m[1]), count(array_unique($m[1])), 'endpoint weeks are unique');
     }
 
     public function test_month_block_endpoint_renders_the_same_partial_with_interactions(): void

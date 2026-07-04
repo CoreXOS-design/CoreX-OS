@@ -166,6 +166,30 @@ final class CalendarDeckTest extends TestCase
         );
     }
 
+    public function test_deck_can_be_emptied_entirely_and_the_empty_layout_persists(): void
+    {
+        // AT-164 full-calendar mode — the user may deselect ALL tiles. An empty layout is
+        // a real, persisted state (NOT a signal to fall back to defaults), so the strip
+        // can disappear and the calendar take the full height.
+        $resp = $this->actingAs($this->owner)->postJson(
+            route('command-center.calendar.deck.save'),
+            ['tiles' => []]
+        );
+        $resp->assertOk()->assertJson(['ok' => true]);
+        $this->assertSame([], $resp->json('layout'), 'empty layout accepted');
+        $this->assertSame([], $resp->json('cards'), 'no tiles built');
+
+        // Persisted as empty, and resolves back to empty (no default fallback).
+        $pref = CalendarUserPreference::where('user_id', $this->owner->id)->first();
+        $this->assertSame([], $pref->calendar_deck_layout);
+        $this->assertSame([], $this->svc()->resolveLayout($this->owner->fresh()), 'empty layout is respected on resolve');
+
+        // Reset view still restores the role default.
+        $reset = $this->actingAs($this->owner)->postJson(route('command-center.calendar.deck.reset'));
+        $reset->assertOk();
+        $this->assertNotEmpty($reset->json('layout'), 'Reset restores the default deck');
+    }
+
     public function test_deck_endpoint_returns_the_full_shape(): void
     {
         $resp = $this->actingAs($this->owner)->getJson(route('command-center.calendar.deck'));

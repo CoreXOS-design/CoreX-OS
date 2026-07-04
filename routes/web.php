@@ -1311,6 +1311,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // AT-164 Gate 5 — continuous-scroll month window (HTML block) + JSON range endpoint
         Route::get('/calendar/month-block', [CommandCenterCalendarController::class, 'monthBlock'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.month-block');
+        Route::get('/calendar/week-rows', [CommandCenterCalendarController::class, 'weekRows'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.week-rows'); // AT-164 single week-stream
         Route::get('/calendar/grid-range', [CommandCenterCalendarController::class, 'gridRange'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.grid-range');
         Route::get('/calendar/day-columns', [CommandCenterCalendarController::class, 'dayColumns'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.day-columns');
 

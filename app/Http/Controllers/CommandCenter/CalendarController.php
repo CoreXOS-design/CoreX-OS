@@ -284,21 +284,18 @@ class CalendarController extends Controller
         $filteredSpanningBars = $block['spanningBars'];
         $filteredEvents       = $block['filteredEvents'];
 
-        // AT-164 cockpit (Johan QA) — PRELOAD prev + current + next month blocks so the
-        // grid frame has more content than its height on first paint → wheel scrolling
-        // engages immediately and lazy-load continues from there (a single short month
-        // never overflowed, so it read as "static"). Ordered [prev, current, next]; the
-        // client scrolls to the current month on init.
-        $curMonth  = Carbon::create($year, $month, 1)->startOfMonth();
-        $prevM     = $curMonth->copy()->subMonthNoOverflow();
-        $nextM     = $curMonth->copy()->addMonthNoOverflow();
-        $prevBlock = $this->monthBlockData($user, $prevM->year, $prevM->month, $typeFilter, $categoryFilter, $scope);
-        $nextBlock = $this->monthBlockData($user, $nextM->year, $nextM->month, $typeFilter, $categoryFilter, $scope);
-        $monthBlocks = [
-            ['year' => $prevM->year, 'month' => $prevM->month, 'grid' => $prevBlock['grid'], 'byDate' => $prevBlock['byDate'], 'deadlineGroups' => $prevBlock['deadlineGroups'], 'spanningBars' => $prevBlock['spanningBars']],
-            ['year' => $year,        'month' => $month,        'grid' => $grid,               'byDate' => $appointmentByDate,  'deadlineGroups' => $deadlineGroupsByDate,     'spanningBars' => $filteredSpanningBars],
-            ['year' => $nextM->year, 'month' => $nextM->month, 'grid' => $nextBlock['grid'], 'byDate' => $nextBlock['byDate'], 'deadlineGroups' => $nextBlock['deadlineGroups'], 'spanningBars' => $nextBlock['spanningBars']],
-        ];
+        // AT-164 (single week-stream) — PRELOAD a window of WEEK ROWS centred on the
+        // anchor month so the grid frame overflows on first paint (wheel scrolling
+        // engages immediately) and lazy-load continues by week from there. The month
+        // view is one continuous stream: no month blocks, no duplicated boundary weeks.
+        // The client scrolls to the anchor week ($anchorWeek) on init.
+        $anchorMonday   = Carbon::create($year, $month, 1)->startOfWeek(Carbon::MONDAY);
+        // Preload enough weeks ABOVE the anchor that it lands comfortably below the
+        // lazy-load top threshold (so init never trips loadPrev and drifts), plus enough
+        // BELOW to overflow the frame and engage scrolling immediately.
+        $preloadStart   = $anchorMonday->copy()->subWeeks(6);
+        $weekRows       = $this->weekRowsData($user, $preloadStart, 20, $typeFilter, $categoryFilter, $scope);
+        $anchorWeek     = $anchorMonday->toDateString();
 
         // Agenda range logic
         $rangeGroups = [
@@ -370,7 +367,8 @@ class CalendarController extends Controller
             'byDate'           => $appointmentByDate,   // AT-164 Gate 1 — appointments only in cells
             'deadlineGroups'   => $deadlineGroupsByDate, // AT-164 Gate 1 — aggregate deadline chips
             'spanningBars'     => $filteredSpanningBars,
-            'monthBlocks'      => $monthBlocks,         // AT-164 cockpit — prev+current+next preloaded
+            'weekRows'         => $weekRows,            // AT-164 single week-stream — preloaded weeks
+            'anchorWeek'       => $anchorWeek,          // AT-164 — Monday of the anchor month's first week
             'anchorMonth'      => sprintf('%04d-%02d', $year, $month),
             'colourMap'        => $colourMap,
             'colourPalettes'   => $colourPalettes,
@@ -479,6 +477,7 @@ class CalendarController extends Controller
             'type' => $e->event_type, 'category' => $e->category,
             'priority' => $e->priority, 'status' => $e->status,
             'propertyId' => $e->property_id, 'contactId' => $e->contact_id,
+            'layer' => $e->layer_key ?? 'appointments', // AT-164 Gate 6 — day-preview layer lens
         ])->values());
     }
 
@@ -1679,6 +1678,96 @@ class CalendarController extends Controller
     }
 
     /**
+     * AT-164 (single week-stream) — build a run of WEEK ROWS for the continuous MONTH
+     * view. The month view is now ONE seamless week stream: every calendar week exists
+     * exactly once, months flow into each other, and month boundaries are MARKED (first
+     * cell of a month shows "Jul 1" + a seam divider) rather than repeated with a
+     * splitter header. Windows are addressed by week (a Monday date), so anchors and the
+     * Today-snap resolve to weeks. Each descriptor carries that week's appointment chips,
+     * aggregate deadline groups and slot-packed spanning bars — the SAME species split
+     * and bar geometry the month grid used, so the cells are visually identical.
+     *
+     * @return array<int,array{weekStart:Carbon,byDate:array,deadlineGroups:array,spanningBars:array}>
+     */
+    private function weekRowsData($user, Carbon $startMonday, int $weekCount, array $typeFilter, array $categoryFilter, string $scope): array
+    {
+        $startMonday = $startMonday->copy()->startOfWeek(Carbon::MONDAY);
+        $weekCount   = max(1, min(60, $weekCount));
+        $rangeEnd    = $startMonday->copy()->addDays($weekCount * 7 - 1)->endOfDay();
+
+        $grid = $this->service->getRangeGrid($user, $startMonday, $rangeEnd, [], $scope);
+
+        // Same filter + species split the month grid used.
+        $filteredByDate = [];
+        foreach ($grid['byDate'] as $dateKey => $dayEvents) {
+            $resolved = $this->applyFilters(collect($dayEvents), $user, $typeFilter, $categoryFilter, $scope);
+            if ($resolved->isNotEmpty()) {
+                $filteredByDate[$dateKey] = $resolved->all();
+            }
+        }
+        [$appointmentByDate, $deadlineGroupsByDate] = $this->splitSpeciesForGrid($filteredByDate, $user);
+
+        // Filter spanning bars + tag their layer, then group by the week they fall in.
+        $barsByWeek = [];
+        foreach ($grid['spanningBars'] ?? [] as $bar) {
+            $filtered = $this->applyFilters(collect([$bar['event']]), $user, $typeFilter, $categoryFilter, $scope);
+            if ($filtered->isEmpty()) continue;
+            $bar['event'] = $filtered->first();
+            $bar['title'] = $bar['event']->title; // re-sync (private redaction)
+            $bar['layer'] = \App\Services\CommandCenter\Calendar\CalendarLayers::layerFor(
+                $bar['event'], $this->isAppointmentEvent($bar['event'], $user)
+            );
+            $wkKey = Carbon::parse($bar['start_date'])->startOfWeek(Carbon::MONDAY)->toDateString();
+            $barsByWeek[$wkKey][] = $bar;
+        }
+
+        $weeks = [];
+        for ($i = 0; $i < $weekCount; $i++) {
+            $wkStart = $startMonday->copy()->addDays($i * 7);
+            $wkKey   = $wkStart->toDateString();
+
+            $byDate = [];
+            $deadlines = [];
+            for ($d = 0; $d < 7; $d++) {
+                $ds = $wkStart->copy()->addDays($d)->toDateString();
+                if (!empty($appointmentByDate[$ds]))    $byDate[$ds]    = $appointmentByDate[$ds];
+                if (!empty($deadlineGroupsByDate[$ds]))  $deadlines[$ds] = $deadlineGroupsByDate[$ds];
+            }
+
+            $weeks[] = [
+                'weekStart'      => $wkStart,
+                'byDate'         => $byDate,
+                'deadlineGroups' => $deadlines,
+                'spanningBars'   => $barsByWeek[$wkKey] ?? [],
+            ];
+        }
+
+        return $weeks;
+    }
+
+    /**
+     * AT-164 (single week-stream) — render a run of week rows (HTML) for the continuous
+     * MONTH view. The Alpine windowing controller lazy-prepends/appends these as the user
+     * scrolls — the SAME _week-row partial as the initial render, so there is no second
+     * cell renderer to drift.
+     */
+    public function weekRows(Request $request)
+    {
+        $user = $request->user();
+        try { $start = Carbon::parse($request->get('start', now()->toDateString()))->startOfWeek(Carbon::MONDAY); }
+        catch (\Throwable $e) { abort(422, 'Invalid start.'); }
+        $count = max(1, min(20, (int) $request->get('count', 6)));
+
+        $typeFilter     = $request->input('types', []);
+        $categoryFilter = $request->input('categories', []);
+        $scope = PermissionService::clampScope($request->input('scope'), PermissionService::calendarScope($user));
+
+        $weeks = $this->weekRowsData($user, $start, $count, $typeFilter, $categoryFilter, $scope);
+
+        return view('command-center.calendar.partials._week-rows', ['weeks' => $weeks, 'month' => (int) now()->month]);
+    }
+
+    /**
      * AT-164 cockpit — build a window of day columns for the continuous WEEK view.
      * One query over the range, grouped by the event's start day.
      *
@@ -1939,6 +2028,15 @@ class CalendarController extends Controller
             $event->has_conflict = isset($conflictIds[$event->id]);
             $event->has_unack_decline = isset($unackDeclines[$event->id]);
             $event->unack_decline_count = $unackDeclines[$event->id] ?? 0;
+            // AT-164 Gate 6 — authoritative layer classification, computed ONCE at the
+            // single grid choke point. Every grid/agenda partial reads $event->layer_key
+            // and emits it as data-layer so the client-side layer toggle (cal-layerable)
+            // hides/shows the chip in EVERY view (month/week/day/agenda + panel agenda).
+            // Layers are a CALENDAR lens only — deck tiles never see this.
+            $event->layer_key = \App\Services\CommandCenter\Calendar\CalendarLayers::layerFor(
+                $event,
+                $this->isAppointmentEvent($event, $user)
+            );
         }
 
         // ITEM 4 — redact private events for everyone but their creator. Done as

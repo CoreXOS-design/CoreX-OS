@@ -150,13 +150,15 @@
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
             </a>
             @endif
-            @if($currentView === 'month')
-                {{-- In-page Today anchor — scrolls the continuous month view to today. --}}
+            @if($currentView === 'month' || $currentView === 'week')
+                {{-- In-page Today — snaps the continuous month/week view back to today from
+                     anywhere. ALWAYS clickable (Johan ruling): the continuous views scroll
+                     away from today, so a stale server-computed "is today in view" must
+                     never disable it. The controller ignores the click if already on today. --}}
                 <button type="button" class="corex-btn-outline" @click="window.dispatchEvent(new Event('calendar:today'))">Today</button>
-            @elseif($showToday)
-                <a href="{{ $todayUrl }}" class="corex-btn-outline">Today</a>
             @else
-                <span class="corex-btn-outline opacity-40 cursor-default pointer-events-none" aria-disabled="true">Today</span>
+                {{-- Day/Agenda are server-rendered per date → navigate to today. --}}
+                <a href="{{ $todayUrl }}" class="corex-btn-outline">Today</a>
             @endif
             {{-- Clickable date picker label --}}
             <div x-data="{ pickerOpen: false }" class="relative inline-flex">
@@ -223,7 +225,7 @@
     </div>{{-- END sticky header band --}}
 
     {{-- ══════ FLEX ROW: Calendar grid + Right panel (fills remaining height) ══════ --}}
-    <div class="flex gap-3 flex-1 min-h-0 overflow-hidden px-4 lg:px-6 pb-1.5">
+    <div class="relative flex gap-3 flex-1 min-h-0 overflow-hidden px-4 lg:px-6 pb-1.5">
     {{-- Main calendar column (scrolls independently). CAL-2: min-w pins
          the calendar so the right-docked create-event aside can never
          squeeze it to zero — preserves the "calendar stays visible on the
@@ -331,10 +333,20 @@
          remainder; the view inside is the ONLY thing that scrolls) ══════ --}}
     <div class="flex-1 min-h-0 flex flex-col">
     @if($currentView === 'month')
-        {{-- ══════ MONTH VIEW — continuous vertical scroll (§15.3) ══════ --}}
+        {{-- ══════ MONTH VIEW — ONE continuous week stream (§15.3, AT-164) ══════
+             Every calendar week exists exactly once; months flow into each other; a
+             month boundary is MARKED (first cell "Jul 1" + seam accent), never repeated
+             with a splitter row. Windows are addressed by WEEK. --}}
         <div x-data="continuousMonth()" x-init="initMonth()"
              class="rounded-md overflow-hidden flex flex-col"
              style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; position: relative;">
+
+            {{-- Sticky month label — PINNED above the scroll region. Its text FOLLOWS the
+                 scroll: it always names the month occupying the viewport (updated by the
+                 controller as week rows cross the seam). --}}
+            <div class="flex-shrink-0 px-3 py-1.5 text-xs font-bold uppercase tracking-wider"
+                 style="z-index: 21; background: var(--surface-2); color: var(--text-secondary); border-bottom: 1px solid var(--border);"
+                 x-text="monthLabel"></div>
 
             {{-- Day-of-week header — PINNED outside the scroll region: it is a flex-shrink-0
                  sibling above the scroller, so it never scrolls and stays visible at ANY
@@ -348,28 +360,26 @@
                 @endforeach
             </div>
 
-            {{-- Scroll region — ONLY the day cells / months scroll here. --}}
+            {{-- Scroll region — ONLY the week rows scroll here. --}}
             <div x-ref="scroller" @scroll.passive="onScroll()" class="flex-1 min-h-0 overflow-y-auto" style="position: relative;">
 
-            {{-- Top loading indicator (prepend earlier months) --}}
+            {{-- Top loading indicator (prepend earlier weeks) --}}
             <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingTop" x-cloak>Loading…</div>
 
-            {{-- Month blocks. The initial month is server-rendered; the windowing
-                 controller lazy-prepends/appends adjacent months through the identical
-                 _month-block partial (via /calendar/month-block) — one renderer, full
-                 interaction parity, no dual JS cell renderer. --}}
-            <div x-ref="months">
-                {{-- Preloaded prev + current + next months so the frame overflows on
-                     first paint → scrolling engages immediately (cockpit fix). --}}
-                @foreach(($monthBlocks ?? [['year'=>$year,'month'=>$month,'grid'=>$grid,'byDate'=>$byDate,'deadlineGroups'=>$deadlineGroups,'spanningBars'=>$spanningBars]]) as $mb)
-                    @include('command-center.calendar.partials._month-block', [
-                        'year' => $mb['year'], 'month' => $mb['month'], 'grid' => $mb['grid'],
-                        'byDate' => $mb['byDate'], 'deadlineGroups' => $mb['deadlineGroups'], 'spanningBars' => $mb['spanningBars'],
+            {{-- Week rows. A window is server-rendered; the windowing controller
+                 lazy-prepends/appends adjacent weeks through the identical _week-row
+                 partial (via /calendar/week-rows) — one renderer, full interaction
+                 parity, no dual JS cell renderer, no duplicated boundary weeks. --}}
+            <div x-ref="weeks">
+                @foreach(($weekRows ?? []) as $wk)
+                    @include('command-center.calendar.partials._week-row', [
+                        'weekStart' => $wk['weekStart'], 'byDate' => $wk['byDate'],
+                        'deadlineGroups' => $wk['deadlineGroups'], 'spanningBars' => $wk['spanningBars'],
                     ])
                 @endforeach
             </div>
 
-            {{-- Bottom loading indicator (append later months) --}}
+            {{-- Bottom loading indicator (append later weeks) --}}
             <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingBottom" x-cloak>Loading…</div>
             </div>{{-- END scroll region --}}
         </div>
@@ -468,7 +478,8 @@
                             <button type="button"
                                     data-event-id="{{ $evt->id }}"
                                     @click.stop="openEventPanel({{ $evt->id }})"
-                                    class="block w-full text-left px-3 py-2 rounded transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
+                                    data-layer="{{ $evt->layer_key ?? 'appointments' }}"
+                                    class="cal-layerable block w-full text-left px-3 py-2 rounded transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
                                     style="{{ $chipStyle }}">
                                 <div class="font-medium text-sm flex items-center gap-1.5">
                                     <span>{{ $evt->title }}</span>
@@ -539,9 +550,10 @@
                                 @dragend="rescheduleEnd()"
                             @endif
                             :class="{ 'pointer-events-none': reschedule.dragging }"
+                            data-layer="{{ $evt->layer_key ?? 'appointments' }}"
                             {{-- Inline z-index (see week overlay note): the z-[3] class was not in
                                  the compiled CSS, dropping the tile below the z-1 drag layers. --}}
-                            class="absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
+                            class="cal-layerable absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
                             style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
                             title="{{ $tr }} {{ $evt->title }}">
                         <div class="flex items-center gap-2 px-2 pt-1">
@@ -662,7 +674,8 @@
                             <div class="space-y-1">
                                 @foreach($dayEvents as $evt)
                                     @php $dotColour = $ragDot[$evt->resolved_colour] ?? $defaultDot; @endphp
-                                    <div class="flex items-center gap-3 py-1.5 px-2 rounded-md transition-colors group cursor-pointer"
+                                    <div class="cal-layerable flex items-center gap-3 py-1.5 px-2 rounded-md transition-colors group cursor-pointer"
+                                         data-layer="{{ $evt->layer_key ?? 'appointments' }}"
                                          style="background: transparent;"
                                          onmouseover="this.style.background='var(--surface-2)'"
                                          onmouseout="this.style.background='transparent'"
@@ -1479,18 +1492,12 @@
 {{-- ══════ AT-164 COCKPIT — RIGHT CONTEXT PANEL (fixed ~27%; quick-create by default,
      event details on click; scrolls its OWN contents, never the page) ══════ --}}
 <div class="flex flex-col min-h-0 rounded-md relative overflow-hidden"
-     :style="panelCollapsed
-        ? 'flex: 0 0 40px; max-width: 40px; min-width: 40px; background: var(--surface); border: 1px solid var(--border);'
-        : 'flex: 0 0 27%; max-width: 27%; min-width: 300px; background: var(--surface); border: 1px solid var(--border);'">
+     x-show="!panelCollapsed"
+     :style="'flex: 0 0 27%; max-width: 27%; min-width: 300px; background: var(--surface); border: 1px solid var(--border);'">
     {{-- AT-164 cockpit v2 — panel RESIDENT default = AGENDA. Event click → detail
          overlay (panelOpen); Add-Event/empty-day → New Event form overlay
-         (showCreateEvent); closing either returns here. Collapses to a thin rail. --}}
-    {{-- Collapsed rail (reopen) --}}
-    <button type="button" x-show="panelCollapsed" x-cloak @click="togglePanelCollapse()"
-            class="absolute inset-0 flex flex-col items-center gap-2 pt-3 hover:opacity-80 transition-opacity" style="z-index: 30;" title="Open agenda panel">
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="color: var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
-        <span class="text-[10px] font-bold uppercase tracking-wider" style="color: var(--text-muted); writing-mode: vertical-rl;">Agenda</span>
-    </button>
+         (showCreateEvent); closing either returns here. When hidden it is removed
+         ENTIRELY (calendar full width) — a slim floating tab (below) is the reopen. --}}
     <div x-show="!panelCollapsed" class="flex-shrink-0 flex items-center justify-between px-3 py-1.5" style="border-bottom: 1px solid var(--border);">
         <span class="text-[11px] font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Agenda</span>
         <div class="flex items-center gap-2">
@@ -1506,7 +1513,10 @@
         </template>
         <div class="space-y-0.5">
             <template x-for="(it, idx) in agenda" :key="it.id + '-' + idx">
+                {{-- AT-164 Gate 6 — the panel agenda is a calendar surface: it respects the
+                     layer lens the SAME client-side way the grid does (instant + reversible). --}}
                 <button type="button" @click="openEventPanel(it.id)"
+                        x-show="calLayers.includes(it.layer || 'appointments')"
                         class="w-full text-left flex items-start gap-2 px-2 py-1.5 rounded transition-colors hover:bg-[color:var(--surface-2)]">
                     <span class="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5" :style="'background:' + (window.CoreXTile ? window.CoreXTile.ragColour(it.rag) : '#94a3b8')"></span>
                     <span class="flex-1 min-w-0">
@@ -2231,6 +2241,7 @@
                 </template>
                 <template x-for="evt in dayPreviewEvents" :key="evt.id">
                     <button type="button" @click="openEventPanel(evt.id)"
+                            x-show="calLayers.includes(evt.layer || 'appointments')"
                             class="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded transition hover:opacity-80"
                             style="background: var(--surface-2);">
                         <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + ragHex(evt.rag)"></span>
@@ -2334,6 +2345,17 @@
     </div>
 </div>
 
+    {{-- AT-164 full-calendar mode — slim floating REOPEN tab, shown only when the panel
+         is fully hidden. The calendar occupies the full width; this obvious tab at the
+         right edge brings the agenda panel back. Persisted state, reset by Reset view. --}}
+    <button type="button" x-show="panelCollapsed" x-cloak @click="togglePanelCollapse()"
+            class="absolute top-2 right-0 flex flex-col items-center gap-1 py-2 px-1 rounded-l-md hover:opacity-90 transition-opacity"
+            style="z-index: 25; background: var(--surface-2); border: 1px solid var(--border); border-right: none; color: var(--text-muted);"
+            title="Show agenda panel">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+        <span class="text-[9px] font-bold uppercase tracking-wider" style="writing-mode: vertical-rl;">Agenda</span>
+    </button>
+
 </div>{{-- END flex row (grid + panel) --}}
 
 {{-- ══════ AT-164 COCKPIT — BOTTOM TILE STRIP (fixed height; N EQUAL columns; NEVER
@@ -2342,13 +2364,28 @@
          @pointermove.window="stripResizeMove($event); ratioMove($event)"
          @pointerup.window="stripResizeEnd(); ratioEnd()"
          class="flex-shrink-0 px-4 lg:px-6 pb-2 relative" style="background: var(--bg);">
+    {{-- AT-164 full-calendar mode — EMPTY DECK. With zero tiles the strip disappears
+         entirely (the calendar block takes the full height); a slim, findable restore
+         bar remains so the deck is never lost. "Show deck" re-opens it in edit mode to
+         pick tiles. Persisted per user (empty layout) and reset by Reset view. --}}
+    <div x-show="cards.length === 0 && !editing" x-cloak
+         class="rounded-md px-3 py-1 flex items-center justify-between"
+         style="background: var(--surface); border: 1px dashed var(--border);">
+        <div class="flex items-center gap-2 min-w-0" style="color: var(--text-muted);">
+            <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg>
+            <span class="text-xs font-semibold">Deck hidden</span>
+        </div>
+        <button type="button" @click="editing = true" class="corex-btn-outline text-[11px] py-0.5" title="Show the deck and pick tiles">Show deck</button>
+    </div>
+
     {{-- Top-edge resize handle — drag to change the calendar/strip vertical split
-         (inline critical styling; pointer events). Hidden when collapsed. --}}
-    <div x-show="!stripCollapsed" @pointerdown="stripResizeStart($event)"
+         (inline critical styling; pointer events). Hidden when collapsed OR empty. --}}
+    <div x-show="!stripCollapsed && (cards.length > 0 || editing)" @pointerdown="stripResizeStart($event)"
          class="h-2.5 flex items-center justify-center cursor-ns-resize" title="Drag to resize the calendar / deck split">
         <div class="w-10 h-1 rounded-full transition-colors" style="background: var(--border);" :style="_resize.on ? 'background: var(--brand-button);' : ''"></div>
     </div>
-    <div class="rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border);"
+         x-show="cards.length > 0 || editing">
         {{-- Compact header --}}
         <div class="flex items-center justify-between gap-3" :class="stripCollapsed ? '' : 'mb-1.5'">
             <div class="flex items-center gap-2 min-w-0">
@@ -2478,6 +2515,10 @@ function calendarPage() {
         contextMode: 'create',
         // AT-164 cockpit v2 — panel resident agenda + per-user panel collapse.
         agenda: @json($agenda ?? []),
+        // AT-164 Gate 6 — the active layer set, mirrored here so the panel agenda
+        // (a calendar surface) can hide/show its items reactively when the Layers
+        // control toggles. Kept in sync via the calendar:layers-changed event.
+        calLayers: @json($activeLayers ?? []),
         panelCollapsed: {{ !empty($cockpit['panel_collapsed']) ? 'true' : 'false' }},
         _panelSaveTimer: null,
         quick: { title: '', category: '{{ ($manualCreatableClasses->first()->event_class ?? 'viewing') }}', date: '{{ ($anchorDate ?? now())->toDateString() }}', time: '09:00', allDay: false, saving: false, error: '', ok: false },
@@ -2529,6 +2570,7 @@ function calendarPage() {
                         'time' => $e->all_day ? 'All day' : $e->event_date->format('H:i'),
                         'rag' => $e->resolved_colour ?? 'neutral',
                         'classLabel' => $e->category ?? '',
+                        'layer' => $e->layer_key ?? 'appointments', // AT-164 Gate 6
                     ];
                 }
             }
@@ -2543,6 +2585,7 @@ function calendarPage() {
                         'time' => 'All day',
                         'rag' => $bar['event']->resolved_colour ?? 'neutral',
                         'classLabel' => $bar['event']->category ?? '',
+                        'layer' => $bar['layer'] ?? ($bar['event']->layer_key ?? 'appointments'), // AT-164 Gate 6
                     ];
                     $c->addDay();
                 }
@@ -2744,6 +2787,7 @@ function calendarPage() {
             this.editIsRecurring = false;
             this.editOccurrenceDate = '';
             this.submitting = false;
+            this.panelCollapsed = false; // opening the create form brings the (possibly hidden) panel back
             this.showCreateEvent = true;
             this.clearStalePickerState();
         },
@@ -2911,6 +2955,13 @@ function calendarPage() {
 
         // â”€â”€ Right Panel â”€â”€
         initPanel() {
+            // AT-164 Gate 6 — keep the panel agenda's layer lens in sync with the Layers
+            // control. The layerFilter component broadcasts its active set; we mirror it
+            // so the x-for'd agenda items hide/show reactively (calendar surface).
+            window.addEventListener('calendar:layers-changed', (e) => {
+                if (Array.isArray(e.detail)) this.calLayers = [...e.detail];
+            });
+
             // Part B — recheck the ORGANIZER's own schedule whenever the event's
             // time changes (create OR edit) → surfaces a self double-booking as a
             // soft warning. Watches catch user edits AND programmatic sets
@@ -3530,6 +3581,7 @@ function calendarPage() {
             // AT-164 cockpit \u2014 a clicked event populates the FIXED right context panel
             // (not a slide-over). The full detail/edit slide-over opens from there via
             // "Full details / Edit". panelData is loaded exactly as before.
+            this.panelCollapsed = false; // opening detail brings the (possibly hidden) panel back
             this.showCreateEvent = false;
             this.panelOpen = true;  // full detail renders INSIDE the panel (absolute-inset child)
             this.panelData = { title: 'Loading\u2026', colour: null, days_diff: 0 };
@@ -4059,8 +4111,10 @@ function calendarDeck() {
             // Live-RAG loop (Gate 7): refetch on focus/visibility + a light poll.
             window.addEventListener('focus', () => this.refresh());
             document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refresh(); });
-            // Gate 6 — when layer toggles change, the Notifications tile must re-filter server-side.
-            window.addEventListener('calendar:layers-changed', () => this.refresh());
+            // AT-164 Gate 6 (defect fix) — the Deck deliberately does NOT listen for layer
+            // changes. Deck tiles are independent instruments whose content contracts are
+            // their own (Notifications shows all notifications, Upcoming all appointments,
+            // etc.), never a projection of the calendar's layer lens (Johan's doctrine).
             const secs = Math.max(15, this.pollSeconds || 60);
             this._pollTimer = setInterval(() => { if (!document.hidden && !this.editing) this.refresh(); }, secs * 1000);
         },
@@ -4146,30 +4200,56 @@ function continuousMonth() {
     return {
         loadingTop: false,
         loadingBottom: false,
-        minMonth: null,   // {y, m} earliest loaded
-        maxMonth: null,   // {y, m} latest loaded
+        minWeek: null,    // 'YYYY-MM-DD' Monday of the earliest loaded week
+        maxWeek: null,    // 'YYYY-MM-DD' Monday of the latest loaded week
+        monthLabel: '',   // sticky label — the month occupying the viewport (follows scroll)
         _params: '',
         _restoreAnchor: null,
         _anchorTimer: null,
+        _ready: false,    // gate lazy-load until the initial anchor scroll has settled
         // Gate 7 — live-RAG loop
         pollSeconds: {{ (int) ($pollSeconds ?? 60) }},
         _gridPoll: null,
         _refreshingGrid: false,
 
-        initMonth() {
-            const months = this.$refs.months;
-            const blocks = months ? months.querySelectorAll('.cal-month-block') : [];
-            if (blocks.length) {
-                const first = blocks[0].dataset.month.split('-').map(Number);
-                const last  = blocks[blocks.length - 1].dataset.month.split('-').map(Number);
-                this.minMonth = { y: first[0], m: first[1] };
-                this.maxMonth = { y: last[0], m: last[1] };
-            } else {
-                const now = new Date();
-                this.minMonth = this.maxMonth = { y: now.getFullYear(), m: now.getMonth() + 1 };
-            }
+        /* AT-164 single week-stream — the month view is ONE continuous stream of week
+           rows (each calendar week exactly once; months flow into each other; boundaries
+           MARKED not repeated). Windows are addressed by WEEK (a Monday date). ALL
+           programmatic scrolling targets ONLY this frame's inner scroller via scrollTop
+           — never scrollIntoView, which would drag the overflow-hidden page shell and
+           strand the toolbar/banner off-screen (the outer-scroll defect). */
 
-            // Carry the active filters/scope to the month-block endpoint.
+        // ── date helpers (local-time, no TZ drift) ──
+        _fmt(dt) {
+            const y = dt.getFullYear(), m = String(dt.getMonth() + 1).padStart(2, '0'), d = String(dt.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        },
+        _mondayOf(dateStr) {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            const dow = (dt.getDay() + 6) % 7; // 0=Mon … 6=Sun
+            dt.setDate(dt.getDate() - dow);
+            return this._fmt(dt);
+        },
+        _addWeeks(mondayStr, n) {
+            const [y, m, d] = mondayStr.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            dt.setDate(dt.getDate() + n * 7);
+            return this._fmt(dt);
+        },
+        // A week's owning month = the month of its Thursday (ISO convention) — a stable,
+        // intuitive transition point at a boundary week.
+        _monthLabelFor(mondayStr) {
+            const [y, m, d] = mondayStr.split('-').map(Number);
+            const th = new Date(y, m - 1, d + 3);
+            return th.toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
+        },
+
+        initMonth() {
+            this._syncBounds();
+            if (!this.minWeek) { this.minWeek = this.maxWeek = this._mondayOf(this._fmt(new Date())); }
+
+            // Carry the active filters/scope to the week-rows endpoint.
             const url = new URL(window.location.href);
             const carry = new URLSearchParams();
             for (const k of ['scope']) if (url.searchParams.get(k)) carry.set(k, url.searchParams.get(k));
@@ -4179,163 +4259,192 @@ function continuousMonth() {
             }
             this._params = carry.toString();
 
-            // Scroll-restore: ?anchor=YYYY-MM-DD returns to the same position after refresh;
-            // otherwise open centred on the CURRENT month (prev month is preloaded ABOVE
-            // it, so without this the frame would open scrolled to the top / prev month).
+            // Scroll-restore: ?anchor=YYYY-MM-DD returns to the same week after refresh;
+            // otherwise open on the anchor month's first week (weeks are preloaded ABOVE
+            // it, so without this the frame would open scrolled to an earlier week).
             this._restoreAnchor = url.searchParams.get('anchor');
-            const anchorMonth = '{{ $anchorMonth ?? '' }}';
+            const anchorWeek = '{{ $anchorWeek ?? '' }}';
+            this.monthLabel = this._monthLabelFor(anchorWeek || this.minWeek);
+            // Land on the anchor week BEFORE enabling lazy-load — otherwise the scroll
+            // event from positioning fires loadPrev/loadNext, which prepends/appends and
+            // drifts the viewport off the anchor (the classic open-at race). A double rAF
+            // lets layout settle so the scrollTop math is exact.
             this.$nextTick(() => {
-                if (this._restoreAnchor) { this.scrollToDate(this._restoreAnchor); return; }
-                const cur = anchorMonth ? this.$refs.months?.querySelector('[data-month="' + anchorMonth + '"]') : null;
-                if (cur) cur.scrollIntoView({ block: 'start' });
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    const target = this._restoreAnchor ? this._mondayOf(this._restoreAnchor) : anchorWeek;
+                    if (target) this._scrollToWeek(target, false);
+                    this.updateLabel();
+                    // Enable lazy-load only AFTER the positioning scroll's own scroll events
+                    // have flushed, so init never trips loadPrev/loadNext and drifts the view.
+                    setTimeout(() => { this._ready = true; }, 350);
+                }));
             });
 
-            // Expose a scroll-to-today hook to the toolbar Today control.
-            window.addEventListener('calendar:today', () => this.scrollToDate(new Date().toISOString().slice(0, 10)));
+            // Toolbar Today control + jump-to-date.
+            window.addEventListener('calendar:today', () => this.scrollToDate(this._fmt(new Date())));
             window.addEventListener('calendar:jump', (e) => { if (e.detail) this.scrollToDate(e.detail); });
 
-            // Gate 7 — live-RAG loop: refetch visible month blocks on focus/visibility
-            // + a light poll, so RAG changed elsewhere (a DR2 step ticked in another
-            // tab) repaints without a full reload. The demo moment:
-            //   red deal chip → complete in new tab → return here → focus refetch → green.
+            // Gate 7 — live-RAG loop: refetch visible weeks on focus/visibility + a light
+            // poll, so RAG changed elsewhere repaints without a full reload.
             window.addEventListener('focus', () => this.refreshGrid());
             document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refreshGrid(); });
             const secs = Math.max(15, this.pollSeconds || 60);
             this._gridPoll = setInterval(() => { if (!document.hidden) this.refreshGrid(); }, secs * 1000);
         },
 
-        /* Re-fetch the month blocks near the viewport and replace them in place. Uses
-           the SAME /calendar/month-block renderer, so RAG (chip + aggregate-chip
-           colours) repaints server-side with zero page reload. Scroll position and
-           active layer toggles are preserved. */
+        _rows() { return Array.from(this.$refs.weeks?.querySelectorAll('.cal-week-row') || []); },
+        _syncBounds() {
+            const rows = this._rows();
+            if (!rows.length) return;
+            this.minWeek = rows[0].dataset.week;
+            this.maxWeek = rows[rows.length - 1].dataset.week;
+        },
+
+        // SCOPED scroll — set the inner scroller's scrollTop so the target week sits at
+        // the top of the frame. Never scrollIntoView (which scrolls every ancestor).
+        _scrollToWeek(mondayStr, smooth = true) {
+            const el = this.$refs.scroller;
+            const row = this.$refs.weeks?.querySelector('.cal-week-row[data-week="' + mondayStr + '"]');
+            if (!el || !row) return;
+            const delta = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
+            el.scrollTo({ top: Math.max(0, el.scrollTop + delta), behavior: smooth ? 'smooth' : 'auto' });
+        },
+
+        _topVisibleWeek() {
+            const el = this.$refs.scroller;
+            if (!el) return null;
+            const top = el.getBoundingClientRect().top + 4;
+            for (const r of this._rows()) {
+                const rc = r.getBoundingClientRect();
+                if (rc.bottom > top) return r.dataset.week;
+            }
+            const rows = this._rows();
+            return rows.length ? rows[rows.length - 1].dataset.week : null;
+        },
+        updateLabel() {
+            const wk = this._topVisibleWeek();
+            if (wk) this.monthLabel = this._monthLabelFor(wk);
+        },
+
+        /* Re-fetch the visible week rows and replace them in place. Uses the SAME
+           /calendar/week-rows renderer, so RAG repaints server-side with zero reload.
+           Scroll position and active layer toggles are preserved. */
         async refreshGrid() {
             if (this._refreshingGrid || document.hidden) return;
-            const el = this.$refs.scroller;
-            const months = this.$refs.months;
-            if (!el || !months) return;
+            const el = this.$refs.scroller, weeks = this.$refs.weeks;
+            if (!el || !weeks) return;
             this._refreshingGrid = true;
             const beforeTop = el.scrollTop;
             const viewTop = el.getBoundingClientRect().top;
             const viewBottom = viewTop + el.clientHeight;
-            const blocks = Array.from(months.querySelectorAll('.cal-month-block'));
-            for (const b of blocks) {
-                const r = b.getBoundingClientRect();
-                if (r.bottom < viewTop - 240 || r.top > viewBottom + 240) continue; // only near-visible
-                const parts = b.dataset.month.split('-').map(Number);
-                const html = await this._fetchBlock(parts[0], parts[1]);
-                if (!html) continue;
-                const tmp = document.createElement('div');
-                tmp.innerHTML = html.trim();
-                const node = tmp.firstElementChild;
-                if (!node) continue;
-                b.replaceWith(node);
-                if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(node);
+            const visible = this._rows().filter(r => {
+                const rc = r.getBoundingClientRect();
+                return rc.bottom >= viewTop - 240 && rc.top <= viewBottom + 240;
+            });
+            if (visible.length) {
+                const html = await this._fetchWeeks(visible[0].dataset.week, visible.length);
+                if (html) {
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = html.trim();
+                    const fresh = Array.from(tmp.children).filter(n => n.classList && n.classList.contains('cal-week-row'));
+                    if (fresh.length) {
+                        const anchor = visible[0];
+                        fresh.forEach(n => { weeks.insertBefore(n, anchor); if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(n); });
+                        visible.forEach(o => o.remove());
+                    }
+                }
             }
-            // Re-apply layer visibility to the refreshed blocks; restore scroll.
             window.dispatchEvent(new Event('calendar:block-appended'));
             el.scrollTop = beforeTop;
             this._refreshingGrid = false;
         },
 
-        _monthUrl(y, m) {
-            const base = '{{ route('command-center.calendar.month-block') }}';
+        _weekUrl(startMonday, count) {
+            const base = '{{ route('command-center.calendar.week-rows') }}';
             const q = new URLSearchParams(this._params);
-            q.set('year', y); q.set('month', m);
+            q.set('start', startMonday); q.set('count', count);
             return base + '?' + q.toString();
         },
-        _prevOf(mm) { return mm.m === 1 ? { y: mm.y - 1, m: 12 } : { y: mm.y, m: mm.m - 1 }; },
-        _nextOf(mm) { return mm.m === 12 ? { y: mm.y + 1, m: 1 } : { y: mm.y, m: mm.m + 1 }; },
-
-        onScroll() {
-            const el = this.$refs.scroller;
-            if (!el) return;
-            if (el.scrollTop < 240 && !this.loadingTop) this.loadPrev();
-            if (el.scrollHeight - el.scrollTop - el.clientHeight < 320 && !this.loadingBottom) this.loadNext();
-            // Persist scroll-anchor to the URL (debounced) so refresh restores position.
-            clearTimeout(this._anchorTimer);
-            this._anchorTimer = setTimeout(() => this._syncAnchor(), 250);
-        },
-
-        _syncAnchor() {
-            const label = this._topVisibleMonth();
-            if (!label) return;
-            const url = new URL(window.location.href);
-            url.searchParams.set('anchor', label + '-01');
-            history.replaceState(null, '', url.toString());
-        },
-        _topVisibleMonth() {
-            const el = this.$refs.scroller;
-            const blocks = this.$refs.months?.querySelectorAll('.cal-month-block') || [];
-            const top = el.getBoundingClientRect().top + 40;
-            for (const b of blocks) {
-                const r = b.getBoundingClientRect();
-                if (r.bottom > top) return b.dataset.month;
-            }
-            return blocks.length ? blocks[blocks.length - 1].dataset.month : null;
-        },
-
-        async loadNext() {
-            if (!this.maxMonth) return;
-            const nxt = this._nextOf(this.maxMonth);
-            if (nxt.y > 2100) return;
-            this.loadingBottom = true;
-            const html = await this._fetchBlock(nxt.y, nxt.m);
-            if (html) { this._appendHtml(html, 'bottom'); this.maxMonth = nxt; }
-            this.loadingBottom = false;
-        },
-        async loadPrev() {
-            if (!this.minMonth) return;
-            const prv = this._prevOf(this.minMonth);
-            if (prv.y < 2000) return;
-            this.loadingTop = true;
-            const el = this.$refs.scroller;
-            const beforeH = el.scrollHeight;
-            const html = await this._fetchBlock(prv.y, prv.m);
-            if (html) {
-                this._appendHtml(html, 'top');
-                this.minMonth = prv;
-                // Keep the viewport stable after prepending taller content above.
-                this.$nextTick(() => { el.scrollTop += (el.scrollHeight - beforeH); });
-            }
-            this.loadingTop = false;
-        },
-
-        async _fetchBlock(y, m) {
+        async _fetchWeeks(startMonday, count) {
             try {
-                const r = await fetch(this._monthUrl(y, m), {
+                const r = await fetch(this._weekUrl(startMonday, count), {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin',
                 });
                 if (!r.ok) return null;
                 return await r.text();
             } catch (e) { return null; }
         },
-        _appendHtml(html, where) {
+        _insertRows(html, where) {
             const tmp = document.createElement('div');
             tmp.innerHTML = html.trim();
-            const node = tmp.firstElementChild;
-            if (!node) return;
-            const months = this.$refs.months;
-            if (where === 'top') months.insertBefore(node, months.firstElementChild);
-            else months.appendChild(node);
-            // Initialise Alpine on the freshly-inserted block (chips, popovers, drag).
-            if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(node);
-            // Let the layer-toggle controller hide any inactive layers in the new block.
+            const fresh = Array.from(tmp.children).filter(n => n.classList && n.classList.contains('cal-week-row'));
+            const weeks = this.$refs.weeks;
+            if (!fresh.length || !weeks) return;
+            if (where === 'top') {
+                const first = weeks.firstElementChild;
+                fresh.forEach(n => weeks.insertBefore(n, first));
+            } else {
+                fresh.forEach(n => weeks.appendChild(n));
+            }
+            fresh.forEach(n => { if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(n); });
             window.dispatchEvent(new Event('calendar:block-appended'));
         },
 
+        onScroll() {
+            const el = this.$refs.scroller;
+            if (!el) return;
+            this.updateLabel();
+            if (!this._ready) return; // don't lazy-load while the initial anchor scroll settles
+            if (el.scrollTop < 240 && !this.loadingTop) this.loadPrev();
+            if (el.scrollHeight - el.scrollTop - el.clientHeight < 320 && !this.loadingBottom) this.loadNext();
+            clearTimeout(this._anchorTimer);
+            this._anchorTimer = setTimeout(() => this._syncAnchor(), 250);
+        },
+        _syncAnchor() {
+            const wk = this._topVisibleWeek();
+            if (!wk) return;
+            const url = new URL(window.location.href);
+            url.searchParams.set('anchor', wk);
+            history.replaceState(null, '', url.toString());
+        },
+
+        async loadNext() {
+            if (!this.maxWeek || this.loadingBottom) return;
+            const start = this._addWeeks(this.maxWeek, 1);
+            if (Number(start.slice(0, 4)) > 2100) return;
+            this.loadingBottom = true;
+            const html = await this._fetchWeeks(start, 6);
+            if (html) { this._insertRows(html, 'bottom'); this._syncBounds(); }
+            this.loadingBottom = false;
+        },
+        async loadPrev() {
+            if (!this.minWeek || this.loadingTop) return;
+            const start = this._addWeeks(this.minWeek, -6);
+            if (Number(start.slice(0, 4)) < 2000) return;
+            this.loadingTop = true;
+            const el = this.$refs.scroller;
+            const beforeH = el.scrollHeight;
+            const html = await this._fetchWeeks(start, 6);
+            if (html) {
+                this._insertRows(html, 'top');
+                this._syncBounds();
+                // Keep the viewport stable after prepending content above.
+                this.$nextTick(() => { el.scrollTop += (el.scrollHeight - beforeH); });
+            }
+            this.loadingTop = false;
+        },
+
+        // Ensure the target date's week is loaded (prepend/append until it exists), then
+        // scroll to it — the Today snap and jump-to-date entry point, scoped to the frame.
         async scrollToDate(dateStr) {
-            // Ensure the target month is loaded (prepend/append until it exists), then scroll to it.
-            const target = dateStr.slice(0, 7); // YYYY-MM
+            const monday = this._mondayOf(dateStr);
+            const has = () => this.$refs.weeks?.querySelector('.cal-week-row[data-week="' + monday + '"]');
             let guard = 0;
-            const has = () => this.$refs.months?.querySelector('[data-month="' + target + '"]');
-            while (!has() && guard++ < 60) {
-                const [ty, tm] = target.split('-').map(Number);
-                const cmp = (a) => (ty * 12 + tm) - (a.y * 12 + a.m);
-                if (cmp(this.minMonth) < 0) await this.loadPrev();
+            while (!has() && guard++ < 80) {
+                if (monday < this.minWeek) await this.loadPrev();
                 else await this.loadNext();
             }
-            const block = has();
-            if (block) block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (has()) { this.$nextTick(() => { this._scrollToWeek(monday, true); this.updateLabel(); }); }
         },
     };
 }
@@ -4381,6 +4490,12 @@ function continuousWeek() {
                 const sc = this.$refs.weekScroller;
                 if (sc) sc.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
             });
+
+            // Toolbar Today control + jump-to-date — snap the strip back to today's column
+            // (or an arbitrary date). Local date string so a late-night UTC roll never
+            // lands on tomorrow.
+            window.addEventListener('calendar:today', () => this.scrollToDay(this._todayStr()));
+            window.addEventListener('calendar:jump', (e) => { if (e.detail) this.scrollToDay(e.detail); });
 
             // Live-RAG loop (focus/visibility + light poll).
             window.addEventListener('focus', () => this.refreshWeek());
@@ -4477,6 +4592,10 @@ function continuousWeek() {
             this.loading = false;
         },
 
+        _todayStr() {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        },
         async scrollToDay(dateStr, smooth = true) {
             const day = dateStr.slice(0, 10);
             let guard = 0;
@@ -4486,7 +4605,17 @@ function continuousWeek() {
                 else await this.appendDays();
             }
             const col = has();
-            if (col) { col.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', inline: 'start', block: 'nearest' }); this.$nextTick(() => this.updateLabel()); }
+            if (!col) return;
+            // SCOPED horizontal scroll — set the week scroller's scrollLeft directly so the
+            // target column sits just past the sticky time gutter. NEVER scrollIntoView,
+            // which scrolls every ancestor (incl. the overflow-hidden page shell) and
+            // strands the toolbar/banner off-screen (the outer-scroll defect).
+            const el = this.$refs.weekScroller;
+            if (el) {
+                const delta = col.getBoundingClientRect().left - el.getBoundingClientRect().left - 56; // gutter width
+                el.scrollTo({ left: Math.max(0, el.scrollLeft + delta), behavior: smooth ? 'smooth' : 'auto' });
+            }
+            this.$nextTick(() => this.updateLabel());
         },
 
         updateLabel() {
@@ -4557,10 +4686,17 @@ function layerFilter() {
             this.persist();
         },
         apply() {
+            // Grid surfaces (month/week/day/agenda) hide/show via data-layer tags —
+            // instant, reversible, no reload. The panel agenda is Alpine-reactive and
+            // listens for the broadcast below instead of being touched here.
             document.querySelectorAll('.cal-layerable').forEach(el => {
                 const layer = el.dataset.layer || 'appointments';
                 el.style.display = this.active.includes(layer) ? '' : 'none';
             });
+            // Broadcast the active set so calendar-adjacent JS surfaces (the panel
+            // agenda) re-filter reactively. Layers are a CALENDAR lens only — the Deck
+            // deliberately does NOT listen (its tiles are independent instruments).
+            window.dispatchEvent(new CustomEvent('calendar:layers-changed', { detail: [...this.active] }));
         },
         async persist() {
             try {
@@ -4571,8 +4707,10 @@ function layerFilter() {
                     body: JSON.stringify({ layers: this.active }),
                 });
             } catch (e) { /* silent — the client hide already applied */ }
-            // Ask the Deck to re-read (its Notifications tile filters by layer server-side).
-            window.dispatchEvent(new Event('calendar:layers-changed'));
+            // NOTE: the Deck is intentionally NOT notified — deck tiles are independent
+            // instruments and never respect layers (AT-164 doctrine). The instant
+            // client-side hide in apply() (+ its calendar:layers-changed broadcast for
+            // the panel agenda) is the whole of the toggle's effect.
         },
     };
 }

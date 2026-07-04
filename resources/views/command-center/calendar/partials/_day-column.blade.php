@@ -95,7 +95,8 @@
         @foreach($allDay as $evt)
             @php $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip; @endphp
             <button type="button" data-event-id="{{ $evt->id }}" @click.stop="openEventPanel({{ $evt->id }})"
-                    class="block w-full text-left px-1.5 py-0.5 rounded text-[10px] truncate transition hover:opacity-80 {{ in_array($evt->status, ['completed','dismissed'], true) ? 'line-through opacity-70' : '' }}"
+                    class="cal-layerable block w-full text-left px-1.5 py-0.5 rounded text-[10px] truncate transition hover:opacity-80 {{ in_array($evt->status, ['completed','dismissed'], true) ? 'line-through opacity-70' : '' }}"
+                    data-layer="{{ $evt->layer_key ?? 'appointments' }}"
                     style="{{ $chipStyle }}" title="{{ $evt->title }}">{{ \Illuminate\Support\Str::limit($evt->title, 16) }}</button>
         @endforeach
     </div>
@@ -138,7 +139,8 @@
             <button type="button" data-event-id="{{ $evt->id }}" @click.stop="openEventPanel({{ $evt->id }})" @mousedown.stop
                     @if($isDraggable) draggable="true" @dragstart="rescheduleStart({{ $evt->id }}, '{{ $date->toDateString() }}', $event)" @dragend="rescheduleEnd()" @endif
                     :class="{ 'pointer-events-none': reschedule.dragging }"
-                    class="absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
+                    data-layer="{{ $evt->layer_key ?? 'appointments' }}"
+                    class="cal-layerable absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
                     style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 14px; left: calc({{ $lane }} / {{ $lanes }} * 100% + 1px); width: calc(100% / {{ $lanes }} - 2px);"
                     title="{{ $tr }} {{ $evt->title }}">
                 <span class="block px-1 pt-0.5 text-[9px] opacity-80 leading-none">{{ $tr }}</span>

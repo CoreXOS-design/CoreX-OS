@@ -295,6 +295,53 @@ class CalendarEventService
     }
 
     /**
+     * AT-164 (single week-stream) — the grid shape ({byDate, spanningBars}) for an
+     * ARBITRARY date range, not tied to a calendar month. The continuous month view is
+     * now ONE seamless stream of week rows (no month blocks, no duplicated boundary
+     * weeks), so its windows are addressed by WEEK. Single-day events bucket by date;
+     * multi-day events split into per-week spanning segments exactly as getMonthGrid
+     * does (same buildSpanningSegments), so the visual is byte-identical to before —
+     * only the windowing unit changed from month to week.
+     */
+    public function getRangeGrid(User $user, \Carbon\Carbon $start, \Carbon\Carbon $end, array $filters = [], string $scope = 'all'): array
+    {
+        $start = $start->copy()->startOfDay();
+        $end   = $end->copy()->endOfDay();
+
+        $events = $this->getEventsForRange($user, $start, $end, $filters, $scope);
+
+        $grouped = [];
+        $spanningBars = [];
+        // Segments are addressed by their OWN week (via start_date), so gridStart only
+        // needs to be week-aligned for the per-week column math to be correct.
+        $gridStart = $start->copy()->startOfWeek(\Carbon\Carbon::MONDAY);
+
+        foreach ($events as $event) {
+            $eventStart = $event->event_date->copy()->startOfDay();
+            $eventEnd = $event->end_date ? $event->end_date->copy()->startOfDay() : $eventStart;
+            $isMultiDay = $event->end_date && $eventEnd->gt($eventStart);
+
+            if (!$isMultiDay) {
+                $grouped[$eventStart->toDateString()][] = $event;
+            } else {
+                $from = $eventStart->lt($start) ? $start->copy()->startOfDay() : $eventStart->copy();
+                $to = $eventEnd->gt($end) ? $end->copy()->startOfDay() : $eventEnd->copy();
+                foreach ($this->buildSpanningSegments($from, $to, $gridStart, $event) as $seg) {
+                    $spanningBars[] = $seg;
+                }
+            }
+        }
+
+        return [
+            'start'        => $start,
+            'end'          => $end,
+            'events'       => $events,
+            'byDate'       => $grouped,
+            'spanningBars' => $spanningBars,
+        ];
+    }
+
+    /**
      * Split a multi-day event into per-week-row spanning segments.
      * Each segment has: event, startCol (1-7), endCol (1-7), weekRow (0-based).
      */

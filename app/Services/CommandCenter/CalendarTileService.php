@@ -186,15 +186,17 @@ class CalendarTileService
             $raw   = $this->events->getEventsForRange($user, $from->toDateString(), $to->toDateTimeString(), [], $scope);
             $visible = collect($this->visibility->filterVisible($raw, $user));
 
-            $active   = CalendarLayers::resolveActive($user);
             $agencyId = $user->effectiveAgencyId();
 
+            // AT-164 Gate 6 (defect fix) — the right-panel agenda is a CALENDAR surface,
+            // so it respects layer toggles, but it does so the SAME way the grid does:
+            // every item carries its 'layer' and the client hides/shows it via
+            // cal-layerable. We do NOT server-filter here — otherwise a layer that is
+            // OFF at page load would have no item in the DOM and toggling it back ON
+            // could never reveal it. Emit all authorised items; the lens is client-side.
             return $visible
                 ->map(function ($e) { $e->resolved_colour = $this->threshold->resolveForEvent($e); return $e; })
                 ->filter(fn ($e) => $e->resolved_colour !== null && $e->event_date)
-                ->filter(function ($e) use ($active, $agencyId) {
-                    return in_array(CalendarLayers::layerFor($e, $this->isAppointment($e, $agencyId)), $active, true);
-                })
                 ->sortBy('event_date')
                 ->take(40)
                 ->map(function ($e) use ($agencyId) {
@@ -206,6 +208,7 @@ class CalendarTileService
                         'day'         => $e->event_date->isToday() ? 'Today' : ($e->event_date->isTomorrow() ? 'Tomorrow' : $e->event_date->format('D d M')),
                         'time'        => $e->all_day ? null : $e->event_date->format('H:i'),
                         'is_deadline' => ! $appt,
+                        'layer'       => CalendarLayers::layerFor($e, $appt),
                     ];
                 })
                 ->values()
@@ -255,9 +258,11 @@ class CalendarTileService
         $visible = collect($this->visibility->filterVisible($raw, $user));
 
         $agencyId = $user->effectiveAgencyId();
-        // Gate 6 — Upcoming Events is the Appointments layer; hidden when it is toggled off.
-        $appointmentsOn = in_array('appointments', CalendarLayers::resolveActive($user), true);
-        $items = ($appointmentsOn ? $visible : collect())
+        // AT-164 Gate 6 (defect fix) — DECK TILES ARE INDEPENDENT INSTRUMENTS and never
+        // respect the calendar's layer toggles (Johan's doctrine). Upcoming Events shows
+        // the user's next appointments regardless of any layer state; the layer lens is
+        // a CALENDAR-only concern (grid + panel agenda).
+        $items = $visible
             ->filter(fn ($e) => $this->isAppointment($e, $agencyId))
             ->map(function ($e) {
                 $e->resolved_colour = $this->threshold->resolveForEvent($e);
@@ -301,11 +306,12 @@ class CalendarTileService
         $visible = collect($this->visibility->filterVisible($raw, $user));
 
         $agencyId = $user->effectiveAgencyId();
-        // Gate 6 — the Notifications tile respects the user's active layer toggles.
-        $active = CalendarLayers::resolveActive($user);
+        // AT-164 Gate 6 (defect fix) — DECK TILES NEVER respect layer toggles (Johan's
+        // doctrine). Notifications & Deadlines shows ALL deadline species due, whatever
+        // the calendar's layer lens is set to. (Previously this filtered by layer, which
+        // emptied the tile when the user hid layers on the grid — the reported defect.)
         $items = $visible
             ->filter(fn ($e) => ! $this->isAppointment($e, $agencyId)) // deadline species
-            ->filter(fn ($e) => in_array(CalendarLayers::layerFor($e, false), $active, true))
             ->map(function ($e) {
                 $e->resolved_colour = $this->threshold->resolveForEvent($e);
                 return $e;
