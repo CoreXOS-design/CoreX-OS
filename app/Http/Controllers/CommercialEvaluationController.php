@@ -104,8 +104,6 @@ class CommercialEvaluationController extends Controller
             'status'             => 'draft',
         ]));
 
-        \App\Support\CoreXDraft::clearOnSave('commercial_eval'); // AT-165: drop the local "new" draft
-        \App\Support\CoreXDraft::clearOnSave('commercial_eval', $evaluation->id);
         return redirect()->route('commercial-evaluations.show', $evaluation)
             ->with('success', 'Commercial evaluation created.');
     }
@@ -181,7 +179,6 @@ class CommercialEvaluationController extends Controller
 
         $evaluation->update($validated);
 
-        \App\Support\CoreXDraft::clearOnSave('commercial_eval', $evaluation->id); // AT-165
         return redirect()->route('commercial-evaluations.show', $evaluation)
             ->with('success', 'Evaluation details updated.');
     }

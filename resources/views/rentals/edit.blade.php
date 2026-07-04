@@ -12,16 +12,8 @@
         </div>
     </div>
 
-    {{-- AT-165 offline draft persistence — no sensitive fields; multi-select
-         rental_agents excluded (form-scan can't restore multi-values cleanly). --}}
     <form method="POST"
-          action="{{ $rental->id ? route('rentals.update', $rental->id) : route('rentals.store') }}"
-          data-draft='@json([
-              "form"     => "rental_capture",
-              "recordId" => $rental?->id,
-              "version"  => $rental?->updated_at?->toIso8601String(),
-          ])'
-          data-draft-fields="branch_id,lease_address,lease_start_date,lease_end_date,is_month_to_month,is_active,is_rental_assist,effective_from,rent_incl,rent_excl,commission_incl,commission_excl">
+          action="{{ $rental->id ? route('rentals.update', $rental->id) : route('rentals.store') }}">
         @csrf
 
         <div class="ds-status-card p-5 space-y-6">

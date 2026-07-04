@@ -171,7 +171,6 @@ class ContactMatchController extends Controller
         app(\App\Services\Buyers\BuyerLeadCascadeService::class)
             ->tagBuyerSource($contact, \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_MANUAL);
 
-        \App\Support\CoreXDraft::clearOnSave('contact_match', $contact->id); // AT-165: drop this contact's local draft
         return redirect()->route('corex.contacts.matches.results', [$contact, $match]);
     }
 
@@ -180,7 +179,6 @@ class ContactMatchController extends Controller
         abort_if($match->contact_id !== $contact->id, 403);
         $match->update($this->validatePayload($request));
 
-        \App\Support\CoreXDraft::clearOnSave('contact_match', $contact->id); // AT-165
         return redirect()->route('corex.contacts.matches.results', [$contact, $match])
             ->with('success', 'Match updated.');
     }

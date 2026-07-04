@@ -917,11 +917,6 @@ class PropertyController extends Controller
         // property is created here without the gallery, then the gallery is
         // batch-uploaded to upload-images. Hand the client the new property's
         // id + show URL so it can run those batches and land on the property.
-        // AT-165: the capture succeeded — signal the client to drop the local draft
-        // (both the "new" draft and, defensively, the freshly-saved id's key).
-        \App\Support\CoreXDraft::clearOnSave('property_capture');
-        \App\Support\CoreXDraft::clearOnSave('property_capture', $property->id);
-
         if ($request->wantsJson()) {
             return response()->json([
                 'ok'       => true,
@@ -1175,9 +1170,6 @@ class PropertyController extends Controller
         if ($request->boolean('ai_review')) {
             app(\App\Services\AI\PropertyAiSuggestionService::class)->markReviewed($property);
         }
-
-        // AT-165: edit saved — drop this record's local draft on the next load.
-        \App\Support\CoreXDraft::clearOnSave('property_capture', $property->id);
 
         return redirect()->route('corex.properties.show', $property)
             ->with('success', 'Property updated.')
