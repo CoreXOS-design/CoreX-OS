@@ -166,7 +166,26 @@ class DealV2Controller extends Controller
         ]);
     }
 
+    /**
+     * AT-158 WS-R2 — DEFAULT capture is the DR1-style single-page form.
+     * The step wizard remains available at deals-v2.create-wizard; both post to
+     * the SAME store() write-path. Default entry points (sidebar "New Deal",
+     * register buttons) land here.
+     */
     public function create()
+    {
+        return $this->buildCreateView('deals-v2.create-form');
+    }
+
+    /**
+     * AT-158 WS-R2 — the optional step-by-step wizard (same data, same store()).
+     */
+    public function createWizard()
+    {
+        return $this->buildCreateView('deals-v2.create');
+    }
+
+    private function buildCreateView(string $view)
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.create'), 403);
 
@@ -211,7 +230,7 @@ class DealV2Controller extends Controller
 
         $vatRate = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
 
-        return view('deals-v2.create', compact('branches', 'agents', 'templatesJson', 'vatRate'));
+        return view($view, compact('branches', 'agents', 'templatesJson', 'vatRate'));
     }
 
     public function store(Request $request)
@@ -232,7 +251,11 @@ class DealV2Controller extends Controller
             'notes' => ['nullable', 'string'],
             'listing_agent_id' => ['nullable', 'exists:users,id'],
             'selling_agent_id' => ['nullable', 'exists:users,id'],
-            'contacts' => ['required', 'array', 'min:1'],
+            // WS-R2: contact-linked parties are the strongly-defaulted path (the
+            // property's seller is auto-suggested), but not a hard gate — DR1
+            // parity allows a deal to be captured on the essentials and parties
+            // added on the tracking page (lazy-but-valid).
+            'contacts' => ['nullable', 'array'],
             'contacts.*.contact_id' => ['required', 'exists:contacts,id'],
             'contacts.*.role' => ['required', 'in:buyer,seller,co_buyer,co_seller,conveyancer,bond_originator,other'],
             'listing_split_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],

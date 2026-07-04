@@ -19,6 +19,12 @@
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
+                <a href="{{ route('deals-v2.create') }}"
+                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
+                   style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
+                   title="Switch to the single-page form — everything on one screen. Both create the same deal.">
+                    Single-page form
+                </a>
                 <a href="{{ route('deals-v2.index') }}"
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
                    style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);">
@@ -269,13 +275,13 @@
                 </div>
             </div>
             <div x-show="!listingExternal">
-                <select x-model="listingAgentId" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none mb-1"
+                <select x-model="listingAgentIds" multiple size="4" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none mb-1"
                         style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">Select listing agent...</option>
                     @foreach($agents as $agent)
                         <option value="{{ $agent->id }}">{{ $agent->name }}</option>
                     @endforeach
                 </select>
+                <div class="text-xs" style="color: var(--text-muted);">Hold Ctrl / Cmd to select multiple listing agents.</div>
             </div>
         </div>
 
@@ -300,13 +306,13 @@
                 </div>
             </div>
             <div x-show="!sellingExternal">
-                <select x-model="sellingAgentId" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none mb-1"
+                <select x-model="sellingAgentIds" multiple size="4" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none mb-1"
                         style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">Select selling agent...</option>
                     @foreach($agents as $agent)
                         <option value="{{ $agent->id }}">{{ $agent->name }}</option>
                     @endforeach
                 </select>
+                <div class="text-xs" style="color: var(--text-muted);">Hold Ctrl / Cmd to select multiple selling agents.</div>
             </div>
         </div>
 
@@ -463,8 +469,8 @@
             commissionIncVat: 0,
             vatRatePct: {{ $vatRate }},
             offerDate: new Date().toISOString().split('T')[0],
-            listingAgentId: '',
-            sellingAgentId: '',
+            listingAgentIds: [],
+            sellingAgentIds: [],
             listingSplitPercent: 50,
             sellingSplitPercent: 50,
             listingExternal: false,
@@ -486,7 +492,7 @@
             get hasRequiredAgents() {
                 const needListing = !this.listingExternal;
                 const needSelling = !this.sellingExternal;
-                return (!needListing || this.listingAgentId) && (!needSelling || this.sellingAgentId);
+                return (!needListing || this.listingAgentIds.length > 0) && (!needSelling || this.sellingAgentIds.length > 0);
             },
             get commExVatCalc() {
                 const vr = 1 + (this.vatRatePct / 100);
@@ -519,7 +525,7 @@
                 this.selectedProperty = p;
                 this.propertySearch = '';
                 this.propertyResults = [];
-                if (p.listing_agent_id) this.listingAgentId = String(p.listing_agent_id);
+                if (p.listing_agent_id && !this.listingAgentIds.includes(String(p.listing_agent_id))) this.listingAgentIds.push(String(p.listing_agent_id));
                 if (p.price) this.purchasePrice = p.price;
                 if (p.commission_percent) {
                     this.commissionPercent = p.commission_percent;
@@ -612,14 +618,15 @@
             async submitDeal() {
                 this.submitting = true;
 
-                // Build agents array (side-based)
+                // Build agents array (side-based) — MULTIPLE agents per side,
+                // auto-split evenly (matches DR1 + the single-page form).
                 const agents = [];
-                if (!this.listingExternal && this.listingAgentId) {
-                    agents.push({ user_id: this.listingAgentId, side: 'listing', split_percent: 100 });
-                }
-                if (!this.sellingExternal && this.sellingAgentId) {
-                    agents.push({ user_id: this.sellingAgentId, side: 'selling', split_percent: 100 });
-                }
+                const pushSide = (ids, side) => {
+                    const n = ids.length;
+                    ids.forEach(id => agents.push({ user_id: id, side, split_percent: n > 0 ? (100 / n) : 100 }));
+                };
+                if (!this.listingExternal) pushSide(this.listingAgentIds, 'listing');
+                if (!this.sellingExternal) pushSide(this.sellingAgentIds, 'selling');
 
                 const payload = {
                     property_id: this.selectedProperty.id,
@@ -629,8 +636,8 @@
                     commission_percentage: this.commissionPercent,
                     total_commission_inc_vat: this.commissionIncVat,
                     offer_date: this.offerDate,
-                    listing_agent_id: this.listingAgentId || (agents.find(a => a.side === 'listing')?.user_id ?? null),
-                    selling_agent_id: this.sellingAgentId || null,
+                    listing_agent_id: (agents.find(a => a.side === 'listing')?.user_id ?? null),
+                    selling_agent_id: (agents.find(a => a.side === 'selling')?.user_id ?? null),
                     listing_split_percent: this.listingSplitPercent,
                     selling_split_percent: this.sellingSplitPercent,
                     listing_external: this.listingExternal ? 1 : 0,

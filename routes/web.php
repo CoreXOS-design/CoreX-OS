@@ -680,6 +680,8 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::post('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'send'])->name('deals-v2.distribute.send')->middleware('permission:deals_v2.distribute_documents');
     Route::post('/distributions/{distribution}/revoke', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'revoke'])->name('deals-v2.distributions.revoke')->middleware('permission:deals_v2.distribute_documents');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create');
+    // AT-158 WS-R2 — optional step wizard (same shared store() write-path)
+    Route::get('/create-wizard', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'createWizard'])->name('deals-v2.create-wizard')->middleware('permission:deals_v2.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create');
     Route::get('/search/properties', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchProperties'])->name('deals-v2.search.properties');
     Route::get('/search/contacts', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchContacts'])->name('deals-v2.search.contacts');
