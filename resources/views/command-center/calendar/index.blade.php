@@ -976,6 +976,230 @@
          kept disabled so the rest of the file's div/template counts stay
          balanced during the move. --}}
     @if(false)
+    <div x-show="panelOpen" x-cloak class="hidden">
+        <div class="hidden"></div>
+        <aside class="hidden">
+
+            {{-- Scrollable content --}}
+            <div class="flex-1 overflow-y-auto">
+
+                {{-- Header: class label + status + close --}}
+                <div class="px-5 pt-4 pb-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);" x-text="panelData.class_label"></span>
+                        <span x-show="panelData.colour"
+                              class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                              :style="panelColourStyle(panelData.colour)">
+                            <span class="w-1.5 h-1.5 rounded-full" :style="'background:' + panelDotHex(panelData.colour)"></span>
+                            <span x-text="panelColourLabel(panelData.colour)"></span>
+                        </span>
+                    </div>
+                    <button @click="panelOpen = false" class="p-1 rounded transition-colors" style="color: var(--text-muted);"
+                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                {{-- Invitation status pill + respond buttons (invitee only) --}}
+                <template x-if="panelData.invitation && !panelData.is_organizer">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        {{-- Status pill --}}
+                        <template x-if="panelData.invitation.status === 'pending'">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Pending</span>
+                                <span class="text-xs" style="color:var(--text-muted);">Invitation from <span x-text="panelData.invitation.inviter_name" style="color:var(--text-secondary);"></span></span>
+                            </div>
+                        </template>
+                        <template x-if="panelData.invitation.status === 'tentative'">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Tentative</span>
+                                <span class="text-xs" style="color:var(--text-muted);">You marked tentative<template x-if="panelData.invitation.response_at"> on <span x-text="panelData.invitation.response_at"></span></template></span>
+                            </div>
+                        </template>
+                        <template x-if="panelData.invitation.status === 'accepted'">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(16,185,129,0.15); color:#10b981;">Accepted</span>
+                                <span class="text-xs" style="color:var(--text-muted);">You accepted this invitation</span>
+                            </div>
+                        </template>
+                        {{-- Respond buttons --}}
+                        <template x-if="panelData.invitation.status === 'pending' || panelData.invitation.status === 'tentative'">
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" @click="respondInvitation('accepted')" class="text-[11px] font-medium px-3 py-1 rounded text-white" style="background:#10b981;">Accept</button>
+                                <button type="button" @click="respondInvitation('tentative')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#f59e0b; border:1px solid rgba(245,158,11,0.3);">Tentative</button>
+                                <button type="button" @click="respondInvitation('declined')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Decline</button>
+                            </div>
+                        </template>
+                        <template x-if="panelData.invitation.status === 'accepted'">
+                            <button type="button" @click="respondInvitation('pending')" class="text-[10px] underline" style="color:var(--text-muted);">Change response</button>
+                        </template>
+                    </div>
+                </template>
+
+                {{-- Title + date --}}
+                <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
+                    <h2 class="text-xl font-semibold leading-tight" style="color: var(--text-primary);" x-text="panelData.title"></h2>
+                    <p class="text-sm mt-1.5" style="color: var(--text-secondary);" x-text="panelData.event_date_h"></p>
+                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="panelDaysDiffLabel(panelData.days_diff)"></p>
+                </div>
+
+                {{-- Linked property --}}
+                <template x-if="panelData.linked_property">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Property</div>
+                        <a :href="'/corex/properties/' + panelData.linked_property.id"
+                           class="text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
+                           x-text="panelData.linked_property.address"></a>
+                    </div>
+                </template>
+
+                {{-- Attendees --}}
+                <template x-if="panelData.attendees && panelData.attendees.length > 0">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Attendees</div>
+                        <div class="flex flex-wrap gap-1.5">
+                            <template x-for="att in panelData.attendees" :key="(att.type||'contact') + ':' + att.id">
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
+                                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                                      onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--surface-2)'">
+                                    <span x-text="att.name"></span>
+                                    <span x-show="att.type === 'agent'" class="text-[9px] uppercase" style="color: var(--text-muted);">agent</span>
+                                </span>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                {{-- Description --}}
+                <template x-if="panelData.description">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Description</div>
+                        <p class="text-sm leading-relaxed" style="color: var(--text-primary);" x-text="panelData.description"></p>
+                    </div>
+                </template>
+
+                {{-- Linked Records (grouped by role: Buyers / Sellers / Agents / Properties) --}}
+                <template x-if="panelData.linked_records && panelData.linked_records.length > 0">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        <template x-for="group in [{key:'buyers',label:'Buyers',color:'#00d4aa'},{key:'sellers',label:'Sellers',color:'#0f172a'},{key:'agents',label:'Agents',color:'#475569'},{key:'properties',label:'Properties',color:'var(--brand-icon)'},{key:'attendees',label:'Attendees',color:'var(--text-muted)'},{key:'deals',label:'Deals',color:'var(--brand-icon)'}]" :key="group.key">
+                            <template x-if="panelData.linked_records.filter(r => r.group === group.key).length > 0">
+                                <div class="mb-2">
+                                    <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" :style="'color:' + group.color" x-text="group.label + ' (' + panelData.linked_records.filter(r => r.group === group.key).length + ')'"></div>
+                                    <div class="space-y-1">
+                                        <template x-for="rec in panelData.linked_records.filter(r => r.group === group.key)" :key="rec.url + rec.name">
+                                            <a :href="rec.url" :target="rec.url === '#' ? '' : '_blank'" rel="noopener"
+                                               class="flex items-center gap-2 px-2 py-1 rounded transition hover:opacity-80 no-underline"
+                                               style="background: var(--surface-2);">
+                                                <template x-if="rec.badge">
+                                                    <span class="text-[9px] px-1 py-0.5 rounded font-bold text-white"
+                                                          :style="'background:' + (rec.badge === 'Buyer' ? '#00d4aa' : rec.badge === 'Seller' ? '#0f172a' : '#475569')"
+                                                          x-text="rec.badge"></span>
+                                                </template>
+                                                <div class="min-w-0 flex-1">
+                                                    <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="rec.name"></div>
+                                                </div>
+                                                <template x-if="rec.url !== '#'">
+                                                    <svg class="w-3 h-3 flex-shrink-0 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                                </template>
+                                            </a>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </template>
+                    </div>
+                </template>
+
+                {{-- Legacy source link fallback (if no linked_records) --}}
+                <template x-if="panelData.source_link && (!panelData.linked_records || panelData.linked_records.length === 0)">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        <a :href="panelData.source_link.url" target="_blank" class="text-xs font-medium hover:underline" style="color: var(--brand-button);">
+                            <span x-text="panelData.source_link.label"></span> &rarr;
+                        </a>
+                    </div>
+                </template>
+
+                {{-- Activity timeline --}}
+                <template x-if="panelData.audit_log && panelData.audit_log.length > 0">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Activity</div>
+                        <ul class="space-y-1">
+                            <template x-for="entry in panelData.audit_log" :key="entry.when + entry.action">
+                                <li class="flex justify-between gap-2 text-[11px]">
+                                    <span x-text="formatAuditAction(entry)" style="color: var(--text-secondary);"></span>
+                                    <span x-text="entry.when" class="whitespace-nowrap" style="color: var(--text-muted);"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+                </template>
+
+                {{-- Feedback CTA (past actionable events with contacts) --}}
+                <template x-if="panelData.is_actionable && panelData.is_past && panelData.has_contacts">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        <button type="button" @click="openFeedbackModal(panelData.id)"
+                                class="text-xs font-medium transition-colors hover:underline" style="color: var(--brand-button);">
+                            Capture feedback &rarr;
+                        </button>
+                    </div>
+                </template>
+
+            </div>
+
+            {{-- Sticky footer action bar --}}
+            <div class="px-5 py-2.5 flex items-center gap-4" style="border-top: 1px solid var(--border); background: var(--surface);">
+                <template x-if="panelData.is_editable">
+                    <button type="button" @click="openEditModal(panelData.id)"
+                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                            style="color: var(--text-primary);">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"/></svg>
+                        Edit
+                    </button>
+                </template>
+                {{-- Mark Complete (behaviour-aware) --}}
+                <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
+                    <button type="button" @click="openFeedbackModal(panelData.id)"
+                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                            style="color: #00d4aa;">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                        Capture Feedback to Complete
+                    </button>
+                </template>
+                <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_reason'">
+                    <button type="button" @click="reasonPickerAction = 'complete'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
+                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                            style="color: var(--text-secondary);">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                        Complete with Reason
+                    </button>
+                </template>
+                <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
+                    <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST">
+                        @csrf
+                        {{-- Deal step context badge --}}
+                        <template x-if="panelData.metadata && panelData.metadata.deal_ref">
+                            <div class="mb-2 px-2 py-1 rounded text-[10px] inline-flex items-center gap-1" style="background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);">
+                                <span>Deal Step:</span> <span x-text="(panelData.metadata.step_name || 'Step') + ' — ' + panelData.metadata.deal_ref"></span>
+                            </div>
+                        </template>
+                        <button type="submit" class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                                style="color: var(--text-secondary);">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                            <span x-text="(panelData.metadata && panelData.metadata.deal_ref) ? 'Mark Step Complete' : 'Complete'"></span>
+                        </button>
+                    </form>
+                </template>
+                {{-- Dismiss (always requires reason) --}}
+                <template x-if="panelData.is_actionable">
+                    <button type="button" @click="reasonPickerAction = 'dismiss'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
+                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                            style="color: var(--text-muted);">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                        Dismiss
+                    </button>
+                </template>
+            </div>
+        </aside>
     </div>
     @endif
     {{-- END original-location stub for EVENT DETAIL SIDE PANEL --}}
@@ -1318,230 +1542,7 @@
             </template>
         </div>
     </div>
-</div>
-
-{{-- ══════ RIGHT SIDE PANEL ══════ --}}
-
-{{-- ══════ CREATE EVENT PANEL (column-flex sibling — Google/Outlook layout) ══════
-     The panel docks as a real column inside the flex row. When x-show flips
-     to true, the panel takes its column space and the grid (flex-1) shrinks
-     to make room — no overlap. NO fixed positioning, NO backdrop, NO
-     click-outside-to-close. Escape closes.
-
-     CAL-2 width contract:
-       - Mobile (< sm): w-full — acts as a full-screen sheet because the
-         calendar would be too narrow alongside any side panel anyway.
-       - sm and up: fixed 420px column docked at the right edge of the
-         flex row. Calendar column's min-w-[320px] guarantees it stays
-         visible to the left even when the filter panel is also open.
-         420 + 360 (filter panel) + 320 (calendar min) = 1100px fits a
-         typical laptop viewport; on narrower screens the calendar
-         scrolls horizontally rather than collapsing to zero.
-     The flex-shrink-0 lock keeps the panel at 420px when the grid
-     tries to claim space — without it max-w-md plus flex-shrink:1
-     allowed the panel to compress below readable width on very wide
-     screens with multiple asides open. --}}
-
-{{-- ══════ EVENT DETAIL PANEL (column-flex sibling — Google/Outlook layout) ══════
-     Replaces the previous fixed-positioned overlay. Behaves as a column
-     beside the grid: no backdrop, no click-outside-to-close, prev/next/view
-     navigation no longer dismisses it. Escape closes. --}}
-<aside x-show="panelOpen" x-cloak
-       x-transition:enter="transform transition ease-out duration-200"
-       x-transition:enter-start="translate-x-full opacity-0"
-       x-transition:enter-end="translate-x-0 opacity-100"
-       x-transition:leave="transform transition ease-in duration-150"
-       x-transition:leave-start="translate-x-0 opacity-100"
-       x-transition:leave-end="translate-x-full opacity-0"
-       @keydown.escape.window="panelOpen = false"
-       class="absolute inset-0 flex flex-col overflow-hidden"
-       style="z-index: 20; background: var(--surface);">
-
-    {{-- Scrollable content --}}
-    <div class="flex-1 overflow-y-auto">
-
-        {{-- Header: class label + status + close --}}
-        <div class="px-5 pt-4 pb-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
-            <div class="flex items-center gap-2 min-w-0">
-                <span class="text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);" x-text="panelData.class_label"></span>
-                <span x-show="panelData.colour"
-                      class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase"
-                      :style="panelColourStyle(panelData.colour)">
-                    <span class="w-1.5 h-1.5 rounded-full" :style="'background:' + panelDotHex(panelData.colour)"></span>
-                    <span x-text="panelColourLabel(panelData.colour)"></span>
-                </span>
-            </div>
-            <button @click="panelOpen = false" class="p-1 rounded transition-colors" style="color: var(--text-muted); background: none; border: none; cursor: pointer;"
-                    onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            </button>
-        </div>
-
-        {{-- Invitation status pill + respond buttons (invitee only) --}}
-        <template x-if="panelData.invitation && !panelData.is_organizer">
-            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <template x-if="panelData.invitation.status === 'pending'">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Pending</span>
-                        <span class="text-xs" style="color:var(--text-muted);">Invitation from <span x-text="panelData.invitation.inviter_name" style="color:var(--text-secondary);"></span></span>
-                    </div>
-                </template>
-                <template x-if="panelData.invitation.status === 'tentative'">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Tentative</span>
-                        <span class="text-xs" style="color:var(--text-muted);">You marked tentative<template x-if="panelData.invitation.response_at"> on <span x-text="panelData.invitation.response_at"></span></template></span>
-                    </div>
-                </template>
-                <template x-if="panelData.invitation.status === 'accepted'">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(16,185,129,0.15); color:#10b981;">Accepted</span>
-                        <span class="text-xs" style="color:var(--text-muted);">You accepted this invitation</span>
-                    </div>
-                </template>
-                <template x-if="panelData.invitation.status === 'pending' || panelData.invitation.status === 'tentative'">
-                    <div class="flex items-center gap-1.5">
-                        <button type="button" @click="respondInvitation('accepted')" class="text-[11px] font-medium px-3 py-1 rounded text-white" style="background:#10b981;">Accept</button>
-                        <button type="button" @click="respondInvitation('tentative')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#f59e0b; border:1px solid rgba(245,158,11,0.3);">Tentative</button>
-                        <button type="button" @click="respondInvitation('declined')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Decline</button>
-                    </div>
-                </template>
-                <template x-if="panelData.invitation.status === 'accepted'">
-                    <button type="button" @click="respondInvitation('pending')" class="text-[10px] underline" style="color:var(--text-muted); background: none; border: none; cursor: pointer;">Change response</button>
-                </template>
-            </div>
-        </template>
-
-        {{-- Title + date --}}
-        <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
-            <h2 class="text-xl font-semibold leading-tight" style="color: var(--text-primary);" x-text="panelData.title"></h2>
-            <p class="text-sm mt-1.5" style="color: var(--text-secondary);" x-text="panelData.event_date_h"></p>
-            <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="panelDaysDiffLabel(panelData.days_diff)"></p>
-            <template x-if="panelData.recurrence_label">
-                <p class="text-xs mt-1 inline-flex items-center gap-1" style="color: var(--text-secondary);">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
-                    <span x-text="panelData.recurrence_label"></span>
-                </p>
-            </template>
-        </div>
-
-        {{-- Linked property --}}
-        <template x-if="panelData.linked_property">
-            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Property</div>
-                <a :href="'/corex/properties/' + panelData.linked_property.id"
-                   class="text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
-                   x-text="panelData.linked_property.address"></a>
-            </div>
-        </template>
-
-        {{-- Attendees --}}
-        <template x-if="panelData.attendees && panelData.attendees.length > 0">
-            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Attendees</div>
-                <div class="flex flex-wrap gap-1.5">
-                    <template x-for="att in panelData.attendees" :key="(att.type||'contact') + ':' + att.id">
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
-                              style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                              onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--surface-2)'">
-                            <span x-text="att.name"></span>
-                            <span x-show="att.type === 'agent'" class="text-[9px] uppercase" style="color: var(--text-muted);">agent</span>
-                        </span>
-                    </template>
-                </div>
-            </div>
-        </template>
-
-        {{-- Description --}}
-        <template x-if="panelData.description">
-            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Description</div>
-                <p class="text-sm leading-relaxed" style="color: var(--text-primary);" x-text="panelData.description"></p>
-            </div>
-        </template>
-
-        {{-- Linked Records --}}
-        <template x-if="panelData.linked_records && panelData.linked_records.length > 0">
-            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <template x-for="group in [{key:'buyers',label:'Buyers',color:'#00d4aa'},{key:'sellers',label:'Sellers',color:'#0f172a'},{key:'agents',label:'Agents',color:'#475569'},{key:'properties',label:'Properties',color:'var(--brand-icon)'},{key:'attendees',label:'Attendees',color:'var(--text-muted)'},{key:'deals',label:'Deals',color:'var(--brand-icon)'}]" :key="group.key">
-                    <template x-if="panelData.linked_records.filter(r => r.group === group.key).length > 0">
-                        <div class="mb-2">
-                            <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" :style="'color:' + group.color" x-text="group.label + ' (' + panelData.linked_records.filter(r => r.group === group.key).length + ')'"></div>
-                            <div class="space-y-1">
-                                <template x-for="rec in panelData.linked_records.filter(r => r.group === group.key)" :key="rec.url + rec.name">
-                                    <a :href="rec.url" :target="rec.url === '#' ? '' : '_blank'" rel="noopener"
-                                       class="flex items-center gap-2 px-2 py-1 rounded transition hover:opacity-80 no-underline"
-                                       style="background: var(--surface-2);">
-                                        <template x-if="rec.badge">
-                                            <span class="text-[9px] px-1 py-0.5 rounded font-bold text-white"
-                                                  :style="'background:' + (rec.badge === 'Buyer' ? '#00d4aa' : rec.badge === 'Seller' ? '#0f172a' : '#475569')"
-                                                  x-text="rec.badge"></span>
-                                        </template>
-                                        <div class="min-w-0 flex-1">
-                                            <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="rec.name"></div>
-                                        </div>
-                                        <template x-if="rec.url !== '#'">
-                                            <svg class="w-3 h-3 flex-shrink-0 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                                        </template>
-                                    </a>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-                </template>
-            </div>
-        </template>
-
-        {{-- Legacy source link fallback --}}
-        <template x-if="panelData.source_link && (!panelData.linked_records || panelData.linked_records.length === 0)">
-            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <a :href="panelData.source_link.url" target="_blank" class="text-xs font-medium hover:underline" style="color: var(--brand-button);">
-                    <span x-text="panelData.source_link.label"></span> &rarr;
-                </a>
-            </div>
-        </template>
-
-        {{-- Activity timeline --}}
-        <template x-if="panelData.audit_log && panelData.audit_log.length > 0">
-            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Activity</div>
-                <ul class="space-y-1">
-                    <template x-for="entry in panelData.audit_log" :key="entry.when + entry.action">
-                        <li class="flex justify-between gap-2 text-[11px]">
-                            <span x-text="formatAuditAction(entry)" style="color: var(--text-secondary);"></span>
-                            <span x-text="entry.when" class="whitespace-nowrap" style="color: var(--text-muted);"></span>
-                        </li>
-                    </template>
-                </ul>
-            </div>
-        </template>
-
-        {{-- Feedback CTA --}}
-        <template x-if="panelData.is_actionable && panelData.is_past && panelData.has_contacts">
-            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <button type="button" @click="openFeedbackModal(panelData.id)"
-                        class="text-xs font-medium transition-colors hover:underline" style="color: var(--brand-button); background: none; border: none; cursor: pointer;">
-                    Capture feedback &rarr;
-                </button>
-            </div>
-        </template>
-
-    </div>
-
-    {{-- Sticky footer action bar --}}
-    <div class="px-5 py-2.5 flex items-center gap-4 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
-        <template x-if="panelData.is_editable">
-            <button type="button" @click="editFromPanel()"
-                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                    style="color: var(--text-primary); background: none; border: none; cursor: pointer;">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"/></svg>
-                Edit
-            </button>
-        </template>
-        <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
-            <button type="button" @click="openFeedbackModal(panelData.id)"
-                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                    style="color: #00d4aa; background: none; border: none; cursor: pointer;">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+        {{-- AT-164 cockpit — create/detail/color-by render INSIDE the panel --}}
 <aside x-show="showCreateEvent" x-cloak
        x-transition:enter="transform transition ease-out duration-200"
        x-transition:enter-start="translate-x-full opacity-0"
@@ -1889,230 +1890,249 @@
         </button>
     </div>
 </aside>
-    <div x-show="panelOpen" x-cloak class="hidden">
-        <div class="hidden"></div>
-        <aside class="hidden">
+<aside x-show="panelOpen" x-cloak
+       x-transition:enter="transform transition ease-out duration-200"
+       x-transition:enter-start="translate-x-full opacity-0"
+       x-transition:enter-end="translate-x-0 opacity-100"
+       x-transition:leave="transform transition ease-in duration-150"
+       x-transition:leave-start="translate-x-0 opacity-100"
+       x-transition:leave-end="translate-x-full opacity-0"
+       @keydown.escape.window="panelOpen = false"
+       class="absolute inset-0 flex flex-col overflow-hidden"
+       style="z-index: 20; background: var(--surface);">
 
-            {{-- Scrollable content --}}
-            <div class="flex-1 overflow-y-auto">
+    {{-- Scrollable content --}}
+    <div class="flex-1 overflow-y-auto">
 
-                {{-- Header: class label + status + close --}}
-                <div class="px-5 pt-4 pb-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
-                    <div class="flex items-center gap-2 min-w-0">
-                        <span class="text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);" x-text="panelData.class_label"></span>
-                        <span x-show="panelData.colour"
-                              class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase"
-                              :style="panelColourStyle(panelData.colour)">
-                            <span class="w-1.5 h-1.5 rounded-full" :style="'background:' + panelDotHex(panelData.colour)"></span>
-                            <span x-text="panelColourLabel(panelData.colour)"></span>
+        {{-- Header: class label + status + close --}}
+        <div class="px-5 pt-4 pb-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);" x-text="panelData.class_label"></span>
+                <span x-show="panelData.colour"
+                      class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                      :style="panelColourStyle(panelData.colour)">
+                    <span class="w-1.5 h-1.5 rounded-full" :style="'background:' + panelDotHex(panelData.colour)"></span>
+                    <span x-text="panelColourLabel(panelData.colour)"></span>
+                </span>
+            </div>
+            <button @click="panelOpen = false" class="p-1 rounded transition-colors" style="color: var(--text-muted); background: none; border: none; cursor: pointer;"
+                    onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+
+        {{-- Invitation status pill + respond buttons (invitee only) --}}
+        <template x-if="panelData.invitation && !panelData.is_organizer">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <template x-if="panelData.invitation.status === 'pending'">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Pending</span>
+                        <span class="text-xs" style="color:var(--text-muted);">Invitation from <span x-text="panelData.invitation.inviter_name" style="color:var(--text-secondary);"></span></span>
+                    </div>
+                </template>
+                <template x-if="panelData.invitation.status === 'tentative'">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Tentative</span>
+                        <span class="text-xs" style="color:var(--text-muted);">You marked tentative<template x-if="panelData.invitation.response_at"> on <span x-text="panelData.invitation.response_at"></span></template></span>
+                    </div>
+                </template>
+                <template x-if="panelData.invitation.status === 'accepted'">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(16,185,129,0.15); color:#10b981;">Accepted</span>
+                        <span class="text-xs" style="color:var(--text-muted);">You accepted this invitation</span>
+                    </div>
+                </template>
+                <template x-if="panelData.invitation.status === 'pending' || panelData.invitation.status === 'tentative'">
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" @click="respondInvitation('accepted')" class="text-[11px] font-medium px-3 py-1 rounded text-white" style="background:#10b981;">Accept</button>
+                        <button type="button" @click="respondInvitation('tentative')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#f59e0b; border:1px solid rgba(245,158,11,0.3);">Tentative</button>
+                        <button type="button" @click="respondInvitation('declined')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Decline</button>
+                    </div>
+                </template>
+                <template x-if="panelData.invitation.status === 'accepted'">
+                    <button type="button" @click="respondInvitation('pending')" class="text-[10px] underline" style="color:var(--text-muted); background: none; border: none; cursor: pointer;">Change response</button>
+                </template>
+            </div>
+        </template>
+
+        {{-- Title + date --}}
+        <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
+            <h2 class="text-xl font-semibold leading-tight" style="color: var(--text-primary);" x-text="panelData.title"></h2>
+            <p class="text-sm mt-1.5" style="color: var(--text-secondary);" x-text="panelData.event_date_h"></p>
+            <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="panelDaysDiffLabel(panelData.days_diff)"></p>
+            <template x-if="panelData.recurrence_label">
+                <p class="text-xs mt-1 inline-flex items-center gap-1" style="color: var(--text-secondary);">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                    <span x-text="panelData.recurrence_label"></span>
+                </p>
+            </template>
+        </div>
+
+        {{-- Linked property --}}
+        <template x-if="panelData.linked_property">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Property</div>
+                <a :href="'/corex/properties/' + panelData.linked_property.id"
+                   class="text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
+                   x-text="panelData.linked_property.address"></a>
+            </div>
+        </template>
+
+        {{-- Attendees --}}
+        <template x-if="panelData.attendees && panelData.attendees.length > 0">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Attendees</div>
+                <div class="flex flex-wrap gap-1.5">
+                    <template x-for="att in panelData.attendees" :key="(att.type||'contact') + ':' + att.id">
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
+                              style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                              onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--surface-2)'">
+                            <span x-text="att.name"></span>
+                            <span x-show="att.type === 'agent'" class="text-[9px] uppercase" style="color: var(--text-muted);">agent</span>
                         </span>
-                    </div>
-                    <button @click="panelOpen = false" class="p-1 rounded transition-colors" style="color: var(--text-muted);"
-                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                    </button>
+                    </template>
                 </div>
+            </div>
+        </template>
 
-                {{-- Invitation status pill + respond buttons (invitee only) --}}
-                <template x-if="panelData.invitation && !panelData.is_organizer">
-                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                        {{-- Status pill --}}
-                        <template x-if="panelData.invitation.status === 'pending'">
-                            <div class="flex items-center gap-2 mb-2">
-                                <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Pending</span>
-                                <span class="text-xs" style="color:var(--text-muted);">Invitation from <span x-text="panelData.invitation.inviter_name" style="color:var(--text-secondary);"></span></span>
-                            </div>
-                        </template>
-                        <template x-if="panelData.invitation.status === 'tentative'">
-                            <div class="flex items-center gap-2 mb-2">
-                                <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Tentative</span>
-                                <span class="text-xs" style="color:var(--text-muted);">You marked tentative<template x-if="panelData.invitation.response_at"> on <span x-text="panelData.invitation.response_at"></span></template></span>
-                            </div>
-                        </template>
-                        <template x-if="panelData.invitation.status === 'accepted'">
-                            <div class="flex items-center gap-2 mb-2">
-                                <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(16,185,129,0.15); color:#10b981;">Accepted</span>
-                                <span class="text-xs" style="color:var(--text-muted);">You accepted this invitation</span>
-                            </div>
-                        </template>
-                        {{-- Respond buttons --}}
-                        <template x-if="panelData.invitation.status === 'pending' || panelData.invitation.status === 'tentative'">
-                            <div class="flex items-center gap-1.5">
-                                <button type="button" @click="respondInvitation('accepted')" class="text-[11px] font-medium px-3 py-1 rounded text-white" style="background:#10b981;">Accept</button>
-                                <button type="button" @click="respondInvitation('tentative')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#f59e0b; border:1px solid rgba(245,158,11,0.3);">Tentative</button>
-                                <button type="button" @click="respondInvitation('declined')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Decline</button>
-                            </div>
-                        </template>
-                        <template x-if="panelData.invitation.status === 'accepted'">
-                            <button type="button" @click="respondInvitation('pending')" class="text-[10px] underline" style="color:var(--text-muted);">Change response</button>
-                        </template>
-                    </div>
-                </template>
+        {{-- Description --}}
+        <template x-if="panelData.description">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Description</div>
+                <p class="text-sm leading-relaxed" style="color: var(--text-primary);" x-text="panelData.description"></p>
+            </div>
+        </template>
 
-                {{-- Title + date --}}
-                <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
-                    <h2 class="text-xl font-semibold leading-tight" style="color: var(--text-primary);" x-text="panelData.title"></h2>
-                    <p class="text-sm mt-1.5" style="color: var(--text-secondary);" x-text="panelData.event_date_h"></p>
-                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="panelDaysDiffLabel(panelData.days_diff)"></p>
-                </div>
-
-                {{-- Linked property --}}
-                <template x-if="panelData.linked_property">
-                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Property</div>
-                        <a :href="'/corex/properties/' + panelData.linked_property.id"
-                           class="text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
-                           x-text="panelData.linked_property.address"></a>
-                    </div>
-                </template>
-
-                {{-- Attendees --}}
-                <template x-if="panelData.attendees && panelData.attendees.length > 0">
-                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Attendees</div>
-                        <div class="flex flex-wrap gap-1.5">
-                            <template x-for="att in panelData.attendees" :key="(att.type||'contact') + ':' + att.id">
-                                <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
-                                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                                      onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--surface-2)'">
-                                    <span x-text="att.name"></span>
-                                    <span x-show="att.type === 'agent'" class="text-[9px] uppercase" style="color: var(--text-muted);">agent</span>
-                                </span>
-                            </template>
-                        </div>
-                    </div>
-                </template>
-
-                {{-- Description --}}
-                <template x-if="panelData.description">
-                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Description</div>
-                        <p class="text-sm leading-relaxed" style="color: var(--text-primary);" x-text="panelData.description"></p>
-                    </div>
-                </template>
-
-                {{-- Linked Records (grouped by role: Buyers / Sellers / Agents / Properties) --}}
-                <template x-if="panelData.linked_records && panelData.linked_records.length > 0">
-                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                        <template x-for="group in [{key:'buyers',label:'Buyers',color:'#00d4aa'},{key:'sellers',label:'Sellers',color:'#0f172a'},{key:'agents',label:'Agents',color:'#475569'},{key:'properties',label:'Properties',color:'var(--brand-icon)'},{key:'attendees',label:'Attendees',color:'var(--text-muted)'},{key:'deals',label:'Deals',color:'var(--brand-icon)'}]" :key="group.key">
-                            <template x-if="panelData.linked_records.filter(r => r.group === group.key).length > 0">
-                                <div class="mb-2">
-                                    <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" :style="'color:' + group.color" x-text="group.label + ' (' + panelData.linked_records.filter(r => r.group === group.key).length + ')'"></div>
-                                    <div class="space-y-1">
-                                        <template x-for="rec in panelData.linked_records.filter(r => r.group === group.key)" :key="rec.url + rec.name">
-                                            <a :href="rec.url" :target="rec.url === '#' ? '' : '_blank'" rel="noopener"
-                                               class="flex items-center gap-2 px-2 py-1 rounded transition hover:opacity-80 no-underline"
-                                               style="background: var(--surface-2);">
-                                                <template x-if="rec.badge">
-                                                    <span class="text-[9px] px-1 py-0.5 rounded font-bold text-white"
-                                                          :style="'background:' + (rec.badge === 'Buyer' ? '#00d4aa' : rec.badge === 'Seller' ? '#0f172a' : '#475569')"
-                                                          x-text="rec.badge"></span>
-                                                </template>
-                                                <div class="min-w-0 flex-1">
-                                                    <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="rec.name"></div>
-                                                </div>
-                                                <template x-if="rec.url !== '#'">
-                                                    <svg class="w-3 h-3 flex-shrink-0 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                                                </template>
-                                            </a>
+        {{-- Linked Records --}}
+        <template x-if="panelData.linked_records && panelData.linked_records.length > 0">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <template x-for="group in [{key:'buyers',label:'Buyers',color:'#00d4aa'},{key:'sellers',label:'Sellers',color:'#0f172a'},{key:'agents',label:'Agents',color:'#475569'},{key:'properties',label:'Properties',color:'var(--brand-icon)'},{key:'attendees',label:'Attendees',color:'var(--text-muted)'},{key:'deals',label:'Deals',color:'var(--brand-icon)'}]" :key="group.key">
+                    <template x-if="panelData.linked_records.filter(r => r.group === group.key).length > 0">
+                        <div class="mb-2">
+                            <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" :style="'color:' + group.color" x-text="group.label + ' (' + panelData.linked_records.filter(r => r.group === group.key).length + ')'"></div>
+                            <div class="space-y-1">
+                                <template x-for="rec in panelData.linked_records.filter(r => r.group === group.key)" :key="rec.url + rec.name">
+                                    <a :href="rec.url" :target="rec.url === '#' ? '' : '_blank'" rel="noopener"
+                                       class="flex items-center gap-2 px-2 py-1 rounded transition hover:opacity-80 no-underline"
+                                       style="background: var(--surface-2);">
+                                        <template x-if="rec.badge">
+                                            <span class="text-[9px] px-1 py-0.5 rounded font-bold text-white"
+                                                  :style="'background:' + (rec.badge === 'Buyer' ? '#00d4aa' : rec.badge === 'Seller' ? '#0f172a' : '#475569')"
+                                                  x-text="rec.badge"></span>
                                         </template>
-                                    </div>
-                                </div>
-                            </template>
-                        </template>
-                    </div>
-                </template>
-
-                {{-- Legacy source link fallback (if no linked_records) --}}
-                <template x-if="panelData.source_link && (!panelData.linked_records || panelData.linked_records.length === 0)">
-                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                        <a :href="panelData.source_link.url" target="_blank" class="text-xs font-medium hover:underline" style="color: var(--brand-button);">
-                            <span x-text="panelData.source_link.label"></span> &rarr;
-                        </a>
-                    </div>
-                </template>
-
-                {{-- Activity timeline --}}
-                <template x-if="panelData.audit_log && panelData.audit_log.length > 0">
-                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Activity</div>
-                        <ul class="space-y-1">
-                            <template x-for="entry in panelData.audit_log" :key="entry.when + entry.action">
-                                <li class="flex justify-between gap-2 text-[11px]">
-                                    <span x-text="formatAuditAction(entry)" style="color: var(--text-secondary);"></span>
-                                    <span x-text="entry.when" class="whitespace-nowrap" style="color: var(--text-muted);"></span>
-                                </li>
-                            </template>
-                        </ul>
-                    </div>
-                </template>
-
-                {{-- Feedback CTA (past actionable events with contacts) --}}
-                <template x-if="panelData.is_actionable && panelData.is_past && panelData.has_contacts">
-                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                        <button type="button" @click="openFeedbackModal(panelData.id)"
-                                class="text-xs font-medium transition-colors hover:underline" style="color: var(--brand-button);">
-                            Capture feedback &rarr;
-                        </button>
-                    </div>
-                </template>
-
-            </div>
-
-            {{-- Sticky footer action bar --}}
-            <div class="px-5 py-2.5 flex items-center gap-4" style="border-top: 1px solid var(--border); background: var(--surface);">
-                <template x-if="panelData.is_editable">
-                    <button type="button" @click="openEditModal(panelData.id)"
-                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                            style="color: var(--text-primary);">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"/></svg>
-                        Edit
-                    </button>
-                </template>
-                {{-- Mark Complete (behaviour-aware) --}}
-                <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
-                    <button type="button" @click="openFeedbackModal(panelData.id)"
-                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                            style="color: #00d4aa;">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
-                        Capture Feedback to Complete
-                    </button>
-                </template>
-                <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_reason'">
-                    <button type="button" @click="reasonPickerAction = 'complete'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
-                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                            style="color: var(--text-secondary);">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
-                        Complete with Reason
-                    </button>
-                </template>
-                <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
-                    <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST">
-                        @csrf
-                        {{-- Deal step context badge --}}
-                        <template x-if="panelData.metadata && panelData.metadata.deal_ref">
-                            <div class="mb-2 px-2 py-1 rounded text-[10px] inline-flex items-center gap-1" style="background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);">
-                                <span>Deal Step:</span> <span x-text="(panelData.metadata.step_name || 'Step') + ' — ' + panelData.metadata.deal_ref"></span>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="rec.name"></div>
+                                        </div>
+                                        <template x-if="rec.url !== '#'">
+                                            <svg class="w-3 h-3 flex-shrink-0 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                        </template>
+                                    </a>
+                                </template>
                             </div>
-                        </template>
-                        <button type="submit" class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                                style="color: var(--text-secondary);">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
-                            <span x-text="(panelData.metadata && panelData.metadata.deal_ref) ? 'Mark Step Complete' : 'Complete'"></span>
-                        </button>
-                    </form>
-                </template>
-                {{-- Dismiss (always requires reason) --}}
-                <template x-if="panelData.is_actionable">
-                    <button type="button" @click="reasonPickerAction = 'dismiss'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
-                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                            style="color: var(--text-muted);">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
-                        Dismiss
-                    </button>
+                        </div>
+                    </template>
                 </template>
             </div>
-        </aside>
+        </template>
+
+        {{-- Legacy source link fallback --}}
+        <template x-if="panelData.source_link && (!panelData.linked_records || panelData.linked_records.length === 0)">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <a :href="panelData.source_link.url" target="_blank" class="text-xs font-medium hover:underline" style="color: var(--brand-button);">
+                    <span x-text="panelData.source_link.label"></span> &rarr;
+                </a>
+            </div>
+        </template>
+
+        {{-- Activity timeline --}}
+        <template x-if="panelData.audit_log && panelData.audit_log.length > 0">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Activity</div>
+                <ul class="space-y-1">
+                    <template x-for="entry in panelData.audit_log" :key="entry.when + entry.action">
+                        <li class="flex justify-between gap-2 text-[11px]">
+                            <span x-text="formatAuditAction(entry)" style="color: var(--text-secondary);"></span>
+                            <span x-text="entry.when" class="whitespace-nowrap" style="color: var(--text-muted);"></span>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+        </template>
+
+        {{-- Feedback CTA --}}
+        <template x-if="panelData.is_actionable && panelData.is_past && panelData.has_contacts">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <button type="button" @click="openFeedbackModal(panelData.id)"
+                        class="text-xs font-medium transition-colors hover:underline" style="color: var(--brand-button); background: none; border: none; cursor: pointer;">
+                    Capture feedback &rarr;
+                </button>
+            </div>
+        </template>
+
+    </div>
+
+    {{-- Sticky footer action bar --}}
+    <div class="px-5 py-2.5 flex items-center gap-4 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
+        <template x-if="panelData.is_editable">
+            <button type="button" @click="editFromPanel()"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: var(--text-primary); background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"/></svg>
+                Edit
+            </button>
+        </template>
+        <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
+            <button type="button" @click="openFeedbackModal(panelData.id)"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: #00d4aa; background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                Capture Feedback to Complete
+            </button>
+        </template>
+        <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_reason'">
+            <button type="button" @click="reasonPickerAction = 'complete'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: var(--text-secondary); background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                Complete with Reason
+            </button>
+        </template>
+        <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
+            <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST">
+                @csrf
+                <template x-if="panelData.metadata && panelData.metadata.deal_ref">
+                    <div class="mb-2 px-2 py-1 rounded text-[10px] inline-flex items-center gap-1" style="background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);">
+                        <span>Deal Step:</span> <span x-text="(panelData.metadata.step_name || 'Step') + ' — ' + panelData.metadata.deal_ref"></span>
+                    </div>
+                </template>
+                <button type="submit" class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                        style="color: var(--text-secondary); background: none; border: none; cursor: pointer;">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                    <span x-text="(panelData.metadata && panelData.metadata.deal_ref) ? 'Mark Step Complete' : 'Complete'"></span>
+                </button>
+            </form>
+        </template>
+        <template x-if="panelData.is_actionable">
+            <button type="button" @click="reasonPickerAction = 'dismiss'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: var(--text-muted); background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                Dismiss
+            </button>
+        </template>
+        {{-- Delete — on EVERY editable panel (incl. private/informational events that
+             have no Complete/Dismiss). Soft-delete, audited. Recurring events branch
+             into the this/future/all scope modal; one-offs get a simple confirm. --}}
+        <template x-if="panelData.is_editable">
+            <button type="button" @click="deleteEvent()"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: #ef4444; background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
+                <span x-text="panelData.is_recurring ? 'Delete…' : 'Delete'"></span>
+            </button>
+        </template>
+    </div>
+</aside>
 <aside x-show="rightPanelOpen" x-cloak x-transition:enter="transition ease-out duration-200" x-transition:leave="transition ease-in duration-150"
        class="absolute inset-0 flex flex-col overflow-hidden"
        style="z-index: 20; background: var(--surface);">
@@ -2247,53 +2267,34 @@
         </div>
     </div>
 </aside>
-                Capture Feedback to Complete
-            </button>
-        </template>
-        <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_reason'">
-            <button type="button" @click="reasonPickerAction = 'complete'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
-                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                    style="color: var(--text-secondary); background: none; border: none; cursor: pointer;">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
-                Complete with Reason
-            </button>
-        </template>
-        <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
-            <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST">
-                @csrf
-                <template x-if="panelData.metadata && panelData.metadata.deal_ref">
-                    <div class="mb-2 px-2 py-1 rounded text-[10px] inline-flex items-center gap-1" style="background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);">
-                        <span>Deal Step:</span> <span x-text="(panelData.metadata.step_name || 'Step') + ' — ' + panelData.metadata.deal_ref"></span>
-                    </div>
-                </template>
-                <button type="submit" class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                        style="color: var(--text-secondary); background: none; border: none; cursor: pointer;">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
-                    <span x-text="(panelData.metadata && panelData.metadata.deal_ref) ? 'Mark Step Complete' : 'Complete'"></span>
-                </button>
-            </form>
-        </template>
-        <template x-if="panelData.is_actionable">
-            <button type="button" @click="reasonPickerAction = 'dismiss'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
-                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                    style="color: var(--text-muted); background: none; border: none; cursor: pointer;">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
-                Dismiss
-            </button>
-        </template>
-        {{-- Delete — on EVERY editable panel (incl. private/informational events that
-             have no Complete/Dismiss). Soft-delete, audited. Recurring events branch
-             into the this/future/all scope modal; one-offs get a simple confirm. --}}
-        <template x-if="panelData.is_editable">
-            <button type="button" @click="deleteEvent()"
-                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                    style="color: #ef4444; background: none; border: none; cursor: pointer;">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
-                <span x-text="panelData.is_recurring ? 'Delete…' : 'Delete'"></span>
-            </button>
-        </template>
-    </div>
-</aside>
+</div>
+
+{{-- ══════ RIGHT SIDE PANEL ══════ --}}
+
+{{-- ══════ CREATE EVENT PANEL (column-flex sibling — Google/Outlook layout) ══════
+     The panel docks as a real column inside the flex row. When x-show flips
+     to true, the panel takes its column space and the grid (flex-1) shrinks
+     to make room — no overlap. NO fixed positioning, NO backdrop, NO
+     click-outside-to-close. Escape closes.
+
+     CAL-2 width contract:
+       - Mobile (< sm): w-full — acts as a full-screen sheet because the
+         calendar would be too narrow alongside any side panel anyway.
+       - sm and up: fixed 420px column docked at the right edge of the
+         flex row. Calendar column's min-w-[320px] guarantees it stays
+         visible to the left even when the filter panel is also open.
+         420 + 360 (filter panel) + 320 (calendar min) = 1100px fits a
+         typical laptop viewport; on narrower screens the calendar
+         scrolls horizontally rather than collapsing to zero.
+     The flex-shrink-0 lock keeps the panel at 420px when the grid
+     tries to claim space — without it max-w-md plus flex-shrink:1
+     allowed the panel to compress below readable width on very wide
+     screens with multiple asides open. --}}
+
+{{-- ══════ EVENT DETAIL PANEL (column-flex sibling — Google/Outlook layout) ══════
+     Replaces the previous fixed-positioned overlay. Behaves as a column
+     beside the grid: no backdrop, no click-outside-to-close, prev/next/view
+     navigation no longer dismisses it. Escape closes. --}}
 
 {{-- ══════ RECURRING EDIT/DELETE SCOPE MODAL ══════
      Shown when saving an edit to (or deleting) a recurring series. The user must
@@ -2708,14 +2709,10 @@ function calendarPage() {
                 // Form already open in the panel — just move its date.
                 this.form.startDate = dateStr;
                 if (time) this.form.startTime = time;
-                if (this.form.endDate && this.form.endDate < dateStr) {
-                    this.form.endDate = dateStr;
-                    this.endManuallyEdited = false;
-                }
+                if (this.form.endDate && this.form.endDate < dateStr) { this.form.endDate = dateStr; this.endManuallyEdited = false; }
             } else if (!this.panelOpen) {
                 // AT-164 cockpit — empty day/slot click opens the FULL New Event form
                 // INSIDE the right panel (Johan's model), pre-filled with the clicked date.
-                if (time) this.pendingCreateTime = time;
                 this.openBlank();
                 if (time) { this.form.startTime = time; this.form.endTime = this.addHour(time); }
             }
@@ -3523,11 +3520,11 @@ function calendarPage() {
         },
 
         openEventPanel(eventId) {
-            // AT-164 cockpit \u2014 a clicked event opens the full detail INSIDE the right
-            // panel (the panelOpen block is now an absolute-inset child of the panel,
-            // not a page overlay). panelData is loaded exactly as before.
+            // AT-164 cockpit \u2014 a clicked event populates the FIXED right context panel
+            // (not a slide-over). The full detail/edit slide-over opens from there via
+            // "Full details / Edit". panelData is loaded exactly as before.
             this.showCreateEvent = false;
-            this.panelOpen = true;
+            this.panelOpen = true;  // full detail renders INSIDE the panel (absolute-inset child)
             this.panelData = { title: 'Loading\u2026', colour: null, days_diff: 0 };
 
             // Synthetic occurrence id (>= 1e8) \u2192 real parent id + ?occurrence=date,
