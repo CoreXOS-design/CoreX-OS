@@ -619,6 +619,8 @@ Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_
     Route::get('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'index'])->name('deals-v2.pipeline.index');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'create'])->name('deals-v2.pipeline.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'store'])->name('deals-v2.pipeline.store');
+    // AT-158 WS-R1 — one-click "Load standard templates" (idempotent, own agency)
+    Route::post('/load-defaults', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'loadDefaults'])->name('deals-v2.pipeline.load-defaults');
     Route::get('/{template}/edit', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'edit'])->name('deals-v2.pipeline.edit');
     Route::put('/{template}', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'update'])->name('deals-v2.pipeline.update');
     Route::delete('/{template}', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'destroy'])->name('deals-v2.pipeline.destroy');

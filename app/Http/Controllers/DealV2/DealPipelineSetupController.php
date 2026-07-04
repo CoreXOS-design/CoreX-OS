@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\DealV2\DealPipelineStep;
 use App\Models\DealV2\DealPipelineTemplate;
+use App\Services\DealV2\DealPipelineTemplateProvisioner;
 use Illuminate\Http\Request;
 
 class DealPipelineSetupController extends Controller
@@ -36,6 +37,50 @@ class DealPipelineSetupController extends Controller
         $branches = Branch::orderBy('name')->get();
 
         return view('deals-v2.pipeline-setup.create', compact('branches'));
+    }
+
+    /**
+     * AT-158 WS-R1 — "Load standard templates" affordance.
+     *
+     * (Re-)provisions the three shipped default templates (Standard Bond Sale,
+     * Cash Sale, Sale of Second Property) for the CURRENT user's own agency via
+     * the shared idempotent provisioner. Existing templates are never touched;
+     * missing ones are created, fresh templates get their steps. Removes the
+     * "blank register, no way to get the defaults" dead-end.
+     */
+    public function loadDefaults(Request $request, DealPipelineTemplateProvisioner $provisioner)
+    {
+        abort_unless(auth()->user()?->hasPermission('deals_v2.manage_pipeline'), 403);
+
+        $user = auth()->user();
+        // Own agency only — never a request-supplied id — so this can never
+        // provision another tenant.
+        $agencyId = method_exists($user, 'effectiveAgencyId')
+            ? $user->effectiveAgencyId()
+            : $user->agency_id;
+
+        if (!$agencyId) {
+            return back()->with('error', 'No active agency — switch into an agency first, then load the standard templates.');
+        }
+
+        try {
+            $result = $provisioner->provisionDefaultsForAgency((int) $agencyId, $user->id);
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        if ($result['created'] === 0 && $result['steps_created'] === 0) {
+            return back()->with('status', 'Standard templates are already in place — nothing to add.');
+        }
+
+        $msg = sprintf(
+            'Loaded standard templates: %d added, %d already present (%d steps created).',
+            $result['created'],
+            $result['skipped'],
+            $result['steps_created']
+        );
+
+        return redirect()->route('deals-v2.pipeline.index')->with('status', $msg);
     }
 
     public function store(Request $request)
