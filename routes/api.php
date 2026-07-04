@@ -245,6 +245,15 @@ Route::middleware('auth:sanctum')->group(function () {
             ]);
         })->name('v1.logged-user');
 
+        // Session keepalive — AT-165 (offline draft persistence, complement D).
+        // A long capture (property, FICA, staff take-on) can sit open for 40+ min;
+        // this heartbeat (fired by resources/js/session-keepalive.js while a
+        // draft-registered form is on screen) touches the session so submit does
+        // not lapse into a 419. No-op JSON; the request itself refreshes the cookie.
+        Route::get('/session/ping', function (Request $request) {
+            return response()->json(['ok' => true, 'ts' => now()->toIso8601String()]);
+        })->name('v1.session.ping');
+
         // Mobile app theme preference (light/dark)
         Route::get('/me/theme', function (Request $request) {
             return response()->json([
@@ -422,6 +431,12 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/dashboard',       [CommandCenterApiController::class, 'dashboard'])->name('v1.command-center.dashboard');
             Route::get('/today',           [CommandCenterApiController::class, 'today'])->name('v1.command-center.today');
             Route::post('/today/refresh',  [CommandCenterApiController::class, 'todayRefresh'])->name('v1.command-center.today.refresh');
+
+            // ── Event reminders (AT-178) — global popup toast feed + actions.
+            // Self-scoped: each user only sees/acts on their own due reminders.
+            Route::get('/reminders/due',           [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'due'])->name('v1.command-center.reminders.due');
+            Route::post('/reminders/{log}/read',   [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'read'])->whereNumber('log')->name('v1.command-center.reminders.read');
+            Route::post('/reminders/{log}/snooze', [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'snooze'])->whereNumber('log')->name('v1.command-center.reminders.snooze');
 
             Route::get('/calendar',                                       [CommandCenterApiController::class, 'calendarIndex'])->name('v1.command-center.calendar.index');
             Route::post('/calendar',                                      [CommandCenterApiController::class, 'calendarStore'])->name('v1.command-center.calendar.store');

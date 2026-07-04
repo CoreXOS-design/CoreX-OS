@@ -5,24 +5,28 @@ namespace Tests\Feature\CommandCenter;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\CommandCenter\CalendarEvent;
-use App\Models\CommandCenter\NotificationEventType;
 use App\Models\CommandCenter\UserDashboardSetting;
 use App\Models\DeviceToken;
 use App\Models\User;
 use App\Services\Push\Contracts\PushTransport;
 use App\Services\Push\PushNotificationService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\SpyPushTransport;
 use Tests\TestCase;
 
 /**
- * command-center:reminders must now deliver an FCM push for an upcoming calendar
- * event — through the storm-guarded PushNotificationService, NOT a via() channel
- * — in addition to the existing in-app + email notification. The lead-time is the
- * user's event_reminder_hours_before (exposed to mobile via agent.event_due in
- * /v1/notification-preferences); push is gated on the user's own notify_push
- * master. See .ai/specs/push-notifications.md.
+ * command-center:reminders must deliver an FCM push for a due calendar event —
+ * through the storm-guarded PushNotificationService, NOT a via() channel — as the
+ * mobile arm of the popup channel, in addition to the in-app DB notification. Push
+ * is gated on the user's own notify_push master.
+ *
+ * AT-178: the lead-time is now the EVENT's own reminder_offsets (per-event ?? class
+ * default ?? system default), and exactly-once delivery is tracked in
+ * calendar_reminders_log — not the retired user-global event_reminder_minutes_before
+ * + metadata['reminder_sent'] flag. This test asserts the push guarantees against the
+ * new engine.
  */
 class EventReminderPushTest extends TestCase
 {
@@ -39,27 +43,22 @@ class EventReminderPushTest extends TestCase
         $this->spy = new SpyPushTransport();
         $this->app->instance(PushTransport::class, $this->spy);
         $this->app->forgetInstance(PushNotificationService::class);
-
-        // The agent.event_due adapter row drives the push gate. Created
-        // explicitly so the test doesn't depend on the catalog data-migration
-        // being replayed on top of the schema snapshot.
-        NotificationEventType::updateOrCreate(
-            ['key' => 'agent.event_due'],
-            [
-                'pillar' => 'agent', 'group_label' => 'My activity',
-                'label' => 'Calendar event reminder', 'description' => 'Reminds you when a calendar event is approaching.',
-                'default_enabled' => true, 'threshold_unit' => 'minutes',
-                'default_threshold' => 1440, 'threshold_min' => 5, 'threshold_max' => 10080,
-                'supports_in_app' => true, 'supports_email' => true, 'supports_push' => true,
-                'is_adapter' => true, 'adapter_column' => 'event_reminder_minutes_before',
-                'sort_order' => 0,
-            ]
-        );
     }
 
-    private function makeUserWithEvent(array $settingOverrides = []): array
+    protected function tearDown(): void
     {
-        $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal']);
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    /**
+     * @param array $settingOverrides UserDashboardSetting overrides
+     * @param int[] $offsets          per-event reminder_offsets (minutes before)
+     * @param int   $startInMinutes   event start relative to now
+     */
+    private function makeUserWithEvent(array $settingOverrides = [], array $offsets = [120], int $startInMinutes = 60): array
+    {
+        $agency = Agency::create(['name' => 'Coastal Realty ' . uniqid(), 'slug' => 'coastal-' . uniqid()]);
         $branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $agency->id]);
         $user = User::factory()->create([
             'agency_id' => $agency->id, 'branch_id' => $branch->id,
@@ -68,7 +67,7 @@ class EventReminderPushTest extends TestCase
 
         UserDashboardSetting::create(array_merge(
             UserDashboardSetting::defaults(),
-            ['user_id' => $user->id, 'event_reminder_minutes_before' => 120],
+            ['user_id' => $user->id],
             $settingOverrides,
         ));
 
@@ -78,21 +77,24 @@ class EventReminderPushTest extends TestCase
         ]);
 
         $event = CalendarEvent::forceCreate([
-            'user_id'      => $user->id,
-            'agency_id'    => $agency->id,
-            'branch_id'    => $branch->id,
-            'event_type'   => 'viewing',
-            'title'        => 'Beachfront Villa Viewing',
-            'event_date'   => now()->addHour(), // inside the 2-hour window
-            'send_reminder' => true,
-            'status'       => 'pending',
+            'user_id'           => $user->id,
+            'agency_id'         => $agency->id,
+            'branch_id'         => $branch->id,
+            'event_type'        => 'viewing',
+            'title'             => 'Beachfront Villa Viewing',
+            'event_date'        => now()->addMinutes($startInMinutes),
+            'send_reminder'     => true,
+            'reminder_offsets'  => $offsets,
+            'reminder_channels' => ['popup'],
+            'status'            => 'pending',
         ]);
 
         return [$user, $event];
     }
 
-    public function test_event_reminder_sends_an_fcm_push_with_a_deep_link_and_marks_sent(): void
+    public function test_event_reminder_sends_an_fcm_push_with_a_deep_link_and_logs_the_send(): void
     {
+        // 120-min offset, event +60min → fireAt = start-120 = now-60 → due now.
         [$user, $event] = $this->makeUserWithEvent();
 
         $this->artisan('command-center:reminders')->assertSuccessful();
@@ -105,32 +107,33 @@ class EventReminderPushTest extends TestCase
         $this->assertSame((string) $event->id, $call['payload']['data']['event_id']);
         $this->assertSame('/calendar/events/' . $event->id, $call['payload']['data']['deep_link']);
 
-        // In-app notification still written, and the event marked so it never re-sends.
+        // In-app DB notification written, and the send recorded in the ledger so it
+        // never re-sends (idempotency now lives in calendar_reminders_log).
         $this->assertDatabaseHas('notifications', ['notifiable_id' => $user->id]);
-        $this->assertNotNull($event->fresh()->metadata['reminder_sent'] ?? null);
+        $this->assertDatabaseHas('calendar_reminders_log', [
+            'calendar_event_id' => $event->id, 'user_id' => $user->id,
+            'channel' => 'popup', 'offset_minutes' => 120, 'occurrence_key' => 'single',
+        ]);
     }
 
-    public function test_sub_hour_lead_time_fires_only_for_events_inside_the_minutes_window(): void
+    public function test_lead_time_fires_only_for_events_inside_the_offset_window(): void
     {
-        [$user, $near] = $this->makeUserWithEvent(['event_reminder_minutes_before' => 30]);
+        // near: 30-min offset, +20min → due. far: system-default 60-min offset (no
+        // per-event offsets, no category), +120min → fireAt now+60 → NOT due.
+        [$user, $near] = $this->makeUserWithEvent([], [30], 20);
 
-        // A second event well outside the 30-minute window must NOT remind yet.
         $far = CalendarEvent::forceCreate([
             'user_id' => $user->id, 'agency_id' => $near->agency_id, 'branch_id' => $near->branch_id,
             'event_type' => 'viewing', 'title' => 'Later Viewing',
-            'event_date' => now()->addHours(2), 'send_reminder' => true, 'status' => 'pending',
+            'event_date' => now()->addMinutes(120), 'send_reminder' => true, 'status' => 'pending',
         ]);
-
-        // The seeded near-event is +1h (outside 30min); move it to +20min so it
-        // lands inside the sub-hour window.
-        $near->update(['event_date' => now()->addMinutes(20)]);
 
         $this->artisan('command-center:reminders')->assertSuccessful();
 
         $this->assertCount(1, $this->spy->calls, 'only the in-window event pushes');
         $this->assertSame((string) $near->id, $this->spy->calls[0]['payload']['data']['event_id']);
-        $this->assertNotNull($near->fresh()->metadata['reminder_sent'] ?? null);
-        $this->assertNull($far->fresh()->metadata['reminder_sent'] ?? null, 'out-of-window event stays eligible');
+        $this->assertDatabaseHas('calendar_reminders_log', ['calendar_event_id' => $near->id]);
+        $this->assertDatabaseMissing('calendar_reminders_log', ['calendar_event_id' => $far->id]);
     }
 
     public function test_no_push_when_user_has_silenced_their_device_push_master(): void
@@ -140,8 +143,10 @@ class EventReminderPushTest extends TestCase
         $this->artisan('command-center:reminders')->assertSuccessful();
 
         $this->assertCount(0, $this->spy->calls, 'push master off → no device push');
-        // In-app reminder still delivered and event still marked sent.
+        // In-app reminder still delivered and the send still recorded.
         $this->assertDatabaseHas('notifications', ['notifiable_id' => $user->id]);
-        $this->assertNotNull($event->fresh()->metadata['reminder_sent'] ?? null);
+        $this->assertDatabaseHas('calendar_reminders_log', [
+            'calendar_event_id' => $event->id, 'channel' => 'popup',
+        ]);
     }
 }

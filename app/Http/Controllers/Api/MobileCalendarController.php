@@ -62,7 +62,11 @@ class MobileCalendarController extends Controller
             ->orderBy('event_date')
             ->get();
 
-        return response()->json([
+        // FROZEN CONTRACT (AT-164 §15.8): every key below is unchanged — the redesign
+        // NEVER mutates an existing mobile field. The AT-164 surfaces (Deck + layer
+        // filter sheet) are ADDED only when the client explicitly opts in via
+        // ?include=deck,layers, so existing callers see byte-identical responses.
+        $payload = [
             'user_id'      => $user->id,
             'agency_id'    => $user->agency_id,
             'range_start'  => $start->toIso8601String(),
@@ -85,7 +89,24 @@ class MobileCalendarController extends Controller
                 'created_by_ai' => (bool) $e->created_by_ai,
                 'ai_source'     => $e->ai_source,
             ]),
-        ]);
+        ];
+
+        // AT-164 Gate 8 — optional aggregated surfaces (additive, opt-in only).
+        $include = array_filter(array_map('trim', explode(',', (string) $request->get('include', ''))));
+        if (in_array('deck', $include, true)) {
+            // Same Deck the web renders (swipeable cards / bottom sheet on mobile) —
+            // honours the My Deals gate + layer toggles + degrade-not-500 per tile.
+            $payload['deck'] = app(\App\Services\CommandCenter\CalendarTileService::class)->buildDeck($user);
+        }
+        if (in_array('layers', $include, true)) {
+            // Layer filter sheet: the catalogue + the user's active set.
+            $payload['layers'] = [
+                'catalog' => \App\Services\CommandCenter\Calendar\CalendarLayers::LAYERS,
+                'active'  => \App\Services\CommandCenter\Calendar\CalendarLayers::resolveActive($user),
+            ];
+        }
+
+        return response()->json($payload);
     }
 
     /**

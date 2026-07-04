@@ -32,7 +32,14 @@
     @endif
 
     <div class="ds-status-card" style="border-left-color: var(--ds-cyan);">
-        <form method="POST" action="{{ route('commercial-evaluations.update', $evaluation) }}">
+        {{-- AT-165 offline draft persistence — no sensitive fields (property valuations only). --}}
+        <form method="POST" action="{{ route('commercial-evaluations.update', $evaluation) }}"
+              data-draft='@json([
+                  "form"     => "commercial_eval",
+                  "recordId" => $evaluation->id,
+                  "version"  => $evaluation->updated_at?->toIso8601String(),
+              ])'
+              data-draft-fields="property_type,property_name,address,suburb,town,province,erf_number,zoning,total_land_size_m2,total_land_size_ha,total_building_size_m2,year_built,condition,asking_price,municipal_evaluation,seller_name,notes,branch_id">
             @csrf
             @method('PATCH')
 

@@ -6,7 +6,7 @@ use App\Models\AgencyContactSettings;
 use App\Models\Contact;
 use App\Models\ContactEmail;
 use App\Models\ContactPhone;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 

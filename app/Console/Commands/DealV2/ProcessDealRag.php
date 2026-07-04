@@ -6,6 +6,7 @@ use App\Models\CommandCenter\CalendarEvent;
 use App\Models\DealV2\DealStepInstance;
 use App\Models\DealV2\DealV2;
 use App\Services\DealV2\DealPipelineService;
+use App\Services\DealV2\NotificationService;
 use Illuminate\Console\Command;
 
 /**
@@ -29,7 +30,7 @@ class ProcessDealRag extends Command
 
     protected $description = 'Recompute + persist RAG for active deal-pipeline steps, flip overdue, and repaint their calendar events.';
 
-    public function handle(DealPipelineService $svc): int
+    public function handle(DealPipelineService $svc, NotificationService $notifier): int
     {
         $steps = DealStepInstance::withoutGlobalScopes()
             ->whereIn('status', ['active', 'overdue'])
@@ -64,8 +65,16 @@ class ProcessDealRag extends Command
                 continue; // no change — idempotent
             }
 
+            $oldRag = $step->current_rag;
             $step->update(['current_rag' => $newRag, 'status' => $newStatus]);
             $this->repaintEvent($step, $newRag);
+
+            // WS6 — nudge the responsible agent on the RAG edge (amber/red/overdue).
+            // Fired here (only on an actual change) so it fires once per transition;
+            // NotificationService also guards per (step, target-RAG) for safety.
+            $step->setRelation('deal', $deal); // avoid a per-step deal reload
+            $notifier->notifyStepRagTransition($step, $oldRag, $newRag);
+
             $changed++;
         }
 

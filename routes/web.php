@@ -619,6 +619,8 @@ Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_
     Route::get('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'index'])->name('deals-v2.pipeline.index');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'create'])->name('deals-v2.pipeline.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'store'])->name('deals-v2.pipeline.store');
+    // AT-158 WS-R1 — one-click "Load standard templates" (idempotent, own agency)
+    Route::post('/load-defaults', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'loadDefaults'])->name('deals-v2.pipeline.load-defaults');
     Route::get('/{template}/edit', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'edit'])->name('deals-v2.pipeline.edit');
     Route::put('/{template}', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'update'])->name('deals-v2.pipeline.update');
     Route::delete('/{template}', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'destroy'])->name('deals-v2.pipeline.destroy');
@@ -654,8 +656,20 @@ Route::prefix('deals-v2/secure-doc')->group(function () {
     Route::get('/{token}/download', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'download'])->name('deals-v2.secure-doc.download');
 });
 
+// WS8 (§12) — PUBLIC per-user iCal deal feed (no auth: calendar apps poll the raw
+// tokenised URL). Read-only; the token resolves the user + their permitted scope.
+Route::get('/deals-v2/ical/{token}.ics', [\App\Http\Controllers\DealV2\DealIcalController::class, 'feed'])->name('deals-v2.ical');
+
 Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:access_deal_register_v2');
+    // WS8 — manage the personal iCal feed token (rotate / disable).
+    Route::post('/ical/regenerate', [\App\Http\Controllers\DealV2\DealIcalController::class, 'regenerate'])->name('deals-v2.ical.regenerate')->middleware('permission:access_deal_register_v2');
+    Route::post('/ical/disable', [\App\Http\Controllers\DealV2\DealIcalController::class, 'disable'])->name('deals-v2.ical.disable')->middleware('permission:access_deal_register_v2');
+    // WS8 (§12) — pipeline overview (KPI cards + milestone board), branch_manager
+    // + admin only; and CSV export of the filtered register. Static paths BEFORE
+    // the /{deal} wildcard so they are not captured as a deal id.
+    Route::get('/overview', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'overview'])->name('deals-v2.overview')->middleware('permission:deals_v2.view_overview');
+    Route::get('/export', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'exportCsv'])->name('deals-v2.export')->middleware('permission:access_deal_register_v2');
     // WS2 — attach a directory provider to a deal under a provider role.
     Route::post('/{deal}/providers', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'attach'])->name('deals-v2.providers.attach')->middleware('permission:deals_v2.edit');
     // WS3 (D4) — upload a document directly onto a deal + gated download.
@@ -666,6 +680,8 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::post('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'send'])->name('deals-v2.distribute.send')->middleware('permission:deals_v2.distribute_documents');
     Route::post('/distributions/{distribution}/revoke', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'revoke'])->name('deals-v2.distributions.revoke')->middleware('permission:deals_v2.distribute_documents');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create');
+    // AT-158 WS-R2 — optional step wizard (same shared store() write-path)
+    Route::get('/create-wizard', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'createWizard'])->name('deals-v2.create-wizard')->middleware('permission:deals_v2.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create');
     Route::get('/search/properties', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchProperties'])->name('deals-v2.search.properties');
     Route::get('/search/contacts', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchContacts'])->name('deals-v2.search.contacts');
@@ -1294,6 +1310,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             $invitation->update(['acknowledged_at' => now()]);
             return response()->json(['ok' => true, 'invitation_id' => $invitation->id, 'acknowledged_at' => $invitation->fresh()->acknowledged_at->toIso8601String()]);
         })->name('command-center.calendar.invitations.acknowledge');
+
+        // AT-164 Gate 5 — continuous-scroll month window (HTML block) + JSON range endpoint
+        Route::get('/calendar/month-block', [CommandCenterCalendarController::class, 'monthBlock'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.month-block');
+        Route::get('/calendar/week-rows', [CommandCenterCalendarController::class, 'weekRows'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.week-rows'); // AT-164 single week-stream
+        Route::get('/calendar/grid-range', [CommandCenterCalendarController::class, 'gridRange'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.grid-range');
+        Route::get('/calendar/day-columns', [CommandCenterCalendarController::class, 'dayColumns'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.day-columns');
+
+        // AT-164 Gate 4 — Tile Deck (JSON) — MUST be before /calendar/{calendarEvent} wildcard
+        Route::get('/calendar/deck', [CommandCenterCalendarController::class, 'deck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck');
+        Route::post('/calendar/deck', [CommandCenterCalendarController::class, 'saveDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.save');
+        Route::post('/calendar/deck/reset', [CommandCenterCalendarController::class, 'resetDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.reset');
+
+        // AT-164 Gate 6 — persist the user's active layer toggles
+        Route::post('/calendar/layers', [CommandCenterCalendarController::class, 'saveLayers'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.layers.save');
+
+        // AT-164 cockpit v2 — persist / reset the per-user cockpit arrangement
+        Route::post('/calendar/cockpit', [CommandCenterCalendarController::class, 'saveCockpit'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.cockpit.save');
+        Route::post('/calendar/cockpit/reset', [CommandCenterCalendarController::class, 'resetCockpit'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.cockpit.reset');
 
         // Conflict check — MUST be before /calendar/{calendarEvent} wildcard
         Route::get('/calendar/check-conflicts', function (\Illuminate\Http\Request $request) {

@@ -31,12 +31,23 @@ class CalendarController extends Controller
         private CalendarThresholdResolver $thresholdResolver,
         private CalendarVisibilityResolver $visibilityResolver,
         private CalendarEventCreator $creator,
+        private \App\Services\CommandCenter\CalendarTileService $tiles,
     ) {}
 
     public function index(Request $request)
     {
         $user = $request->user();
-        $view = $request->get('view', 'month');
+
+        // AT-164 cockpit — layout memory: no ?view= → last used view (per-user);
+        // an explicit ?view= is remembered for next time.
+        $pref = \App\Models\CommandCenter\CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
+        $view = $request->get('view');
+        if (! $view) {
+            $view = in_array($pref->default_view, ['month', 'week', 'day', 'agenda'], true) ? $pref->default_view : 'month';
+        } elseif (in_array($view, ['month', 'week', 'day', 'agenda'], true) && $pref->default_view !== $view) {
+            $pref->default_view = $view;
+            $pref->save();
+        }
 
         // Filter params (shared across all views)
         $typeFilter     = $request->input('types', []);
@@ -51,6 +62,22 @@ class CalendarController extends Controller
         $shared = $this->sharedViewData($user, $view, $typeFilter, $categoryFilter, $scope);
         $shared['scopeCeiling'] = $ceiling;
         $shared['autoOpenFeedbackEventId'] = $request->input('capture_feedback');
+
+        // AT-164 Gate 4 — the Tile Deck (below the grid, all views).
+        $shared['deck']        = $this->tiles->buildDeck($user);
+        $shared['deckCatalog'] = $this->tiles->catalog($user);
+        $shared['deckLayout']  = $this->tiles->resolveLayout($user);
+        $shared['deckSlots']   = $this->tiles->slotCount($user);
+        // AT-164 Gate 7 — live-RAG light-poll interval (agency-configurable).
+        $shared['pollSeconds'] = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarPollSeconds();
+        // AT-164 Gate 6 — layer toggles: the layer catalogue + the user's active set.
+        $shared['layerCatalog'] = \App\Services\CommandCenter\Calendar\CalendarLayers::LAYERS;
+        $shared['activeLayers'] = \App\Services\CommandCenter\Calendar\CalendarLayers::resolveActive($user, $request->input('layers'));
+
+        // AT-164 cockpit v2 — the user's saved arrangement (split height / tile ratios /
+        // collapsed states), with code defaults; and the resident agenda for the panel.
+        $shared['cockpit'] = $this->resolveCockpit($pref);
+        $shared['agenda']  = $this->tiles->panelAgenda($user);
 
         // ── Week view ──
         if ($view === 'week') {
@@ -76,6 +103,12 @@ class CalendarController extends Controller
 
         $raw = $this->service->getEventsForRange($user, $weekStart->toDateString(), $weekEnd->toDateString(), [], $scope);
         $filtered = $this->applyFilters($raw, $user, $typeFilter, $categoryFilter, $scope);
+
+        // AT-164 cockpit — continuous WEEK: a windowed horizontal strip of day columns
+        // (prev week + current + next two weeks = 28 days), centred on the anchor week;
+        // the client lazy-loads more days as it scrolls left/right.
+        $weekWindowStart = $weekStart->copy()->subDays(7);
+        $dayColumns = $this->dayColumnsData($user, $weekWindowStart, 28, $typeFilter, $categoryFilter, $scope);
 
         // Separate multi-day events (spanning bars) from single-day events
         $weekSpanningBars = [];
@@ -171,6 +204,9 @@ class CalendarController extends Controller
             'weekDays'        => $weekDays,
             'weekSpanningBars' => $weekSpanningBars,
             'weekBarSlots'    => $weekBarSlots,
+            'dayColumns'      => $dayColumns,                     // AT-164 cockpit — continuous week strip
+            'weekWindowStart' => $weekWindowStart->toDateString(),
+            'anchorMonday'    => $weekStart->toDateString(),
             'anchorDate'      => $anchor,
             'prevAnchor'      => $weekStart->copy()->subWeek()->toDateString(),
             'nextAnchor'      => $weekStart->copy()->addWeek()->toDateString(),
@@ -238,29 +274,28 @@ class CalendarController extends Controller
         }
         $range = $request->get('range', 'month');
 
-        $grid = $this->service->getMonthGrid($user, $year, $month, [], $scope);
+        // AT-164 Gate 5 — the per-month block (grid + species split + spanning bars) is
+        // now built by one reusable method so the continuous-scroll endpoint renders
+        // through the identical pipeline.
+        $block = $this->monthBlockData($user, $year, $month, $typeFilter, $categoryFilter, $scope);
+        $grid                 = $block['grid'];
+        $appointmentByDate    = $block['byDate'];
+        $deadlineGroupsByDate = $block['deadlineGroups'];
+        $filteredSpanningBars = $block['spanningBars'];
+        $filteredEvents       = $block['filteredEvents'];
 
-        $filteredByDate = [];
-        foreach ($grid['byDate'] as $dateKey => $dayEvents) {
-            $resolved = $this->applyFilters(collect($dayEvents), $user, $typeFilter, $categoryFilter, $scope);
-            if ($resolved->isNotEmpty()) {
-                $filteredByDate[$dateKey] = $resolved->all();
-            }
-        }
-        $filteredEvents = collect($filteredByDate)->flatten(1);
-
-        // Filter spanning bars (multi-day events) through same filter logic
-        $filteredSpanningBars = [];
-        foreach ($grid['spanningBars'] ?? [] as $bar) {
-            $filtered = $this->applyFilters(collect([$bar['event']]), $user, $typeFilter, $categoryFilter, $scope);
-            if ($filtered->isNotEmpty()) {
-                $bar['event'] = $filtered->first();
-                // ITEM 4 — getMonthGrid stamped a separate 'title' before redaction;
-                // re-sync it so a redacted private bar never leaks its real title.
-                $bar['title'] = $bar['event']->title;
-                $filteredSpanningBars[] = $bar;
-            }
-        }
+        // AT-164 (single week-stream) — PRELOAD a window of WEEK ROWS centred on the
+        // anchor month so the grid frame overflows on first paint (wheel scrolling
+        // engages immediately) and lazy-load continues by week from there. The month
+        // view is one continuous stream: no month blocks, no duplicated boundary weeks.
+        // The client scrolls to the anchor week ($anchorWeek) on init.
+        $anchorMonday   = Carbon::create($year, $month, 1)->startOfWeek(Carbon::MONDAY);
+        // Preload enough weeks ABOVE the anchor that it lands comfortably below the
+        // lazy-load top threshold (so init never trips loadPrev and drifts), plus enough
+        // BELOW to overflow the frame and engage scrolling immediately.
+        $preloadStart   = $anchorMonday->copy()->subWeeks(6);
+        $weekRows       = $this->weekRowsData($user, $preloadStart, 20, $typeFilter, $categoryFilter, $scope);
+        $anchorWeek     = $anchorMonday->toDateString();
 
         // Agenda range logic
         $rangeGroups = [
@@ -329,8 +364,12 @@ class CalendarController extends Controller
             'anchorDate'       => Carbon::create($year, $month, 1)->startOfDay(),
             'grid'             => $grid,
             'events'           => $filteredEvents,
-            'byDate'           => $filteredByDate,
+            'byDate'           => $appointmentByDate,   // AT-164 Gate 1 — appointments only in cells
+            'deadlineGroups'   => $deadlineGroupsByDate, // AT-164 Gate 1 — aggregate deadline chips
             'spanningBars'     => $filteredSpanningBars,
+            'weekRows'         => $weekRows,            // AT-164 single week-stream — preloaded weeks
+            'anchorWeek'       => $anchorWeek,          // AT-164 — Monday of the anchor month's first week
+            'anchorMonth'      => sprintf('%04d-%02d', $year, $month),
             'colourMap'        => $colourMap,
             'colourPalettes'   => $colourPalettes,
             'classLabels'      => $classLabels,
@@ -401,7 +440,10 @@ class CalendarController extends Controller
                 ->where('is_active', true)
                 ->whereIn('event_class', self::MANUAL_CREATABLE_CLASSES)
                 ->orderBy('label')
-                ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour', 'event_nature', 'autofill_buyers']),
+                ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour', 'event_nature', 'autofill_buyers', 'default_reminder_offsets', 'default_reminder_channels']),
+            // AT-178 — agency lead-time option list for the reminder selector.
+            'reminderLeadOptions' => \App\Models\AgencyContactSettings::forAgency((int) ($user->agency_id ?: 0))
+                ->calendarReminderLeadOptions(),
         ];
     }
 
@@ -438,7 +480,122 @@ class CalendarController extends Controller
             'type' => $e->event_type, 'category' => $e->category,
             'priority' => $e->priority, 'status' => $e->status,
             'propertyId' => $e->property_id, 'contactId' => $e->contact_id,
+            'layer' => $e->layer_key ?? 'appointments', // AT-164 Gate 6 — day-preview layer lens
         ])->values());
+    }
+
+    // ── AT-164 Gate 4/7 — Tile Deck (JSON) ──
+
+    /**
+     * The resolved Deck for this user — cards (built through the same builders as the
+     * server render), the pickable catalogue, the current ordered layout, and the
+     * slot count. Also fired by the live-RAG loop (Gate 7) to refresh tile RAG in place.
+     */
+    public function deck(Request $request)
+    {
+        $user = $request->user();
+        return response()->json([
+            'cards'   => $this->tiles->buildDeck($user),
+            'catalog' => $this->tiles->catalog($user),
+            'layout'  => $this->tiles->resolveLayout($user),
+            'slots'   => $this->tiles->slotCount($user),
+        ]);
+    }
+
+    /** Persist this user's Deck layout (ordered tile-ids). Server clamps to slots + catalogue. */
+    public function saveDeck(Request $request)
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'tiles'   => ['present', 'array'],
+            'tiles.*' => ['string', 'max:64'],
+        ]);
+        $layout = $this->tiles->saveLayout($user, $data['tiles']);
+
+        return response()->json([
+            'ok'     => true,
+            'layout' => $layout,
+            'cards'  => $this->tiles->buildDeck($user),
+        ]);
+    }
+
+    /** Reset this user's Deck to the role/agency/code default. */
+    public function resetDeck(Request $request)
+    {
+        $user = $request->user();
+        $layout = $this->tiles->resetLayout($user);
+
+        return response()->json([
+            'ok'     => true,
+            'layout' => $layout,
+            'cards'  => $this->tiles->buildDeck($user),
+        ]);
+    }
+
+    /** AT-164 cockpit v2 — resolve the saved arrangement (code defaults, clamped). */
+    private function resolveCockpit($pref): array
+    {
+        $c = is_array($pref->calendar_cockpit ?? null) ? $pref->calendar_cockpit : [];
+        return [
+            'strip_height'    => isset($c['strip_height']) ? max(60, min(600, (int) $c['strip_height'])) : 176,
+            'strip_collapsed' => (bool) ($c['strip_collapsed'] ?? false),
+            'panel_collapsed' => (bool) ($c['panel_collapsed'] ?? false),
+            'tile_ratios'     => (isset($c['tile_ratios']) && is_array($c['tile_ratios']))
+                                    ? array_values(array_map(fn ($v) => max(0.2, min(20, (float) $v)), $c['tile_ratios']))
+                                    : [],
+        ];
+    }
+
+    /** AT-164 cockpit v2 — persist the arrangement (debounced auto-save from the client). */
+    public function saveCockpit(Request $request)
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'strip_height'    => ['nullable', 'integer', 'min:40', 'max:800'],
+            'strip_collapsed' => ['nullable', 'boolean'],
+            'panel_collapsed' => ['nullable', 'boolean'],
+            'tile_ratios'     => ['nullable', 'array', 'max:12'],
+            'tile_ratios.*'   => ['numeric', 'min:0.1', 'max:20'],
+        ]);
+
+        $pref = \App\Models\CommandCenter\CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
+        $cur  = is_array($pref->calendar_cockpit) ? $pref->calendar_cockpit : [];
+        foreach (['strip_height', 'strip_collapsed', 'panel_collapsed', 'tile_ratios'] as $k) {
+            if (array_key_exists($k, $data) && $data[$k] !== null) {
+                $cur[$k] = $data[$k];
+            }
+        }
+        $pref->calendar_cockpit = $cur;
+        $pref->save();
+
+        return response()->json(['ok' => true, 'cockpit' => $this->resolveCockpit($pref)]);
+    }
+
+    /** AT-164 cockpit v2 — reset the WHOLE arrangement to the role/agency default. */
+    public function resetCockpit(Request $request)
+    {
+        $user = $request->user();
+        $pref = \App\Models\CommandCenter\CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
+        $pref->calendar_cockpit    = null;    // arrangement → defaults
+        $pref->calendar_deck_layout = null;   // deck → role default
+        $pref->calendar_layers     = null;    // layers → agency default
+        $pref->default_view        = 'month'; // view → default (column is NOT NULL)
+        $pref->save();
+
+        return response()->json(['ok' => true, 'reload' => true]);
+    }
+
+    /** AT-164 Gate 6 — persist this user's active layer set (cross-device). */
+    public function saveLayers(Request $request)
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'layers'   => ['present', 'array'],
+            'layers.*' => ['string', 'max:32'],
+        ]);
+        $active = \App\Services\CommandCenter\Calendar\CalendarLayers::save($user, $data['layers']);
+
+        return response()->json(['ok' => true, 'layers' => $active]);
     }
 
     public function show(Request $request, CalendarEvent $calendarEvent)
@@ -571,6 +728,11 @@ class CalendarController extends Controller
             // Recurrence markers — the panel offers the this/future/all edit-scope
             // prompt when is_recurring (occurrence carries the specific date).
             'is_recurring' => (bool) $calendarEvent->is_recurring,
+            // AT-178 — EFFECTIVE reminder config (per-event ?? class ?? system) so the
+            // edit form shows the reminder that will actually fire and round-trips it.
+            'send_reminder' => (bool) $calendarEvent->send_reminder,
+            'reminder_offsets' => $calendarEvent->effectiveReminderOffsets(),
+            'reminder_channels' => $calendarEvent->effectiveReminderChannels(),
             'is_occurrence' => $isOccurrence,
             'occurrence_date' => $isOccurrence ? $occurrenceDate : null,
             'recurrence_label' => $recurrenceLabel,
@@ -1096,11 +1258,19 @@ class CalendarController extends Controller
             'recur_end_type'    => 'nullable|in:never,until,count',
             'recur_until'       => 'nullable|date',
             'recur_count'       => 'nullable|integer|min:1|max:1000',
+            // AT-178 — reminder config. offset must be one of the agency options.
+            'send_reminder'     => 'nullable|boolean',
+            'reminder_offset'   => 'nullable|integer|min:0|max:43200',
+            'reminder_popup'    => 'nullable|boolean',
+            'reminder_email'    => 'nullable|boolean',
         ]);
 
         // Build the RRULE from the recurrence inputs (if any) → is_recurring +
         // recurrence_rule on the parent. The creator writes them onto the event.
         $data = $this->applyRecurrenceInputs($data);
+
+        // Assemble per-event reminder offsets + channels from the form (§8).
+        $data = array_merge($data, $this->reminderFieldsFromRequest($request, $user));
 
         // Create + link + invite through the shared CalendarEventCreator so the
         // web cockpit and the v1 mobile API build events identically.
@@ -1113,6 +1283,45 @@ class CalendarController extends Controller
         return redirect()
             ->route('command-center.calendar', ['view' => 'day', 'date' => Carbon::parse($event->event_date)->toDateString()])
             ->with('success', 'Event created.');
+    }
+
+    /**
+     * AT-178 — assemble per-event reminder config from the request into the shape the
+     * creator/updater persist: send_reminder (bool), reminder_offsets (int[]),
+     * reminder_channels (string[]).
+     *
+     * Rules: the single form lead-time becomes a 1-element offsets array, snapped to
+     * the agency option list (a tampered value falls back to the system default rather
+     * than 500ing). Channels are the chosen popup/email set. Both channels off ⇒
+     * send_reminder=false (prevent the "enabled but goes nowhere" state — §8).
+     * When the request carries NO reminder fields at all (legacy/API), return [] so
+     * the event falls through to the effective defaults.
+     */
+    private function reminderFieldsFromRequest(Request $request, $user): array
+    {
+        if (!$request->has('send_reminder') && !$request->has('reminder_offset')
+            && !$request->has('reminder_popup') && !$request->has('reminder_email')) {
+            return [];
+        }
+
+        $channels = [];
+        if ($request->boolean('reminder_popup')) $channels[] = 'popup';
+        if ($request->boolean('reminder_email')) $channels[] = 'email';
+
+        $sendReminder = $request->boolean('send_reminder') && !empty($channels);
+
+        $options = \App\Models\AgencyContactSettings::forAgency((int) ($user->agency_id ?: 0))
+            ->calendarReminderLeadOptions();
+        $offset = (int) $request->input('reminder_offset', 60);
+        if (!in_array($offset, $options, true)) {
+            $offset = in_array(60, $options, true) ? 60 : ($options[0] ?? 60);
+        }
+
+        return [
+            'send_reminder'     => $sendReminder,
+            'reminder_offsets'  => [$offset],
+            'reminder_channels' => $channels ?: null,
+        ];
     }
 
     /** Build recurrence_rule + is_recurring from the form's recur_* inputs. */
@@ -1220,7 +1429,16 @@ class CalendarController extends Controller
             'recur_count'       => 'nullable|integer|min:1|max:1000',
             'recur_scope'       => 'nullable|in:this,future,all',
             'occurrence_date'   => 'nullable|date',
+            // AT-178 — reminder config (same shape as store()).
+            'send_reminder'     => 'nullable|boolean',
+            'reminder_offset'   => 'nullable|integer|min:0|max:43200',
+            'reminder_popup'    => 'nullable|boolean',
+            'reminder_email'    => 'nullable|boolean',
         ]);
+
+        // Assemble per-event reminder offsets + channels from the form (§8).
+        $reminderData = $this->reminderFieldsFromRequest($request, $user);
+        $data = array_merge($data, $reminderData);
 
         // Recurring series edit with an explicit scope. "this"/"future" fork into
         // the RecurrenceEditService (exception child / series split); "all" and
@@ -1248,7 +1466,10 @@ class CalendarController extends Controller
                 'title', 'category', 'event_date', 'end_date', 'description',
                 'status', 'priority', 'property_id',
                 'is_recurring', 'recurrence_rule',
-            ])->filter(fn ($v, $k) => $v !== null || in_array($k, ['end_date', 'description', 'property_id', 'recurrence_rule']))->all());
+                // AT-178 — reminder config (send_reminder may legitimately be false;
+                // reminder_channels may be null to clear both channels).
+                'send_reminder', 'reminder_offsets', 'reminder_channels',
+            ])->filter(fn ($v, $k) => $v !== null || in_array($k, ['end_date', 'description', 'property_id', 'recurrence_rule', 'reminder_channels']))->all());
 
             // Per-event "requires feedback" choice → metadata['event_nature'].
             // Merge (don't clobber other metadata keys); absent input leaves it as-is.
@@ -1429,6 +1650,384 @@ class CalendarController extends Controller
      */
     private const HIDDEN_BY_DEFAULT_CATEGORIES = ['agent_birthday', 'contact_birthday', 'employment_anniversary'];
 
+    /**
+     * AT-164 Gate 1 — species split + server-side deadline aggregation.
+     *
+     * Every calendar row is either an APPOINTMENT (a real timed thing —
+     * occupies_time=true — that keeps its bar/chip and can conflict) or a SYSTEM
+     * DEADLINE (a point-in-time all-day marker — occupies_time=false — the
+     * portal-expiry / compliance / rent noise). Deadlines no longer render one bar
+     * each; they collapse to ONE compact chip per (day × group), coloured by the
+     * WORST RAG in the group. `occupies_time` (per class, the conflict-detection
+     * source of truth) is the classifier — no feed change, no hardcoded class list.
+     *
+     * @param  array<string,array>  $filteredByDate  date => resolved-event[]
+     * @return array{0:array<string,array>,1:array<string,array>} [appointmentByDate, deadlineGroupsByDate]
+     */
+    /**
+     * AT-164 Gate 5 — build ONE month's block data: the 6-week grid, the appointment
+     * species split by date, the aggregate deadline groups, and the filtered spanning
+     * bars. Shared by the full-page render and the /calendar/month-block endpoint so
+     * the continuous-scroll windows render through the identical pipeline.
+     *
+     * @return array{grid:array,byDate:array,deadlineGroups:array,spanningBars:array,filteredEvents:\Illuminate\Support\Collection}
+     */
+    private function monthBlockData($user, int $year, int $month, array $typeFilter, array $categoryFilter, string $scope): array
+    {
+        $grid = $this->service->getMonthGrid($user, $year, $month, [], $scope);
+
+        $filteredByDate = [];
+        foreach ($grid['byDate'] as $dateKey => $dayEvents) {
+            $resolved = $this->applyFilters(collect($dayEvents), $user, $typeFilter, $categoryFilter, $scope);
+            if ($resolved->isNotEmpty()) {
+                $filteredByDate[$dateKey] = $resolved->all();
+            }
+        }
+        $filteredEvents = collect($filteredByDate)->flatten(1);
+
+        // Gate 1 — appointments keep their chips/bars; deadlines collapse to one chip per group.
+        [$appointmentByDate, $deadlineGroupsByDate] = $this->splitSpeciesForGrid($filteredByDate, $user);
+
+        // Filter spanning bars (multi-day events) through the same filter logic.
+        $filteredSpanningBars = [];
+        foreach ($grid['spanningBars'] ?? [] as $bar) {
+            $filtered = $this->applyFilters(collect([$bar['event']]), $user, $typeFilter, $categoryFilter, $scope);
+            if ($filtered->isNotEmpty()) {
+                $bar['event'] = $filtered->first();
+                // ITEM 4 — re-sync title so a redacted private bar never leaks its real title.
+                $bar['title'] = $bar['event']->title;
+                // AT-164 Gate 6 — tag the bar with its layer so the client can show/hide it.
+                $bar['layer'] = \App\Services\CommandCenter\Calendar\CalendarLayers::layerFor(
+                    $bar['event'], $this->isAppointmentEvent($bar['event'], $user)
+                );
+                $filteredSpanningBars[] = $bar;
+            }
+        }
+
+        return [
+            'grid'           => $grid,
+            'byDate'         => $appointmentByDate,
+            'deadlineGroups' => $deadlineGroupsByDate,
+            'spanningBars'   => $filteredSpanningBars,
+            'filteredEvents' => $filteredEvents,
+        ];
+    }
+
+    /**
+     * AT-164 Gate 5 — render ONE month block (HTML) for the continuous-scroll month
+     * view. The Alpine windowing controller lazy-appends/prepends these as the user
+     * scrolls, so every window uses the SAME _month-block partial as the initial render.
+     */
+    public function monthBlock(Request $request)
+    {
+        $user  = $request->user();
+        $year  = (int) $request->get('year', now()->year);
+        $month = (int) $request->get('month', now()->month);
+        // Clamp to a sane span so a crafted query can't expand thousands of months.
+        if ($month < 1 || $month > 12 || $year < 2000 || $year > 2100) {
+            abort(422, 'Invalid month.');
+        }
+
+        $typeFilter     = $request->input('types', []);
+        $categoryFilter = $request->input('categories', []);
+        $scope = PermissionService::clampScope($request->input('scope'), PermissionService::calendarScope($user));
+
+        $block = $this->monthBlockData($user, $year, $month, $typeFilter, $categoryFilter, $scope);
+
+        return view('command-center.calendar.partials._month-block', [
+            'year'           => $year,
+            'month'          => $month,
+            'grid'           => $block['grid'],
+            'byDate'         => $block['byDate'],
+            'deadlineGroups' => $block['deadlineGroups'],
+            'spanningBars'   => $block['spanningBars'],
+        ]);
+    }
+
+    /**
+     * AT-164 (single week-stream) — build a run of WEEK ROWS for the continuous MONTH
+     * view. The month view is now ONE seamless week stream: every calendar week exists
+     * exactly once, months flow into each other, and month boundaries are MARKED (first
+     * cell of a month shows "Jul 1" + a seam divider) rather than repeated with a
+     * splitter header. Windows are addressed by week (a Monday date), so anchors and the
+     * Today-snap resolve to weeks. Each descriptor carries that week's appointment chips,
+     * aggregate deadline groups and slot-packed spanning bars — the SAME species split
+     * and bar geometry the month grid used, so the cells are visually identical.
+     *
+     * @return array<int,array{weekStart:Carbon,byDate:array,deadlineGroups:array,spanningBars:array}>
+     */
+    private function weekRowsData($user, Carbon $startMonday, int $weekCount, array $typeFilter, array $categoryFilter, string $scope): array
+    {
+        $startMonday = $startMonday->copy()->startOfWeek(Carbon::MONDAY);
+        $weekCount   = max(1, min(60, $weekCount));
+        $rangeEnd    = $startMonday->copy()->addDays($weekCount * 7 - 1)->endOfDay();
+
+        $grid = $this->service->getRangeGrid($user, $startMonday, $rangeEnd, [], $scope);
+
+        // Same filter + species split the month grid used.
+        $filteredByDate = [];
+        foreach ($grid['byDate'] as $dateKey => $dayEvents) {
+            $resolved = $this->applyFilters(collect($dayEvents), $user, $typeFilter, $categoryFilter, $scope);
+            if ($resolved->isNotEmpty()) {
+                $filteredByDate[$dateKey] = $resolved->all();
+            }
+        }
+        [$appointmentByDate, $deadlineGroupsByDate] = $this->splitSpeciesForGrid($filteredByDate, $user);
+
+        // Filter spanning bars + tag their layer, then group by the week they fall in.
+        $barsByWeek = [];
+        foreach ($grid['spanningBars'] ?? [] as $bar) {
+            $filtered = $this->applyFilters(collect([$bar['event']]), $user, $typeFilter, $categoryFilter, $scope);
+            if ($filtered->isEmpty()) continue;
+            $bar['event'] = $filtered->first();
+            $bar['title'] = $bar['event']->title; // re-sync (private redaction)
+            $bar['layer'] = \App\Services\CommandCenter\Calendar\CalendarLayers::layerFor(
+                $bar['event'], $this->isAppointmentEvent($bar['event'], $user)
+            );
+            $wkKey = Carbon::parse($bar['start_date'])->startOfWeek(Carbon::MONDAY)->toDateString();
+            $barsByWeek[$wkKey][] = $bar;
+        }
+
+        $weeks = [];
+        for ($i = 0; $i < $weekCount; $i++) {
+            $wkStart = $startMonday->copy()->addDays($i * 7);
+            $wkKey   = $wkStart->toDateString();
+
+            $byDate = [];
+            $deadlines = [];
+            for ($d = 0; $d < 7; $d++) {
+                $ds = $wkStart->copy()->addDays($d)->toDateString();
+                if (!empty($appointmentByDate[$ds]))    $byDate[$ds]    = $appointmentByDate[$ds];
+                if (!empty($deadlineGroupsByDate[$ds]))  $deadlines[$ds] = $deadlineGroupsByDate[$ds];
+            }
+
+            $weeks[] = [
+                'weekStart'      => $wkStart,
+                'byDate'         => $byDate,
+                'deadlineGroups' => $deadlines,
+                'spanningBars'   => $barsByWeek[$wkKey] ?? [],
+            ];
+        }
+
+        return $weeks;
+    }
+
+    /**
+     * AT-164 (single week-stream) — render a run of week rows (HTML) for the continuous
+     * MONTH view. The Alpine windowing controller lazy-prepends/appends these as the user
+     * scrolls — the SAME _week-row partial as the initial render, so there is no second
+     * cell renderer to drift.
+     */
+    public function weekRows(Request $request)
+    {
+        $user = $request->user();
+        try { $start = Carbon::parse($request->get('start', now()->toDateString()))->startOfWeek(Carbon::MONDAY); }
+        catch (\Throwable $e) { abort(422, 'Invalid start.'); }
+        $count = max(1, min(20, (int) $request->get('count', 6)));
+
+        $typeFilter     = $request->input('types', []);
+        $categoryFilter = $request->input('categories', []);
+        $scope = PermissionService::clampScope($request->input('scope'), PermissionService::calendarScope($user));
+
+        $weeks = $this->weekRowsData($user, $start, $count, $typeFilter, $categoryFilter, $scope);
+
+        return view('command-center.calendar.partials._week-rows', ['weeks' => $weeks, 'month' => (int) now()->month]);
+    }
+
+    /**
+     * AT-164 cockpit — build a window of day columns for the continuous WEEK view.
+     * One query over the range, grouped by the event's start day.
+     *
+     * @return array<int,array{date:\Carbon\Carbon,events:\Illuminate\Support\Collection}>
+     */
+    private function dayColumnsData($user, Carbon $start, int $count, array $typeFilter, array $categoryFilter, string $scope): array
+    {
+        $start = $start->copy()->startOfDay();
+        $end   = $start->copy()->addDays($count)->endOfDay();
+
+        $resolved = $this->applyFilters(
+            $this->service->getEventsForRange($user, $start->toDateString(), $end->toDateTimeString(), [], $scope),
+            $user, $typeFilter, $categoryFilter, $scope
+        );
+
+        $byDay = [];
+        foreach ($resolved as $e) {
+            if (! $e->event_date) continue;
+            $byDay[$e->event_date->toDateString()][] = $e;
+        }
+
+        $cols = [];
+        for ($i = 0; $i < $count; $i++) {
+            $d = $start->copy()->addDays($i);
+            $cols[] = ['date' => $d, 'events' => collect($byDay[$d->toDateString()] ?? [])];
+        }
+        return $cols;
+    }
+
+    /**
+     * AT-164 cockpit — render a run of day columns (HTML) for the continuous WEEK strip.
+     * The Alpine windowing controller lazy-prepends/appends these as the user scrolls
+     * horizontally — the SAME _day-column partial as the initial render.
+     */
+    public function dayColumns(Request $request)
+    {
+        $user  = $request->user();
+        try { $start = Carbon::parse($request->get('start', now()->toDateString()))->startOfDay(); }
+        catch (\Throwable $e) { abort(422, 'Invalid start.'); }
+        $count = max(1, min(28, (int) $request->get('count', 7)));
+
+        $typeFilter     = $request->input('types', []);
+        $categoryFilter = $request->input('categories', []);
+        $scope = PermissionService::clampScope($request->input('scope'), PermissionService::calendarScope($user));
+
+        $cols = $this->dayColumnsData($user, $start, $count, $typeFilter, $categoryFilter, $scope);
+
+        return view('command-center.calendar.partials._day-columns', ['columns' => $cols]);
+    }
+
+    /**
+     * AT-164 Gate 5/7 — JSON range endpoint returning the aggregated grid shape
+     * ({byDate, deadlineGroups, spanningBars}) for an arbitrary date range. Feeds the
+     * live-RAG refresh loop (Gate 7) and any programmatic windowing.
+     */
+    public function gridRange(Request $request)
+    {
+        $user  = $request->user();
+        $start = $request->get('start');
+        $end   = $request->get('end');
+        try {
+            $rangeStart = $start ? Carbon::parse($start)->startOfDay() : now()->startOfMonth();
+            $rangeEnd   = $end ? Carbon::parse($end)->endOfDay() : now()->endOfMonth();
+        } catch (\Throwable $e) {
+            abort(422, 'Invalid range.');
+        }
+        // Cap the window (agency expansion limit) so the endpoint can't be asked for years.
+        $maxDays = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarMaxExpansionDays();
+        if ($rangeStart->diffInDays($rangeEnd) > $maxDays) {
+            $rangeEnd = $rangeStart->copy()->addDays($maxDays)->endOfDay();
+        }
+
+        $typeFilter     = $request->input('types', []);
+        $categoryFilter = $request->input('categories', []);
+        $scope = PermissionService::clampScope($request->input('scope'), PermissionService::calendarScope($user));
+
+        $resolved = $this->applyFilters(
+            $this->service->getEventsForRange($user, $rangeStart->toDateString(), $rangeEnd->toDateString(), [], $scope),
+            $user, $typeFilter, $categoryFilter, $scope
+        );
+
+        // Species split by date (same aggregation the grid uses).
+        $byDateRaw = [];
+        foreach ($resolved as $e) {
+            if (! $e->event_date) continue;
+            $byDateRaw[$e->event_date->toDateString()][] = $e;
+        }
+        [$appointmentByDate, $deadlineGroupsByDate] = $this->splitSpeciesForGrid($byDateRaw, $user);
+
+        // Shape appointments to a lean JSON payload.
+        $byDate = [];
+        foreach ($appointmentByDate as $date => $events) {
+            $byDate[$date] = array_map(fn ($e) => [
+                'id' => $e->id, 'title' => $e->title,
+                'colour' => $e->resolved_colour, 'category' => $e->category,
+                'event_type' => $e->event_type, 'status' => $e->status,
+                'all_day' => (bool) $e->all_day,
+                'time' => $e->all_day ? null : $e->event_date->format('H:i'),
+            ], $events);
+        }
+
+        return response()->json([
+            'byDate'         => $byDate,
+            'deadlineGroups' => $deadlineGroupsByDate,
+            'start'          => $rangeStart->toDateString(),
+            'end'            => $rangeEnd->toDateString(),
+        ]);
+    }
+
+    /** Memo of occupies_time by class (per request). */
+    private array $occByClass = [];
+
+    /** AT-164 Gate 6 — is this event an appointment species (occupies_time=true)? */
+    private function isAppointmentEvent($event, $user): bool
+    {
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : ($user->agency_id ?? null);
+        $class = (string) $event->category;
+        if (! array_key_exists($class, $this->occByClass)) {
+            $cfg = CalendarEventClassSetting::forAgencyAndClass($agencyId, $class);
+            $this->occByClass[$class] = $cfg ? (bool) $cfg->occupies_time : true; // unknown → appointment
+        }
+        return $this->occByClass[$class] === true;
+    }
+
+    private function splitSpeciesForGrid(array $filteredByDate, $user): array
+    {
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : ($user->agency_id ?? null);
+
+        // occupies_time per class, memoised. A class the settings don't cover is
+        // treated as an appointment (never silently aggregate an unknown class).
+        $occ = [];
+        $isDeadline = function ($event) use (&$occ, $agencyId): bool {
+            $class = (string) $event->category;
+            if (! array_key_exists($class, $occ)) {
+                $cfg = CalendarEventClassSetting::forAgencyAndClass($agencyId, $class);
+                $occ[$class] = $cfg ? (bool) $cfg->occupies_time : true;
+            }
+            return $occ[$class] === false;
+        };
+
+        $rank = ['red' => 3, 'amber' => 2, 'green' => 1, 'neutral' => 0];
+        $groupLabels = [
+            'deal' => 'Deals', 'document' => 'Documents', 'lease' => 'Rent & Lease',
+            'property' => 'Listings', 'people' => 'People', 'compliance' => 'Compliance',
+            'payroll' => 'Payroll', 'recurring' => 'Recurring', 'personal' => 'Personal',
+        ];
+
+        $appointmentByDate = [];
+        $deadlineGroupsByDate = [];
+
+        foreach ($filteredByDate as $dateStr => $events) {
+            $groups = []; // group key => aggregate
+            foreach ($events as $event) {
+                if (! $isDeadline($event)) {
+                    $appointmentByDate[$dateStr][] = $event;
+                    continue;
+                }
+                $type   = (string) ($event->event_type ?: 'other');
+                $colour = $event->resolved_colour ?? 'neutral';
+                if (! isset($groups[$type])) {
+                    $groups[$type] = [
+                        'group' => $type,
+                        'label' => $groupLabels[$type] ?? \Illuminate\Support\Str::headline($type),
+                        'count' => 0,
+                        'worst' => 'neutral',
+                        'items' => [], // AT-164 Gate 2 — popover rows (title + RAG + due + new-tab link)
+                    ];
+                }
+                $groups[$type]['count']++;
+                // Gate 2 — per-item drill-down: a deep link where the source resolves
+                // (new tab), else null → the client opens the event's in-page panel.
+                $link = $this->resolveSourceLink($event);
+                $groups[$type]['items'][] = [
+                    'id'    => $event->id,
+                    'title' => (string) $event->title,
+                    'rag'   => $colour,
+                    'due'   => $event->event_date ? $event->event_date->format('d M') : null,
+                    'url'   => $link['url'] ?? null,
+                ];
+                if (($rank[$colour] ?? 0) > ($rank[$groups[$type]['worst']] ?? 0)) {
+                    $groups[$type]['worst'] = $colour;
+                }
+            }
+            if ($groups) {
+                $list = array_values($groups);
+                usort($list, fn ($a, $b) => ($rank[$b['worst']] ?? 0) <=> ($rank[$a['worst']] ?? 0));
+                $deadlineGroupsByDate[$dateStr] = $list;
+            }
+        }
+
+        return [$appointmentByDate, $deadlineGroupsByDate];
+    }
+
     private function applyFilters(Collection $events, $user, array $typeFilter, array $categoryFilter, string $scope): Collection
     {
         $filtered = $events
@@ -1496,6 +2095,15 @@ class CalendarController extends Controller
             $event->has_conflict = isset($conflictIds[$event->id]);
             $event->has_unack_decline = isset($unackDeclines[$event->id]);
             $event->unack_decline_count = $unackDeclines[$event->id] ?? 0;
+            // AT-164 Gate 6 — authoritative layer classification, computed ONCE at the
+            // single grid choke point. Every grid/agenda partial reads $event->layer_key
+            // and emits it as data-layer so the client-side layer toggle (cal-layerable)
+            // hides/shows the chip in EVERY view (month/week/day/agenda + panel agenda).
+            // Layers are a CALENDAR lens only — deck tiles never see this.
+            $event->layer_key = \App\Services\CommandCenter\Calendar\CalendarLayers::layerFor(
+                $event,
+                $this->isAppointmentEvent($event, $user)
+            );
         }
 
         // ITEM 4 — redact private events for everyone but their creator. Done as
@@ -1678,20 +2286,9 @@ class CalendarController extends Controller
 
     private function resolveSourceLink(CalendarEvent $event): ?array
     {
-        if (!$event->source_type || !$event->source_id) return null;
-        if (str_starts_with($event->source_type, 'synthetic:')) return null;
-        $routeMap = [
-            \App\Models\Property::class => ['route' => 'corex.properties.show', 'label' => 'View property'],
-            \App\Models\FicaSubmission::class => ['route' => 'compliance.fica.show', 'label' => 'View FICA submission'],
-            \App\Models\Compliance\RmcpVersion::class => ['route' => 'compliance.rmcp.show', 'label' => 'View RMCP version'],
-            \App\Models\Compliance\EmployeeScreening::class => ['route' => 'compliance.screenings.show', 'label' => 'View screening'],
-            \App\Models\Payroll\PayrollRun::class => ['route' => 'payroll.runs.show', 'label' => 'View payroll run'],
-            \App\Models\Payroll\PayrollEmployee::class => ['route' => 'payroll.employees.show', 'label' => 'View employee'],
-        ];
-        $entry = $routeMap[$event->source_type] ?? null;
-        if (!$entry) return null;
-        try { return ['url' => route($entry['route'], $event->source_id), 'label' => $entry['label']]; }
-        catch (\Throwable $e) { return null; }
+        // AT-164 — delegated to the shared resolver so the chip popover (Gate 2)
+        // and the Deck's Notifications tile (Gate 4) never diverge on the route map.
+        return \App\Services\CommandCenter\Calendar\CalendarSourceLinkResolver::resolve($event);
     }
 
     /**

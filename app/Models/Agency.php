@@ -296,6 +296,7 @@ class Agency extends Model
         // Per-agency maintenance mode (AT-93) — tenant-level, enforced after
         // login by AgencyMaintenanceGate. System Owners bypass.
         'maintenance_mode',
+        'deal_v2_bm_approval_enabled', // AT-158 WS-R3 — DR2 pipeline BM-approval gate (default off)
         'maintenance_message',
         'maintenance_started_at',
     ];
@@ -322,6 +323,7 @@ class Agency extends Model
 
         // Per-agency maintenance mode (AT-93).
         'maintenance_mode' => 'boolean',
+        'deal_v2_bm_approval_enabled' => 'boolean', // AT-158 WS-R3
         'maintenance_started_at' => 'datetime',
         'ss_show_complex_section' => 'boolean',
         'ai_voice_enabled' => 'boolean',

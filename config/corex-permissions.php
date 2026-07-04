@@ -425,6 +425,9 @@ return [
         ['key' => 'deals_v2.manage_suppliers',   'label' => 'Manage Supplier Directory',   'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 16],
         ['key' => 'deals_v2.distribute_documents',   'label' => 'Distribute Documents',        'section' => 'deals-v2',     'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 17],
         ['key' => 'deals_v2.manage_distribution_rules', 'label' => 'Manage Distribution Rules', 'section' => 'deals-v2',   'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 18],
+        // WS8 — the pipeline overview / dashboard-board surface. Branch_manager +
+        // admin only (managers monitor the whole book; agents keep the register).
+        ['key' => 'deals_v2.view_overview',      'label' => 'View Pipeline Overview',      'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 19],
 
         // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
         // Routes now gated by `owner_only` middleware. No permission keys needed.
@@ -480,6 +483,10 @@ return [
         ['key' => 'command_center.automation.view',  'label' => 'View Automation Rules',        'section' => 'command-center',   'type' => 'access',  'module' => 'command_center',   'sort_order' => 15],
         ['key' => 'command_center.automation.manage','label' => 'Manage Automation Rules',      'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 16],
         ['key' => 'command_center.settings',         'label' => 'Manage Command Center Settings','section' => 'command-center',  'type' => 'access',  'module' => 'command_center',   'sort_order' => 17],
+        // AT-164 §15.5 — the Calendar Deck "My Deals" tile. Seeded but granted to NO
+        // role (default OFF) — the tile is FLAGGED HIDDEN behind the DR2 hold and
+        // lights up when an admin grants this after DR2 ships (no rebuild).
+        ['key' => 'calendar.tile.my_deals',          'label' => 'Calendar Deck — My Deals Tile',  'section' => 'command-center',  'type' => 'action',  'module' => 'command_center_calendar', 'sort_order' => 18],
 
         // ── Contact Governance ──
         ['key' => 'contact_governance.manage',       'label' => 'Manage Contact Governance Settings', 'section' => 'contact-governance', 'type' => 'access', 'module' => 'contact_governance', 'sort_order' => 50],
@@ -564,7 +571,10 @@ return [
             // reveal_mailbox_credential is principal-only — admin must NOT inherit
             // it via the all-minus-exclude default (AT-37).
             // reveal_backup_password is likewise principal-only (AT-163).
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password'],
+            // calendar.tile.my_deals is FLAGGED HIDDEN behind the DR2 hold (AT-164 §15.5)
+            // — it must NOT be auto-granted to admin via all-minus-exclude; it lights up
+            // only when explicitly granted after DR2 ships.
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'calendar.tile.my_deals'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
@@ -681,6 +691,7 @@ return [
                 'deals_v2.view', 'deals_v2.create', 'deals_v2.edit', 'deals_v2.archive',
                 'deals_v2.manage_pipeline', 'deals_v2.override_dates', 'deals_v2.manage_suppliers',
                 'deals_v2.distribute_documents', 'deals_v2.manage_distribution_rules',
+                'deals_v2.view_overview',
                 // Branches — can switch between branches of their own agency
                 // (testing / training), but does NOT bypass BranchScope by default.
                 'branches.switch',

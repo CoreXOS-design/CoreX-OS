@@ -103,34 +103,9 @@
 
 <div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (open) { this.showCreateEvent = false; } if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
-    {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
-    <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-4 lg:pt-6" style="background: var(--bg);">
+    {{-- ══════ HEADER STRIP (fixed, compact — cockpit density) ══════ --}}
+    <div class="flex-shrink-0 px-4 lg:px-6 pb-1.5 space-y-1.5 pt-2" style="background: var(--bg);">
 
-    {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div data-tour="cal-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Calendar</h1>
-                <p class="text-sm text-white/60">
-                    @if($currentView === 'week' && isset($weekStart))
-                        Week of {{ $weekStart->format('j M Y') }}
-                    @elseif($currentView === 'day' && isset($anchorDate))
-                        {{ $anchorDate->format('l, j F Y') }}
-                    @elseif(isset($monthLabel))
-                        {{ $monthLabel }}
-                    @endif
-                    — deals, leases, compliance and personal events.
-                </p>
-            </div>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <button type="button" @click="openBlank()" class="corex-btn-primary" data-tour="cal-add">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                    Add Event
-                </button>
-            </div>
-        </div>
-    </div>
 
     {{-- ══════ TOOLBAR (nav + view switcher) ══════ --}}
     @php
@@ -165,16 +140,25 @@
             'agenda' => route('command-center.calendar', array_merge($kbParams, ['view' => 'agenda', 'date' => $kbDate])),
         ];
     @endphp
-    <div class="rounded-md px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+    <div class="rounded-md px-3 py-1.5 flex flex-row items-center justify-between gap-3"
          style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex items-center gap-2">
+            {{-- AT-164 Gate 5 — month view scrolls continuously; prev/next month
+                 pagination is replaced by scroll (kept for week/day). --}}
+            @if($currentView !== 'month')
             <a href="{{ $prevUrl }}" class="corex-btn-outline" aria-label="Previous">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
             </a>
-            @if($showToday)
-                <a href="{{ $todayUrl }}" class="corex-btn-outline">Today</a>
+            @endif
+            @if($currentView === 'month' || $currentView === 'week')
+                {{-- In-page Today — snaps the continuous month/week view back to today from
+                     anywhere. ALWAYS clickable (Johan ruling): the continuous views scroll
+                     away from today, so a stale server-computed "is today in view" must
+                     never disable it. The controller ignores the click if already on today. --}}
+                <button type="button" data-tour="cal-today" class="corex-btn-outline" @click="window.dispatchEvent(new Event('calendar:today'))">Today</button>
             @else
-                <span class="corex-btn-outline opacity-40 cursor-default pointer-events-none" aria-disabled="true">Today</span>
+                {{-- Day/Agenda are server-rendered per date → navigate to today. --}}
+                <a href="{{ $todayUrl }}" data-tour="cal-today" class="corex-btn-outline">Today</a>
             @endif
             {{-- Clickable date picker label --}}
             <div x-data="{ pickerOpen: false }" class="relative inline-flex">
@@ -206,13 +190,15 @@
                            pickerOpen = false;
                        ">
             </div>
+            @if($currentView !== 'month')
             <a href="{{ $nextUrl }}" class="corex-btn-outline" aria-label="Next">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </a>
+            @endif
         </div>
 
         <div class="flex items-center gap-2">
-            <div class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
+            <div data-tour="cal-views" class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
                 @foreach(['month' => 'Month', 'week' => 'Week', 'day' => 'Day', 'agenda' => 'Agenda'] as $vKey => $vLabel)
                     <a href="{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => $vKey])) }}"
                        class="px-3 py-1.5 text-xs font-semibold transition-colors"
@@ -221,10 +207,18 @@
                     </a>
                 @endforeach
             </div>
+            {{-- Guided-tour "?" launcher relocates here (AT-164 calendar tour). Empty +
+                 additive — the tour engine appends its button; no effect if absent. --}}
+            <span id="tour-launcher-slot" class="tour-slot-surface inline-flex"></span>
             <button type="button" @click="helpOpen = !helpOpen" title="Keyboard shortcuts (?)"
                     class="px-2 py-1.5 rounded text-xs font-bold transition hover:opacity-80"
                     style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
                 ?
+            </button>
+            {{-- AT-164 cockpit — Add Event folded into the toolbar (branded band removed for density). --}}
+            <button type="button" @click="openBlank()" class="corex-btn-primary text-xs py-1" data-tour="cal-add">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                Add Event
             </button>
         </div>
     </div>
@@ -234,15 +228,20 @@
     </div>{{-- END sticky header band --}}
 
     {{-- ══════ FLEX ROW: Calendar grid + Right panel (fills remaining height) ══════ --}}
-    <div class="flex gap-0 flex-1 min-h-0 overflow-hidden px-4 lg:px-6">
+    <div data-tour="cal-cockpit" class="relative flex gap-3 flex-1 min-h-0 overflow-hidden px-4 lg:px-6 pb-1.5">
     {{-- Main calendar column (scrolls independently). CAL-2: min-w pins
          the calendar so the right-docked create-event aside can never
          squeeze it to zero — preserves the "calendar stays visible on the
          left" guarantee when filter panel + create panel are both open. --}}
-    <div class="flex-1 min-w-0 sm:min-w-[320px] overflow-y-auto space-y-4 pr-0">
+    {{-- AT-164 COCKPIT (Johan QA 21:41): the main column is a NON-scrolling flex-col
+         — [filter bar (pinned)] + [grid frame (flex-1, the ONLY scroll container)] +
+         [deck row (pinned)]. The page never scrolls; the GRID scrolls inside its
+         bounded frame. --}}
+    {{-- CALENDAR BLOCK (~73% width; the grid scroll frame lives inside) --}}
+    <div class="flex flex-col min-h-0" style="flex: 1 1 0%; min-width: 0;">
 
     {{-- ══════ FILTER BAR (compact — panel toggle + active filter summary) ══════ --}}
-    <div class="flex items-center gap-3 rounded-md px-4 py-2"
+    <div class="flex-shrink-0 flex items-center gap-3 rounded-md px-3 py-1 mb-1.5"
          style="background: var(--surface); border: 1px solid var(--border);">
         {{-- Scope pills (kept inline — primary control) --}}
         <form method="GET" action="{{ route('command-center.calendar') }}" id="calendar-filters" class="flex items-center gap-2">
@@ -282,6 +281,34 @@
 
         <div class="flex-1"></div>
 
+        {{-- AT-164 Gate 6 — Layer toggles. Show/hide event species on the grid
+             (instant, client-side) + filter the Notifications tile (server-side);
+             persisted per-user (cross-device). Inline z-index (no new Tailwind
+             arbitrary class, §3). --}}
+        <div data-tour="cal-layers" x-data="layerFilter()" x-init="initLayers()" class="relative" @click.outside="open=false">
+            <button type="button" @click="open=!open"
+                    class="corex-btn-outline text-xs inline-flex items-center gap-1.5" title="Show or hide event layers">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 6 8.25 4.5L20.25 6M3.75 12l8.25 4.5L20.25 12M3.75 18l8.25 4.5L20.25 18"/></svg>
+                <span>Layers</span>
+                <span x-show="hiddenCount>0" x-cloak class="text-[10px] px-1.5 rounded-full font-semibold"
+                      style="background: var(--brand-button); color:#fff;" x-text="hiddenCount + ' off'"></span>
+            </button>
+            <div x-show="open" x-cloak
+                 class="absolute right-0 mt-1 w-52 rounded-md py-1"
+                 style="z-index:30; background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.35);">
+                <template x-for="l in catalog" :key="l.key">
+                    <label class="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer transition-colors hover:bg-[color:var(--surface)]">
+                        <input type="checkbox" :checked="active.includes(l.key)" @change="toggle(l.key)">
+                        <span style="color: var(--text-secondary);" x-text="l.label"></span>
+                    </label>
+                </template>
+                <div class="flex justify-between px-3 py-1.5 mt-1" style="border-top: 1px solid var(--border);">
+                    <button type="button" @click="setAll(true)" class="text-[11px] font-semibold" style="color: var(--brand-button);">All</button>
+                    <button type="button" @click="setAll(false)" class="text-[11px] font-semibold" style="color: var(--text-muted);">None</button>
+                </div>
+            </div>
+        </div>
+
         {{-- Active filter badges --}}
         @if(!empty($typeFilter))
             <span class="text-[10px] px-2 py-0.5 rounded-full font-medium" style="background: var(--brand-button); color: #fff;">{{ count($typeFilter) }} types</span>
@@ -305,439 +332,98 @@
         </button>
     </div>
 
+    {{-- ══════ GRID FRAME — the bounded scroll container (flex-1 fills the viewport
+         remainder; the view inside is the ONLY thing that scrolls) ══════ --}}
+    <div class="flex-1 min-h-0 flex flex-col">
     @if($currentView === 'month')
-        {{-- ══════ MONTH VIEW ══════ --}}
-        @php
-            // Build week rows: each row is an array of 7 date strings
-            $gridStart = $grid['start'];
-            $gridEnd = $grid['end'];
-            $weekRows = [];
-            $cursor = $gridStart->copy();
-            while ($cursor->lte($gridEnd)) {
-                $week = [];
-                for ($col = 0; $col < 7; $col++) {
-                    $week[] = $cursor->copy();
-                    $cursor->addDay();
-                }
-                $weekRows[] = $week;
-            }
+        {{-- ══════ MONTH VIEW — ONE continuous week stream (§15.3, AT-164) ══════
+             Every calendar week exists exactly once; months flow into each other; a
+             month boundary is MARKED (first cell "Jul 1" + seam accent), never repeated
+             with a splitter row. Windows are addressed by WEEK. --}}
+        <div x-data="continuousMonth()" x-init="initMonth()"
+             class="rounded-md overflow-hidden flex flex-col"
+             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; position: relative;">
 
-            // Group spanning bars by week_row
-            $barsByWeek = [];
-            foreach ($spanningBars ?? [] as $bar) {
-                $barsByWeek[$bar['week_row']][] = $bar;
-            }
+            {{-- Sticky month label — PINNED above the scroll region. Its text FOLLOWS the
+                 scroll: it always names the month occupying the viewport (updated by the
+                 controller as week rows cross the seam). --}}
+            <div class="flex-shrink-0 px-3 py-1.5 text-xs font-bold uppercase tracking-wider"
+                 style="z-index: 21; background: var(--surface-2); color: var(--text-secondary); border-bottom: 1px solid var(--border);"
+                 x-text="monthLabel"></div>
 
-            // Assign vertical slots to spanning bars within each week (interval partitioning)
-            $barSlotsByWeek = [];
-            foreach ($barsByWeek as $weekIdx => $bars) {
-                // Sort by start_col, then by span descending (wider first)
-                usort($bars, function ($a, $b) {
-                    if ($a['start_col'] !== $b['start_col']) return $a['start_col'] - $b['start_col'];
-                    return $b['span'] - $a['span'];
-                });
-                $slots = []; // array of arrays, each slot = list of bars that fit in that row
-                foreach ($bars as $bar) {
-                    $placed = false;
-                    foreach ($slots as $si => &$slotBars) {
-                        $conflict = false;
-                        foreach ($slotBars as $existing) {
-                            if ($bar['start_col'] <= $existing['end_col'] && $bar['end_col'] >= $existing['start_col']) {
-                                $conflict = true;
-                                break;
-                            }
-                        }
-                        if (!$conflict) {
-                            $bar['slot'] = $si;
-                            $slotBars[] = $bar;
-                            $placed = true;
-                            break;
-                        }
-                    }
-                    unset($slotBars);
-                    if (!$placed) {
-                        $bar['slot'] = count($slots);
-                        $slots[] = [$bar];
-                    }
-                }
-                $barSlotsByWeek[$weekIdx] = $slots;
-            }
-        @endphp
-
-        <div class="rounded-md overflow-hidden flex flex-col" style="background: var(--surface); border: 1px solid var(--border);">
-            {{-- Day headers (sticky) --}}
-            <div class="grid grid-cols-7 sticky top-0 z-10" style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
+            {{-- Day-of-week header — PINNED outside the scroll region: it is a flex-shrink-0
+                 sibling above the scroller, so it never scrolls and stays visible at ANY
+                 calendar/strip split (Johan 05:45 — resize must never hide the headers). --}}
+            <div class="grid grid-cols-7 flex-shrink-0" style="z-index: 20; background: var(--surface-2); border-bottom: 1px solid var(--border);">
                 @foreach(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as $dayName)
-                    <div class="px-2 py-2.5 text-xs font-semibold text-center uppercase tracking-wider"
+                    <div class="px-2 py-2 text-xs font-semibold text-center uppercase tracking-wider"
                          style="color: var(--text-muted); {{ !$loop->last ? 'border-right: 1px solid var(--border);' : '' }}">
                         {{ $dayName }}
                     </div>
                 @endforeach
             </div>
 
-            {{-- Calendar grid — scrollable container --}}
-            <div class="flex-1">
-                @foreach($weekRows as $weekIdx => $weekDates)
-                    @php
-                        $weekSlots = $barSlotsByWeek[$weekIdx] ?? [];
-                        $barCount = count($weekSlots);
-                    @endphp
-                    {{-- WEEK ROW STRUCTURE — do not change ordering:
-                         1. Date numbers strip (7-col grid with day numbers)
-                         2. Spanning bar zone (sits INSIDE row, between dates and chips)
-                         3. Cell grid with single-day chips
+            {{-- Scroll region — ONLY the week rows scroll here. --}}
+            <div x-ref="scroller" @scroll.passive="onScroll()" class="flex-1 min-h-0 overflow-y-auto" style="position: relative;">
 
-                         Bug history: the bar zone has regressed THREE times when
-                         restructured. Bars MUST sit inside the row, between dates
-                         and chips. Never above the date numbers. Never in the gap
-                         between rows. This ordering is final. --}}
-                    <div style="border-bottom: 1px solid var(--border);">
+            {{-- Top loading indicator (prepend earlier weeks) --}}
+            <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingTop" x-cloak>Loading…</div>
 
-                        {{-- 1. DATE NUMBER STRIP --}}
-                        <div class="grid grid-cols-7">
-                            @foreach($weekDates as $colIdx => $cellDate)
-                                @php
-                                    $isCurrentMonth = $cellDate->month === $month;
-                                    $isToday = $cellDate->isSameDay($today);
-                                    $isWeekend = in_array($cellDate->dayOfWeekIso, [6, 7]);
-                                    $dateBg = $isWeekend ? 'var(--surface-2)' : 'transparent';
-                                @endphp
-                                <div @click="selectDate('{{ $cellDate->toDateString() }}')"
-                                     class="px-1.5 pt-1 pb-0.5 cursor-pointer"
-                                     style="opacity: {{ $isCurrentMonth ? '1' : '0.5' }}; background: {{ $dateBg }}; {{ $colIdx < 6 ? 'border-right: 1px solid var(--border);' : '' }}"
-                                     :class="selectedDate === '{{ $cellDate->toDateString() }}' && 'ring-2 ring-inset ring-[#00d4aa]'">
-                                    @if($isToday)
-                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
-                                              style="background: #00d4aa; color: #0f172a;">
-                                            {{ $cellDate->day }}
-                                        </span>
-                                    @else
-                                        <span class="text-xs font-semibold" style="color: var(--text-secondary);">
-                                            {{ $cellDate->day }}
-                                        </span>
-                                    @endif
-                                </div>
-                            @endforeach
-                        </div>
-
-                        {{-- 2. SPANNING BAR ZONE (between dates and chips — NEVER move this) --}}
-                        @if($barCount > 0)
-                            <div class="relative" style="min-height: {{ $barCount * 22 + 4 }}px; padding: 2px 0;">
-                                @foreach($weekSlots as $slotIdx => $slotBars)
-                                    @foreach($slotBars as $bar)
-                                        @php
-                                            $barEvt = $bar['event'];
-                                            $isInformational = ($barEvt->resolved_colour ?? 'neutral') === 'neutral';
-                                            $barBg = $isInformational ? '#0f172a' : match($barEvt->resolved_colour) {
-                                                'red'   => '#dc2626',
-                                                'amber' => '#d97706',
-                                                'green' => '#0d9488',
-                                                default => '#0f172a',
-                                            };
-                                            $barBorder = $isInformational ? '#1e293b' : match($barEvt->resolved_colour) {
-                                                'red'   => '#991b1b',
-                                                'amber' => '#92400e',
-                                                'green' => '#115e59',
-                                                default => '#1e293b',
-                                            };
-                                        @endphp
-                                        <button type="button"
-                                                data-event-id="{{ $bar['event_id'] }}"
-                                                @click.stop="openEventPanel({{ $bar['event_id'] }})"
-                                                class="absolute text-[11px] text-white font-medium px-2 truncate hover:opacity-90 transition-opacity cursor-pointer"
-                                                style="top: {{ $slotIdx * 22 + 2 }}px; height: 18px; line-height: 18px;
-                                                       left: calc(({{ $bar['start_col'] - 1 }} / 7) * 100% + 3px);
-                                                       width: calc(({{ $bar['span'] }} / 7) * 100% - 6px);
-                                                       background: {{ $barBg }};
-                                                       border: 2px solid {{ $barBorder }};
-                                                       border-radius:6px;"
-                                                title="{{ $barEvt->title }} ({{ \Carbon\Carbon::parse($bar['start_date'])->format('d M') }}–{{ \Carbon\Carbon::parse($bar['end_date'])->format('d M') }})">
-                                            {{ \Illuminate\Support\Str::limit($barEvt->title, 30) }}
-                                        </button>
-                                    @endforeach
-                                @endforeach
-                            </div>
-                        @endif
-
-                        {{-- 3. CELL GRID (single-day chips only — no date numbers, no bars) --}}
-                        <div class="grid grid-cols-7">
-                            @foreach($weekDates as $colIdx => $cellDate)
-                                @php
-                                    $dateStr = $cellDate->toDateString();
-                                    $dayEvents = $byDate[$dateStr] ?? [];
-                                    $isCurrentMonth = $cellDate->month === $month;
-                                    $isWeekend = in_array($cellDate->dayOfWeekIso, [6, 7]);
-                                    $cellBg = $isWeekend ? 'var(--surface-2)' : 'transparent';
-                                    $cellOpacity = $isCurrentMonth ? '1' : '0.5';
-                                    $chipCap = 6;
-                                @endphp
-                                <div @click="selectDate('{{ $dateStr }}')"
-                                     @dblclick="window.location.href='{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $dateStr])) }}'"
-                                     @dragover.prevent="rescheduleDragOver = '{{ $dateStr }}'"
-                                     @drop.prevent="rescheduleDropOnDate('{{ $dateStr }}')"
-                                     class="relative min-h-[2.5rem] px-1 pt-0.5 pb-1 cursor-pointer transition-colors hover:brightness-110"
-                                     style="opacity: {{ $cellOpacity }}; {{ $colIdx < 6 ? 'border-right: 1px solid var(--border);' : '' }}"
-                                     :class="[selectedDate === '{{ $dateStr }}' && 'ring-2 ring-inset ring-[#00d4aa]', rescheduleDragOver === '{{ $dateStr }}' && 'ring-2 ring-inset ring-amber-400']"
-                                     :style="selectedDate === '{{ $dateStr }}' ? 'background: color-mix(in srgb, #00d4aa 8%, {{ $cellBg === 'transparent' ? 'var(--surface)' : $cellBg }});' : 'background: {{ $cellBg }};'">
-                                    @if(count($dayEvents) > $chipCap)
-                                        <div class="flex justify-end mb-0.5">
-                                            <span class="text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
-                                                  style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
-                                                +{{ count($dayEvents) - $chipCap }}
-                                            </span>
-                                        </div>
-                                    @endif
-                                    <div class="space-y-0.5">
-                                        @foreach(array_slice($dayEvents, 0, $chipCap) as $evt)
-                                            @php
-                                                $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip;
-                                                $invStatus = $evt->user_invitation_status ?? null;
-                                                $isTentative = $invStatus === 'tentative';
-                                                $isPending = $invStatus === 'pending';
-                                                if ($isTentative) $chipStyle .= ' border: 2px dashed rgba(255,255,255,0.5); opacity: 0.75;';
-                                                if ($isPending) $chipStyle .= ' border: 2px dotted rgba(255,255,255,0.4); opacity: 0.6;';
-                                            @endphp
-                                            <button type="button"
-                                                    data-event-id="{{ $evt->id }}"
-                                                    draggable="true"
-                                                    @dragstart.stop="rescheduleStartDrag({{ $evt->id }}, '{{ $dateStr }}')"
-                                                    @dragend="rescheduleDragOver = null"
-                                                    @click.stop="openEventPanel({{ $evt->id }})"
-                                                    {{-- CAL-8 Part 1 — dismissed events get the same line-through+opacity treatment as completed.
-                                                         Belt-and-suspenders: getEventsForRange now excludes dismissed by default, but if a user
-                                                         opts into ?status=dismissed (or ?status=*) the chip must read visually as "inactive". --}}
-                                                    class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
-                                                    style="{{ $chipStyle }}"
-                                                    title="{{ $evt->title }}{{ $isTentative ? ' (Tentative)' : '' }}{{ $isPending ? ' (Pending — accept to confirm)' : '' }}">
-                                                <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>@if($isPending)<span class="text-[9px] font-bold uppercase mr-0.5" style="opacity:0.7;">PENDING</span> @endif{{ $timeRange($evt) ? $timeRange($evt) . ' ' : '' }}{{ \Illuminate\Support\Str::limit($evt->title, $isPending ? 14 : 20) }}
-                                            </button>
-                                        @endforeach
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-
-                    </div>
+            {{-- Week rows. A window is server-rendered; the windowing controller
+                 lazy-prepends/appends adjacent weeks through the identical _week-row
+                 partial (via /calendar/week-rows) — one renderer, full interaction
+                 parity, no dual JS cell renderer, no duplicated boundary weeks. --}}
+            <div x-ref="weeks">
+                @foreach(($weekRows ?? []) as $wk)
+                    @include('command-center.calendar.partials._week-row', [
+                        'weekStart' => $wk['weekStart'], 'byDate' => $wk['byDate'],
+                        'deadlineGroups' => $wk['deadlineGroups'], 'spanningBars' => $wk['spanningBars'],
+                    ])
                 @endforeach
             </div>
+
+            {{-- Bottom loading indicator (append later weeks) --}}
+            <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingBottom" x-cloak>Loading…</div>
+            </div>{{-- END scroll region --}}
         </div>
     @elseif($currentView === 'week')
-        {{-- ══════ WEEK VIEW — Time-slot grid ══════ --}}
-        @php
-            $weekDaySplits = [];
-            foreach ($weekDays as $day) {
-                $allDay = collect();
-                $timedByHour = [];
-                foreach ($day['events'] as $evt) {
-                    if ($isAllDayEvent($evt)) {
-                        $allDay->push($evt);
-                    } else {
-                        $h = $eventHour($evt);
-                        if ($h === null) {
-                            $allDay->push($evt);
-                        } else {
-                            $timedByHour[$h] ??= collect();
-                            $timedByHour[$h]->push($evt);
-                        }
-                    }
-                }
-                $weekDaySplits[] = [
-                    'date'     => $day['date'],
-                    'is_today' => $day['is_today'],
-                    'all_day'  => $allDay,
-                    'timed'    => $timedByHour,
-                ];
-            }
-            $nowHour = now()->hour;
-            $nowMinute = now()->minute;
-            $nowOffsetPct = count($gridHours) > 0
-                ? (($nowHour - $hourGridStart) + ($nowMinute / 60)) / count($gridHours) * 100
-                : 0;
-        @endphp
+        {{-- ══════ WEEK VIEW — continuous HORIZONTAL scroll (§15.3, cockpit) ══════ --}}
+        <div x-data="continuousWeek()" x-init="initWeek()"
+             class="rounded-md overflow-hidden flex flex-col"
+             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0;">
 
-        <div class="rounded-md overflow-hidden overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 70vh;">
-            {{-- Day headers (sticky inside week scroll container) --}}
-            <div class="grid grid-cols-[56px_repeat(7,1fr)] sticky top-0 z-10" style="border-bottom: 1px solid var(--border); background: var(--surface);">
-                <div></div>
-                @foreach($weekDaySplits as $day)
-                    <a href="{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $day['date']->toDateString()])) }}"
-                       @click="if (showCreateEvent) { $event.preventDefault(); selectDate('{{ $day['date']->toDateString() }}'); }"
-                       class="block text-center py-2 no-underline hover:opacity-80 transition-opacity"
-                       style="background: {{ $day['is_today'] ? 'color-mix(in srgb, var(--brand-button) 8%, transparent)' : 'var(--surface)' }}; border-left: 1px solid var(--border);">
-                        <div class="text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">{{ $day['date']->format('D') }}</div>
-                        <div class="text-lg font-semibold" style="color: {{ $day['is_today'] ? 'var(--brand-button)' : 'var(--text-primary)' }};">{{ $day['date']->format('j') }}</div>
-                    </a>
-                @endforeach
+            {{-- Sticky week/date-range label + in-frame Today anchor --}}
+            <div class="flex items-center justify-between px-3 py-1.5 flex-shrink-0"
+                 style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
+                <span class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);" x-text="rangeLabel"></span>
+                <button type="button" @click="scrollToDay('{{ now()->toDateString() }}')" class="corex-btn-outline text-[11px] py-0.5">Today</button>
             </div>
 
-            {{-- All-day swim-lane (spanning bars + single-day all-day chips) --}}
-            @php
-                $hasSpanningBars = !empty($weekSpanningBars);
-                $hasAnyAllDay = collect($weekDaySplits)->contains(fn ($d) => $d['all_day']->isNotEmpty());
-                $weekBarCount = count($weekBarSlots ?? []);
-            @endphp
-            @if($hasSpanningBars || $hasAnyAllDay)
-                <div style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
-                    {{-- Spanning bars (continuous, not repeated per-day) --}}
-                    @if($hasSpanningBars)
-                        <div class="grid grid-cols-[56px_1fr]">
-                            <div class="text-[10px] uppercase pt-2 pl-1.5" style="color: var(--text-muted);">all day</div>
-                            <div class="relative" style="min-height: {{ $weekBarCount * 22 + 4 }}px; padding: 2px 0;">
-                                @foreach($weekSpanningBars as $bar)
-                                    @php
-                                        $barEvt = $bar['event'];
-                                        $isInformational = ($barEvt->resolved_colour ?? 'neutral') === 'neutral';
-                                        $barBg = $isInformational ? '#0f172a' : match($barEvt->resolved_colour) {
-                                            'red'   => '#dc2626',
-                                            'amber' => '#d97706',
-                                            'green' => '#0d9488',
-                                            default => '#0f172a',
-                                        };
-                                        $barBorder = $isInformational ? '#1e293b' : match($barEvt->resolved_colour) {
-                                            'red'   => '#991b1b',
-                                            'amber' => '#92400e',
-                                            'green' => '#115e59',
-                                            default => '#1e293b',
-                                        };
-                                        $barSlot = $bar['slot'] ?? 0;
-                                    @endphp
-                                    <button type="button"
-                                            data-event-id="{{ $bar['event_id'] }}"
-                                            @click.stop="openEventPanel({{ $bar['event_id'] }})"
-                                            class="absolute text-[11px] text-white font-medium px-2 truncate hover:opacity-90 transition-opacity cursor-pointer"
-                                            style="top: {{ $barSlot * 22 + 2 }}px; height: 18px; line-height: 18px;
-                                                   left: calc(({{ $bar['start_col'] - 1 }} / 7) * 100% + 3px);
-                                                   width: calc(({{ $bar['span'] }} / 7) * 100% - 6px);
-                                                   background: {{ $barBg }};
-                                                   border: 2px solid {{ $barBorder }};
-                                                   border-radius:6px;"
-                                            title="{{ $barEvt->title }}">
-                                        {{ \Illuminate\Support\Str::limit($barEvt->title, 30) }}
-                                    </button>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
-
-                    {{-- Single-day all-day events (rendered per-cell below bars) --}}
-                    @if($hasAnyAllDay)
-                        <div class="grid grid-cols-[56px_repeat(7,1fr)]">
-                            <div class="@if(!$hasSpanningBars) text-[10px] uppercase pt-2 pl-1.5 @endif" style="color: var(--text-muted);">
-                                @if(!$hasSpanningBars) all day @endif
-                            </div>
-                            @foreach($weekDaySplits as $day)
-                                <div class="px-0.5 py-1 space-y-0.5" style="border-left: 1px solid var(--border);">
-                                    @foreach($day['all_day'] as $evt)
-                                        @php $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip; @endphp
-                                        <button type="button"
-                                                data-event-id="{{ $evt->id }}"
-                                                @click.stop="openEventPanel({{ $evt->id }})"
-                                                class="block w-full text-left px-1.5 py-0.5 rounded text-[10px] truncate transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
-                                                style="{{ $chipStyle }}"
-                                                title="{{ $evt->title }}">
-                                            {{ \Illuminate\Support\Str::limit($evt->title, 18) }}
-                                        </button>
-                                    @endforeach
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
-                </div>
-            @endif
-
-            {{-- Hour grid --}}
-            <div class="relative">
-                {{-- Now-line (only when today is in view and within grid hours) --}}
-                @php
-                    $todayInWeekView = collect($weekDaySplits)->contains(fn ($d) => $d['is_today']);
-                    $nowInRange = $nowHour >= $hourGridStart && $nowHour < $hourGridEnd;
-                @endphp
-                @if($todayInWeekView && $nowInRange)
-                    <div class="absolute left-[56px] right-0 z-10 pointer-events-none"
-                         style="top: {{ $nowOffsetPct }}%; border-top: 2px solid #ef4444;">
-                        <div class="absolute -top-1.5 -left-1.5 w-3 h-3 rounded-full" style="background: #ef4444;"></div>
-                    </div>
-                @endif
-
-                @foreach($gridHours as $hour)
-                    <div class="grid grid-cols-[56px_repeat(7,1fr)]" style="border-bottom: 1px solid var(--border);">
-                        <div class="text-[10px] pt-1 pl-1.5 select-none" style="color: var(--text-muted);">
-                            {{ str_pad((string)$hour, 2, '0', STR_PAD_LEFT) }}:00
-                        </div>
-                        @foreach($weekDaySplits as $day)
-                            <div class="min-h-[3rem] relative select-none" style="border-left: 1px solid var(--border); cursor: cell;">
-                                {{-- Top half (HH:00-HH:30) --}}
-                                <div class="absolute inset-x-0 top-0 h-1/2 z-[1]"
-                                     @mousedown="dragStart('{{ $day['date']->toDateString() }}', {{ $hour }}, 0, $event)"
-                                     @mousemove="dragMove({{ $hour }}, 0)"
-                                     @dragover.prevent
-                                     @drop.prevent="rescheduleDrop('{{ $day['date']->toDateString() }}', {{ $hour }}, 0)"></div>
-                                {{-- Bottom half (HH:30-HH+1:00) --}}
-                                <div class="absolute inset-x-0 top-1/2 h-1/2 z-[1]"
-                                     @mousedown="dragStart('{{ $day['date']->toDateString() }}', {{ $hour }}, 1, $event)"
-                                     @mousemove="dragMove({{ $hour }}, 1)"
-                                     @dragover.prevent
-                                     @drop.prevent="rescheduleDrop('{{ $day['date']->toDateString() }}', {{ $hour }}, 1)"></div>
-                                {{-- ITEM 3 — timed events are no longer rendered per-hour-cell;
-                                     they are positioned by duration in the absolute overlay
-                                     below (keeps each hour cell a fixed height so the % math aligns). --}}
+            {{-- The ONE scroller: sticky time gutter (left) + horizontal day strip. A
+                 vertical wheel is translated to horizontal so the mouse wheel advances
+                 days/weeks; drag-to-scroll on the headers/gutter also advances. Inline
+                 z-index only (§3). --}}
+            <div x-ref="weekScroller" @scroll.passive="onWeekScroll()"
+                 @mousedown="dragScrollStart($event)" @mousemove.window="dragScrollMove($event)" @mouseup.window="dragScrollEnd()"
+                 class="flex-1 min-h-0 overflow-auto" style="cursor: grab;">
+                <div class="flex" style="width: max-content;">
+                    {{-- Sticky time gutter --}}
+                    <div class="flex-shrink-0 sticky left-0" style="width: 56px; z-index: 7; background: var(--surface);">
+                        <div class="sticky top-0" style="height: 44px; z-index: 8; background: var(--surface-2); border-bottom: 1px solid var(--border);"></div>
+                        <div style="height: 40px; border-bottom: 1px solid var(--border);"></div>
+                        @foreach(range(6, 19) as $gh)
+                            <div class="text-[10px] pt-1 pl-1.5 select-none" style="height: 48px; color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                                {{ str_pad((string)$gh, 2, '0', STR_PAD_LEFT) }}:00
                             </div>
                         @endforeach
                     </div>
-                @endforeach
-
-                {{-- ITEM 3 — timed events, absolutely positioned by start + duration
-                     (same %-geometry as the now-line above). Overlapping events are
-                     lane-split side by side. Empty grid space still falls through to the
-                     per-cell drag layers (click-to-create + drag-to-reschedule). --}}
-                @php $gridMinutesWk = max(1, count($gridHours) * 60); @endphp
-                @foreach($weekDaySplits as $dIdx => $day)
-                    @foreach($layoutDayColumn(collect($day['timed'] ?? [])->flatMap(fn($c) => is_iterable($c) ? collect($c)->all() : []), $hourGridStart, count($gridHours)) as $r)
-                        @php
-                            $evt = $r['e'];
-                            $topPct = $r['s'] / $gridMinutesWk * 100;
-                            $heightPct = ($r['en'] - $r['s']) / $gridMinutesWk * 100;
-                            $lane = $r['lane']; $lanes = $r['lanes'];
-                            $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip;
-                            $isDraggable = in_array($evt->source_type, ['manual', 'manual:demo']);
-                            $tr = $timeRange($evt);
-                            $isDone = in_array($evt->status, ['completed', 'dismissed'], true);
-                        @endphp
-                        <button type="button"
-                                data-event-id="{{ $evt->id }}"
-                                @click.stop="openEventPanel({{ $evt->id }})"
-                                @mousedown.stop
-                                @if($isDraggable)
-                                    draggable="true"
-                                    @dragstart="rescheduleStart({{ $evt->id }}, '{{ $day['date']->toDateString() }}', $event)"
-                                    @dragend="rescheduleEnd()"
-                                @endif
-                                :class="{ 'pointer-events-none': reschedule.dragging }"
-                                {{-- z-index is INLINE (not a z-[3] Tailwind class): the arbitrary
-                                     class was new in ITEM 3 and absent from the compiled CSS, so the
-                                     tile fell to z:auto BELOW the z-1 drag layers, which swallowed the
-                                     click. Inline z-index needs no asset rebuild — always applies. --}}
-                                class="absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
-                                style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 14px; left: calc(56px + (100% - 56px) * {{ $dIdx * $lanes + $lane }} / {{ 7 * $lanes }}); width: calc((100% - 56px) / {{ 7 * $lanes }} - 2px);"
-                                title="{{ $tr }} {{ $evt->title }}">
-                            <span class="block px-1 pt-0.5 text-[9px] opacity-80 leading-none">{{ $tr }}</span>
-                            <span class="block px-1 text-[10px] font-medium leading-tight truncate">{{ \Illuminate\Support\Str::limit($evt->title, 16) }}</span>
-                        </button>
-                    @endforeach
-                @endforeach
-
-                {{-- Drag overlay per day-column --}}
-                @foreach($weekDaySplits as $dIdx => $day)
-                    <div x-show="drag.active && drag.dayDate === '{{ $day['date']->toDateString() }}'"
-                         x-cloak
-                         class="absolute pointer-events-none z-[5]"
-                         :style="(() => {
-                             const ov = dragOverlay('{{ $day['date']->toDateString() }}');
-                             if (!ov) return 'display:none';
-                             return `top:${ov.top}%;height:${ov.height}%;left:calc(56px + (100% - 56px) * {{ $dIdx }} / 7);width:calc((100% - 56px) / 7);background:color-mix(in srgb, var(--brand-icon) 20%, transparent);border:1px solid var(--brand-button);border-radius:4px;`;
-                         })()">
+                    {{-- Day-column strip (windowed; lazy prepend/append) --}}
+                    <div x-ref="days" class="flex">
+                        @foreach(($dayColumns ?? []) as $col)
+                            @include('command-center.calendar.partials._day-column', ['date' => $col['date'], 'events' => $col['events']])
+                        @endforeach
                     </div>
-                @endforeach
+                </div>
             </div>
         </div>
 
@@ -768,8 +454,8 @@
             $dayNowInRange = $dayNowHour >= $hourGridStart && $dayNowHour < $hourGridEnd;
         @endphp
 
-        <div class="max-w-3xl mx-auto rounded-md overflow-hidden"
-             style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="max-w-3xl mx-auto rounded-md overflow-hidden w-full"
+             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; overflow-y: auto;">
             {{-- Date header --}}
             <div class="text-center py-3" style="border-bottom: 1px solid var(--border);">
                 <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">{{ $anchorDate->format('l') }}</div>
@@ -795,7 +481,8 @@
                             <button type="button"
                                     data-event-id="{{ $evt->id }}"
                                     @click.stop="openEventPanel({{ $evt->id }})"
-                                    class="block w-full text-left px-3 py-2 rounded transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
+                                    data-layer="{{ $evt->layer_key ?? 'appointments' }}"
+                                    class="cal-layerable block w-full text-left px-3 py-2 rounded transition hover:opacity-80 {{ in_array($evt->status, ['completed', 'dismissed'], true) ? 'line-through opacity-70' : '' }}"
                                     style="{{ $chipStyle }}">
                                 <div class="font-medium text-sm flex items-center gap-1.5">
                                     <span>{{ $evt->title }}</span>
@@ -866,9 +553,10 @@
                                 @dragend="rescheduleEnd()"
                             @endif
                             :class="{ 'pointer-events-none': reschedule.dragging }"
+                            data-layer="{{ $evt->layer_key ?? 'appointments' }}"
                             {{-- Inline z-index (see week overlay note): the z-[3] class was not in
                                  the compiled CSS, dropping the tile below the z-1 drag layers. --}}
-                            class="absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
+                            class="cal-layerable absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
                             style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
                             title="{{ $tr }} {{ $evt->title }}">
                         <div class="flex items-center gap-2 px-2 pt-1">
@@ -901,10 +589,10 @@
 
     @elseif($currentView === 'agenda')
         {{-- ══════ AGENDA VIEW ══════ --}}
-        <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md flex flex-col" style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; overflow-y: auto;">
             {{-- Range filter bar --}}
             <form method="GET" action="{{ route('command-center.calendar') }}"
-                  class="flex flex-col gap-3 px-4 py-3"
+                  class="flex flex-col gap-3 px-4 py-3 flex-shrink-0"
                   style="border-bottom: 1px solid var(--border);">
                 <input type="hidden" name="year" value="{{ $year }}">
                 <input type="hidden" name="month" value="{{ $month }}">
@@ -989,7 +677,8 @@
                             <div class="space-y-1">
                                 @foreach($dayEvents as $evt)
                                     @php $dotColour = $ragDot[$evt->resolved_colour] ?? $defaultDot; @endphp
-                                    <div class="flex items-center gap-3 py-1.5 px-2 rounded-md transition-colors group cursor-pointer"
+                                    <div class="cal-layerable flex items-center gap-3 py-1.5 px-2 rounded-md transition-colors group cursor-pointer"
+                                         data-layer="{{ $evt->layer_key ?? 'appointments' }}"
                                          style="background: transparent;"
                                          onmouseover="this.style.background='var(--surface-2)'"
                                          onmouseout="this.style.background='transparent'"
@@ -1040,6 +729,7 @@
             @endif
         </div>
     @endif
+    </div>{{-- END grid frame (bounded scroll container) --}}
 
     {{-- CREATE EVENT PANEL is rendered below as a flex sibling of the
          calendar grid + rightPanel aside (search for "CREATE EVENT PANEL
@@ -1802,161 +1492,47 @@
 
 </div>{{-- END main calendar column --}}
 
-{{-- ══════ RIGHT SIDE PANEL ══════ --}}
-<aside x-show="rightPanelOpen" x-cloak x-transition:enter="transition ease-out duration-200" x-transition:leave="transition ease-in duration-150"
-       class="hidden lg:block flex-shrink-0 relative"
-       :style="'width:' + panelWidth + 'px; border-left: 1px solid var(--border); background: var(--surface);'">
-    {{-- Drag resize handle (outside content flow, wider hit target) --}}
-    <div class="absolute top-0 -left-[3px] w-[6px] h-full cursor-col-resize z-20 group"
-         @mousedown.prevent="startPanelResize($event)">
-        <div class="absolute top-0 left-[2px] w-[2px] h-full group-hover:bg-blue-500/50 group-active:bg-blue-500/70 transition-colors"></div>
-    </div>
-    {{-- Scrollable content (no explicit width — fills aside naturally) --}}
-    <div class="flex flex-col h-full overflow-y-auto">
-
-        {{-- Panel header --}}
-        <div class="flex items-center justify-between px-4 py-3" style="border-bottom: 1px solid var(--border);">
-            <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Panel</span>
-            <button type="button" @click="togglePanel()" class="p-1 rounded hover:opacity-70" style="color: var(--text-muted);">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+{{-- ══════ AT-164 COCKPIT — RIGHT CONTEXT PANEL (fixed ~27%; quick-create by default,
+     event details on click; scrolls its OWN contents, never the page) ══════ --}}
+<div data-tour="cal-panel" class="flex flex-col min-h-0 rounded-md relative overflow-hidden"
+     x-show="!panelCollapsed"
+     :style="'flex: 0 0 27%; max-width: 27%; min-width: 300px; background: var(--surface); border: 1px solid var(--border);'">
+    {{-- AT-164 cockpit v2 — panel RESIDENT default = AGENDA. Event click → detail
+         overlay (panelOpen); Add-Event/empty-day → New Event form overlay
+         (showCreateEvent); closing either returns here. When hidden it is removed
+         ENTIRELY (calendar full width) — a slim floating tab (below) is the reopen. --}}
+    <div x-show="!panelCollapsed" class="flex-shrink-0 flex items-center justify-between px-3 py-1.5" style="border-bottom: 1px solid var(--border);">
+        <span class="text-[11px] font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Agenda</span>
+        <div class="flex items-center gap-2">
+            <button type="button" @click="openBlank()" class="text-[11px] font-semibold" style="color: var(--brand-button);" title="Create a new event">+ New event</button>
+            <button type="button" @click="togglePanelCollapse()" class="w-5 h-5 rounded flex items-center justify-center hover:opacity-70" style="color: var(--text-muted);" title="Collapse panel">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
             </button>
-        </div>
-
-        {{-- SECTION 1: Filters --}}
-        <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
-            <button type="button" @click="panelSection.filters = !panelSection.filters"
-                    class="flex items-center justify-between w-full text-xs font-semibold" style="color: var(--text-primary);">
-                <span>Filters</span>
-                <svg class="w-3.5 h-3.5 transition-transform" :class="panelSection.filters && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-            </button>
-            <div x-show="panelSection.filters" x-transition class="mt-3 space-y-3">
-                {{-- Event Types --}}
-                <form method="GET" action="{{ route('command-center.calendar') }}" id="panel-filter-form">
-                    <input type="hidden" name="view" value="{{ $currentView }}">
-                    <input type="hidden" name="month" value="{{ $month ?? now()->month }}">
-                    <input type="hidden" name="year" value="{{ $year ?? now()->year }}">
-                    <input type="hidden" name="scope" value="{{ $scope ?? 'all' }}">
-                    @if(isset($anchorDate))
-                        <input type="hidden" name="date" value="{{ $anchorDate->toDateString() }}">
-                    @endif
-
-                    <div class="mb-3">
-                        <div class="flex items-center justify-between mb-1.5">
-                            <span class="text-[11px] font-medium" style="color: var(--text-secondary);">Event Types</span>
-                            <span class="flex gap-2">
-                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'types[]\']').forEach(c => c.checked = true); document.getElementById('panel-filter-form').submit();">All</a>
-                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'types[]\']').forEach(c => c.checked = false); document.getElementById('panel-filter-form').submit();">Clear</a>
-                            </span>
-                        </div>
-                        <div class="space-y-1 max-h-40 overflow-y-auto">
-                            @foreach($availableTypes as $type)
-                                <label class="flex items-center gap-2 px-1.5 py-0.5 rounded text-[11px] cursor-pointer" style="color: var(--text-primary);">
-                                    <input type="checkbox" name="types[]" value="{{ $type }}"
-                                           {{ empty($typeFilter) || in_array($type, $typeFilter) ? 'checked' : '' }}
-                                           onchange="document.getElementById('panel-filter-form').submit()" class="rounded w-3 h-3">
-                                    {{ ucfirst($type) }}
-                                </label>
-                            @endforeach
-                        </div>
-                    </div>
-
-                    {{-- Event Classes --}}
-                    <div>
-                        <div class="flex items-center justify-between mb-1.5">
-                            <span class="text-[11px] font-medium" style="color: var(--text-secondary);">Event Classes</span>
-                            <span class="flex gap-2">
-                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'categories[]\']').forEach(c => c.checked = true); document.getElementById('panel-filter-form').submit();">All</a>
-                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'categories[]\']').forEach(c => c.checked = false); document.getElementById('panel-filter-form').submit();">Clear</a>
-                            </span>
-                        </div>
-                        <div class="space-y-1 max-h-48 overflow-y-auto">
-                            @foreach($availableCategories as $cat)
-                                @php $swatchColour = ($colourPalettes['class'] ?? [])[$cat->event_class] ?? '#64748b'; @endphp
-                                <label class="flex items-center gap-2 px-1.5 py-0.5 rounded text-[11px] cursor-pointer" style="color: var(--text-primary);">
-                                    <input type="checkbox" name="categories[]" value="{{ $cat->event_class }}"
-                                           {{ empty($categoryFilter) || in_array($cat->event_class, $categoryFilter) ? 'checked' : '' }}
-                                           onchange="document.getElementById('panel-filter-form').submit()" class="rounded w-3 h-3">
-                                    <span class="w-3 h-3 rounded-full flex-shrink-0" style="background: {{ $swatchColour }};"></span>
-                                    {{ $cat->label }}
-                                </label>
-                            @endforeach
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        {{-- SECTION 2: Color By --}}
-        <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
-            <button type="button" @click="panelSection.colorBy = !panelSection.colorBy"
-                    class="flex items-center justify-between w-full text-xs font-semibold" style="color: var(--text-primary);">
-                <span>Color By</span>
-                <svg class="w-3.5 h-3.5 transition-transform" :class="panelSection.colorBy && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-            </button>
-            <div x-show="panelSection.colorBy" x-transition class="mt-3 space-y-2">
-                <template x-for="opt in [{v:'rag',l:'Status (RAG)'},{v:'class',l:'Event Class'},{v:'branch',l:'Branch'},{v:'agent',l:'Agent'}]" :key="opt.v">
-                    <label class="flex items-center gap-2 text-[11px] cursor-pointer px-1.5 py-1 rounded hover:opacity-80"
-                           :style="colorBy === opt.v ? 'background: var(--surface-2); color: var(--text-primary);' : 'color: var(--text-secondary);'">
-                        <input type="radio" name="colorBy" :value="opt.v" x-model="colorBy" @change="saveColorBy()" class="w-3 h-3">
-                        <span x-text="opt.l" class="font-medium"></span>
-                    </label>
-                </template>
-
-                {{-- Legend removed — filter swatches serve as legend --}}
-            </div>
-        </div>
-
-        {{-- SECTION 3: Day Preview --}}
-        <div class="px-4 py-3 flex-1 flex flex-col min-h-0">
-            <div class="text-xs font-semibold mb-2" style="color: var(--text-primary);">
-                <span x-text="selectedDate ? new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-ZA', { weekday:'short', day:'numeric', month:'short', year:'numeric' }) : 'Select a day'"></span>
-            </div>
-            <div class="flex-1 overflow-y-auto space-y-1 min-h-0" style="max-height: 300px;">
-                <template x-if="!selectedDate">
-                    <p class="text-[11px] py-4 text-center" style="color: var(--text-muted);">Click a day in the calendar to preview events here.</p>
-                </template>
-                <template x-if="selectedDate && dayPreviewEvents.length === 0">
-                    <div class="text-center py-4">
-                        <p class="text-[11px] mb-2" style="color: var(--text-muted);">No events on this day.</p>
-                        <button type="button" @click="openForDate(selectedDate)"
-                                class="text-[11px] font-medium px-2 py-1 rounded" style="background: var(--brand-button); color: #fff;">+ Add event</button>
-                    </div>
-                </template>
-                <template x-for="evt in dayPreviewEvents" :key="evt.id">
-                    <button type="button" @click="openEventPanel(evt.id)"
-                            class="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded transition hover:opacity-80"
-                            style="background: var(--surface-2);">
-                        <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + ragHex(evt.rag)"></span>
-                        <div class="min-w-0 flex-1">
-                            <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="evt.title"></div>
-                            <div class="text-[10px]" style="color: var(--text-muted);" x-text="evt.time + ' Â· ' + evt.classLabel"></div>
-                        </div>
-                    </button>
-                </template>
-            </div>
         </div>
     </div>
-</aside>
-
-{{-- ══════ CREATE EVENT PANEL (column-flex sibling — Google/Outlook layout) ══════
-     The panel docks as a real column inside the flex row. When x-show flips
-     to true, the panel takes its column space and the grid (flex-1) shrinks
-     to make room — no overlap. NO fixed positioning, NO backdrop, NO
-     click-outside-to-close. Escape closes.
-
-     CAL-2 width contract:
-       - Mobile (< sm): w-full — acts as a full-screen sheet because the
-         calendar would be too narrow alongside any side panel anyway.
-       - sm and up: fixed 420px column docked at the right edge of the
-         flex row. Calendar column's min-w-[320px] guarantees it stays
-         visible to the left even when the filter panel is also open.
-         420 + 360 (filter panel) + 320 (calendar min) = 1100px fits a
-         typical laptop viewport; on narrower screens the calendar
-         scrolls horizontally rather than collapsing to zero.
-     The flex-shrink-0 lock keeps the panel at 420px when the grid
-     tries to claim space — without it max-w-md plus flex-shrink:1
-     allowed the panel to compress below readable width on very wide
-     screens with multiple asides open. --}}
+    <div x-show="!panelCollapsed" class="flex-1 min-h-0 overflow-y-auto px-2 py-1.5">
+        <template x-if="agenda.length === 0">
+            <div class="py-8 text-center text-xs leading-relaxed" style="color: var(--text-muted);">Nothing coming up.<br>Click a day, or “+ New event”, to add one.</div>
+        </template>
+        <div class="space-y-0.5">
+            <template x-for="(it, idx) in agenda" :key="it.id + '-' + idx">
+                {{-- AT-164 Gate 6 — the panel agenda is a calendar surface: it respects the
+                     layer lens the SAME client-side way the grid does (instant + reversible). --}}
+                <button type="button" @click="openEventPanel(it.id)"
+                        x-show="calLayers.includes(it.layer || 'appointments')"
+                        class="w-full text-left flex items-start gap-2 px-2 py-1.5 rounded transition-colors hover:bg-[color:var(--surface-2)]">
+                    <span class="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5" :style="'background:' + (window.CoreXTile ? window.CoreXTile.ragColour(it.rag) : '#94a3b8')"></span>
+                    <span class="flex-1 min-w-0">
+                        <span class="block text-xs font-medium truncate" style="color: var(--text-primary);" x-text="(it.title||'').split('\n')[0]"></span>
+                        <span class="block text-[10px]" style="color: var(--text-muted);">
+                            <span x-text="it.day"></span><span x-show="it.time" x-text="' · ' + it.time"></span><span x-show="it.is_deadline"> · due</span>
+                        </span>
+                    </span>
+                </button>
+            </template>
+        </div>
+    </div>
+        {{-- AT-164 cockpit — create/detail/color-by render INSIDE the panel --}}
 <aside x-show="showCreateEvent" x-cloak
        x-transition:enter="transform transition ease-out duration-200"
        x-transition:enter-start="translate-x-full opacity-0"
@@ -1965,8 +1541,8 @@
        x-transition:leave-start="translate-x-0 opacity-100"
        x-transition:leave-end="translate-x-full opacity-0"
        @keydown.escape.window="showCreateEvent = false"
-       class="w-full sm:w-[420px] flex-shrink-0 flex flex-col overflow-hidden"
-       style="background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 12px rgba(0,0,0,0.08);">
+       class="absolute inset-0 flex flex-col overflow-hidden"
+       style="z-index: 20; background: var(--surface);">
 
     {{-- Header --}}
     <div class="px-6 py-4 flex items-center justify-between flex-shrink-0" style="border-bottom: 1px solid var(--border);">
@@ -2292,6 +1868,9 @@
                       class="w-full rounded-md px-3 py-2 text-sm"
                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
         </div>
+
+        {{-- Reminder (AT-178) — self-contained partial; binds form.reminder* keys --}}
+        @include('command-center.calendar.partials.reminder-fields')
     </form>
 
     {{-- Footer --}}
@@ -2304,11 +1883,6 @@
         </button>
     </div>
 </aside>
-
-{{-- ══════ EVENT DETAIL PANEL (column-flex sibling — Google/Outlook layout) ══════
-     Replaces the previous fixed-positioned overlay. Behaves as a column
-     beside the grid: no backdrop, no click-outside-to-close, prev/next/view
-     navigation no longer dismisses it. Escape closes. --}}
 <aside x-show="panelOpen" x-cloak
        x-transition:enter="transform transition ease-out duration-200"
        x-transition:enter-start="translate-x-full opacity-0"
@@ -2317,8 +1891,8 @@
        x-transition:leave-start="translate-x-0 opacity-100"
        x-transition:leave-end="translate-x-full opacity-0"
        @keydown.escape.window="panelOpen = false"
-       class="w-full max-w-md flex-shrink-0 flex flex-col overflow-hidden"
-       style="background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 12px rgba(0,0,0,0.08);">
+       class="absolute inset-0 flex flex-col overflow-hidden"
+       style="z-index: 20; background: var(--surface);">
 
     {{-- Scrollable content --}}
     <div class="flex-1 overflow-y-auto">
@@ -2552,6 +2126,169 @@
         </template>
     </div>
 </aside>
+<aside x-show="rightPanelOpen" x-cloak x-transition:enter="transition ease-out duration-200" x-transition:leave="transition ease-in duration-150"
+       class="absolute inset-0 flex flex-col overflow-hidden"
+       style="z-index: 20; background: var(--surface);">
+    {{-- Drag resize handle (outside content flow, wider hit target) --}}
+    <div class="absolute top-0 -left-[3px] w-[6px] h-full cursor-col-resize z-20 group"
+         @mousedown.prevent="startPanelResize($event)">
+        <div class="absolute top-0 left-[2px] w-[2px] h-full group-hover:bg-blue-500/50 group-active:bg-blue-500/70 transition-colors"></div>
+    </div>
+    {{-- Scrollable content (no explicit width — fills aside naturally) --}}
+    <div class="flex flex-col h-full overflow-y-auto">
+
+        {{-- Panel header --}}
+        <div class="flex items-center justify-between px-4 py-3" style="border-bottom: 1px solid var(--border);">
+            <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Panel</span>
+            <button type="button" @click="togglePanel()" class="p-1 rounded hover:opacity-70" style="color: var(--text-muted);">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+            </button>
+        </div>
+
+        {{-- SECTION 1: Filters --}}
+        <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
+            <button type="button" @click="panelSection.filters = !panelSection.filters"
+                    class="flex items-center justify-between w-full text-xs font-semibold" style="color: var(--text-primary);">
+                <span>Filters</span>
+                <svg class="w-3.5 h-3.5 transition-transform" :class="panelSection.filters && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+            </button>
+            <div x-show="panelSection.filters" x-transition class="mt-3 space-y-3">
+                {{-- Event Types --}}
+                <form method="GET" action="{{ route('command-center.calendar') }}" id="panel-filter-form">
+                    <input type="hidden" name="view" value="{{ $currentView }}">
+                    <input type="hidden" name="month" value="{{ $month ?? now()->month }}">
+                    <input type="hidden" name="year" value="{{ $year ?? now()->year }}">
+                    <input type="hidden" name="scope" value="{{ $scope ?? 'all' }}">
+                    @if(isset($anchorDate))
+                        <input type="hidden" name="date" value="{{ $anchorDate->toDateString() }}">
+                    @endif
+
+                    <div class="mb-3">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-[11px] font-medium" style="color: var(--text-secondary);">Event Types</span>
+                            <span class="flex gap-2">
+                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'types[]\']').forEach(c => c.checked = true); document.getElementById('panel-filter-form').submit();">All</a>
+                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'types[]\']').forEach(c => c.checked = false); document.getElementById('panel-filter-form').submit();">Clear</a>
+                            </span>
+                        </div>
+                        <div class="space-y-1 max-h-40 overflow-y-auto">
+                            @foreach($availableTypes as $type)
+                                <label class="flex items-center gap-2 px-1.5 py-0.5 rounded text-[11px] cursor-pointer" style="color: var(--text-primary);">
+                                    <input type="checkbox" name="types[]" value="{{ $type }}"
+                                           {{ empty($typeFilter) || in_array($type, $typeFilter) ? 'checked' : '' }}
+                                           onchange="document.getElementById('panel-filter-form').submit()" class="rounded w-3 h-3">
+                                    {{ ucfirst($type) }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    {{-- Event Classes --}}
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-[11px] font-medium" style="color: var(--text-secondary);">Event Classes</span>
+                            <span class="flex gap-2">
+                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'categories[]\']').forEach(c => c.checked = true); document.getElementById('panel-filter-form').submit();">All</a>
+                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'categories[]\']').forEach(c => c.checked = false); document.getElementById('panel-filter-form').submit();">Clear</a>
+                            </span>
+                        </div>
+                        <div class="space-y-1 max-h-48 overflow-y-auto">
+                            @foreach($availableCategories as $cat)
+                                @php $swatchColour = ($colourPalettes['class'] ?? [])[$cat->event_class] ?? '#64748b'; @endphp
+                                <label class="flex items-center gap-2 px-1.5 py-0.5 rounded text-[11px] cursor-pointer" style="color: var(--text-primary);">
+                                    <input type="checkbox" name="categories[]" value="{{ $cat->event_class }}"
+                                           {{ empty($categoryFilter) || in_array($cat->event_class, $categoryFilter) ? 'checked' : '' }}
+                                           onchange="document.getElementById('panel-filter-form').submit()" class="rounded w-3 h-3">
+                                    <span class="w-3 h-3 rounded-full flex-shrink-0" style="background: {{ $swatchColour }};"></span>
+                                    {{ $cat->label }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {{-- SECTION 2: Color By --}}
+        <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
+            <button type="button" @click="panelSection.colorBy = !panelSection.colorBy"
+                    class="flex items-center justify-between w-full text-xs font-semibold" style="color: var(--text-primary);">
+                <span>Color By</span>
+                <svg class="w-3.5 h-3.5 transition-transform" :class="panelSection.colorBy && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+            </button>
+            <div x-show="panelSection.colorBy" x-transition class="mt-3 space-y-2">
+                <template x-for="opt in [{v:'rag',l:'Status (RAG)'},{v:'class',l:'Event Class'},{v:'branch',l:'Branch'},{v:'agent',l:'Agent'}]" :key="opt.v">
+                    <label class="flex items-center gap-2 text-[11px] cursor-pointer px-1.5 py-1 rounded hover:opacity-80"
+                           :style="colorBy === opt.v ? 'background: var(--surface-2); color: var(--text-primary);' : 'color: var(--text-secondary);'">
+                        <input type="radio" name="colorBy" :value="opt.v" x-model="colorBy" @change="saveColorBy()" class="w-3 h-3">
+                        <span x-text="opt.l" class="font-medium"></span>
+                    </label>
+                </template>
+
+                {{-- Legend removed — filter swatches serve as legend --}}
+            </div>
+        </div>
+
+        {{-- SECTION 3: Day Preview --}}
+        <div class="px-4 py-3 flex-1 flex flex-col min-h-0">
+            <div class="text-xs font-semibold mb-2" style="color: var(--text-primary);">
+                <span x-text="selectedDate ? new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-ZA', { weekday:'short', day:'numeric', month:'short', year:'numeric' }) : 'Select a day'"></span>
+            </div>
+            <div class="flex-1 overflow-y-auto space-y-1 min-h-0" style="max-height: 300px;">
+                <template x-if="!selectedDate">
+                    <p class="text-[11px] py-4 text-center" style="color: var(--text-muted);">Click a day in the calendar to preview events here.</p>
+                </template>
+                <template x-if="selectedDate && dayPreviewEvents.length === 0">
+                    <div class="text-center py-4">
+                        <p class="text-[11px] mb-2" style="color: var(--text-muted);">No events on this day.</p>
+                        <button type="button" @click="openForDate(selectedDate)"
+                                class="text-[11px] font-medium px-2 py-1 rounded" style="background: var(--brand-button); color: #fff;">+ Add event</button>
+                    </div>
+                </template>
+                <template x-for="evt in dayPreviewEvents" :key="evt.id">
+                    <button type="button" @click="openEventPanel(evt.id)"
+                            x-show="calLayers.includes(evt.layer || 'appointments')"
+                            class="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded transition hover:opacity-80"
+                            style="background: var(--surface-2);">
+                        <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + ragHex(evt.rag)"></span>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="evt.title"></div>
+                            <div class="text-[10px]" style="color: var(--text-muted);" x-text="evt.time + ' Â· ' + evt.classLabel"></div>
+                        </div>
+                    </button>
+                </template>
+            </div>
+        </div>
+    </div>
+</aside>
+</div>
+
+{{-- ══════ RIGHT SIDE PANEL ══════ --}}
+
+{{-- ══════ CREATE EVENT PANEL (column-flex sibling — Google/Outlook layout) ══════
+     The panel docks as a real column inside the flex row. When x-show flips
+     to true, the panel takes its column space and the grid (flex-1) shrinks
+     to make room — no overlap. NO fixed positioning, NO backdrop, NO
+     click-outside-to-close. Escape closes.
+
+     CAL-2 width contract:
+       - Mobile (< sm): w-full — acts as a full-screen sheet because the
+         calendar would be too narrow alongside any side panel anyway.
+       - sm and up: fixed 420px column docked at the right edge of the
+         flex row. Calendar column's min-w-[320px] guarantees it stays
+         visible to the left even when the filter panel is also open.
+         420 + 360 (filter panel) + 320 (calendar min) = 1100px fits a
+         typical laptop viewport; on narrower screens the calendar
+         scrolls horizontally rather than collapsing to zero.
+     The flex-shrink-0 lock keeps the panel at 420px when the grid
+     tries to claim space — without it max-w-md plus flex-shrink:1
+     allowed the panel to compress below readable width on very wide
+     screens with multiple asides open. --}}
+
+{{-- ══════ EVENT DETAIL PANEL (column-flex sibling — Google/Outlook layout) ══════
+     Replaces the previous fixed-positioned overlay. Behaves as a column
+     beside the grid: no backdrop, no click-outside-to-close, prev/next/view
+     navigation no longer dismisses it. Escape closes. --}}
 
 {{-- ══════ RECURRING EDIT/DELETE SCOPE MODAL ══════
      Shown when saving an edit to (or deleting) a recurring series. The user must
@@ -2614,7 +2351,136 @@
     </div>
 </div>
 
+    {{-- AT-164 full-calendar mode — slim floating REOPEN tab, shown only when the panel
+         is fully hidden. The calendar occupies the full width; this obvious tab at the
+         right edge brings the agenda panel back. Persisted state, reset by Reset view. --}}
+    <button type="button" x-show="panelCollapsed" x-cloak @click="togglePanelCollapse()"
+            class="absolute top-2 right-0 flex flex-col items-center gap-1 py-2 px-1 rounded-l-md hover:opacity-90 transition-opacity"
+            style="z-index: 25; background: var(--surface-2); border: 1px solid var(--border); border-right: none; color: var(--text-muted);"
+            title="Show agenda panel">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+        <span class="text-[9px] font-bold uppercase tracking-wider" style="writing-mode: vertical-rl;">Agenda</span>
+    </button>
+
 </div>{{-- END flex row (grid + panel) --}}
+
+{{-- ══════ AT-164 COCKPIT — BOTTOM TILE STRIP (fixed height; N EQUAL columns; NEVER
+     scrolls horizontally and never grows; each tile scrolls its own list) ══════ --}}
+<section x-data="calendarDeck()" x-init="init()" data-tour="cal-deck"
+         @pointermove.window="stripResizeMove($event); ratioMove($event)"
+         @pointerup.window="stripResizeEnd(); ratioEnd()"
+         class="flex-shrink-0 px-4 lg:px-6 pb-2 relative" style="background: var(--bg);">
+    {{-- AT-164 full-calendar mode — EMPTY DECK. With zero tiles the strip disappears
+         entirely (the calendar block takes the full height); a slim, findable restore
+         bar remains so the deck is never lost. "Show deck" re-opens it in edit mode to
+         pick tiles. Persisted per user (empty layout) and reset by Reset view. --}}
+    <div x-show="cards.length === 0 && !editing" x-cloak
+         class="rounded-md px-3 py-1 flex items-center justify-between"
+         style="background: var(--surface); border: 1px dashed var(--border);">
+        <div class="flex items-center gap-2 min-w-0" style="color: var(--text-muted);">
+            <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg>
+            <span class="text-xs font-semibold">Deck hidden</span>
+        </div>
+        <button type="button" @click="editing = true" class="corex-btn-outline text-[11px] py-0.5" title="Show the deck and pick tiles">Show deck</button>
+    </div>
+
+    {{-- Top-edge resize handle — drag to change the calendar/strip vertical split
+         (inline critical styling; pointer events). Hidden when collapsed OR empty. --}}
+    <div x-show="!stripCollapsed && (cards.length > 0 || editing)" @pointerdown="stripResizeStart($event)"
+         class="h-2.5 flex items-center justify-center cursor-ns-resize" title="Drag to resize the calendar / deck split">
+        <div class="w-10 h-1 rounded-full transition-colors" style="background: var(--border);" :style="_resize.on ? 'background: var(--brand-button);' : ''"></div>
+    </div>
+    <div class="rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border);"
+         x-show="cards.length > 0 || editing">
+        {{-- Compact header --}}
+        <div class="flex items-center justify-between gap-3" :class="stripCollapsed ? '' : 'mb-1.5'">
+            <div class="flex items-center gap-2 min-w-0">
+                <button type="button" @click="toggleStripCollapse()" class="w-5 h-5 rounded flex items-center justify-center hover:opacity-70 flex-shrink-0" style="color: var(--text-muted);" :title="stripCollapsed ? 'Expand deck' : 'Collapse deck'">
+                    <svg class="w-4 h-4 transition-transform" :class="stripCollapsed && '-rotate-90'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </button>
+                <h2 class="text-xs font-semibold truncate flex-shrink-0" style="color: var(--text-primary);">My Deck</h2>
+                <span class="text-[11px] flex-shrink-0" style="color: var(--text-muted);" x-text="'· ' + cards.length + '/' + slots"></span>
+                {{-- Collapsed: tile name chips + count badges (one slim bar) --}}
+                <div x-show="stripCollapsed" x-cloak class="flex items-center gap-1.5 overflow-x-auto min-w-0">
+                    <template x-for="c in cards" :key="'chip'+c.card_id">
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] flex-shrink-0" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                            <span class="truncate" style="max-width: 120px;" x-text="c.title"></span>
+                            <span x-show="(c.count||0)>0" class="font-bold" :style="'color:' + (window.CoreXTile ? window.CoreXTile.accent(c) : 'var(--brand-button)')" x-text="c.count>99?'99+':c.count"></span>
+                        </span>
+                    </template>
+                </div>
+                <span x-show="saving" x-cloak class="text-[11px] flex-shrink-0" style="color: var(--text-muted);">Saving…</span>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0" x-show="!stripCollapsed">
+                {{-- Reset the whole cockpit arrangement to the role default --}}
+                <button type="button" data-tour="cal-saveview" @click="resetView()" class="corex-btn-outline text-[11px] py-0.5" title="Reset the whole cockpit arrangement to the default">Reset view</button>
+                <div x-show="editing" x-cloak class="relative" @click.outside="pickerOpen = false">
+                    <button type="button" @click="pickerOpen = !pickerOpen" :disabled="!canAddMore"
+                            class="corex-btn-outline text-[11px] py-0.5 disabled:opacity-40"
+                            :title="canAddMore ? 'Add a tile' : 'Deck is full ('+slots+' slots)'">+ Add tile</button>
+                    <div x-show="pickerOpen" x-cloak class="absolute right-0 bottom-full mb-1 w-64 max-h-72 overflow-y-auto rounded-md py-1"
+                         style="z-index: 30; background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.35);">
+                        <template x-if="availableToAdd.length === 0"><div class="px-3 py-2 text-xs" style="color: var(--text-muted);">All tiles are on your Deck.</div></template>
+                        <template x-for="t in availableToAdd" :key="t.tile_id">
+                            <button type="button" @click="addTile(t.tile_id)" class="w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors hover:bg-[color:var(--surface)]" style="color: var(--text-secondary);">
+                                <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="t.launch ? 'background: var(--brand-button);' : 'background: var(--text-muted);'"></span>
+                                <span class="truncate" x-text="t.title"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <button type="button" x-show="editing" x-cloak @click="reset()" class="corex-btn-outline text-[11px] py-0.5" title="Reset to default layout">Reset</button>
+                <button type="button" @click="toggleEdit()" class="corex-btn-outline text-[11px] py-0.5 inline-flex items-center gap-1" :style="editing ? 'background: var(--brand-button); color:#fff;' : ''">
+                    <span x-text="editing ? 'Done' : 'Edit Deck'"></span>
+                </button>
+            </div>
+        </div>
+
+        {{-- Empty deck --}}
+        <template x-if="!stripCollapsed && cards.length === 0">
+            <div class="py-4 text-center">
+                <p class="text-xs" style="color: var(--text-muted);">Your Deck is empty.</p>
+                <button type="button" @click="editing = true" class="corex-btn-outline text-[11px] mt-1">Add tiles</button>
+            </div>
+        </template>
+
+        {{-- N columns — widths from the saved per-user ratios (equal by default); the
+             column count always matches the tile count so there is never a horizontal
+             scrollbar. Height comes from the (draggable) strip split. --}}
+        @once
+        <style>
+            .cal-deck-grid { display: grid; gap: 0.75rem; }
+            .cal-deck-grid > * { min-width: 0; }
+        </style>
+        @endonce
+        <div class="cal-deck-grid" x-show="!stripCollapsed && cards.length > 0" x-ref="deckGrid"
+             :style="'grid-template-columns:' + gridTemplate() + '; height:' + (stripHeight - 6) + 'px;'">
+            <template x-for="(card, idx) in cards" :key="card.card_id">
+                <div class="relative"
+                     :draggable="editing"
+                     @dragstart="dragStart(idx, $event)" @dragover.prevent="dragOver(idx)" @drop.prevent="drop(idx)" @dragend="dragEndDeck()"
+                     :style="editing ? 'cursor: move;' : ''"
+                     :class="editing && dragIndex === idx && 'opacity-50'">
+                    {{-- Column-ratio resize handle (between this tile and the next) --}}
+                    <div x-show="idx < cards.length - 1" @pointerdown="ratioStart(idx, $event)"
+                         class="absolute top-0 flex items-center justify-center cursor-col-resize" style="right: -0.5rem; width: 0.75rem; height: 100%; z-index: 15;" title="Drag to resize columns">
+                        <div class="rounded-full transition-colors" style="width: 2px; height: 2rem; background: var(--border);" :style="(_ratio.on && _ratio.i === idx) ? 'background: var(--brand-button);' : ''"></div>
+                    </div>
+                    <div x-show="editing" x-cloak class="absolute top-1.5 right-1.5 z-20 flex items-center gap-1">
+                        <span class="w-5 h-5 rounded flex items-center justify-center" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);" title="Drag to reorder">
+                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+                        </span>
+                        <button type="button" @click="removeTile(card.card_id)" class="w-5 h-5 rounded flex items-center justify-center transition hover:opacity-80"
+                                style="background: var(--surface); border: 1px solid var(--border); color: var(--ds-crimson, #c41e3a);" title="Remove from Deck">
+                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                    <x-tile :var="'card'" :compact="true" />
+                </div>
+            </template>
+        </div>
+    </div>
+</section>
 </div>{{-- END outer x-data wrapper --}}
 
 <script>
@@ -2626,7 +2492,9 @@ function calendarPage() {
         selfConflicts: [],
         _selfConflictTimer: null,
         form: { title: '', category: '', startDate: '', startTime: '', endDate: '', endTime: '', description: '', allDay: false, eventNature: 'actionable',
-                recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '' },
+                recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '',
+                // AT-178 reminder keys. Defaults: popup ON, email OFF, 60 min (Johan).
+                sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false },
         // Recurring edit/delete scope modal state.
         recurScopeModalOpen: false,
         recurScopeMode: 'edit',        // 'edit' | 'delete'
@@ -2652,6 +2520,16 @@ function calendarPage() {
         submitting: false,
         panelOpen: false,
         panelData: {},
+        contextMode: 'create',
+        // AT-164 cockpit v2 — panel resident agenda + per-user panel collapse.
+        agenda: @json($agenda ?? []),
+        // AT-164 Gate 6 — the active layer set, mirrored here so the panel agenda
+        // (a calendar surface) can hide/show its items reactively when the Layers
+        // control toggles. Kept in sync via the calendar:layers-changed event.
+        calLayers: @json($activeLayers ?? []),
+        panelCollapsed: {{ !empty($cockpit['panel_collapsed']) ? 'true' : 'false' }},
+        _panelSaveTimer: null,
+        quick: { title: '', category: '{{ ($manualCreatableClasses->first()->event_class ?? 'viewing') }}', date: '{{ ($anchorDate ?? now())->toDateString() }}', time: '09:00', allDay: false, saving: false, error: '', ok: false },
         helpOpen: false,
         drag: { active: false, dayDate: null, startHour: null, startHalf: null, currentHour: null, currentHalf: null },
         reschedule: { dragging: false, eventId: null, originalDate: null },
@@ -2700,6 +2578,7 @@ function calendarPage() {
                         'time' => $e->all_day ? 'All day' : $e->event_date->format('H:i'),
                         'rag' => $e->resolved_colour ?? 'neutral',
                         'classLabel' => $e->category ?? '',
+                        'layer' => $e->layer_key ?? 'appointments', // AT-164 Gate 6
                     ];
                 }
             }
@@ -2714,6 +2593,7 @@ function calendarPage() {
                         'time' => 'All day',
                         'rag' => $bar['event']->resolved_colour ?? 'neutral',
                         'classLabel' => $bar['event']->category ?? '',
+                        'layer' => $bar['layer'] ?? ($bar['event']->layer_key ?? 'appointments'), // AT-164 Gate 6
                     ];
                     $c->addDay();
                 }
@@ -2763,7 +2643,8 @@ function calendarPage() {
 
         openForDate(dateStr) {
             const nextQ = this.nextQuarterHour();
-            this.form = { title: '', category: '', startDate: dateStr, startTime: nextQ, endDate: dateStr, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable' };
+            this.form = { title: '', category: '', startDate: dateStr, startTime: nextQ, endDate: dateStr, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable',
+                          sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false };
             this.endManuallyEdited = false;
             this.editMode = false;
             this.editingEventId = null;
@@ -2884,13 +2765,15 @@ function calendarPage() {
             this.selectedDate = dateStr;
             this.pendingCreateDate = dateStr;
             if (this.showCreateEvent) {
+                // Form already open in the panel — just move its date.
                 this.form.startDate = dateStr;
                 if (time) this.form.startTime = time;
-                // Push end forward if it's now before start.
-                if (this.form.endDate && this.form.endDate < dateStr) {
-                    this.form.endDate = dateStr;
-                    this.endManuallyEdited = false;
-                }
+                if (this.form.endDate && this.form.endDate < dateStr) { this.form.endDate = dateStr; this.endManuallyEdited = false; }
+            } else if (!this.panelOpen) {
+                // AT-164 cockpit — empty day/slot click opens the FULL New Event form
+                // INSIDE the right panel (Johan's model), pre-filled with the clicked date.
+                this.openBlank();
+                if (time) { this.form.startTime = time; this.form.endTime = this.addHour(time); }
             }
         },
         openBlank() {
@@ -2906,13 +2789,15 @@ function calendarPage() {
             const dateToUse = this.pendingCreateDate || this.selectedDate || today;
             const nextQ = this.nextQuarterHour();
             this.form = { title: '', category: '', startDate: dateToUse, startTime: nextQ, endDate: dateToUse, endTime: this.addHour(nextQ), description: '', allDay: false, eventNature: 'actionable',
-                          recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '' };
+                          recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '',
+                          sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false };
             this.endManuallyEdited = false;
             this.editMode = false;
             this.editingEventId = null;
             this.editIsRecurring = false;
             this.editOccurrenceDate = '';
             this.submitting = false;
+            this.panelCollapsed = false; // opening the create form brings the (possibly hidden) panel back
             this.showCreateEvent = true;
             this.clearStalePickerState();
         },
@@ -2976,6 +2861,7 @@ function calendarPage() {
                     endTime: prefillClass === 'viewing' ? '15:00' : '10:00',
                     description: '',
                     allDay: false,
+                    sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false,
                 };
                 this.editMode = false;
                 this.editingEventId = null;
@@ -3080,6 +2966,13 @@ function calendarPage() {
 
         // â”€â”€ Right Panel â”€â”€
         initPanel() {
+            // AT-164 Gate 6 — keep the panel agenda's layer lens in sync with the Layers
+            // control. The layerFilter component broadcasts its active set; we mirror it
+            // so the x-for'd agenda items hide/show reactively (calendar surface).
+            window.addEventListener('calendar:layers-changed', (e) => {
+                if (Array.isArray(e.detail)) this.calLayers = [...e.detail];
+            });
+
             // Part B — recheck the ORGANIZER's own schedule whenever the event's
             // time changes (create OR edit) → surfaces a self double-booking as a
             // soft warning. Watches catch user edits AND programmatic sets
@@ -3291,6 +3184,13 @@ function calendarPage() {
                 recurCount: rc ? (rc.count || 10) : 10,
                 recurScope: '',
                 occurrenceDate: '',
+                // AT-178 — round-trip the saved reminder config. Offsets is an array
+                // in the schema; the single-lead-time UI uses the first (or effective
+                // default). Channels are the effective popup/email set.
+                sendReminder: d.send_reminder !== undefined ? !!d.send_reminder : true,
+                reminderOffset: (Array.isArray(d.reminder_offsets) && d.reminder_offsets.length) ? Number(d.reminder_offsets[0]) : 60,
+                reminderPopup: Array.isArray(d.reminder_channels) ? d.reminder_channels.includes('popup') : true,
+                reminderEmail: Array.isArray(d.reminder_channels) ? d.reminder_channels.includes('email') : false,
             };
             this.endManuallyEdited = !!endD;
             this.editMode = true;
@@ -3696,11 +3596,12 @@ function calendarPage() {
         },
 
         openEventPanel(eventId) {
-            // ITEM 2 \u2014 only one side panel at a time. Opening a detail panel
-            // always closes the create panel (the $watch('panelOpen') below is
-            // the reactive backstop; this makes the intent explicit at the call).
+            // AT-164 cockpit \u2014 a clicked event populates the FIXED right context panel
+            // (not a slide-over). The full detail/edit slide-over opens from there via
+            // "Full details / Edit". panelData is loaded exactly as before.
+            this.panelCollapsed = false; // opening detail brings the (possibly hidden) panel back
             this.showCreateEvent = false;
-            this.panelOpen = true;
+            this.panelOpen = true;  // full detail renders INSIDE the panel (absolute-inset child)
             this.panelData = { title: 'Loading\u2026', colour: null, days_diff: 0 };
 
             // Synthetic occurrence id (>= 1e8) \u2192 real parent id + ?occurrence=date,
@@ -3719,6 +3620,68 @@ function calendarPage() {
                 this.panelData = { title: 'Could not load event', colour: null, days_diff: 0 };
                 console.warn('Calendar event load failed:', err);
             });
+        },
+
+        // AT-164 cockpit — quick-create from the right context panel.
+        async quickCreateSubmit() {
+            this.quick.error = ''; this.quick.ok = false; this.quick.saving = true;
+            try {
+                const fd = new FormData();
+                fd.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+                fd.append('title', this.quick.title);
+                fd.append('category', this.quick.category);
+                fd.append('event_date', this.quick.allDay ? this.quick.date : (this.quick.date + 'T' + (this.quick.time || '09:00')));
+                fd.append('all_day', this.quick.allDay ? '1' : '0');
+                const r = await fetch('{{ route('command-center.calendar.store') }}', {
+                    method: 'POST', body: fd,
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                if (r.ok) {
+                    this.quick.ok = true; this.quick.title = '';
+                    window.dispatchEvent(new Event('focus')); // repaint grid + deck
+                    setTimeout(() => { this.quick.ok = false; }, 2500);
+                } else {
+                    let msg = 'Could not create the event.';
+                    try { const j = await r.json(); if (j.errors) msg = Object.values(j.errors).flat()[0] || msg; else if (j.message) msg = j.message; } catch (e) {}
+                    this.quick.error = msg;
+                }
+            } catch (e) { this.quick.error = 'Network error — please retry.'; }
+            this.quick.saving = false;
+        },
+
+        // AT-164 cockpit — mark the panel's event complete without opening the slide-over.
+        completeFromContext() {
+            if (!this.panelData || !this.panelData.id) return;
+            const fd = new FormData();
+            fd.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+            fetch('/corex/command-center/calendar/' + this.panelData.id + '/complete', {
+                method: 'POST', body: fd, headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
+            }).then(r => { if (r.ok) { this.panelData.status = 'completed'; window.dispatchEvent(new Event('focus')); } });
+        },
+
+        // AT-164 cockpit v2 — right-panel collapse (persisted, debounced).
+        togglePanelCollapse() {
+            this.panelCollapsed = !this.panelCollapsed;
+            if (this.panelCollapsed) { this.showCreateEvent = false; this.panelOpen = false; }
+            clearTimeout(this._panelSaveTimer);
+            this._panelSaveTimer = setTimeout(() => {
+                fetch('{{ route('command-center.calendar.cockpit.save') }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ panel_collapsed: this.panelCollapsed }),
+                }).catch(() => {});
+            }, 400);
+        },
+
+        // AT-164 cockpit v2 — reset the WHOLE arrangement to the role default, then reload.
+        resetCockpit() {
+            fetch('{{ route('command-center.calendar.cockpit.reset') }}', {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, 'Accept': 'application/json' },
+                credentials: 'same-origin',
+            }).then(() => { const u = new URL(window.location.href); u.searchParams.delete('anchor'); window.location.href = u.pathname; });
         },
 
         // \u2500\u2500 Recurrence helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -4044,6 +4007,728 @@ function contactSearch() {
                     this.chosen.push(o);
                 }
             });
+        },
+    };
+}
+
+/* ══════ AT-164 Gate 4/7 — Tile Deck controller ══════
+   Per-user Deck of tiles below the grid: pick/reorder/save/reset, with a live-RAG
+   refresh loop (focus/visibilitychange + light poll) so tile RAG stays current
+   without a full reload. Server is authoritative — every structural change POSTs
+   and re-reads the built cards. */
+function calendarDeck() {
+    return {
+        editing: false,
+        saving: false,
+        pickerOpen: false,
+        dragIndex: null,
+        cards: @json($deck ?? []),
+        catalog: @json($deckCatalog ?? []),
+        layout: @json($deckLayout ?? []),
+        slots: {{ (int) ($deckSlots ?? 4) }},
+        pollSeconds: {{ (int) ($pollSeconds ?? 60) }},
+        _pollTimer: null,
+        _csrf: document.querySelector('meta[name="csrf-token"]')?.content || '',
+        _urls: {
+            deck:  '{{ route('command-center.calendar.deck') }}',
+            save:  '{{ route('command-center.calendar.deck.save') }}',
+            reset: '{{ route('command-center.calendar.deck.reset') }}',
+            cockpit: '{{ route('command-center.calendar.cockpit.save') }}',
+        },
+        // AT-164 cockpit v2 — resizable/collapsible strip + adjustable tile ratios.
+        cockpit: @json($cockpit ?? []),
+        _cockpitTimer: null,
+        _resize: { on: false, y: 0, h: 0 },
+        _ratio: { on: false, i: -1, x: 0, a: 0, b: 0 },
+
+        get stripCollapsed() { return !!this.cockpit.strip_collapsed; },
+        // Clamp to the CURRENT viewport so a height saved on a big screen can't push the
+        // calendar below ~45vh on a smaller one (section chrome ≈ 66px; strip ≤ 40vh).
+        get stripHeight() {
+            const maxTile = Math.max(120, Math.round(window.innerHeight * 0.40) - 66);
+            return Math.max(120, Math.min(maxTile, this.cockpit.strip_height || 176));
+        },
+        // grid-template-columns from saved ratios (fallback: equal columns).
+        gridTemplate() {
+            const n = this.cards.length || 1;
+            let r = Array.isArray(this.cockpit.tile_ratios) ? this.cockpit.tile_ratios.slice(0, n) : [];
+            while (r.length < n) r.push(1);
+            return r.map(v => (Math.max(0.2, +v || 1)) + 'fr').join(' ');
+        },
+        persistCockpit() {
+            clearTimeout(this._cockpitTimer);
+            this._cockpitTimer = setTimeout(() => {
+                fetch(this._urls.cockpit, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        strip_height: Math.round(this.stripHeight),
+                        strip_collapsed: this.stripCollapsed,
+                        tile_ratios: (this.cockpit.tile_ratios || []).map(v => +v),
+                    }),
+                }).catch(() => {});
+            }, 450);
+        },
+        toggleStripCollapse() { this.cockpit.strip_collapsed = !this.cockpit.strip_collapsed; this.persistCockpit(); },
+        // Strip vertical resize (pointer) — bounded so the calendar never drops below ~45vh.
+        stripResizeStart(e) {
+            this._resize = { on: true, y: e.clientY, h: this.stripHeight };
+            e.preventDefault();
+        },
+        stripResizeMove(e) {
+            if (!this._resize.on) return;
+            const dy = this._resize.y - e.clientY;         // drag up = taller strip
+            // Cap the TILE-AREA height so the whole strip SECTION (tile area + ~66px of
+            // header/padding/handle chrome) never exceeds ~40vh — which keeps the
+            // calendar block above ~45vh at both proof sizes.
+            const maxTile = Math.max(120, Math.round(window.innerHeight * 0.40) - 66);
+            const h = Math.max(120, Math.min(maxTile, this._resize.h + dy));
+            this.cockpit.strip_height = h;
+        },
+        stripResizeEnd() { if (this._resize.on) { this._resize.on = false; this.persistCockpit(); } },
+        // Tile column-ratio resize (pointer) between column i and i+1.
+        ratioStart(i, e) {
+            const n = this.cards.length;
+            let r = Array.isArray(this.cockpit.tile_ratios) ? this.cockpit.tile_ratios.slice(0, n) : [];
+            while (r.length < n) r.push(1);
+            this.cockpit.tile_ratios = r;
+            this._ratio = { on: true, i, x: e.clientX, a: r[i], b: r[i + 1] };
+            e.preventDefault(); e.stopPropagation();
+        },
+        ratioMove(e) {
+            if (!this._ratio.on) return;
+            const grid = this.$refs.deckGrid; if (!grid) return;
+            const per = grid.getBoundingClientRect().width / Math.max(1, this.cards.length);
+            const dfr = (e.clientX - this._ratio.x) / Math.max(1, per);   // px → fr
+            const a = Math.max(0.3, this._ratio.a + dfr);
+            const b = Math.max(0.3, this._ratio.b - dfr);
+            const r = this.cockpit.tile_ratios.slice();
+            r[this._ratio.i] = a; r[this._ratio.i + 1] = b;
+            this.cockpit.tile_ratios = r;
+        },
+        ratioEnd() { if (this._ratio.on) { this._ratio.on = false; this.persistCockpit(); } },
+        // AT-164 cockpit v2 — reset the WHOLE arrangement to the role default + reload.
+        resetView() {
+            fetch('{{ route('command-center.calendar.cockpit.reset') }}', {
+                method: 'POST', headers: { 'X-CSRF-TOKEN': this._csrf, 'Accept': 'application/json' }, credentials: 'same-origin',
+            }).then(() => { const u = new URL(location.href); u.searchParams.delete('anchor'); location.href = u.pathname; });
+        },
+
+        init() {
+            // AT-164 SELF-HEAL (Johan 05:45): if a previously-persisted strip height is
+            // egregiously out of range (e.g. a pre-clamp stuck arrangement), correct it to
+            // the viewport-safe value AND persist the correction so it recovers permanently.
+            // (The stripHeight getter also clamps DISPLAY per-viewport, so headers can never
+            // be pushed off regardless.)
+            const raw = this.cockpit.strip_height;
+            if (raw != null && (!isFinite(raw) || raw > 450 || raw < 100)) {
+                this.cockpit.strip_height = this.stripHeight;
+                this.persistCockpit();
+            }
+            // Live-RAG loop (Gate 7): refetch on focus/visibility + a light poll.
+            window.addEventListener('focus', () => this.refresh());
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refresh(); });
+            // AT-164 Gate 6 (defect fix) — the Deck deliberately does NOT listen for layer
+            // changes. Deck tiles are independent instruments whose content contracts are
+            // their own (Notifications shows all notifications, Upcoming all appointments,
+            // etc.), never a projection of the calendar's layer lens (Johan's doctrine).
+            const secs = Math.max(15, this.pollSeconds || 60);
+            this._pollTimer = setInterval(() => { if (!document.hidden && !this.editing) this.refresh(); }, secs * 1000);
+        },
+
+        get availableToAdd() {
+            const used = new Set(this.layout);
+            return this.catalog.filter(t => !used.has(t.tile_id));
+        },
+        get canAddMore() { return this.layout.length < this.slots; },
+
+        toggleEdit() { this.editing = !this.editing; if (!this.editing) this.pickerOpen = false; },
+
+        async _post(url, body) {
+            this.saving = true;
+            try {
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(body || {}),
+                });
+                if (r.ok) {
+                    const data = await r.json();
+                    if (Array.isArray(data.layout)) this.layout = data.layout;
+                    if (Array.isArray(data.cards))  this.cards = data.cards;
+                }
+            } catch (e) { console.warn('Deck save failed:', e); }
+            this.saving = false;
+        },
+
+        async addTile(id) {
+            if (!this.canAddMore) return;
+            this.pickerOpen = false;
+            const next = [...this.layout, id];
+            await this._post(this._urls.save, { tiles: next });
+        },
+        async removeTile(id) {
+            const next = this.layout.filter(x => x !== id);
+            await this._post(this._urls.save, { tiles: next });
+        },
+        async reset() { await this._post(this._urls.reset, {}); },
+
+        // Drag reorder (edit mode)
+        dragStart(idx, ev) { if (!this.editing) return; this.dragIndex = idx; try { ev.dataTransfer.effectAllowed = 'move'; } catch (e) {} },
+        dragOver(idx) { /* handled by @dragover.prevent to allow drop */ },
+        drop(idx) {
+            if (!this.editing || this.dragIndex === null || this.dragIndex === idx) { this.dragIndex = null; return; }
+            const moved = this.cards.splice(this.dragIndex, 1)[0];
+            this.cards.splice(idx, 0, moved);
+            this.layout = this.cards.map(c => c.card_id);
+            this.dragIndex = null;
+            this._post(this._urls.save, { tiles: this.layout });
+        },
+        dragEndDeck() { this.dragIndex = null; },
+
+        // Live refresh — re-read built cards (RAG may have changed elsewhere).
+        async refresh() {
+            if (this.editing) return; // never clobber an in-progress edit
+            try {
+                const r = await fetch(this._urls.deck, {
+                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf },
+                    credentials: 'same-origin',
+                });
+                if (r.ok) {
+                    const data = await r.json();
+                    if (Array.isArray(data.cards)) this.cards = data.cards;
+                    if (Array.isArray(data.layout)) this.layout = data.layout;
+                    if (typeof data.slots === 'number') this.slots = data.slots;
+                }
+            } catch (e) { /* silent — degrade, never break the page */ }
+        },
+    };
+}
+
+/* ══════ AT-164 Gate 5 — continuous-scroll month controller ══════
+   Month weeks flow vertically and continuously (Outlook-web). The initial month is
+   server-rendered; earlier/later months lazy-load through /calendar/month-block (the
+   SAME _month-block partial), so there is no second JS cell renderer and every window
+   keeps full interaction parity (drag-reschedule, chips, deadline popovers, bars).
+   Sticky month labels come free from CSS position:sticky in the partial. Today anchor,
+   jump-to-date and ?anchor scroll-restore included. */
+function continuousMonth() {
+    return {
+        loadingTop: false,
+        loadingBottom: false,
+        minWeek: null,    // 'YYYY-MM-DD' Monday of the earliest loaded week
+        maxWeek: null,    // 'YYYY-MM-DD' Monday of the latest loaded week
+        monthLabel: '',   // sticky label — the month occupying the viewport (follows scroll)
+        _params: '',
+        _restoreAnchor: null,
+        _anchorTimer: null,
+        _ready: false,    // gate lazy-load until the initial anchor scroll has settled
+        // Gate 7 — live-RAG loop
+        pollSeconds: {{ (int) ($pollSeconds ?? 60) }},
+        _gridPoll: null,
+        _refreshingGrid: false,
+
+        /* AT-164 single week-stream — the month view is ONE continuous stream of week
+           rows (each calendar week exactly once; months flow into each other; boundaries
+           MARKED not repeated). Windows are addressed by WEEK (a Monday date). ALL
+           programmatic scrolling targets ONLY this frame's inner scroller via scrollTop
+           — never scrollIntoView, which would drag the overflow-hidden page shell and
+           strand the toolbar/banner off-screen (the outer-scroll defect). */
+
+        // ── date helpers (local-time, no TZ drift) ──
+        _fmt(dt) {
+            const y = dt.getFullYear(), m = String(dt.getMonth() + 1).padStart(2, '0'), d = String(dt.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        },
+        _mondayOf(dateStr) {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            const dow = (dt.getDay() + 6) % 7; // 0=Mon … 6=Sun
+            dt.setDate(dt.getDate() - dow);
+            return this._fmt(dt);
+        },
+        _addWeeks(mondayStr, n) {
+            const [y, m, d] = mondayStr.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            dt.setDate(dt.getDate() + n * 7);
+            return this._fmt(dt);
+        },
+        // A week's owning month = the month of its Thursday (ISO convention) — a stable,
+        // intuitive transition point at a boundary week.
+        _monthLabelFor(mondayStr) {
+            const [y, m, d] = mondayStr.split('-').map(Number);
+            const th = new Date(y, m - 1, d + 3);
+            return th.toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
+        },
+
+        initMonth() {
+            this._syncBounds();
+            if (!this.minWeek) { this.minWeek = this.maxWeek = this._mondayOf(this._fmt(new Date())); }
+
+            // Carry the active filters/scope to the week-rows endpoint.
+            const url = new URL(window.location.href);
+            const carry = new URLSearchParams();
+            for (const k of ['scope']) if (url.searchParams.get(k)) carry.set(k, url.searchParams.get(k));
+            for (const k of ['types', 'categories']) {
+                url.searchParams.getAll(k + '[]').forEach(v => carry.append(k + '[]', v));
+                url.searchParams.getAll(k).forEach(v => carry.append(k + '[]', v));
+            }
+            this._params = carry.toString();
+
+            // Scroll-restore: ?anchor=YYYY-MM-DD returns to the same week after refresh;
+            // otherwise open on the anchor month's first week (weeks are preloaded ABOVE
+            // it, so without this the frame would open scrolled to an earlier week).
+            this._restoreAnchor = url.searchParams.get('anchor');
+            const anchorWeek = '{{ $anchorWeek ?? '' }}';
+            this.monthLabel = this._monthLabelFor(anchorWeek || this.minWeek);
+            // Land on the anchor week BEFORE enabling lazy-load — otherwise the scroll
+            // event from positioning fires loadPrev/loadNext, which prepends/appends and
+            // drifts the viewport off the anchor (the classic open-at race). A double rAF
+            // lets layout settle so the scrollTop math is exact.
+            this.$nextTick(() => {
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    const target = this._restoreAnchor ? this._mondayOf(this._restoreAnchor) : anchorWeek;
+                    if (target) this._scrollToWeek(target, false);
+                    this.updateLabel();
+                    // Enable lazy-load only AFTER the positioning scroll's own scroll events
+                    // have flushed, so init never trips loadPrev/loadNext and drifts the view.
+                    setTimeout(() => { this._ready = true; }, 350);
+                }));
+            });
+
+            // Toolbar Today control + jump-to-date.
+            window.addEventListener('calendar:today', () => this.scrollToDate(this._fmt(new Date())));
+            window.addEventListener('calendar:jump', (e) => { if (e.detail) this.scrollToDate(e.detail); });
+
+            // Gate 7 — live-RAG loop: refetch visible weeks on focus/visibility + a light
+            // poll, so RAG changed elsewhere repaints without a full reload.
+            window.addEventListener('focus', () => this.refreshGrid());
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refreshGrid(); });
+            const secs = Math.max(15, this.pollSeconds || 60);
+            this._gridPoll = setInterval(() => { if (!document.hidden) this.refreshGrid(); }, secs * 1000);
+        },
+
+        _rows() { return Array.from(this.$refs.weeks?.querySelectorAll('.cal-week-row') || []); },
+        _syncBounds() {
+            const rows = this._rows();
+            if (!rows.length) return;
+            this.minWeek = rows[0].dataset.week;
+            this.maxWeek = rows[rows.length - 1].dataset.week;
+        },
+
+        // SCOPED scroll — set the inner scroller's scrollTop so the target week sits at
+        // the top of the frame. Never scrollIntoView (which scrolls every ancestor).
+        _scrollToWeek(mondayStr, smooth = true) {
+            const el = this.$refs.scroller;
+            const row = this.$refs.weeks?.querySelector('.cal-week-row[data-week="' + mondayStr + '"]');
+            if (!el || !row) return;
+            const delta = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
+            el.scrollTo({ top: Math.max(0, el.scrollTop + delta), behavior: smooth ? 'smooth' : 'auto' });
+        },
+
+        _topVisibleWeek() {
+            const el = this.$refs.scroller;
+            if (!el) return null;
+            const top = el.getBoundingClientRect().top + 4;
+            for (const r of this._rows()) {
+                const rc = r.getBoundingClientRect();
+                if (rc.bottom > top) return r.dataset.week;
+            }
+            const rows = this._rows();
+            return rows.length ? rows[rows.length - 1].dataset.week : null;
+        },
+        updateLabel() {
+            const wk = this._topVisibleWeek();
+            if (wk) this.monthLabel = this._monthLabelFor(wk);
+        },
+
+        /* Re-fetch the visible week rows and replace them in place. Uses the SAME
+           /calendar/week-rows renderer, so RAG repaints server-side with zero reload.
+           Scroll position and active layer toggles are preserved. */
+        async refreshGrid() {
+            if (this._refreshingGrid || document.hidden) return;
+            const el = this.$refs.scroller, weeks = this.$refs.weeks;
+            if (!el || !weeks) return;
+            this._refreshingGrid = true;
+            const beforeTop = el.scrollTop;
+            const viewTop = el.getBoundingClientRect().top;
+            const viewBottom = viewTop + el.clientHeight;
+            const visible = this._rows().filter(r => {
+                const rc = r.getBoundingClientRect();
+                return rc.bottom >= viewTop - 240 && rc.top <= viewBottom + 240;
+            });
+            if (visible.length) {
+                const html = await this._fetchWeeks(visible[0].dataset.week, visible.length);
+                if (html) {
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = html.trim();
+                    const fresh = Array.from(tmp.children).filter(n => n.classList && n.classList.contains('cal-week-row'));
+                    if (fresh.length) {
+                        const anchor = visible[0];
+                        fresh.forEach(n => { weeks.insertBefore(n, anchor); if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(n); });
+                        visible.forEach(o => o.remove());
+                    }
+                }
+            }
+            window.dispatchEvent(new Event('calendar:block-appended'));
+            el.scrollTop = beforeTop;
+            this._refreshingGrid = false;
+        },
+
+        _weekUrl(startMonday, count) {
+            const base = '{{ route('command-center.calendar.week-rows') }}';
+            const q = new URLSearchParams(this._params);
+            q.set('start', startMonday); q.set('count', count);
+            return base + '?' + q.toString();
+        },
+        async _fetchWeeks(startMonday, count) {
+            try {
+                const r = await fetch(this._weekUrl(startMonday, count), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin',
+                });
+                if (!r.ok) return null;
+                return await r.text();
+            } catch (e) { return null; }
+        },
+        _insertRows(html, where) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html.trim();
+            const fresh = Array.from(tmp.children).filter(n => n.classList && n.classList.contains('cal-week-row'));
+            const weeks = this.$refs.weeks;
+            if (!fresh.length || !weeks) return;
+            if (where === 'top') {
+                const first = weeks.firstElementChild;
+                fresh.forEach(n => weeks.insertBefore(n, first));
+            } else {
+                fresh.forEach(n => weeks.appendChild(n));
+            }
+            fresh.forEach(n => { if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(n); });
+            window.dispatchEvent(new Event('calendar:block-appended'));
+        },
+
+        onScroll() {
+            const el = this.$refs.scroller;
+            if (!el) return;
+            this.updateLabel();
+            if (!this._ready) return; // don't lazy-load while the initial anchor scroll settles
+            if (el.scrollTop < 240 && !this.loadingTop) this.loadPrev();
+            if (el.scrollHeight - el.scrollTop - el.clientHeight < 320 && !this.loadingBottom) this.loadNext();
+            clearTimeout(this._anchorTimer);
+            this._anchorTimer = setTimeout(() => this._syncAnchor(), 250);
+        },
+        _syncAnchor() {
+            const wk = this._topVisibleWeek();
+            if (!wk) return;
+            const url = new URL(window.location.href);
+            url.searchParams.set('anchor', wk);
+            history.replaceState(null, '', url.toString());
+        },
+
+        async loadNext() {
+            if (!this.maxWeek || this.loadingBottom) return;
+            const start = this._addWeeks(this.maxWeek, 1);
+            if (Number(start.slice(0, 4)) > 2100) return;
+            this.loadingBottom = true;
+            const html = await this._fetchWeeks(start, 6);
+            if (html) { this._insertRows(html, 'bottom'); this._syncBounds(); }
+            this.loadingBottom = false;
+        },
+        async loadPrev() {
+            if (!this.minWeek || this.loadingTop) return;
+            const start = this._addWeeks(this.minWeek, -6);
+            if (Number(start.slice(0, 4)) < 2000) return;
+            this.loadingTop = true;
+            const el = this.$refs.scroller;
+            const beforeH = el.scrollHeight;
+            const html = await this._fetchWeeks(start, 6);
+            if (html) {
+                this._insertRows(html, 'top');
+                this._syncBounds();
+                // Keep the viewport stable after prepending content above.
+                this.$nextTick(() => { el.scrollTop += (el.scrollHeight - beforeH); });
+            }
+            this.loadingTop = false;
+        },
+
+        // Ensure the target date's week is loaded (prepend/append until it exists), then
+        // scroll to it — the Today snap and jump-to-date entry point, scoped to the frame.
+        async scrollToDate(dateStr) {
+            const monday = this._mondayOf(dateStr);
+            const has = () => this.$refs.weeks?.querySelector('.cal-week-row[data-week="' + monday + '"]');
+            let guard = 0;
+            while (!has() && guard++ < 80) {
+                if (monday < this.minWeek) await this.loadPrev();
+                else await this.loadNext();
+            }
+            if (has()) { this.$nextTick(() => { this._scrollToWeek(monday, true); this.updateLabel(); }); }
+        },
+    };
+}
+
+/* ══════ AT-164 cockpit — continuous HORIZONTAL week ══════
+   Days flow left→right as a windowed strip inside the bounded frame (mirrors the
+   month windowing). Lazy prepend/append day columns via /calendar/day-columns (the
+   same _day-column partial), sticky date-range label, Today snap, a vertical wheel
+   translated to horizontal, drag-to-scroll on the headers/gutter, and a live-RAG
+   refetch on focus/poll. The create/reschedule drag inside a day column is untouched. */
+function continuousWeek() {
+    return {
+        rangeLabel: '',
+        minDay: null, maxDay: null,      // YYYY-MM-DD earliest/latest loaded
+        loading: false,
+        pollSeconds: {{ (int) ($pollSeconds ?? 60) }},
+        _params: '',
+        _drag: { on: false, x: 0, left: 0, moved: false },
+        _pollTimer: null,
+
+        initWeek() {
+            const cols = this.$refs.days ? this.$refs.days.querySelectorAll('.cal-day-col') : [];
+            if (cols.length) {
+                this.minDay = cols[0].dataset.day;
+                this.maxDay = cols[cols.length - 1].dataset.day;
+            }
+            // Carry active filters/scope to the day-columns endpoint.
+            const url = new URL(window.location.href);
+            const carry = new URLSearchParams();
+            if (url.searchParams.get('scope')) carry.set('scope', url.searchParams.get('scope'));
+            for (const k of ['types', 'categories']) {
+                url.searchParams.getAll(k + '[]').forEach(v => carry.append(k + '[]', v));
+                url.searchParams.getAll(k).forEach(v => carry.append(k + '[]', v));
+            }
+            this._params = carry.toString();
+
+            const anchorMonday = '{{ $anchorMonday ?? '' }}';
+            this.$nextTick(() => {
+                if (anchorMonday) this.scrollToDay(anchorMonday, false);
+                this.updateLabel();
+                // Non-passive wheel listener so a vertical mouse wheel can be translated
+                // to horizontal (Alpine's @wheel is passive → preventDefault is ignored).
+                const sc = this.$refs.weekScroller;
+                if (sc) sc.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+            });
+
+            // Toolbar Today control + jump-to-date — snap the strip back to today's column
+            // (or an arbitrary date). Local date string so a late-night UTC roll never
+            // lands on tomorrow.
+            window.addEventListener('calendar:today', () => this.scrollToDay(this._todayStr()));
+            window.addEventListener('calendar:jump', (e) => { if (e.detail) this.scrollToDay(e.detail); });
+
+            // Live-RAG loop (focus/visibility + light poll).
+            window.addEventListener('focus', () => this.refreshWeek());
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refreshWeek(); });
+            const secs = Math.max(15, this.pollSeconds || 60);
+            this._pollTimer = setInterval(() => { if (!document.hidden) this.refreshWeek(); }, secs * 1000);
+        },
+
+        _url(start, count) {
+            const q = new URLSearchParams(this._params);
+            q.set('start', start); q.set('count', count);
+            return '{{ route('command-center.calendar.day-columns') }}?' + q.toString();
+        },
+        // UTC-safe: parse + shift + format all in UTC so a +2 timezone never bumps the
+        // date back a day (that off-by-one duplicated the boundary column on append).
+        _addDays(dateStr, n) { const d = new Date(dateStr + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); },
+
+        onWheel(e) {
+            // Week scrolls on BOTH axes. A plain VERTICAL wheel (deltaY) is the time axis —
+            // native scroll through the hours; NEVER hijacked. Horizontal ADVANCE across
+            // days/weeks happens only on explicit horizontal intent: a trackpad deltaX, or
+            // shift+wheel. (Drag-to-scroll is the other horizontal path.)
+            const el = this.$refs.weekScroller; if (!el) return;
+            const horizIntent = Math.abs(e.deltaX) > Math.abs(e.deltaY) || (e.shiftKey && e.deltaY);
+            if (horizIntent) {
+                el.scrollLeft += (e.deltaX || e.deltaY);
+                e.preventDefault();
+            }
+            // else: let the browser scroll the hours vertically (default).
+            this.onWeekScroll();
+        },
+        dragScrollStart(e) {
+            if (e.button !== 0) return;
+            if (e.target.closest('.cal-timed-grid') || e.target.closest('[data-event-id]')) return; // let create/open happen
+            const el = this.$refs.weekScroller; if (!el) return;
+            this._drag = { on: true, x: e.clientX, left: el.scrollLeft, moved: false };
+            el.style.cursor = 'grabbing';
+        },
+        dragScrollMove(e) {
+            if (!this._drag.on) return;
+            const el = this.$refs.weekScroller; if (!el) return;
+            const dx = e.clientX - this._drag.x;
+            if (Math.abs(dx) > 3) this._drag.moved = true;
+            el.scrollLeft = this._drag.left - dx;
+            this.onWeekScroll();
+        },
+        dragScrollEnd() {
+            if (!this._drag.on) return;
+            this._drag.on = false;
+            const el = this.$refs.weekScroller; if (el) el.style.cursor = 'grab';
+        },
+
+        onWeekScroll() {
+            const el = this.$refs.weekScroller; if (!el) return;
+            if (el.scrollLeft < 300 && !this.loading) this.prependDays();
+            if (el.scrollWidth - el.scrollLeft - el.clientWidth < 400 && !this.loading) this.appendDays();
+            this.updateLabel();
+        },
+
+        async _fetch(start, count) {
+            try {
+                const r = await fetch(this._url(start, count), { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+                return r.ok ? await r.text() : null;
+            } catch (e) { return null; }
+        },
+        _insert(html, where) {
+            const tmp = document.createElement('div'); tmp.innerHTML = html.trim();
+            const nodes = Array.from(tmp.children);
+            const days = this.$refs.days;
+            if (where === 'start') { for (let i = nodes.length - 1; i >= 0; i--) days.insertBefore(nodes[i], days.firstElementChild); }
+            else { nodes.forEach(n => days.appendChild(n)); }
+            nodes.forEach(n => { if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(n); });
+            window.dispatchEvent(new Event('calendar:block-appended')); // re-apply layers if any
+        },
+        async appendDays() {
+            if (!this.maxDay) return;
+            this.loading = true;
+            const start = this._addDays(this.maxDay, 1);
+            const html = await this._fetch(start, 7);
+            if (html) { this._insert(html, 'end'); this.maxDay = this._addDays(this.maxDay, 7); }
+            this.loading = false;
+        },
+        async prependDays() {
+            if (!this.minDay) return;
+            this.loading = true;
+            const el = this.$refs.weekScroller; const beforeW = el.scrollWidth;
+            const start = this._addDays(this.minDay, -7);
+            const html = await this._fetch(start, 7);
+            if (html) {
+                this._insert(html, 'start');
+                this.minDay = start;
+                this.$nextTick(() => { el.scrollLeft += (el.scrollWidth - beforeW); });
+            }
+            this.loading = false;
+        },
+
+        _todayStr() {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        },
+        async scrollToDay(dateStr, smooth = true) {
+            const day = dateStr.slice(0, 10);
+            let guard = 0;
+            const has = () => this.$refs.days?.querySelector('[data-day="' + day + '"]');
+            while (!has() && guard++ < 20) {
+                if (this.minDay && day < this.minDay) await this.prependDays();
+                else await this.appendDays();
+            }
+            const col = has();
+            if (!col) return;
+            // SCOPED horizontal scroll — set the week scroller's scrollLeft directly so the
+            // target column sits just past the sticky time gutter. NEVER scrollIntoView,
+            // which scrolls every ancestor (incl. the overflow-hidden page shell) and
+            // strands the toolbar/banner off-screen (the outer-scroll defect).
+            const el = this.$refs.weekScroller;
+            if (el) {
+                const delta = col.getBoundingClientRect().left - el.getBoundingClientRect().left - 56; // gutter width
+                el.scrollTo({ left: Math.max(0, el.scrollLeft + delta), behavior: smooth ? 'smooth' : 'auto' });
+            }
+            this.$nextTick(() => this.updateLabel());
+        },
+
+        updateLabel() {
+            const el = this.$refs.weekScroller; const cols = this.$refs.days?.querySelectorAll('.cal-day-col') || [];
+            if (!el || !cols.length) return;
+            const left = el.getBoundingClientRect().left + 60; // past the sticky gutter
+            let vis = null;
+            for (const c of cols) { const r = c.getBoundingClientRect(); if (r.right > left) { vis = c; break; } }
+            vis = vis || cols[0];
+            const mon = vis.dataset.week;
+            const d = new Date(mon + 'T00:00:00Z'); const end = new Date(d); end.setUTCDate(d.getUTCDate() + 6);
+            const fmt = (x) => x.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+            this.rangeLabel = fmt(d) + ' – ' + fmt(end);
+        },
+
+        async refreshWeek() {
+            if (this._drag.on || document.hidden) return;
+            const el = this.$refs.weekScroller; const days = this.$refs.days;
+            if (!el || !days) return;
+            const cols = Array.from(days.querySelectorAll('.cal-day-col'));
+            if (!cols.length) return;
+            // Refetch the currently-visible span in one call, replace those columns.
+            const vLeft = el.getBoundingClientRect().left, vRight = vLeft + el.clientWidth;
+            const visible = cols.filter(c => { const r = c.getBoundingClientRect(); return r.right > vLeft - 200 && r.left < vRight + 200; });
+            if (!visible.length) return;
+            const start = visible[0].dataset.day;
+            const html = await this._fetch(start, visible.length);
+            if (!html) return;
+            const tmp = document.createElement('div'); tmp.innerHTML = html.trim();
+            const fresh = Array.from(tmp.children);
+            visible.forEach((old, i) => { if (fresh[i]) { old.replaceWith(fresh[i]); if (window.Alpine && window.Alpine.initTree) window.Alpine.initTree(fresh[i]); } });
+            window.dispatchEvent(new Event('calendar:block-appended'));
+        },
+    };
+}
+
+/* ══════ AT-164 Gate 6 — layer toggles ══════
+   Show/hide event species on the grid instantly (client-side, via data-layer tags)
+   and filter the Deck's Notifications tile server-side. Persisted per-user
+   (cross-device) so the choice survives reloads and other devices. Re-applies to
+   lazy-loaded month blocks; the server is authoritative — toggles never widen the
+   visibility/RAG gate, they only hide already-authorised rows. */
+function layerFilter() {
+    return {
+        open: false,
+        catalog: @json($layerCatalog ?? []),
+        active: @json($activeLayers ?? []),
+        _csrf: document.querySelector('meta[name="csrf-token"]')?.content || '',
+        _url: '{{ route('command-center.calendar.layers.save') }}',
+
+        get hiddenCount() { return Math.max(0, this.catalog.length - this.active.length); },
+
+        initLayers() {
+            this.apply();
+            // Re-apply when the continuous-scroll controller appends a new month block.
+            window.addEventListener('calendar:block-appended', () => this.apply());
+        },
+        toggle(key) {
+            this.active = this.active.includes(key)
+                ? this.active.filter(k => k !== key)
+                : [...this.active, key];
+            this.apply();
+            this.persist();
+        },
+        setAll(on) {
+            this.active = on ? this.catalog.map(l => l.key) : [];
+            this.apply();
+            this.persist();
+        },
+        apply() {
+            // Grid surfaces (month/week/day/agenda) hide/show via data-layer tags —
+            // instant, reversible, no reload. The panel agenda is Alpine-reactive and
+            // listens for the broadcast below instead of being touched here.
+            document.querySelectorAll('.cal-layerable').forEach(el => {
+                const layer = el.dataset.layer || 'appointments';
+                el.style.display = this.active.includes(layer) ? '' : 'none';
+            });
+            // Broadcast the active set so calendar-adjacent JS surfaces (the panel
+            // agenda) re-filter reactively. Layers are a CALENDAR lens only — the Deck
+            // deliberately does NOT listen (its tiles are independent instruments).
+            window.dispatchEvent(new CustomEvent('calendar:layers-changed', { detail: [...this.active] }));
+        },
+        async persist() {
+            try {
+                await fetch(this._url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ layers: this.active }),
+                });
+            } catch (e) { /* silent — the client hide already applied */ }
+            // NOTE: the Deck is intentionally NOT notified — deck tiles are independent
+            // instruments and never respect layers (AT-164 doctrine). The instant
+            // client-side hide in apply() (+ its calendar:layers-changed broadcast for
+            // the panel agenda) is the whole of the toggle's effect.
         },
     };
 }

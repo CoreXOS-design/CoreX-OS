@@ -151,12 +151,13 @@ Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
 
 // ── Command Center ──
 
-// Process calendar/task reminders — runs every 5 minutes. The cadence is the
-// lower bound on lead-time precision: an event fires at the first tick its
-// event_date enters [now, now + lead], so effective lead ∈ [lead − 5min, lead].
-// 5-min ticks keep sub-hour reminders (event_reminder_minutes_before, min 5)
-// honoured to within one tick instead of the old ±15min slop.
-Schedule::command('command-center:reminders')->everyFiveMinutes()->withoutOverlapping();
+// Process calendar/task reminders — runs EVERY MINUTE (AT-178). Per-minute ticks
+// are the lower bound on lead-time precision: an event fires at the first tick its
+// occurrence start enters the due window, so an "at time of event" (0-offset) or a
+// 5-minute lead is punctual to within a minute. Exactly-once delivery is guaranteed
+// by the calendar_reminders_log UNIQUE index, so an occasional overlapping run can
+// never double-send; withoutOverlapping still avoids piling ticks under load.
+Schedule::command('command-center:reminders')->everyMinute()->withoutOverlapping();
 
 // Calculate property health scores — runs nightly at 02:00
 Schedule::command('command-center:health')->dailyAt('02:00')->withoutOverlapping();
@@ -195,6 +196,13 @@ Schedule::command('corex:calendar:reconcile')->dailyAt('03:00')->withoutOverlapp
 // Keeps persisted step/deal RAG + deal calendar-event colour in sync as deadlines
 // approach (green→amber→red→overdue), independent of user activity.
 Schedule::command('deals:process-rag')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+
+// ── Deal Register V2 (WS6) — escalation ladder + morning digest ──
+// process-rag flips a step overdue + nudges the agent; this escalates the still-
+// overdue step up the ladder (BM → admin) exactly once per rung, and sends each
+// agent a morning pipeline digest.
+Schedule::command('deals:process-escalations')->hourly()->withoutOverlapping()->onOneServer();
+Schedule::command('deals:daily-digest')->dailyAt(config('deals.digest.time', '07:00'))->withoutOverlapping()->onOneServer();
 
 // ── Leave Management ──
 Schedule::command('corex:leave:accrue-daily')->dailyAt('02:00')->onOneServer()->withoutOverlapping();

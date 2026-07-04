@@ -5,6 +5,11 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="corex-auth" content="{{ auth()->check() ? '1' : '0' }}">
+        {{-- AT-165 offline draft persistence: per-user draft keying + clear-on-save signal. --}}
+        @auth<meta name="corex-user-id" content="{{ auth()->id() }}">@endauth
+        @if(\App\Support\CoreXDraft::metaContent())
+            <meta name="corex-clear-drafts" content='{{ \App\Support\CoreXDraft::metaContent() }}'>
+        @endif
 
         <title>{{ config('app.name', 'Laravel') }}</title>
 
@@ -145,6 +150,7 @@
 
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
+        @include('components.reminder-toast')
 
         @stack('scripts')
     </body>

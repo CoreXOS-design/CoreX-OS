@@ -19,7 +19,10 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('onboarding.store') }}" class="space-y-5">
+    {{-- AT-165 offline draft persistence — id_number EXCLUDED (SA national ID = POPIA-sensitive). --}}
+    <form method="POST" action="{{ route('onboarding.store') }}" class="space-y-5"
+          data-draft='@json(["form" => "agent_onboarding", "recordId" => null, "version" => null])'
+          data-draft-fields="first_name,last_name,email,phone,designation,years_experience,current_agency,ffc_number,ffc_expiry,ppra_status,motivation,referral_source,referred_by_user_id">
         @csrf
 
         {{-- Section 1: Personal Details --}}

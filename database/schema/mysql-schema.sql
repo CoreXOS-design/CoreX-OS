@@ -467,6 +467,13 @@ CREATE TABLE `agency_contact_settings` (
   `access_log_retention_years` int unsigned NOT NULL DEFAULT '5',
   `calendar_max_occurrences` smallint unsigned DEFAULT NULL COMMENT 'Max occurrences materialised per recurring series per query',
   `calendar_max_expansion_days` smallint unsigned DEFAULT NULL COMMENT 'Max days a query window is expanded for recurring series',
+  `calendar_reminder_lead_options` json DEFAULT NULL,
+  `calendar_deck_slots` tinyint unsigned DEFAULT NULL,
+  `calendar_grid_max_rows` tinyint unsigned DEFAULT NULL,
+  `calendar_poll_seconds` smallint unsigned DEFAULT NULL,
+  `calendar_category_groups` json DEFAULT NULL,
+  `calendar_default_layers` json DEFAULT NULL,
+  `calendar_default_deck_layouts` json DEFAULT NULL,
   `feedback_seller_roles` json DEFAULT NULL,
   `feedback_buyer_source` json DEFAULT NULL,
   `feedback_lessor_roles` json DEFAULT NULL,
@@ -1715,6 +1722,8 @@ CREATE TABLE `calendar_event_class_settings` (
   `red_notifications` json NOT NULL,
   `daily_digest_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `daily_digest_roles` json DEFAULT NULL,
+  `default_reminder_offsets` json DEFAULT NULL,
+  `default_reminder_channels` json DEFAULT NULL,
   `allow_multiple_properties` tinyint(1) NOT NULL DEFAULT '0',
   `buyer_facing` tinyint(1) NOT NULL DEFAULT '0',
   `actor_role` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'neither',
@@ -1856,6 +1865,7 @@ CREATE TABLE `calendar_events` (
   `branch_id` bigint unsigned DEFAULT NULL,
   `agency_id` bigint unsigned DEFAULT NULL,
   `reminder_offsets` json DEFAULT NULL COMMENT 'Array of offsets in minutes',
+  `reminder_channels` json DEFAULT NULL,
   `reminders_sent` json DEFAULT NULL COMMENT 'Tracks which offsets have been sent',
   `is_recurring` tinyint(1) NOT NULL DEFAULT '0',
   `recurrence_rule` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'RRULE format',
@@ -1898,12 +1908,15 @@ CREATE TABLE `calendar_reminders_log` (
   `user_id` bigint unsigned NOT NULL,
   `channel` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'app, email, sms',
   `offset_minutes` int NOT NULL,
+  `occurrence_key` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'single',
   `sent_at` datetime NOT NULL,
   `read_at` datetime DEFAULT NULL,
+  `snoozed_until` datetime DEFAULT NULL,
   `actioned_at` datetime DEFAULT NULL,
   `escalated` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `cal_reminder_once_idx` (`calendar_event_id`,`user_id`,`channel`,`offset_minutes`,`occurrence_key`),
   KEY `calendar_reminders_log_calendar_event_id_foreign` (`calendar_event_id`),
   KEY `calendar_reminders_log_user_id_foreign` (`user_id`),
   KEY `calendar_reminders_log_agency_id_idx` (`agency_id`),
@@ -1926,6 +1939,9 @@ CREATE TABLE `calendar_user_preferences` (
   `email_reminders` tinyint(1) NOT NULL DEFAULT '1',
   `app_reminders` tinyint(1) NOT NULL DEFAULT '1',
   `digest_email` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'daily' COMMENT 'none, daily, weekly',
+  `calendar_deck_layout` json DEFAULT NULL,
+  `calendar_layers` json DEFAULT NULL,
+  `calendar_cockpit` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -3086,12 +3102,14 @@ CREATE TABLE `contact_match_notifications` (
   `score` tinyint unsigned NOT NULL DEFAULT '0',
   `notified_user_id` bigint unsigned DEFAULT NULL,
   `notification_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `emailed_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `cmn_match_property_unique` (`contact_match_id`,`property_id`),
   KEY `contact_match_notifications_notified_user_id_foreign` (`notified_user_id`),
   KEY `cmn_property_idx` (`property_id`),
   KEY `contact_match_notifications_agency_id_idx` (`agency_id`),
+  KEY `cmn_user_emailed_idx` (`notified_user_id`,`emailed_at`),
   CONSTRAINT `contact_match_notifications_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `contact_match_notifications_contact_match_id_foreign` FOREIGN KEY (`contact_match_id`) REFERENCES `contact_matches` (`id`) ON DELETE CASCADE,
   CONSTRAINT `contact_match_notifications_notified_user_id_foreign` FOREIGN KEY (`notified_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
@@ -3912,6 +3930,31 @@ CREATE TABLE `deal_step_documents` (
   CONSTRAINT `deal_step_documents_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `deal_step_documents_deal_step_instance_id_foreign` FOREIGN KEY (`deal_step_instance_id`) REFERENCES `deal_step_instances` (`id`) ON DELETE CASCADE,
   CONSTRAINT `deal_step_documents_uploaded_by_id_foreign` FOREIGN KEY (`uploaded_by_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `deal_step_escalations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `deal_step_escalations` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `deal_id` bigint unsigned NOT NULL,
+  `deal_step_instance_id` bigint unsigned NOT NULL,
+  `level_key` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'escalation',
+  `recipient_user_id` bigint unsigned DEFAULT NULL,
+  `channels` json DEFAULT NULL,
+  `context` json DEFAULT NULL,
+  `notified_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dse_step_level_recipient_uq` (`deal_step_instance_id`,`level_key`,`recipient_user_id`),
+  KEY `deal_step_escalations_recipient_user_id_foreign` (`recipient_user_id`),
+  KEY `deal_step_escalations_agency_id_index` (`agency_id`),
+  KEY `deal_step_escalations_deal_id_index` (`deal_id`),
+  CONSTRAINT `deal_step_escalations_deal_step_instance_id_foreign` FOREIGN KEY (`deal_step_instance_id`) REFERENCES `deal_step_instances` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `deal_step_escalations_recipient_user_id_foreign` FOREIGN KEY (`recipient_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `deal_step_instances`;
@@ -12762,3 +12805,11 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (949,'2026_07_03_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (950,'2026_07_20_000001_add_wa_chat_id_to_communications_table',211);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (951,'2026_07_20_000002_add_wa_embargo_to_communications',212);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (952,'2026_07_22_000001_add_voice_transcript_to_communications',213);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (953,'2026_07_03_120000_add_emailed_at_to_contact_match_notifications',214);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (954,'2026_07_06_000001_add_calendar_deck_settings_to_agency_contact_settings',214);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (955,'2026_07_06_000002_add_deck_layout_to_calendar_user_preferences',214);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (956,'2026_07_06_000003_seed_calendar_my_deals_tile_permission',214);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (957,'2026_07_03_400000_create_deal_step_escalations_table',215);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (958,'2026_07_03_500000_seed_deals_v2_view_overview_permission',216);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (959,'2026_07_07_000001_add_cockpit_layout_to_calendar_user_preferences',216);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (961,'2026_07_04_120000_add_reminder_config_and_occurrence_key',217);

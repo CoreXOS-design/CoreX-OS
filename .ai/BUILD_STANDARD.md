@@ -159,7 +159,35 @@ A feature is DONE only when ALL apply:
 If any box is unchecked, the feature is not done — regardless of how
 many tests pass.
 
-### Deploy sequence (every promotion)
+### Promotion flow — the QA gate (2026-07-04)
+
+Work now flows through a **first-QA site** before Staging:
+
+**build + prove (lane) → deploy QA1 (Johan's first QA) → on pass, rebase + merge to
+Staging → deploy the Staging host (final integration QA) → live on Johan's explicit
+authorisation.**
+
+- **QA1 = `qatesting1.corexos.co.za`** (`/corex-qa1`, DB `corex_qa1`, branch `QA1`) — a
+  real-data live-snapshot clone, `APP_ENV=qa`. Johan's first look at a lane's work on
+  real data. **Andre's `qatesting2` (`/corex-qa2`, `QA2`) is his own — never touch it.**
+- **QA sites are DISPOSABLE and are NEVER a promotion source.** Live is promoted from
+  Staging only. **Staging ⊇ main** is unchanged; **Staging is the final integration gate
+  before live.**
+- **QA is web-only** (no queue worker / scheduler). Queue- and scheduler-dependent
+  features (WA capture/media, transcription, DR2 notifications/escalations/digests, media
+  backup) get their **first QA on Staging**, not on QA1. Revisit only if it chafes.
+- **Deploy to QA uses `scripts/qa-deploy.sh`** (minimal: fetch → ff `QA1` → migrate →
+  clears → chown). **`scripts/deploy.sh` is BANNED on qa1/qa2** until their base includes
+  the de-landmined seeder — it carries the agency-blind `DealPipelineTemplateSeeder`
+  forceDelete.
+- **Outbound is neutralised on QA** (mail → log/localhost, WAHA blanked, PP/Firebase
+  blanked) so a QA click can never reach a real person. Any new integration a lane adds
+  must be inert on QA before Johan QAs a send path. See `/corex-qa1/NOTES-FOR-ANDRE.md`.
+
+The lane "Definition of Done" deploy step (§8h) therefore has **two** deploy targets in
+sequence — QA1 for first QA, then the Staging host for final integration — not one.
+
+### Deploy sequence (every promotion to Staging / live)
 
 `git pull` → `php artisan migrate --force` → **`php artisan deploy:sync-reference-data`**
 (idempotent, global-scope) → `view:clear` + `route:clear` + `config:clear` →

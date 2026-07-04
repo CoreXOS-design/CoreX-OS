@@ -185,6 +185,15 @@ class DealPipelineService
     }
 
     /**
+     * AT-158 WS-R3 (Ruling 2) — is the DR2 pipeline BM-approval gate switched on
+     * for this deal's agency? Off by default (agency-configurable).
+     */
+    private function bmApprovalEnabled(DealV2 $deal): bool
+    {
+        return (bool) optional(\App\Models\Agency::find($deal->agency_id))->deal_v2_bm_approval_enabled;
+    }
+
+    /**
      * Complete a step — handles status triggers, BM approval, and chain reactions.
      */
     public function completeStep(DealStepInstance $step, User $user, array $completionData): void
@@ -194,7 +203,11 @@ class DealPipelineService
             $isNegative = $outcome === 'negative';
 
             $statusTrigger = $isNegative ? $step->negative_status_trigger : $step->status_trigger;
-            $needsApproval = $step->requires_bm_approval && $statusTrigger;
+            // AT-158 WS-R3 (Ruling 2): the BM-approval hold applies ONLY when the
+            // agency has opted in. Off by default → the pipeline is a tracking
+            // overlay and the status trigger applies immediately (no held step,
+            // no "process I didn't ask for").
+            $needsApproval = $step->requires_bm_approval && $statusTrigger && $this->bmApprovalEnabled($step->deal);
 
             $step->update([
                 'status' => 'completed',
@@ -208,7 +221,14 @@ class DealPipelineService
             $description = $isNegative
                 ? "Step \"{$step->name}\" completed with negative outcome: {$step->negative_outcome_label}"
                 : "Step \"{$step->name}\" completed";
-            if (!empty($completionData['notes'])) {
+            // Anti-gaming: a step completed WITHOUT its requirement is stamped with
+            // the reason in the deal timeline (who/when = completed_by_id/at above).
+            if (! $isNegative && ! empty($completionData['completed_with_reason'])) {
+                $cat = $completionData['reason_category'] ?? 'other';
+                $catLabel = config("deals.completion.override_reasons.{$cat}", $cat);
+                $description .= " WITHOUT its requirement — reason: {$catLabel}"
+                    . (! empty($completionData['reason']) ? " ({$completionData['reason']})" : '');
+            } elseif (!empty($completionData['notes'])) {
                 $description .= " — {$completionData['notes']}";
             }
             $this->logActivity($step->deal, $step, $user->id, 'step_completed', $description);
@@ -243,13 +263,13 @@ class DealPipelineService
                 return true; // stage ticked (positive)
             }
 
-            return false;
-
-            // Needs approval — wait for BM
+            // Needs BM approval — the step is held (approval_status='pending' set
+            // above); the deal status does NOT change until a BM approves. Log it
+            // in the reachable path; the BM notification fires AFTER commit (WS6),
+            // same doctrine as the DealStepCompleted event below.
             if ($needsApproval) {
                 $this->logActivity($step->deal, $step, null, 'approval_pending',
                     "Status change to \"{$statusTrigger}\" pending BM approval");
-                // TODO: Fire notification to BM (Phase 5)
             }
 
             return false;
@@ -262,6 +282,12 @@ class DealPipelineService
         // can never roll back a completed step.
         if ($ticked) {
             event(new DealStepCompleted($step->fresh(), $user->id));
+        }
+
+        // WS6 — a step held for BM approval notifies the BM (after commit).
+        $fresh = $step->fresh();
+        if ($fresh && $fresh->approval_status === 'pending') {
+            app(NotificationService::class)->notifyBmApprovalPending($fresh);
         }
     }
 
@@ -325,8 +351,10 @@ class DealPipelineService
 
             $this->logActivity($step->deal, $step, $rejector->id, 'step_rejected',
                 "BM {$rejector->name} rejected: {$reason}");
-            // TODO: Notify agent (Phase 5)
         });
+
+        // WS6 — tell the responsible agent the step was sent back (after commit).
+        app(NotificationService::class)->notifyAgentStepRejected($step->fresh(), $reason);
     }
 
     /**

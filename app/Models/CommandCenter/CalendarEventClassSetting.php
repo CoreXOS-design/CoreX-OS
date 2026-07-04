@@ -53,6 +53,11 @@ class CalendarEventClassSetting extends Model
         //   buyer_facing   — 2026_05_05_000021
         'feedback_mode',
         'buyer_facing',
+        // AT-178 — agency default reminder for this event class. Offsets = array of
+        // minutes-before; channels = subset of ['popup','email']. Null = no class
+        // default (event falls through to the system default popup/60min).
+        'default_reminder_offsets',
+        'default_reminder_channels',
     ];
 
     public const NATURE_ACTIONABLE    = 'actionable';
@@ -75,6 +80,8 @@ class CalendarEventClassSetting extends Model
         'amber_notifications'   => 'array',
         'red_notifications'     => 'array',
         'daily_digest_roles'    => 'array',
+        'default_reminder_offsets'  => 'array',
+        'default_reminder_channels' => 'array',
     ];
 
     /**

@@ -4,13 +4,16 @@ namespace App\Http\Controllers\DealV2;
 
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
+use App\Models\CommandCenter\CalendarUserPreference;
 use App\Models\Contact;
 use App\Models\DealV2\DealPipelineTemplate;
+use App\Models\DealV2\DealStepInstance;
 use App\Models\DealV2\DealV2;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\DealV2\DealDocumentService;
 use App\Services\DealV2\DealPipelineService;
+use App\Services\PermissionService;
 use Illuminate\Http\Request;
 
 class DealV2Controller extends Controller
@@ -55,7 +58,134 @@ class DealV2Controller extends Controller
         return view('deals-v2.index', compact('deals'));
     }
 
+    /**
+     * WS8 (§12) — the pipeline overview: scoped KPI cards + a non-draggable
+     * milestone board. Branch_manager + admin only. The scope switcher is
+     * server-authoritative — the requested scope is CLAMPED to the user's
+     * permitted scope (DealV2::clampScope), so a switcher can only narrow.
+     */
+    public function overview(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('deals_v2.view_overview'), 403);
+        $user = auth()->user();
+
+        $permitted = PermissionService::getDataScope($user, 'deals_v2');
+        $scope = DealV2::clampScope($request->input('scope'), $permitted);
+
+        // Fresh scoped builder per aggregate (scopes mutate the query).
+        $deals = fn () => DealV2::query()->visibleTo($user, $scope);
+        $steps = fn () => DealStepInstance::query()
+            ->whereHas('deal', fn ($q) => $q->visibleTo($user, $scope));
+
+        // Avg days offer→registration across completed deals (PHP — small set).
+        $completed = $deals()->whereNotNull('actual_registration')->get(['offer_date', 'actual_registration']);
+        $avgDays = $completed
+            ->map(fn ($d) => $d->offer_date && $d->actual_registration
+                ? $d->offer_date->diffInDays($d->actual_registration) : null)
+            ->filter(fn ($v) => $v !== null);
+
+        $cards = [
+            ['key' => 'active',       'label' => 'Active Deals',          'value' => $deals()->where('status', 'active')->count(),                                                    'rag' => null],
+            ['key' => 'overdue',      'label' => 'Overdue Steps',         'value' => $steps()->where('status', 'overdue')->count(),                                                   'rag' => 'overdue'],
+            ['key' => 'due_week',     'label' => 'Due This Week',         'value' => $steps()->where('status', 'active')->whereBetween('due_date', [now()->startOfDay(), now()->addWeek()->endOfDay()])->count(), 'rag' => 'amber'],
+            ['key' => 'pending_reg',  'label' => 'Pending Registration',  'value' => $deals()->whereIn('status', ['active', 'granted'])->whereNull('actual_registration')->count(),   'rag' => null],
+            ['key' => 'value',        'label' => 'Total Pipeline Value',  'value' => (float) $deals()->where('status', 'active')->sum('purchase_price'), 'format' => 'zar',            'rag' => null],
+            ['key' => 'avg_days',     'label' => 'Avg Days to Registration', 'value' => $avgDays->isNotEmpty() ? (int) round($avgDays->avg()) : null,  'format' => 'days',            'rag' => null],
+        ];
+
+        // Non-draggable board: active deals grouped by current milestone. Milestone
+        // derived in PHP from eager-loaded steps (no N+1).
+        $board = $deals()->where('status', 'active')
+            ->with(['stepInstances', 'property', 'listingAgent'])
+            ->get()
+            ->groupBy(function (DealV2 $d) {
+                $steps = $d->stepInstances;
+                $ms = $steps->where('is_milestone', true)->where('status', 'completed')->sortByDesc('position')->first()
+                    ?? $steps->where('is_milestone', true)->whereIn('status', ['active', 'overdue'])->sortBy('position')->first();
+                return $ms?->name ?? 'Not started';
+            });
+
+        $icalToken = optional(CalendarUserPreference::where('user_id', $user->id)->first())->ical_token;
+
+        return view('deals-v2.overview', [
+            'cards'          => $cards,
+            'board'          => $board,
+            'scope'          => $scope,
+            'permittedScope' => $permitted ?: 'own',
+            'icalToken'      => $icalToken,
+        ]);
+    }
+
+    /**
+     * WS8 (§12) — CSV export of the filtered register. Row count == the filtered
+     * result count (the verification gate). Reuses the index filters + scope.
+     */
+    public function exportCsv(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('access_deal_register_v2'), 403);
+        $user = auth()->user();
+        $scope = DealV2::clampScope($request->input('scope'), PermissionService::getDataScope($user, 'deals_v2'));
+
+        $query = DealV2::with(['property', 'listingAgent'])->visibleTo($user, $scope);
+        if ($search = $request->input('search')) {
+            $query->where(fn ($q) => $q->where('reference', 'like', "%{$search}%")
+                ->orWhereHas('property', fn ($pq) => $pq->where('address', 'like', "%{$search}%")));
+        }
+        foreach (['deal_type' => 'deal_type', 'status' => 'status', 'rag' => 'overall_rag'] as $input => $col) {
+            if ($val = $request->input($input)) {
+                $query->where($col, $val);
+            }
+        }
+
+        $filename = 'deal-register-' . now()->format('Ymd-His') . '.csv';
+        $headers = ['Reference', 'Property', 'Agent', 'Type', 'Status', 'RAG', 'Expected Registration', 'Purchase Price'];
+
+        $callback = function () use ($query, $headers) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, $headers);
+            $query->orderBy('created_at', 'desc')->chunk(200, function ($rows) use ($out) {
+                foreach ($rows as $d) {
+                    fputcsv($out, [
+                        $d->reference,
+                        $d->property?->address,
+                        $d->listingAgent?->name,
+                        $d->deal_type,
+                        $d->status,
+                        $d->overall_rag,
+                        $d->expected_registration?->format('Y-m-d'),
+                        $d->purchase_price,
+                    ]);
+                }
+            });
+            fclose($out);
+        };
+
+        return response()->stream($callback, 200, [
+            'Content-Type'        => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
+    }
+
+    /**
+     * AT-158 WS-R2 — DEFAULT capture is the DR1-style single-page form.
+     * The step wizard remains available at deals-v2.create-wizard; both post to
+     * the SAME store() write-path. Default entry points (sidebar "New Deal",
+     * register buttons) land here.
+     */
     public function create()
+    {
+        return $this->buildCreateView('deals-v2.create-form');
+    }
+
+    /**
+     * AT-158 WS-R2 — the optional step-by-step wizard (same data, same store()).
+     */
+    public function createWizard()
+    {
+        return $this->buildCreateView('deals-v2.create');
+    }
+
+    private function buildCreateView(string $view)
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.create'), 403);
 
@@ -100,7 +230,7 @@ class DealV2Controller extends Controller
 
         $vatRate = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
 
-        return view('deals-v2.create', compact('branches', 'agents', 'templatesJson', 'vatRate'));
+        return view($view, compact('branches', 'agents', 'templatesJson', 'vatRate'));
     }
 
     public function store(Request $request)
@@ -121,7 +251,11 @@ class DealV2Controller extends Controller
             'notes' => ['nullable', 'string'],
             'listing_agent_id' => ['nullable', 'exists:users,id'],
             'selling_agent_id' => ['nullable', 'exists:users,id'],
-            'contacts' => ['required', 'array', 'min:1'],
+            // WS-R2: contact-linked parties are the strongly-defaulted path (the
+            // property's seller is auto-suggested), but not a hard gate — DR1
+            // parity allows a deal to be captured on the essentials and parties
+            // added on the tracking page (lazy-but-valid).
+            'contacts' => ['nullable', 'array'],
             'contacts.*.contact_id' => ['required', 'exists:contacts,id'],
             'contacts.*.role' => ['required', 'in:buyer,seller,co_buyer,co_seller,conveyancer,bond_originator,other'],
             'listing_split_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],

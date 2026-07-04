@@ -448,21 +448,62 @@ class TourRegistry
             ],
 
             // ── Calendar (queue #6) ──────────────────────────────────────────
+            // ── Calendar cockpit (AT-164 redesign) ───────────────────────────
+            // Guided tour of the new calendar: cockpit layout, continuous scroll,
+            // layers vs tiles, right panel, deck, save/reset and event reminders.
+            // Anchors are cockpit-level data-tour hooks already on-screen (the
+            // cockpit is a fixed viewport-height frame), so driver.js never scrolls
+            // to them — the hardened outer frame (banner/toolbar/weekday header
+            // pinned outside the scrollers) is never displaced. Steps skip
+            // gracefully if a region is collapsed.
             'calendar' => [
                 'key'         => 'calendar',
-                'title'       => 'Using your calendar',
-                'description' => 'See your viewings, meetings and compliance dates, and add a new event.',
+                'title'       => 'The new calendar',
+                'description' => 'A guided tour of the calendar cockpit — scroll, layers, tiles, the deck, saving your view and event reminders.',
                 'route'       => 'command-center.calendar',
+                'setup'       => [
+                    ['action' => 'scrollTop'],
+                ],
                 'steps' => [
                     [
-                        'element' => '[data-tour="cal-intro"]',
-                        'title'   => 'Everything in one place',
-                        'body'    => 'Your viewings, meetings, lease and compliance dates and personal events — all on one calendar so nothing slips. Deal and lease dates appear here automatically.',
+                        'element' => '[data-tour="cal-cockpit"]',
+                        'title'   => 'Your calendar cockpit',
+                        'body'    => 'Everything on one screen: the calendar fills the middle, your agenda-and-details panel is on the right, and a deck of handy tiles sits along the bottom. Nothing scrolls the whole page — each part scrolls on its own.',
+                    ],
+                    [
+                        'element' => '[data-tour="cal-views"]',
+                        'title'   => 'Month, Week or Day',
+                        'body'    => 'Switch how much you see here. Month scrolls smoothly downwards week after week; Week scrolls sideways through the days and up and down through the hours. The label at the top always tells you where you are.',
+                    ],
+                    [
+                        'element' => '[data-tour="cal-today"]',
+                        'title'   => 'Back to Today',
+                        'body'    => 'Scrolled off into next month? One tap on Today snaps you straight back to now — wherever you\'ve wandered.',
+                    ],
+                    [
+                        'element' => '[data-tour="cal-layers"]',
+                        'title'   => 'Layers — what shows on the calendar',
+                        'body'    => 'Tick and untick the kinds of events you want ON the calendar — viewings, deals, compliance, personal and more. This only changes the calendar. Your deck tiles are separate: untick To-dos here and the To-dos tile still shows them.',
+                    ],
+                    [
+                        'element' => '[data-tour="cal-panel"]',
+                        'title'   => 'The right panel',
+                        'body'    => 'By default this shows your agenda — today and what\'s coming up. Click any event to see its full details here, and the Add Event button opens the new-event form right in this panel, without leaving the page.',
                     ],
                     [
                         'element' => '[data-tour="cal-add"]',
-                        'title'   => 'Add an event',
-                        'body'    => 'Book a viewing or a meeting here. Link it to a contact and a property and CoreX keeps everyone\'s details together — and can ask the buyer for feedback afterwards.',
+                        'title'   => 'Add an event — and get reminded',
+                        'body'    => 'Book a viewing or meeting and link it to a contact and property. Set a reminder while you\'re there: choose how long before — say an hour — and a popup will find you anywhere in CoreX (even while you\'re busy loading a property), or send you an email.',
+                    ],
+                    [
+                        'element' => '[data-tour="cal-deck"]',
+                        'title'   => 'Your tile deck',
+                        'body'    => 'The tiles along the bottom are yours to arrange. Edit Deck picks which tiles show; drag the divider up or down to give the calendar or the deck more room; drag between tiles to set their widths; collapse the deck or the panel; or go full-calendar for the biggest grid.',
+                    ],
+                    [
+                        'element' => '[data-tour="cal-saveview"]',
+                        'title'   => 'Your view, saved',
+                        'body'    => 'However you arrange it, CoreX remembers your layout automatically — it\'s there next time you open the calendar. Changed your mind? Reset view puts everything back to the default. That\'s the tour — enjoy your new calendar.',
                     ],
                 ],
             ],
