@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5"
+<div class="w-full space-y-5"
      x-data="composerState({
          contactId: {{ $contact->id }},
          channel: @js($channel),
@@ -54,20 +55,24 @@
          structured address. AT-61 — when an address IS captured we render the
          composer in address-only mode below instead of this dead-end. --}}
     @if($linkedProperties->isEmpty() && !($addressOnly ?? false))
-        <div class="rounded-md px-6 py-10 text-center"
-             style="background: var(--surface); border: 1px dashed var(--border); color: var(--text-secondary);">
-            <h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
+        <div class="rounded-md py-12 px-6 text-center"
+             style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+                <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">
                 No property or address to pitch about
-            </h2>
-            <p class="text-sm mb-4">
+            </h3>
+            <p class="text-sm mb-4" style="color: var(--text-muted);">
                 The composer needs either a linked property or a captured address to pitch about.
                 Link a property to {{ $contact->first_name ?: 'this contact' }}, or capture the
                 property address on the contact, first.
             </p>
-            <a href="{{ route('corex.contacts.show', $contact) }}"
-               class="inline-flex items-center px-4 py-2 rounded text-sm font-semibold"
-               style="background: #00d4aa; color: #003a2f;">
-                Open contact to link a property →
+            <a href="{{ route('corex.contacts.show', $contact) }}" class="corex-btn-primary">
+                Open contact to link a property
             </a>
         </div>
     @else

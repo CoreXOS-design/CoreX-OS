@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -12,7 +13,7 @@
     .contact-show-btn-hover { transition: opacity 150ms ease; }
     .contact-show-btn-hover:hover { opacity: 0.85; }
 </style>
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4 overflow-x-hidden"
+<div class="w-full space-y-4"
      x-data="contactShowData('{{ route('corex.contacts.properties.search', $contact) }}', '{{ request('tab', 'info') }}')"
      x-init="activeTab = initTab">
 
@@ -91,7 +92,7 @@
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
                             <a href="tel:{{ preg_replace('/\s+/', '', $ph->phone) }}" class="no-underline hover:underline" style="color:inherit;">{{ $ph->phone }}</a>
                             @if($ph->label)<span class="text-[11px] text-white/35">{{ $ph->label }}</span>@endif
-                            @if($ph->is_primary)<span class="text-[10px] uppercase tracking-wide font-semibold" style="color:#00d4aa;">primary</span>@endif
+                            @if($ph->is_primary)<span class="text-[10px] uppercase tracking-wide font-semibold" style="color:var(--ds-teal, #00d4aa);">primary</span>@endif
                         </span>
                     @empty
                         @if($contact->phone)
@@ -107,7 +108,7 @@
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
                             <a href="mailto:{{ $em->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $em->email }}</a>
                             @if($em->label)<span class="text-[11px] text-white/35">{{ $em->label }}</span>@endif
-                            @if($em->is_primary)<span class="text-[10px] uppercase tracking-wide font-semibold" style="color:#00d4aa;">primary</span>@endif
+                            @if($em->is_primary)<span class="text-[10px] uppercase tracking-wide font-semibold" style="color:var(--ds-teal, #00d4aa);">primary</span>@endif
                         </span>
                     @empty
                         @if($contact->email)
@@ -176,12 +177,12 @@
             <form method="POST" action="{{ route('corex.contacts.birthday-reminder.toggle', $contact) }}" class="flex-shrink-0">
                 @csrf
                 @if($contact->birthday_reminder)
-                <button type="submit" class="corex-btn-primary no-underline" title="Stop reminding me about this birthday">
+                <button type="submit" class="corex-btn-outline corex-btn-on-brand no-underline" title="Stop reminding me about this birthday">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M11.983 1.907a.75.75 0 0 0-1.966 0l-.16.661a8.25 8.25 0 0 0-6.357 8.027v3.243a3 3 0 0 1-.879 2.121l-.886.886A.75.75 0 0 0 2.5 18.75h19a.75.75 0 0 0 .53-1.28l-.886-.886a3 3 0 0 1-.879-2.122v-3.242a8.25 8.25 0 0 0-6.357-8.027l-.16-.661ZM12 22.5a3 3 0 0 1-2.83-2h5.66A3 3 0 0 1 12 22.5Z"/></svg>
                     Birthday reminder on
                 </button>
                 @else
-                <button type="submit" class="corex-btn-outline no-underline" title="Remind me about this birthday">
+                <button type="submit" class="corex-btn-outline corex-btn-on-brand no-underline" title="Remind me about this birthday">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg>
                     Remind me of birthday
                 </button>
@@ -192,7 +193,7 @@
             {{-- View as Buyer (if buyer) --}}
             @if($contact->is_buyer)
             <a href="{{ route('command-center.buyers.show', $contact) }}"
-               class="corex-btn-primary flex-shrink-0 no-underline">
+               class="corex-btn-outline corex-btn-on-brand flex-shrink-0 no-underline">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
                 Buyer Hub
             </a>
@@ -205,7 +206,7 @@
             @if(auth()->user()->hasPermission('access_properties') && $contact->properties()->count() === 0)
             <div class="relative flex-shrink-0" x-data="{ open: false }" @keydown.escape.window="open = false">
                 <button type="button" @click="open = !open"
-                        class="corex-btn-primary no-underline"
+                        class="corex-btn-outline corex-btn-on-brand no-underline"
                         title="Create a new property linked to this contact">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     Create Listing

@@ -98,16 +98,19 @@
 @endpush
 
 @section('corex-content')
-<div id="corex-map-root" style="position: relative; height: calc(100vh - 64px); margin: -16px -20px -16px; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
+<div id="corex-map-root" style="position: relative; height: calc(100vh - 64px); margin: -16px 0; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
 
     {{-- ── Header bar (UI_DESIGN_SYSTEM.md §2.4 Pattern A — branded header).
-         Rendered as an inset rounded-md card with the exact px-6 py-5
-         proportions, title text-xl/700 and text-sm white/60 subtitle used by
-         the Contacts / Core Matches index headers — so the blue bar is the
-         same size, not a full-bleed slab. The positive margin counteracts the
-         full-bleed negative margin on #corex-map-root so the card sits inside
-         the normal page padding while the map body below stays edge-to-edge. --}}
-    <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 20px 12px; padding: 20px 24px; background: var(--brand-default, #0b2a4a); border-radius: 6px; flex-shrink: 0; z-index: 500;">
+         Full-width rounded-md branded card with the exact px-6 py-5
+         (24px / 20px) proportions, title text-xl/700 and text-sm white/60
+         subtitle used by the Contacts / Core Matches / Properties index
+         headers — so the blue bar spans the same full content width as those
+         pages, not a narrower inset slab. Horizontal margin is 0 so the bar
+         fills the page-padded width (#corex-map-root carries only vertical
+         bleed now); the map body below aligns to the same edges. flex-wrap
+         lets the right-hand control cluster drop below the title on narrow
+         screens instead of overflowing (§6.5 responsive Pattern A rule). --}}
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin: 16px 0 12px; padding: 20px 24px; background: var(--brand-default, #0b2a4a); border-radius: 6px; flex-shrink: 0; z-index: 500;">
         <div style="min-width: 0;" data-tour="re-map-intro">
             <div style="display: flex; align-items: center; gap: 12px;">
                 <h1 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin: 0; line-height: 1.2;">CoreX Map</h1>
@@ -152,14 +155,15 @@
     </div>
 
     {{-- ── Seller View banner ────────────────────────────────────────────── --}}
-    <div id="seller-banner" style="display: none; margin: 0 20px 12px; padding: 6px 16px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); border-radius: 6px; font-size: 0.75rem; text-align: center; flex-shrink: 0;">
+    <div id="seller-banner" style="display: none; margin: 0 0 12px; padding: 6px 16px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); border-radius: 6px; font-size: 0.75rem; text-align: center; flex-shrink: 0;">
         Seller view active — owner/contact info hidden
     </div>
 
-    {{-- ── Body — contained to the same width as the header card (matching the
-         Properties / Contacts pages); the side margins align it with the
-         header and the rounded border + overflow:hidden frame the map. ────── --}}
-    <div style="display: flex; flex: 1; min-height: 0; margin: 0 20px 16px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+    {{-- ── Body — spans the same full page-padded width as the header card
+         (matching the Properties / Contacts pages); horizontal margin is 0 so
+         it aligns edge-for-edge with the header, and the rounded border +
+         overflow:hidden frame the map. ─────────────────────────────────────── --}}
+    <div style="display: flex; flex: 1; min-height: 0; margin: 0 0 16px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
 
         {{-- Left rail. Phase A.3.1 — restructured into scope-first layout:
              stock-scope pills → compact layer icons → search → collapsible

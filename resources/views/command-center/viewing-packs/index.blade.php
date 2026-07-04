@@ -30,12 +30,21 @@
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         @if($packs->isEmpty())
             <div class="py-12 px-6 text-center">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+                    </svg>
+                </div>
                 <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">
                     {{ $showArchived ? 'No archived packs' : 'No viewing packs yet' }}
                 </h3>
-                <p class="text-sm" style="color: var(--text-muted);">
+                <p class="text-sm mb-4" style="color: var(--text-muted);">
                     {{ $showArchived ? 'Archived packs will appear here.' : 'Open a buyer in the Buyer Pipeline and click “Build Viewing Pack”.' }}
                 </p>
+                @unless($showArchived)
+                    <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-btn-primary no-underline">Open Buyer Pipeline</a>
+                @endunless
             </div>
         @else
             <div class="overflow-x-auto">
@@ -57,9 +66,15 @@
                                 <td class="px-4 py-3" style="color: var(--text-primary);">{{ $pack->title ?: ('Pack #' . $pack->id) }}</td>
                                 <td class="px-4 py-3" style="color: var(--text-secondary);">{{ optional($pack->contact)->full_name ?? '—' }}</td>
                                 <td class="px-4 py-3" style="color: var(--text-secondary);">{{ optional($pack->agent)->name ?? '—' }}</td>
-                                <td class="px-4 py-3 text-center" style="color: var(--text-secondary);">{{ $pack->viewing_pack_properties_count }}</td>
+                                <td class="px-4 py-3 text-center" style="color: var(--text-secondary);">{{ number_format($pack->viewing_pack_properties_count) }}</td>
                                 <td class="px-4 py-3">
-                                    <span class="ds-badge ds-badge-default">{{ ucfirst($pack->status) }}</span>
+                                    @php
+                                        $statusVariant = match($pack->status) {
+                                            \App\Models\ViewingPack::STATUS_READY => 'ds-badge-success',
+                                            default => 'ds-badge-default',
+                                        };
+                                    @endphp
+                                    <span class="ds-badge {{ $statusVariant }}">{{ ucfirst($pack->status) }}</span>
                                 </td>
                                 <td class="px-4 py-3" style="color: var(--text-muted);">{{ optional($pack->created_at)->format('d M Y') }}</td>
                                 <td class="px-4 py-3 text-right">
@@ -84,9 +99,12 @@
                     </tbody>
                 </table>
             </div>
+            @if($packs->hasPages())
+                <div class="px-4 py-3" style="border-top: 1px solid var(--border);">
+                    {{ $packs->links() }}
+                </div>
+            @endif
         @endif
     </div>
-
-    <div>{{ $packs->links() }}</div>
 </div>
 @endsection

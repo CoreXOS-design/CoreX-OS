@@ -1,10 +1,11 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
 @php
     $totalMatches = $contacts->sum(fn($row) => $row['matches']->count());
 @endphp
-<div class="space-y-5">
+<div class="w-full space-y-5">
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
@@ -172,7 +173,7 @@
                             {{ number_format($counts['total']) }} {{ Str::plural('match', $counts['total']) }}
                         </span>
                         <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                              style="background:color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); color:var(--ds-green, #16a34a); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 25%, transparent);"
+                              style="background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);"
                               title="Visible to the client">
                             {{ number_format($counts['visible']) }} visible
                         </span>

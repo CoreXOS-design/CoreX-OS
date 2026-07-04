@@ -15,6 +15,13 @@
 
 @section('corex-content')
 
+{{-- Full-width container — matches Contacts / Properties / the Analyse tab so
+     the branded header, tab menu, stats strip, and worklist all render at the
+     same full page-padded width as every other index page (not a narrower
+     inset slab). Also normalises the sticky-header height measurement the
+     filter rail and stats strip depend on, so their menus position correctly. --}}
+<div style="width: 100%;">
+
 <x-mic-page-header
     title="Work"
     subtitle="Your prospecting worklist — listings to action, ranked by suggested next step.">
@@ -54,6 +61,8 @@
         @include('corex.market-intelligence._listings')
     </main>
 </div>
+
+</div>{{-- /full-width container --}}
 
 @include('corex.market-intelligence._slideover')
 

@@ -160,7 +160,11 @@
         'corex.presentations.*',
         'commercial-evaluations.*',
         'command-center.buyers.*',   // AT-76 — Buyer Pipeline lives in Real Estate
-        'corex.viewing-packs.*'      // AT-107 — Viewing Packs live in Real Estate
+        'corex.viewing-packs.*',     // AT-107 — Viewing Packs live in Real Estate
+        'seller-outreach.*',         // Seller Outreach composer / entry redirects live in Real Estate
+        'corex.outreach-canvassing.*', // Part 4 — Outreach & Canvassing board lives in Real Estate
+        'corex.outreach-summary.*',  // AT-91 — WhatsApp Outreach Summary lives in Real Estate
+        'corex.outreach-queue.*'     // AT-117/AT-120 — Outreach Queue lives in Real Estate
     )) {
         $activeGroup = 'real-estate';
     } elseif (request()->routeIs('payroll.leave.*')) {
@@ -554,7 +558,7 @@
 
                 @permission('access_contacts')
                 @if(\Illuminate\Support\Facades\Route::has('corex.contacts.index'))
-                <a href="{{ route('corex.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.contacts.*') && !request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Contacts</a>
+                <a href="{{ route('corex.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.contacts.*') && !request()->routeIs('corex.core-matches.*') && !request()->routeIs('corex.contacts.matches.*') ? 'active' : '' }}">Contacts</a>
                 @endif
                 @endpermission
 
@@ -578,7 +582,7 @@
 
                 @permission('access_core_matches')
                 @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
-                <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Core Matches</a>
+                <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*') ? 'active' : '' }}">Core Matches</a>
                 @endif
                 @endpermission
 
