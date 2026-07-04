@@ -574,10 +574,10 @@ class CalendarController extends Controller
     {
         $user = $request->user();
         $pref = \App\Models\CommandCenter\CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
-        $pref->calendar_cockpit    = null;  // arrangement → defaults
-        $pref->calendar_deck_layout = null; // deck → role default
-        $pref->calendar_layers     = null;  // layers → agency default
-        $pref->default_view        = null;  // view → month
+        $pref->calendar_cockpit    = null;    // arrangement → defaults
+        $pref->calendar_deck_layout = null;   // deck → role default
+        $pref->calendar_layers     = null;    // layers → agency default
+        $pref->default_view        = 'month'; // view → default (column is NOT NULL)
         $pref->save();
 
         return response()->json(['ok' => true, 'reload' => true]);
