@@ -155,10 +155,10 @@
                      anywhere. ALWAYS clickable (Johan ruling): the continuous views scroll
                      away from today, so a stale server-computed "is today in view" must
                      never disable it. The controller ignores the click if already on today. --}}
-                <button type="button" class="corex-btn-outline" @click="window.dispatchEvent(new Event('calendar:today'))">Today</button>
+                <button type="button" data-tour="cal-today" class="corex-btn-outline" @click="window.dispatchEvent(new Event('calendar:today'))">Today</button>
             @else
                 {{-- Day/Agenda are server-rendered per date → navigate to today. --}}
-                <a href="{{ $todayUrl }}" class="corex-btn-outline">Today</a>
+                <a href="{{ $todayUrl }}" data-tour="cal-today" class="corex-btn-outline">Today</a>
             @endif
             {{-- Clickable date picker label --}}
             <div x-data="{ pickerOpen: false }" class="relative inline-flex">
@@ -198,7 +198,7 @@
         </div>
 
         <div class="flex items-center gap-2">
-            <div class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
+            <div data-tour="cal-views" class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
                 @foreach(['month' => 'Month', 'week' => 'Week', 'day' => 'Day', 'agenda' => 'Agenda'] as $vKey => $vLabel)
                     <a href="{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => $vKey])) }}"
                        class="px-3 py-1.5 text-xs font-semibold transition-colors"
@@ -207,6 +207,9 @@
                     </a>
                 @endforeach
             </div>
+            {{-- Guided-tour "?" launcher relocates here (AT-164 calendar tour). Empty +
+                 additive — the tour engine appends its button; no effect if absent. --}}
+            <span id="tour-launcher-slot" class="tour-slot-surface inline-flex"></span>
             <button type="button" @click="helpOpen = !helpOpen" title="Keyboard shortcuts (?)"
                     class="px-2 py-1.5 rounded text-xs font-bold transition hover:opacity-80"
                     style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
@@ -225,7 +228,7 @@
     </div>{{-- END sticky header band --}}
 
     {{-- ══════ FLEX ROW: Calendar grid + Right panel (fills remaining height) ══════ --}}
-    <div class="relative flex gap-3 flex-1 min-h-0 overflow-hidden px-4 lg:px-6 pb-1.5">
+    <div data-tour="cal-cockpit" class="relative flex gap-3 flex-1 min-h-0 overflow-hidden px-4 lg:px-6 pb-1.5">
     {{-- Main calendar column (scrolls independently). CAL-2: min-w pins
          the calendar so the right-docked create-event aside can never
          squeeze it to zero — preserves the "calendar stays visible on the
@@ -282,7 +285,7 @@
              (instant, client-side) + filter the Notifications tile (server-side);
              persisted per-user (cross-device). Inline z-index (no new Tailwind
              arbitrary class, §3). --}}
-        <div x-data="layerFilter()" x-init="initLayers()" class="relative" @click.outside="open=false">
+        <div data-tour="cal-layers" x-data="layerFilter()" x-init="initLayers()" class="relative" @click.outside="open=false">
             <button type="button" @click="open=!open"
                     class="corex-btn-outline text-xs inline-flex items-center gap-1.5" title="Show or hide event layers">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 6 8.25 4.5L20.25 6M3.75 12l8.25 4.5L20.25 12M3.75 18l8.25 4.5L20.25 18"/></svg>
@@ -1491,7 +1494,7 @@
 
 {{-- ══════ AT-164 COCKPIT — RIGHT CONTEXT PANEL (fixed ~27%; quick-create by default,
      event details on click; scrolls its OWN contents, never the page) ══════ --}}
-<div class="flex flex-col min-h-0 rounded-md relative overflow-hidden"
+<div data-tour="cal-panel" class="flex flex-col min-h-0 rounded-md relative overflow-hidden"
      x-show="!panelCollapsed"
      :style="'flex: 0 0 27%; max-width: 27%; min-width: 300px; background: var(--surface); border: 1px solid var(--border);'">
     {{-- AT-164 cockpit v2 — panel RESIDENT default = AGENDA. Event click → detail
@@ -2410,7 +2413,7 @@
             </div>
             <div class="flex items-center gap-2 flex-shrink-0" x-show="!stripCollapsed">
                 {{-- Reset the whole cockpit arrangement to the role default --}}
-                <button type="button" @click="resetView()" class="corex-btn-outline text-[11px] py-0.5" title="Reset the whole cockpit arrangement to the default">Reset view</button>
+                <button type="button" data-tour="cal-saveview" @click="resetView()" class="corex-btn-outline text-[11px] py-0.5" title="Reset the whole cockpit arrangement to the default">Reset view</button>
                 <div x-show="editing" x-cloak class="relative" @click.outside="pickerOpen = false">
                     <button type="button" @click="pickerOpen = !pickerOpen" :disabled="!canAddMore"
                             class="corex-btn-outline text-[11px] py-0.5 disabled:opacity-40"
