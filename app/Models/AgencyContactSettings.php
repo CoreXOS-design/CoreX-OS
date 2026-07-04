@@ -46,6 +46,7 @@ class AgencyContactSettings extends Model
         'calendar_category_groups',
         'calendar_default_layers',
         'calendar_default_deck_layouts',
+        'calendar_reminder_lead_options',
     ];
 
     protected $casts = [
@@ -70,6 +71,7 @@ class AgencyContactSettings extends Model
         'calendar_category_groups' => 'array',
         'calendar_default_layers' => 'array',
         'calendar_default_deck_layouts' => 'array',
+        'calendar_reminder_lead_options' => 'array',
     ];
 
     /** Recurring-events: max occurrences materialised per series per query. */
@@ -83,6 +85,15 @@ class AgencyContactSettings extends Model
     public const DEFAULT_CALENDAR_POLL_SECONDS = 60;
     /** Layer toggles that start ON for a new user (Personal off by default — §15.6). */
     public const DEFAULT_CALENDAR_LAYERS = ['appointments', 'deal', 'compliance', 'property', 'lease', 'people', 'payroll', 'document'];
+
+    /**
+     * AT-178 — event-reminder lead-time options (minutes before start) offered in the
+     * New/Edit event form. 0 = "at time of event". Agency-overridable (no hardcoding).
+     */
+    public const DEFAULT_CALENDAR_REMINDER_LEAD_OPTIONS = [0, 5, 10, 15, 30, 60, 120, 1440];
+    /** AT-178 — system-default per-event reminder when neither event nor class sets one. */
+    public const DEFAULT_EVENT_REMINDER_OFFSETS = [60];
+    public const DEFAULT_EVENT_REMINDER_CHANNELS = ['popup'];
 
     /** AT-81 — default no-response window (days) before a pending contact lapses. */
     public const DEFAULT_OUTREACH_NO_RESPONSE_DAYS = 7;
@@ -168,6 +179,31 @@ class AgencyContactSettings extends Model
     {
         $v = (int) ($this->calendar_poll_seconds ?? self::DEFAULT_CALENDAR_POLL_SECONDS);
         return max(15, min(3600, $v));
+    }
+
+    /**
+     * AT-178 — agency lead-time option list (minutes-before) for the event-reminder
+     * selector. Null column → default constant. Sanitised to a sorted, unique,
+     * non-negative int list so a malformed override can never poison the form or the
+     * engine's due-window maths.
+     *
+     * @return int[]
+     */
+    public function calendarReminderLeadOptions(): array
+    {
+        $raw = $this->calendar_reminder_lead_options;
+        if (!is_array($raw) || empty($raw)) {
+            $raw = self::DEFAULT_CALENDAR_REMINDER_LEAD_OPTIONS;
+        }
+        $clean = collect($raw)
+            ->map(fn ($v) => (int) $v)
+            ->filter(fn ($v) => $v >= 0 && $v <= 43200) // 0 min .. 30 days
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
+        return $clean ?: self::DEFAULT_CALENDAR_REMINDER_LEAD_OPTIONS;
     }
 
     /** AT-164 — class→display-group map for aggregate chips (stored override, else []). */

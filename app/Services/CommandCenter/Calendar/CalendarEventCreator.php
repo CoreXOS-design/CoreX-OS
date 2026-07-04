@@ -80,6 +80,11 @@ class CalendarEventCreator
                 'status'        => 'pending',
                 'priority'      => $data['priority'] ?? 'normal',
                 'send_reminder' => array_key_exists('send_reminder', $data) ? (bool) $data['send_reminder'] : true,
+                // AT-178 — per-event reminder config (null = fall through to class/system
+                // defaults at resolve time). Offsets is an int[]; channels a subset of
+                // ['popup','email'].
+                'reminder_offsets'  => $data['reminder_offsets'] ?? null,
+                'reminder_channels' => $data['reminder_channels'] ?? null,
                 'source_type'   => 'manual',
                 'user_id'       => $user->id,
                 'created_by_id' => $user->id,

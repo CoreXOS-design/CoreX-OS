@@ -467,6 +467,7 @@ CREATE TABLE `agency_contact_settings` (
   `access_log_retention_years` int unsigned NOT NULL DEFAULT '5',
   `calendar_max_occurrences` smallint unsigned DEFAULT NULL COMMENT 'Max occurrences materialised per recurring series per query',
   `calendar_max_expansion_days` smallint unsigned DEFAULT NULL COMMENT 'Max days a query window is expanded for recurring series',
+  `calendar_reminder_lead_options` json DEFAULT NULL,
   `calendar_deck_slots` tinyint unsigned DEFAULT NULL,
   `calendar_grid_max_rows` tinyint unsigned DEFAULT NULL,
   `calendar_poll_seconds` smallint unsigned DEFAULT NULL,
@@ -1721,6 +1722,8 @@ CREATE TABLE `calendar_event_class_settings` (
   `red_notifications` json NOT NULL,
   `daily_digest_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `daily_digest_roles` json DEFAULT NULL,
+  `default_reminder_offsets` json DEFAULT NULL,
+  `default_reminder_channels` json DEFAULT NULL,
   `allow_multiple_properties` tinyint(1) NOT NULL DEFAULT '0',
   `buyer_facing` tinyint(1) NOT NULL DEFAULT '0',
   `actor_role` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'neither',
@@ -1862,6 +1865,7 @@ CREATE TABLE `calendar_events` (
   `branch_id` bigint unsigned DEFAULT NULL,
   `agency_id` bigint unsigned DEFAULT NULL,
   `reminder_offsets` json DEFAULT NULL COMMENT 'Array of offsets in minutes',
+  `reminder_channels` json DEFAULT NULL,
   `reminders_sent` json DEFAULT NULL COMMENT 'Tracks which offsets have been sent',
   `is_recurring` tinyint(1) NOT NULL DEFAULT '0',
   `recurrence_rule` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'RRULE format',
@@ -1904,12 +1908,15 @@ CREATE TABLE `calendar_reminders_log` (
   `user_id` bigint unsigned NOT NULL,
   `channel` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'app, email, sms',
   `offset_minutes` int NOT NULL,
+  `occurrence_key` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'single',
   `sent_at` datetime NOT NULL,
   `read_at` datetime DEFAULT NULL,
+  `snoozed_until` datetime DEFAULT NULL,
   `actioned_at` datetime DEFAULT NULL,
   `escalated` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `cal_reminder_once_idx` (`calendar_event_id`,`user_id`,`channel`,`offset_minutes`,`occurrence_key`),
   KEY `calendar_reminders_log_calendar_event_id_foreign` (`calendar_event_id`),
   KEY `calendar_reminders_log_user_id_foreign` (`user_id`),
   KEY `calendar_reminders_log_agency_id_idx` (`agency_id`),
@@ -12805,3 +12812,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (956,'2026_07_06_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (957,'2026_07_03_400000_create_deal_step_escalations_table',215);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (958,'2026_07_03_500000_seed_deals_v2_view_overview_permission',216);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (959,'2026_07_07_000001_add_cockpit_layout_to_calendar_user_preferences',216);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (961,'2026_07_04_120000_add_reminder_config_and_occurrence_key',217);

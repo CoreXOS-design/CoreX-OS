@@ -17,16 +17,17 @@ class CalendarReminderLog extends Model
 
     protected $fillable = [
         'agency_id',
-        'calendar_event_id', 'user_id', 'channel', 'offset_minutes',
-        'sent_at', 'read_at', 'actioned_at', 'escalated',
+        'calendar_event_id', 'user_id', 'channel', 'offset_minutes', 'occurrence_key',
+        'sent_at', 'read_at', 'actioned_at', 'escalated', 'snoozed_until',
     ];
 
     protected $casts = [
-        'sent_at'     => 'datetime',
-        'read_at'     => 'datetime',
-        'actioned_at' => 'datetime',
-        'escalated'   => 'boolean',
-        'created_at'  => 'datetime',
+        'sent_at'       => 'datetime',
+        'read_at'       => 'datetime',
+        'actioned_at'   => 'datetime',
+        'snoozed_until' => 'datetime',
+        'escalated'     => 'boolean',
+        'created_at'    => 'datetime',
     ];
 
     public function event(): BelongsTo

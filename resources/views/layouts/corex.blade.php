@@ -150,6 +150,7 @@
 
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
+        @include('components.reminder-toast')
 
         @stack('scripts')
     </body>

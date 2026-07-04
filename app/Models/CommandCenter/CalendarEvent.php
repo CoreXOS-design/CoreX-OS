@@ -56,7 +56,7 @@ class CalendarEvent extends Model
         'event_date', 'end_date', 'all_day', 'priority', 'send_reminder', 'status', 'colour',
         'source_type', 'source_id',
         'property_id', 'contact_id', 'branch_id', 'agency_id',
-        'reminder_offsets', 'reminders_sent',
+        'reminder_offsets', 'reminder_channels', 'reminders_sent',
         'is_recurring', 'recurrence_rule', 'parent_event_id',
         'metadata',
         'created_by_ai', 'ai_source', 'ai_transcript',
@@ -69,6 +69,7 @@ class CalendarEvent extends Model
         'send_reminder'    => 'boolean',
         'is_recurring'     => 'boolean',
         'reminder_offsets' => 'array',
+        'reminder_channels' => 'array',
         'reminders_sent'   => 'array',
         'metadata'         => 'array',
         'created_by_ai'    => 'boolean',
@@ -377,5 +378,130 @@ class CalendarEvent extends Model
     public function isInformational(): bool
     {
         return $this->effectiveEventNature() === CalendarEventClassSetting::NATURE_INFORMATIONAL;
+    }
+
+    // ── Reminders (AT-178) ───────────────────────────────────────────────────
+
+    /** Valid reminder channels. Contacts are never notified — internal scheduling only. */
+    public const REMINDER_CHANNELS = ['popup', 'email'];
+
+    /**
+     * The EFFECTIVE lead-time offsets (minutes-before) for THIS event.
+     *
+     * Resolution (doctrine: no hardcoding — per-event beats class beats system):
+     *   1. per-event `reminder_offsets` if the user set one,
+     *   2. else the agency class default (calendar_event_class_settings),
+     *   3. else the system default ([60]).
+     * Always sanitised to a sorted, unique, non-negative int list.
+     *
+     * @return int[]
+     */
+    public function effectiveReminderOffsets(): array
+    {
+        $offsets = $this->sanitiseOffsets($this->reminder_offsets);
+        if ($offsets !== null) {
+            return $offsets;
+        }
+
+        $cfg = CalendarEventClassSetting::forAgencyAndClass($this->agency_id, (string) ($this->category ?? ''));
+        $classOffsets = $this->sanitiseOffsets($cfg?->default_reminder_offsets);
+        if ($classOffsets !== null) {
+            return $classOffsets;
+        }
+
+        return \App\Models\AgencyContactSettings::DEFAULT_EVENT_REMINDER_OFFSETS;
+    }
+
+    /**
+     * The EFFECTIVE reminder channels for THIS event. Same three-tier resolution as
+     * offsets; system default is popup-only (Johan: popup on, email off).
+     *
+     * @return string[] subset of REMINDER_CHANNELS
+     */
+    public function effectiveReminderChannels(): array
+    {
+        $channels = $this->sanitiseChannels($this->reminder_channels);
+        if ($channels !== null) {
+            return $channels;
+        }
+
+        $cfg = CalendarEventClassSetting::forAgencyAndClass($this->agency_id, (string) ($this->category ?? ''));
+        $classChannels = $this->sanitiseChannels($cfg?->default_reminder_channels);
+        if ($classChannels !== null) {
+            return $classChannels;
+        }
+
+        return \App\Models\AgencyContactSettings::DEFAULT_EVENT_REMINDER_CHANNELS;
+    }
+
+    /**
+     * Normalise an offsets value to a sorted unique non-negative int list, or null
+     * when the source is unset/empty (so callers can fall through to the next tier).
+     */
+    private function sanitiseOffsets($raw): ?array
+    {
+        if (!is_array($raw) || empty($raw)) {
+            return null;
+        }
+        $clean = collect($raw)
+            ->map(fn ($v) => (int) $v)
+            ->filter(fn ($v) => $v >= 0 && $v <= 43200)
+            ->unique()->sort()->values()->all();
+
+        return $clean ?: null;
+    }
+
+    /** Normalise a channels value to a valid subset of REMINDER_CHANNELS, or null. */
+    private function sanitiseChannels($raw): ?array
+    {
+        if (!is_array($raw) || empty($raw)) {
+            return null;
+        }
+        $clean = collect($raw)
+            ->map(fn ($v) => is_string($v) ? strtolower(trim($v)) : $v)
+            ->filter(fn ($v) => in_array($v, self::REMINDER_CHANNELS, true))
+            ->unique()->values()->all();
+
+        return $clean ?: null;
+    }
+
+    /**
+     * The USERS who should receive this event's reminders: the owner plus any agent
+     * attendees invited to it (accounts only) whose invitation is not declined or
+     * cancelled. Deduplicated by user id. Contacts are deliberately excluded.
+     *
+     * Call this on the REAL event row (a recurring parent), never a virtual occurrence
+     * clone — invitations are keyed on the parent event id.
+     *
+     * @return \Illuminate\Support\Collection<int,\App\Models\User>
+     */
+    public function reminderRecipients(): \Illuminate\Support\Collection
+    {
+        $userIds = collect();
+
+        if ($this->user_id) {
+            $userIds->push((int) $this->user_id);
+        }
+
+        CalendarEventInvitation::withoutGlobalScopes()
+            ->where('event_id', $this->id)
+            ->whereNotNull('invitee_user_id')
+            ->whereNotIn('status', ['declined', 'cancelled'])
+            ->pluck('invitee_user_id')
+            ->each(fn ($id) => $userIds->push((int) $id));
+
+        $ids = $userIds->unique()->values();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        // Only active users receive reminders. withoutGlobalScopes so a cross-branch
+        // invitee still resolves (agency isolation already held at invite time).
+        return User::withoutGlobalScopes()
+            ->whereIn('id', $ids->all())
+            ->where('is_active', 1)
+            ->get()
+            ->keyBy('id')
+            ->values();
     }
 }

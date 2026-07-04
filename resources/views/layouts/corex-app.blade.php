@@ -158,6 +158,7 @@
 
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
+        @include('components.reminder-toast')
 
         {{-- Frontend error capture --}}
         @include('partials.error-reporter')
