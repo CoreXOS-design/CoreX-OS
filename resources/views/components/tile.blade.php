@@ -21,7 +21,7 @@
     Props:
       var  — Alpine expression pointing at the card object in the enclosing scope (default 'card').
 --}}
-@props(['var' => 'card'])
+@props(['var' => 'card', 'compact' => false])
 
 @once
 @push('scripts')
@@ -100,7 +100,20 @@ window.CoreXTile = (function () {
      class="group flex flex-col rounded-md overflow-hidden transition-all shadow-sm hover:shadow h-full"
      :style="'background:var(--surface-2);border:1px solid var(--border);border-top:3px solid ' + window.CoreXTile.accent({{ $var }}) + ';'">
 
-    {{-- ─── Header ─── --}}
+    {{-- ─── Compact header (cockpit tile strip): ONE thin line so the CONTENT LIST
+         gets the height. Small icon + name + count badge + View-all. ─── --}}
+    @if($compact)
+    <div class="px-2.5 pt-1.5 pb-1 flex items-center gap-1.5 flex-shrink-0">
+        <span x-html="window.CoreXTile.icon({{ $var }}.icon)" class="w-3.5 h-3.5 flex-shrink-0" :style="'color:' + window.CoreXTile.accent({{ $var }})"></span>
+        <h3 class="text-[11px] font-semibold truncate flex-1 min-w-0" style="color: var(--text-primary);" x-text="{{ $var }}.title"></h3>
+        <span x-show="({{ $var }}.count || 0) > 0" class="text-[10px] font-bold tabular-nums px-1.5 rounded-full flex-shrink-0 leading-tight"
+              :style="'color:#fff; background:' + window.CoreXTile.accent({{ $var }})" x-text="({{ $var }}.count > 99) ? '99+' : {{ $var }}.count"></span>
+        <template x-if="{{ $var }}.view_all_url">
+            <a :href="{{ $var }}.view_all_url" target="_blank" rel="noopener" class="text-[10px] flex-shrink-0 no-underline font-semibold" style="color: var(--brand-button);" title="View all">View all →</a>
+        </template>
+    </div>
+    @else
+    {{-- ─── Header (full — dashboard) ─── --}}
     <div class="p-5 pb-3 flex items-center justify-between gap-3 flex-shrink-0">
         <div class="flex items-center gap-3 min-w-0">
             <div class="w-10 h-10 rounded-md flex items-center justify-center flex-shrink-0"
@@ -128,9 +141,11 @@ window.CoreXTile = (function () {
             </button>
         </div>
     </div>
+    @endif
 
-    {{-- ─── Body (independent scroll — delta 1) ─── --}}
-    <div x-show="!collapsed" x-collapse class="px-5 pb-4 flex flex-col flex-1 min-h-0">
+    {{-- ─── Body (independent scroll — delta 1). In compact mode the padding is tight
+         and the body fills whatever height remains so the entry lines show. ─── --}}
+    <div x-show="!collapsed" x-collapse class="flex flex-col flex-1 min-h-0 {{ $compact ? 'px-2.5 pb-1.5' : 'px-5 pb-4' }}">
         {{-- Degraded state — a tile whose data source errored. Never a 500. --}}
         <template x-if="{{ $var }}.degraded">
             <div class="flex-1 flex flex-col items-center justify-center text-center py-6 gap-1">
@@ -217,7 +232,8 @@ window.CoreXTile = (function () {
             </div>
         </template>
 
-        {{-- Footer — whole-tile "View all" link --}}
+        {{-- Footer — whole-tile "View all" link (full mode only; compact puts it in the header) --}}
+        @unless($compact)
         <template x-if="{{ $var }}.view_all_url">
             <a :href="{{ $var }}.view_all_url" target="_blank" rel="noopener"
                class="mt-auto pt-3 text-xs font-semibold flex items-center gap-1 no-underline"
@@ -225,5 +241,6 @@ window.CoreXTile = (function () {
                 <span>View all</span><span class="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
             </a>
         </template>
+        @endunless
     </div>
 </div>
