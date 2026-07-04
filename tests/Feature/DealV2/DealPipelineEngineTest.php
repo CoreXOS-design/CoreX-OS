@@ -171,6 +171,9 @@ final class DealPipelineEngineTest extends TestCase
     {
         $agencyId = (int) DB::table('agencies')->insertGetId([
             'name' => 'Test ' . Str::random(6), 'slug' => 'test-' . Str::random(8),
+            // WS-R3: these engine tests exercise the BM-approval HOLD path, which
+            // is now opt-in per agency — enable it here so they keep testing it.
+            'deal_v2_bm_approval_enabled' => true,
             'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('branches')->insert([

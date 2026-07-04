@@ -185,6 +185,15 @@ class DealPipelineService
     }
 
     /**
+     * AT-158 WS-R3 (Ruling 2) — is the DR2 pipeline BM-approval gate switched on
+     * for this deal's agency? Off by default (agency-configurable).
+     */
+    private function bmApprovalEnabled(DealV2 $deal): bool
+    {
+        return (bool) optional(\App\Models\Agency::find($deal->agency_id))->deal_v2_bm_approval_enabled;
+    }
+
+    /**
      * Complete a step — handles status triggers, BM approval, and chain reactions.
      */
     public function completeStep(DealStepInstance $step, User $user, array $completionData): void
@@ -194,7 +203,11 @@ class DealPipelineService
             $isNegative = $outcome === 'negative';
 
             $statusTrigger = $isNegative ? $step->negative_status_trigger : $step->status_trigger;
-            $needsApproval = $step->requires_bm_approval && $statusTrigger;
+            // AT-158 WS-R3 (Ruling 2): the BM-approval hold applies ONLY when the
+            // agency has opted in. Off by default → the pipeline is a tracking
+            // overlay and the status trigger applies immediately (no held step,
+            // no "process I didn't ask for").
+            $needsApproval = $step->requires_bm_approval && $statusTrigger && $this->bmApprovalEnabled($step->deal);
 
             $step->update([
                 'status' => 'completed',
