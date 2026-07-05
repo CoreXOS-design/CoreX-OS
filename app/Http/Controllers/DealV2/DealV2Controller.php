@@ -185,9 +185,15 @@ class DealV2Controller extends Controller
         return $this->buildCreateView('deals-v2.create');
     }
 
+    /** WS-V3 (Ruling b): capture is allowed for full-capture (create) OR agent own-capture. */
+    private function canCapture(?\App\Models\User $user): bool
+    {
+        return (bool) ($user?->hasPermission('deals_v2.create') || $user?->hasPermission('deals_v2.capture_own'));
+    }
+
     private function buildCreateView(string $view)
     {
-        abort_unless(auth()->user()?->hasPermission('deals_v2.create'), 403);
+        abort_unless($this->canCapture(auth()->user()), 403);
 
         $templates = DealPipelineTemplate::active()
             ->with('steps')
@@ -235,7 +241,7 @@ class DealV2Controller extends Controller
 
     public function store(Request $request)
     {
-        abort_unless(auth()->user()?->hasPermission('deals_v2.create'), 403);
+        abort_unless($this->canCapture(auth()->user()), 403);
 
         $data = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
@@ -297,6 +303,24 @@ class DealV2Controller extends Controller
         if (empty($data['listing_agent_id'])) {
             $firstListing = collect($data['agents'] ?? [])->firstWhere('side', 'listing');
             $data['listing_agent_id'] = $firstListing['user_id'] ?? auth()->id();
+        }
+
+        // WS-V3 (Ruling b): an agent granted ONLY own-capture (not full create) may
+        // capture only a deal they are on — clampScope discipline. Full-capture
+        // holders (BM/admin) are unrestricted.
+        $actor = auth()->user();
+        if (! $actor->hasPermission('deals_v2.create') && $actor->hasPermission('deals_v2.capture_own')) {
+            $onDeal = collect($data['agents'] ?? [])->pluck('user_id')
+                ->push($data['listing_agent_id'] ?? null)
+                ->push($data['selling_agent_id'] ?? null)
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->contains((int) $actor->id);
+            if (! $onDeal) {
+                return back()->withInput()->withErrors(
+                    'You can only capture a deal you are an agent on. Add yourself to the listing or selling side.'
+                );
+            }
         }
 
         // Validate splits total 100
