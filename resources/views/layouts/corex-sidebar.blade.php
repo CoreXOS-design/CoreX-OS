@@ -118,7 +118,12 @@
         $activeGroup = 'documents';
     } elseif (request()->routeIs('rental.*')) {
         $activeGroup = 'rentals';
-    } elseif (request()->routeIs('compliance.*')) {
+    } elseif (request()->routeIs('compliance.*')
+        && !request()->routeIs('compliance.comm-archive.*', 'compliance.comm-flags.*', 'compliance.comm-mailboxes.*')) {
+        // AT-161 IA re-cut — the compliance.comm-* routes (Message Archive, Flagged
+        // Messages, Archive Mailboxes) live in the COMMUNICATIONS group, not
+        // Compliance. Exclude them here so they fall through to the communication
+        // matcher below and the correct group opens/highlights.
         $activeGroup = 'compliance';
     } elseif (request()->routeIs('command-center.*') && !request()->routeIs('command-center.buyers.*')) {
         // AT-108 — Buyer Pipeline (command-center.buyers.*) lives in REAL ESTATE
@@ -186,7 +191,13 @@
     } elseif (request()->routeIs(
         'communications.wa-devices.*',
         'communications.triage.*',
-        'my-portal.comm-capture.*'
+        'communications.capture.*',
+        'my-portal.comm-capture.*',
+        'compliance.comm-archive.*',
+        'compliance.comm-flags.*',
+        'compliance.comm-mailboxes.*',
+        'corex.comms-access.inbox',
+        'settings.email-setup.*'
     )) {
         $activeGroup = 'communication';
     }
@@ -1121,12 +1132,9 @@
                 @permission('outreach.compose')
                 <a href="{{ route('compliance.seller-info.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.seller-info.*') ? 'active' : '' }}">Send Standalone Info Pack</a>
                 @endpermission
-                {{-- AT-161 — Message Archive / Flagged Messages / Archive Mailboxes moved
-                     to the Communications menu. A read-only cross-link to the archive
-                     stays here (Elize's muscle memory); its home is Communications. --}}
-                @permission('access_communication_archive')
-                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Message Archive &rarr;</a>
-                @endpermission
+                {{-- AT-161 — Message Archive / Flagged Messages / Archive Mailboxes live
+                     in the Communications menu (their home). The former muscle-memory
+                     cross-link was removed so the archive highlights in one place only. --}}
             </div>
         </div>
         @endpermission
