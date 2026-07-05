@@ -1,19 +1,20 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+
+@section('corex-content')
+<div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight tracking-tight">Deal Log</h2>
-                <div class="text-sm text-white/60">#{{ $deal->deal_no }} &mdash; timeline. You may add remarks.</div>
+                <h1 class="text-xl font-bold text-white leading-tight">Deal Log</h1>
+                <p class="text-sm text-white/60">#{{ $deal->deal_no }} &mdash; timeline. You may add remarks.</p>
             </div>
             <a href="{{ route('agent.deals.index') }}"
-               class="inline-flex items-center rounded-md px-4 py-2 text-sm font-semibold text-white transition-all duration-300"
-               style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);"
-               onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+               class="corex-btn-outline text-sm shrink-0"
+               style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
                 &larr; Back to My Deals
             </a>
         </div>
@@ -22,13 +23,15 @@
     {{-- Add Remark --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
         @if(session('status'))
-            <div class="mb-3 rounded-md px-4 py-3 text-sm" style="background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #10b981;">
+            <div class="mb-3 rounded-md px-4 py-3 text-sm"
+                 style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
                 {{ session('status') }}
             </div>
         @endif
 
         @if($errors->any())
-            <div class="mb-3 rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: #ef4444;">
+            <div class="mb-3 rounded-md px-4 py-3 text-sm"
+                 style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
                 {{ $errors->first() }}
             </div>
         @endif
@@ -59,9 +62,9 @@
             @forelse($logs as $log)
                 <div class="rounded-md px-4 py-3 transition-all duration-300"
                      style="background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
-                    <div class="flex items-center justify-between">
-                        <div class="text-sm font-semibold" style="color: var(--text-primary);">{{ $log->event }}</div>
-                        <div class="text-xs" style="color: var(--text-muted);">{{ $log->created_at }}</div>
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="text-sm font-semibold" style="color: var(--text-primary);">{{ \Illuminate\Support\Str::headline((string) $log->event_type) ?: 'Event' }}</div>
+                        <div class="text-xs whitespace-nowrap" style="color: var(--text-muted);">{{ optional($log->created_at)->format('d M Y, H:i') ?? '—' }}</div>
                     </div>
                     <div class="mt-1 text-sm" style="color: var(--text-secondary);">
                         @if($log->message)

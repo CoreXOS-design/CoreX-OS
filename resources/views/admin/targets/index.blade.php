@@ -1,31 +1,13 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
     <style>
-        .targets-table-wrap { overflow-x: auto; }
-        .targets-table { min-width: 1100px; }
-        .targets-sticky { position: sticky; left: 0; z-index: 2; background: var(--surface); }
-        thead .targets-sticky { z-index: 3; background: var(--surface-2, var(--surface)); }
-        .th-vert {
-            writing-mode: vertical-rl;
-            transform: rotate(180deg);
-            white-space: nowrap;
-            padding: 10px 6px !important;
-            height: 140px;
-            vertical-align: bottom;
-            text-align: left;
-        }
-        .cell-num { width: 72px; }
-        .cell-num-sm { width: 60px; }
-        .cell-num-lg { width: 110px; }
-        .targets-table thead th { position: sticky; top: 0; z-index: 4; }
-        .targets-table tbody tr { transition: all 300ms; }
-        .targets-table tbody tr:hover td { background: var(--surface-2, rgba(0,0,0,0.03)); }
         .targets-input {
             width: 10rem;
             padding: 0.5rem 0.75rem;
             font-size: 0.875rem;
-            border-radius: 0.375rem;
+            border-radius: 6px;
             background: var(--surface-2);
             border: 1px solid var(--border);
             color: var(--text-primary);
@@ -37,8 +19,8 @@
             box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button) 15%, transparent);
         }
         .targets-period-select {
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.25);
             color: #fff;
         }
         .targets-period-select option { color: #000; }
@@ -125,11 +107,11 @@
                         <button class="corex-btn-primary">Save Targets</button>
                     </div>
 
-                    <div class="targets-table-wrap">
-                        <table class="min-w-full text-sm targets-table ds-table">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm ds-table">
                             <thead>
                                 <tr style="background: var(--surface-2);">
-                                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider targets-sticky" style="color: var(--text-muted);">Agent</th>
+                                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
                                     <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Monthly Points Target</th>
                                 </tr>
                             </thead>
@@ -138,25 +120,11 @@
                                 @forelse($users as $u)
                                     @php
                                         $t = $targets[$u->id] ?? null;
-                                        $a = $actuals[$u->id] ?? null;
-
-                                        $lt = (int)($t->listings_target ?? 0);
-                                        $la = (int)($a->listings_actual ?? 0);
-                                        $lv = $la - $lt;
-
-                                        $dt = (int)($t->deals_target ?? 0);
-                                        $da = (int)($a->deals_actual ?? 0);
-                                        $dv = $da - $dt;
-
-                                        $vt = (float)($t->value_target ?? 0);
-                                        $va = (float)($a->value_actual ?? 0);
-                                        $vv = $va - $vt;
-
                                         $branchName = $branchNames[$u->branch_id] ?? '-';
                                     @endphp
 
                                     <tr style="border-top: 1px solid var(--border);">
-                                        <td class="px-4 py-3 font-semibold targets-sticky" style="color: var(--text-primary);">
+                                        <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">
                                             {{ $u->name }}
                                             <div class="text-xs mt-0.5 font-normal" style="color: var(--text-muted);">Branch: {{ $branchName }}</div>
                                         </td>

@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @php
     $t = $snapshot['derived_targets'] ?? ['deals_needed'=>0,'listings_needed'=>0,'value_target'=>0];
     $a = $snapshot['actuals'] ?? ['deals_count'=>0,'sales_value'=>0,'avg_sale_price_actual'=>0,'effective_commission_percent'=>0,'daily_rows'=>0,'points_actual'=>0,'points_target'=>0];
@@ -73,7 +74,7 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-6">
 
     {{-- PAGE HEADER (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" data-tour="at-agent-dashboard-header" style="background: var(--brand-default, #0b2a4a);">

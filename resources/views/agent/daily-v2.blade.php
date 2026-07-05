@@ -68,7 +68,7 @@
         @endif
 
         {{-- Monthly stats (right half) --}}
-        <div class="rounded-md px-4 py-2.5 ds-status-card" data-tour="at-agent-daily-stats" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md px-4 py-2.5" data-tour="at-agent-daily-stats" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="grid grid-cols-4 gap-3 h-full items-center">
                 <div class="text-center">
                     <div class="text-[11px] font-medium uppercase tracking-wide" style="color: var(--text-muted);">Month</div>

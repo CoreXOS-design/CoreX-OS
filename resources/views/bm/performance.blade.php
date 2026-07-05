@@ -54,10 +54,11 @@
         ->expiringSoon(30)->count();
 @endphp
 
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-6">
 
     {{-- PAGE HEADER (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -164,8 +165,8 @@
     <div class="space-y-3">
         <h2 class="ds-section-header">Deal Status</h2>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <a href="/admin/deals?status=Declined&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
-                <div class="ds-status-card ds-status-declined">
+            <a href="/admin/deals?status=Declined&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+                <div class="ds-status-card ds-status-declined h-full">
                     <div class="ds-label mb-2">Declined</div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
@@ -180,8 +181,8 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Pending&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
-                <div class="ds-status-card ds-status-pending">
+            <a href="/admin/deals?status=Pending&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+                <div class="ds-status-card ds-status-pending h-full">
                     <div class="ds-label mb-2">Pending</div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
@@ -196,8 +197,8 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Granted&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
-                <div class="ds-status-card ds-status-granted">
+            <a href="/admin/deals?status=Granted&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+                <div class="ds-status-card ds-status-granted h-full">
                     <div class="ds-label mb-2">Granted</div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
@@ -212,8 +213,8 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Registered&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
-                <div class="ds-status-card ds-status-registered">
+            <a href="/admin/deals?status=Registered&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+                <div class="ds-status-card ds-status-registered h-full">
                     <div class="ds-label mb-2">Registered</div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
@@ -231,8 +232,8 @@
 
         <h2 class="ds-section-header">Outstanding Commission</h2>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <a href="/admin/deals?status=Pending&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
-                <div class="ds-status-card ds-money-pending">
+            <a href="/admin/deals?status=Pending&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+                <div class="ds-status-card ds-money-pending h-full">
                     <div class="ds-label">Pending (Not Paid) — Company ex VAT</div>
                     <div class="ds-value-xl">
                         R {{ number_format((float)($statusSummary['pending_unpaid_company_ex_vat'] ?? 0), 0) }}
@@ -240,8 +241,8 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Granted&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
-                <div class="ds-status-card ds-money-granted">
+            <a href="/admin/deals?status=Granted&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+                <div class="ds-status-card ds-money-granted h-full">
                     <div class="ds-label">Granted (Not Paid) — Company ex VAT</div>
                     <div class="ds-value-xl">
                         R {{ number_format((float)($statusSummary['granted_unpaid_company_ex_vat'] ?? 0), 0) }}
@@ -252,8 +253,8 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Registered&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
-                <div class="ds-status-card ds-money-registered">
+            <a href="/admin/deals?status=Registered&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+                <div class="ds-status-card ds-money-registered h-full">
                     <div class="ds-label">Registered (Not Paid) — Company ex VAT</div>
                     <div class="ds-value-xl">
                         R {{ number_format((float)($statusSummary['registered_unpaid_company_ex_vat'] ?? 0), 0) }}
@@ -274,27 +275,27 @@
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <a href="{{ route('bm.listings', ['filter' => 'active']) }}" class="ds-status-card block">
+            <a href="{{ route('bm.listings', ['filter' => 'active']) }}" class="ds-status-card block h-full">
                 <div class="ds-label">Active</div>
                 <div class="ds-value-lg">{{ number_format((int)($listingStats['total'] ?? 0)) }}</div>
             </a>
 
-            <a href="{{ route('bm.listings', ['filter' => 'dom']) }}" class="ds-status-card block">
+            <a href="{{ route('bm.listings', ['filter' => 'dom']) }}" class="ds-status-card block h-full">
                 <div class="ds-label">Avg DOM</div>
                 <div class="ds-value-lg">{{ number_format((int)($listingStats['avg_days_on_market'] ?? 0)) }}</div>
             </a>
 
-            <a href="{{ route('bm.listings', ['filter' => 'stale']) }}" class="ds-status-card block">
+            <a href="{{ route('bm.listings', ['filter' => 'stale']) }}" class="ds-status-card block h-full">
                 <div class="ds-label">Stale (14d)</div>
                 <div class="ds-value-lg">{{ number_format((int)($listingStats['stale'] ?? 0)) }}</div>
             </a>
 
-            <a href="{{ route('bm.listings', ['filter' => 'expiring']) }}" class="ds-status-card block">
+            <a href="{{ route('bm.listings', ['filter' => 'expiring']) }}" class="ds-status-card block h-full">
                 <div class="ds-label">Expiring (14d)</div>
                 <div class="ds-value-lg">{{ number_format((int)($listingStats['expiring_soon'] ?? 0)) }}</div>
             </a>
 
-            <a href="{{ route('bm.listings', ['filter' => 'expired']) }}" class="ds-status-card block">
+            <a href="{{ route('bm.listings', ['filter' => 'expired']) }}" class="ds-status-card block h-full">
                 <div class="ds-label">Expired</div>
                 <div class="ds-value-lg">{{ number_format((int)($listingStats['expired'] ?? 0)) }}</div>
             </a>
@@ -323,19 +324,19 @@
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="ds-status-card">
+                <div class="ds-status-card h-full">
                     <div class="ds-label">Avg Sale Price (Inc VAT)</div>
                     <div class="ds-value-lg">R {{ number_format($avgSaleInc, 0) }}</div>
                     <div class="ds-label mt-1">Ex VAT: R {{ number_format($avgSaleEx, 0) }}</div>
                 </div>
 
-                <div class="ds-status-card">
+                <div class="ds-status-card h-full">
                     <div class="ds-label">Effective Commission % (Ex VAT)</div>
                     <div class="ds-value-lg">{{ number_format($effCommPct, 2) }}%</div>
                     <div class="ds-label mt-1">Derived from Deal Register totals (ex VAT basis).</div>
                 </div>
 
-                <div class="ds-status-card">
+                <div class="ds-status-card h-full">
                     <div class="ds-label">Filter</div>
                     <div class="text-sm mt-1" style="color: var(--text-secondary);">
                         Pending: <span class="font-bold">{{ ($stageFilter['pending'] ?? true) ? 'Yes' : 'No' }}</span> &middot;
@@ -373,7 +374,7 @@
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="ds-status-card">
+            <div class="ds-status-card h-full">
                 <div class="ds-label">Branch Value (Actual / Agent-Sum Target)</div>
                 <div class="ds-value-xl leading-tight">
                     R {{ number_format($branchValueActual, 0) }}
@@ -385,7 +386,7 @@
                 <div class="mt-2 ds-label">Progress {{ number_format($valuePct, 1) }}%</div>
             </div>
 
-            <div class="ds-status-card">
+            <div class="ds-status-card h-full">
                 <div class="ds-label">Branch Deals (Actual / Agent-Sum Target)</div>
                 <div class="ds-value-xl leading-tight">
                     {{ number_format($branchDealsActual) }}
@@ -432,12 +433,12 @@
             </form>
 
             <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="ds-status-card">
+                <div class="ds-status-card h-full">
                     <div class="ds-label">Branch Budget</div>
                     <div class="ds-value-xl">R {{ number_format($branchBudget, 0) }}</div>
                 </div>
 
-                <div class="ds-status-card">
+                <div class="ds-status-card h-full">
                     <div class="ds-label">Projected Income (from agent targets)</div>
                     <div class="ds-value-xl">R {{ number_format($projectedIncome, 0) }}</div>
                     <div class="ds-label mt-1">
@@ -445,7 +446,7 @@
                     </div>
                 </div>
 
-                <div class="ds-status-card {{ $shortAmount > 0 ? 'ds-status-pending' : 'ds-status-granted' }}">
+                <div class="ds-status-card h-full {{ $shortAmount > 0 ? 'ds-status-pending' : 'ds-status-granted' }}">
                     <div class="ds-label">Status</div>
                     @if($branchBudget > 0 && $shortAmount <= 0)
                         <div class="ds-value-lg" style="color: var(--ds-green);">On track</div>

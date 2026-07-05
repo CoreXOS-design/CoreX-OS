@@ -1,7 +1,7 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
-@section('corex-content')
+@push('head')
     <style>
         .acty-input {
             width: 100%;
@@ -24,10 +24,18 @@
         .acty-num {
             text-align: right;
         }
+        .acty-check {
+            width: 1rem;
+            height: 1rem;
+            accent-color: var(--brand-button, #0ea5e9);
+            cursor: pointer;
+        }
         .acty-defs-table tbody tr { transition: background-color 150ms ease; }
         .acty-defs-table tbody tr:hover td { background: var(--surface-2); }
     </style>
+@endpush
 
+@section('corex-content')
     <div class="w-full space-y-5">
 
         {{-- Page Header (Pattern A: branded) --}}
@@ -71,38 +79,40 @@
             </div>
 
             <div class="px-5 py-4">
-                <form method="POST" action="{{ route('admin.targets.activity.definitions.save') }}" class="grid grid-cols-1 sm:grid-cols-6 gap-4 items-end">
+                <form method="POST" action="{{ route('admin.targets.activity.definitions.save') }}" class="space-y-4">
                     @csrf
 
-                    <div class="sm:col-span-2">
-                        <label for="acty-name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
-                        <input id="acty-name" name="name" required placeholder="Appointments" class="acty-input" />
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                        <div class="sm:col-span-2">
+                            <label for="acty-name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
+                            <input id="acty-name" name="name" required placeholder="Appointments" class="acty-input" />
+                        </div>
+
+                        <div>
+                            <label for="acty-weight" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Weight</label>
+                            <input id="acty-weight" name="weight" type="number" step="0.01" min="0" value="1" class="acty-input acty-num" />
+                        </div>
+
+                        <div>
+                            <label for="acty-order" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Order</label>
+                            <input id="acty-order" name="sort_order" type="number" min="0" value="100" class="acty-input acty-num" />
+                        </div>
+
+                        <div>
+                            <label for="acty-scoring" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Scoring</label>
+                            <select id="acty-scoring" name="scoring_mode" class="acty-input">
+                                <option value="count" selected>Per action</option>
+                                <option value="once">Once (tick)</option>
+                            </select>
+                        </div>
                     </div>
 
-                    <div class="sm:col-span-1">
-                        <label for="acty-weight" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Weight</label>
-                        <input id="acty-weight" name="weight" type="number" step="0.01" min="0" value="1" class="acty-input acty-num" />
-                    </div>
-
-                    <div class="sm:col-span-1">
-                        <label for="acty-order" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Order</label>
-                        <input id="acty-order" name="sort_order" type="number" min="0" value="100" class="acty-input acty-num" />
-                    </div>
-
-                    <div class="sm:col-span-1">
-                        <label for="acty-scoring" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Scoring</label>
-                        <select id="acty-scoring" name="scoring_mode" class="acty-input">
-                            <option value="count" selected>Per action</option>
-                            <option value="once">Once (tick)</option>
-                        </select>
-                    </div>
-
-                    <div class="sm:col-span-1 flex items-center justify-between gap-3">
+                    <div class="flex flex-wrap items-center justify-end gap-4 pt-1">
                         <label class="inline-flex items-center gap-2 text-sm" style="color: var(--text-primary);">
-                            <input type="checkbox" name="is_enabled" value="1" checked>
+                            <input type="checkbox" name="is_enabled" value="1" class="acty-check" checked>
                             Active
                         </label>
-                        <button class="corex-btn-primary">Add</button>
+                        <button class="corex-btn-primary">Add Activity</button>
                     </div>
                 </form>
             </div>
@@ -163,7 +173,7 @@
                                 </td>
 
                                 <td class="px-4 py-3">
-                                    <input form="acty-def-{{ $d->id }}" type="checkbox" name="is_enabled" value="1" @checked((int)$d->is_enabled === 1)>
+                                    <input form="acty-def-{{ $d->id }}" type="checkbox" name="is_enabled" value="1" class="acty-check" @checked((int)$d->is_enabled === 1)>
                                 </td>
 
                                 <td class="px-4 py-3 text-right">

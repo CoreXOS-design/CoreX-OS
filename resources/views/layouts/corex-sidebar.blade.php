@@ -107,6 +107,7 @@
         'admin.listings.*',
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
         'admin.tv-messages*',
+        'corex.admin.deal-link-review.*',
         'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
         'tools.commission', 'tools.cma', 'tools.history.*',
         'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
@@ -847,10 +848,10 @@
                 @permission('view_daily_activity')
                 <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
-                @permission('view_listings')
+                @permission('access_listing_stock')
                 <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
                 @endpermission
-                @permission('view_dashboard')
+                @permission('view_performance')
                 <a href="{{ route('bm.my.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('bm.my.dashboard') ? 'active' : '' }}">My Agent Dashboard</a>
                 @endpermission
                 @permission('view_deals')
@@ -880,7 +881,7 @@
                        style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
                         <span>RCR · FIC 2026</span>
                         @if($rcrOpenCount > 0)
-                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:{{ $rcrNextDeadline !== null && $rcrNextDeadline <= 7 ? '#dc2626' : '#0ea5e9' }};color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">
+                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:{{ $rcrNextDeadline !== null && $rcrNextDeadline < 0 ? 'var(--ds-crimson, #c41e3a)' : ($rcrNextDeadline !== null && $rcrNextDeadline <= 7 ? 'var(--ds-amber, #f59e0b)' : 'var(--brand-icon, #0ea5e9)') }};color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">
                                 {{ $rcrNextDeadline !== null ? ($rcrNextDeadline < 0 ? 'OVERDUE' : $rcrNextDeadline . 'd') : '!' }}
                             </span>
                         @endif
@@ -913,7 +914,7 @@
                 @endif
 
                 <div class="corex-nav-sublabel">Setup</div>
-                @permission('edit_worksheet')
+                @permission('access_worksheet_market')
                 <a href="{{ route('bm.worksheet.market') }}" class="corex-nav-subitem {{ request()->routeIs('bm.worksheet.market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission
                 @permission('manage_targets')
