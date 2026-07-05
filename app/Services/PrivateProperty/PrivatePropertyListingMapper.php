@@ -446,7 +446,11 @@ class PrivatePropertyListingMapper
             'Family_TV_Room' => $this->countSpaces($property, 'TV Room'),
             'Study'          => $this->countSpaces($property, 'Study') + $this->countSpaces($property, 'Office'),
             'Parking'        => $this->countSpaces($property, 'Parking'),
-            'Carports'       => $this->countSpaces($property, 'Carport'),
+            // A carport is NOT a space type — it is a FEATURE of the `Parking`
+            // space (config/property-spaces.php:69). countSpaces($property,
+            // 'Carport') therefore always returned 0 and the attribute never
+            // syndicated. Count Parking bays/units carrying the Carport feature.
+            'Carports'       => $this->countCarports($property),
             'StaffQuarters'  => $this->countSpaces($property, 'Domestic Room'),
             'Kitchen'        => $this->countSpaces($property, 'Kitchen'),
             'Entrance_hall'  => $this->countSpaces($property, 'Entrance Hall'),
@@ -485,12 +489,15 @@ class PrivatePropertyListingMapper
             // bathroom IS a guest toilet / cloakroom. Also still driven by an
             // explicit "Guest Toilet" feature/space.
             'Guest_Toilet'     => $has('Guest Toilet') || $hasSpace('Guest Toilet') || (int) ($property->half_baths ?? 0) > 0,
-            'Laundry'          => $has('Laundry') || $hasSpace('Laundry'),
+            // Space type is 'Laundry Room' (config/property-spaces.php:31), not
+            // 'Laundry' — the old $hasSpace('Laundry') never matched, so a
+            // laundry entered as a space never sent the flag.
+            'Laundry'          => $has('Laundry') || $hasSpace('Laundry Room'),
             'Garden_Cottage'   => $has('Garden Cottage', 'Wendy House') || $hasSpace('Wendy House'),
             'Fireplace'        => $has('Fireplace'),
             'Built_in_Braai'   => $has('Built-In Braai', 'Built-in Braai'),
             'Deck'             => $has('Deck'),
-            'Storage'          => $has('Storage', 'Storeroom'),
+            'Storage'          => $has('Storage', 'Storeroom') || $hasSpace('Storeroom'),
             'Borehole'         => $has('Borehole'),
             'IrrigationSystem' => $has('Irrigation', 'Sprinklers', 'Irrigation System'),
             'PetsAllowed'      => $has('Pet Friendly', 'Pets Allowed'),
@@ -509,13 +516,16 @@ class PrivatePropertyListingMapper
             'Electric_Fencing' => $has('Electric Fence', 'Electric Fencing'),
             'Fence'            => $has('Totally Fenced', 'Partially Fenced', 'Fenced', 'Totally Walled', 'Perimeter Wall'),
             'SecurityPost'     => $has('Guard House', '24 Hour Guard', 'Security Post', 'Security Complex', 'Security Estate'),
-            'TennisCourt'      => $has('Tennis Court'),
-            'SquashCourt'      => $has('Squash Court'),
-            'Clubhouse'        => $has('Clubhouse'),
-            'Gym'              => $has('Gym'),
+            // Each of these is ALSO a real space type an agent can add — entered
+            // as a space (not a flat feature) the has()-only check never fired.
+            // Mirror Pool/Garden/etc. by OR-ing the matching space type.
+            'TennisCourt'      => $has('Tennis Court') || $hasSpace('Tennis Court'),
+            'SquashCourt'      => $has('Squash Court') || $hasSpace('Squash Court'),
+            'Clubhouse'        => $has('Clubhouse') || $hasSpace('Clubhouse'),
+            'Gym'              => $has('Gym') || $hasSpace('Gym'),
             'Golf'             => $has('Golf', 'Golf Estate'),
-            'Jaccuzzi'         => $has('Jacuzzi', 'Jacuzzi Bath', 'Jaccuzzi'),
-            'Jetty_Berth'      => $has('Jetty', 'Berth', 'Jetty/Berth'),
+            'Jaccuzzi'         => $has('Jacuzzi', 'Jacuzzi Bath', 'Jaccuzzi') || $hasSpace('Jacuzzi'),
+            'Jetty_Berth'      => $has('Jetty', 'Berth', 'Jetty/Berth') || $hasSpace('Jetty'),
             'WaterIncluded'    => $has('Water Included'),
             'ElectrictyIncluded' => $has('Electricity Included', 'Electricty Included'),
         ];
@@ -558,6 +568,44 @@ class PrivatePropertyListingMapper
         }
 
         return ['Attribute' => $attrs]; // ArrayOfAttribute wrapper
+    }
+
+    /**
+     * Count parking bays flagged as carports. A carport is a FEATURE of the
+     * `Parking` space (config/property-spaces.php:69), never its own space type,
+     * so we sum Parking-space bays/units carrying the 'Carport' feature.
+     * Mirrors the EnSuite counting shape: space-level featuresAll counts the
+     * whole bay count; otherwise each per-unit hit counts one.
+     */
+    private function countCarports(Property $property): int
+    {
+        $isCarport = fn ($fs) => in_array('carport', array_map(
+            'strtolower',
+            array_map('trim', array_map('strval', (array) $fs))
+        ), true);
+
+        $count = 0;
+        foreach ($this->spacesList($property) as $sp) {
+            if (($sp['type'] ?? null) !== 'Parking') {
+                continue;
+            }
+            $spaceHasCarport = $isCarport($sp['featuresAll'] ?? []);
+            $units = $sp['units'] ?? [];
+
+            if (!empty($units)) {
+                // Per-unit model: count units that are (or inherit) a carport.
+                foreach ($units as $u) {
+                    if ($spaceHasCarport || $isCarport($u['features'] ?? [])) {
+                        $count++;
+                    }
+                }
+            } elseif ($spaceHasCarport) {
+                // Space-level model: the whole Parking space is carports.
+                $count += (int) ($sp['count'] ?? 1);
+            }
+        }
+
+        return $count;
     }
 
     private function mapCategory(?string $category): string
