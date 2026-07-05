@@ -185,4 +185,37 @@ class PpFeatureAttributesTest extends TestCase
 
         $this->assertSame('1', $this->attributesFor($p)['Storeys'] ?? null);
     }
+
+    /**
+     * Half bathrooms. PP's Bathrooms attribute is an integer (no fractional
+     * baths) and PP has no numeric half-bath field, so the wizard's `half_baths`
+     * scalar surfaces through PP's native Guest_Toilet flag — a half bathroom IS
+     * a guest toilet / cloakroom.
+     */
+    public function test_half_baths_scalar_sets_guest_toilet_flag(): void
+    {
+        $p = (new Property())->forceFill([
+            'beds' => 3, 'baths' => 2, 'half_baths' => 1, 'property_type' => 'House',
+            'features_json' => [],
+            'spaces_json' => ['spaces' => []],
+        ]);
+
+        $attrs = $this->attributesFor($p);
+        $this->assertSame('Yes', $attrs['Guest_Toilet'] ?? null);
+        // Integer Bathrooms stays the full-bath count — the half surfaces only
+        // as the Guest_Toilet amenity, not as a fractional bathroom.
+        $this->assertSame('2', $attrs['Bathrooms'] ?? null);
+    }
+
+    /** No half bath and no explicit guest toilet → Guest_Toilet omitted (not sent false). */
+    public function test_no_half_bath_omits_guest_toilet(): void
+    {
+        $p = (new Property())->forceFill([
+            'beds' => 3, 'baths' => 2, 'half_baths' => 0, 'property_type' => 'House',
+            'features_json' => [],
+            'spaces_json' => ['spaces' => []],
+        ]);
+
+        $this->assertArrayNotHasKey('Guest_Toilet', $this->attributesFor($p));
+    }
 }

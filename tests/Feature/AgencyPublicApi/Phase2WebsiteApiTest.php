@@ -301,7 +301,7 @@ class Phase2WebsiteApiTest extends TestCase
             'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
             'external_id' => (string) Str::uuid(), 'title' => 'Rental unit', 'suburb' => 'Uvongo',
             'property_type' => 'apartment', 'listing_type' => 'rental', 'status' => 'active',
-            'beds' => 2, 'baths' => 1, 'garages' => 1, 'size_m2' => 85, 'erf_size_m2' => 0,
+            'beds' => 2, 'baths' => 1, 'half_baths' => 1, 'garages' => 1, 'size_m2' => 85, 'erf_size_m2' => 0,
             'rental_amount' => 12500, 'deposit_amount' => 25000, 'has_deposit' => true, 'lease_period' => '12 months',
             'rates_taxes' => 800, 'levy' => 1500, 'special_levy' => 200, 'pet_friendly' => true,
             'complex_name' => 'Sea Breeze', 'unit_number' => '4B', 'floor_number' => 4,
@@ -338,6 +338,10 @@ class Phase2WebsiteApiTest extends TestCase
             ->assertJsonPath('data.costs.levy', 1500)
             ->assertJsonPath('data.costs.special_levy', 200)
             ->assertJsonPath('data.pet_friendly', true)
+            // Half bathroom (guest toilet) is a first-class scalar in the feed,
+            // distinct from full `baths` — the site renders `baths + ½`.
+            ->assertJsonPath('data.baths', 1.0)
+            ->assertJsonPath('data.half_baths', 1)
             // Suburb-level location only — street/complex/unit/floor are NEVER
             // syndicated (see test_listing_never_exposes_street_address_or_coordinates).
             ->assertJsonPath('data.suburb', 'Uvongo')

@@ -574,4 +574,41 @@ class Property24FeatureTagsTest extends TestCase
         $features = $this->invoke('buildPropertyFeatures', $p);
         $this->assertTrue($features['kitchens']['dishwasher']);
     }
+
+    /**
+     * Half bathrooms. P24 has no separate half-bath field — a half bathroom is
+     * 0.5 of BathroomsInfo.bathrooms. CoreX stores full `baths` and `half_baths`
+     * as distinct additive counts, so the P24 value = baths + 0.5 per half bath.
+     */
+    public function test_half_baths_add_half_a_bathroom_to_the_p24_count(): void
+    {
+        $p = new Property();
+        $p->baths = 2;
+        $p->half_baths = 1;
+
+        $features = $this->invoke('buildPropertyFeatures', $p);
+        $this->assertSame(2.5, $features['bathrooms']['bathrooms']);
+    }
+
+    /** A half-bath-only property still sends a bathroom count (0.5). */
+    public function test_half_bath_only_property_still_sends_a_bathroom_count(): void
+    {
+        $p = new Property();
+        $p->baths = 0;
+        $p->half_baths = 1;
+
+        $features = $this->invoke('buildPropertyFeatures', $p);
+        $this->assertSame(0.5, $features['bathrooms']['bathrooms']);
+    }
+
+    /** No baths at all → no bathrooms key (unchanged behaviour). */
+    public function test_no_baths_omits_the_bathrooms_key(): void
+    {
+        $p = new Property();
+        $p->baths = 0;
+        $p->half_baths = 0;
+
+        $features = $this->invoke('buildPropertyFeatures', $p);
+        $this->assertArrayNotHasKey('bathrooms', $features);
+    }
 }

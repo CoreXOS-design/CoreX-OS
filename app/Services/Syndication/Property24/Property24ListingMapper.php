@@ -239,7 +239,16 @@ class Property24ListingMapper
         ];
 
         if ($property->beds) $features['bedrooms'] = (float) $property->beds;
-        if ($property->baths) $features['bathrooms'] = ['bathrooms' => (float) $property->baths];
+
+        // Bathrooms. P24 has no separate half-bath field — BathroomsInfo.bathrooms
+        // is a single float, and a half bathroom (guest toilet / cloakroom) is
+        // represented as 0.5 of a bathroom. CoreX stores full baths (`baths`) and
+        // half baths (`half_baths`, wizard scalar) as distinct additive counts and
+        // renders the total everywhere as `baths + ½`, so the faithful P24 value is
+        // baths + 0.5 per half bath (e.g. 2 full + 1 half → 2.5). Emit when EITHER
+        // is set so a half-bath-only property still sends a bathroom count.
+        $totalBaths = (float) ($property->baths ?? 0) + 0.5 * (int) ($property->half_baths ?? 0);
+        if ($totalBaths > 0) $features['bathrooms'] = ['bathrooms' => $totalBaths];
 
         // Parking details from spaces/features. Amenity booleans use $hasAny —
         // parking amenities are entered on the Parking/Garage space, which
