@@ -479,7 +479,12 @@ class PrivatePropertyListingMapper
             'Lapa'             => $has('Lapa') || $hasSpace('Lapa'),
             'Scullery'         => $has('Scullery') || $hasSpace('Scullery'),
             'Pantry'           => $has('Pantry') || $hasSpace('Pantry'),
-            'Guest_Toilet'     => $has('Guest Toilet') || $hasSpace('Guest Toilet'),
+            // PP's Bathrooms attribute is an integer (no fractional baths) and PP
+            // has no numeric half-bath field, so the wizard's `half_baths` scalar
+            // surfaces through PP's native Guest_Toilet amenity flag — a half
+            // bathroom IS a guest toilet / cloakroom. Also still driven by an
+            // explicit "Guest Toilet" feature/space.
+            'Guest_Toilet'     => $has('Guest Toilet') || $hasSpace('Guest Toilet') || (int) ($property->half_baths ?? 0) > 0,
             'Laundry'          => $has('Laundry') || $hasSpace('Laundry'),
             'Garden_Cottage'   => $has('Garden Cottage', 'Wendy House') || $hasSpace('Wendy House'),
             'Fireplace'        => $has('Fireplace'),
