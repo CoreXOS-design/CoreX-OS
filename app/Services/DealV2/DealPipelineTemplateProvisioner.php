@@ -130,7 +130,9 @@ class DealPipelineTemplateProvisioner
         // replace an already-populated / customised template's steps.
         $stepsCreated = 0;
         if ($template->steps()->count() === 0) {
-            $stepsCreated = $this->createSteps($template, $def['steps'], $def['dependencies'] ?? []);
+            $stepsCreated = $this->createSteps(
+                $template, $def['steps'], $def['dependencies'] ?? [], $def['suspensive'] ?? []
+            );
         }
 
         return [$wasCreated, $stepsCreated, $template];
@@ -140,7 +142,7 @@ class DealPipelineTemplateProvisioner
      * Create the ordered steps for a template with a two-pass trigger-link
      * resolve (a step's after_step trigger references a sibling by name).
      */
-    private function createSteps(DealPipelineTemplate $template, array $steps, array $dependencies = []): int
+    private function createSteps(DealPipelineTemplate $template, array $steps, array $dependencies = [], array $suspensive = []): int
     {
         $stepMap = [];
 
@@ -203,6 +205,14 @@ class DealPipelineTemplateProvisioner
         }
         if ($depRows) {
             DB::table('deal_pipeline_step_dependencies')->insert($depRows);
+        }
+
+        // WS-V2 — flag suspensive-condition steps (by name). The deal moves to
+        // Granted only when ALL suspensive steps complete (AND-gate).
+        foreach ($suspensive as $suspName) {
+            if (isset($stepMap[$suspName])) {
+                $stepMap[$suspName]->update(['is_suspensive' => true]);
+            }
         }
 
         return count($steps);

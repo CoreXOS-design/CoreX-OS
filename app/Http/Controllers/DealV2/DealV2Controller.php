@@ -332,6 +332,7 @@ class DealV2Controller extends Controller
             'stepInstances.completedBy',
             'stepInstances.triggerStepInstance', // WS-V1 blocked-state label
             'stepInstances.dependencies',        // WS-V1 AND-gate blockers
+            'stageMoves' => fn ($q) => $q->with('triggerStep')->latest('id'), // WS-V2 prompt/undo
             'activityLog' => fn ($q) => $q->with('user')->latest()->take(50),
             'pipelineTemplate',
             'listingAgent',

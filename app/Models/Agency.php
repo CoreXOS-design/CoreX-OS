@@ -297,6 +297,7 @@ class Agency extends Model
         // login by AgencyMaintenanceGate. System Owners bypass.
         'maintenance_mode',
         'deal_v2_bm_approval_enabled', // AT-158 WS-R3 — DR2 pipeline BM-approval gate (default off)
+        'deal_v2_stage_gate_mode', // AT-158 WS-V2 — 'auto' (default) | 'prompt'
         'maintenance_message',
         'maintenance_started_at',
     ];

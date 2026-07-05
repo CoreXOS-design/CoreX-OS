@@ -5,6 +5,7 @@ namespace App\Services\DealV2;
 use App\Events\DealV2\DealStepCompleted;
 use App\Models\DealV2\DealActivityLog;
 use App\Models\DealV2\DealPipelineTemplate;
+use App\Models\DealV2\DealStageMove;
 use App\Models\DealV2\DealStepInstance;
 use App\Models\DealV2\DealV2;
 use App\Models\User;
@@ -99,6 +100,7 @@ class DealPipelineService
                     'position' => $templateStep->position,
                     'is_locked' => $templateStep->is_locked,
                     'is_milestone' => $templateStep->is_milestone,
+                    'is_suspensive' => $templateStep->is_suspensive, // WS-V2 suspensive-condition flag
                     'completion_type' => $templateStep->completion_type,
                     'completion_config' => $templateStep->completion_config,
                     'status' => 'not_started',
@@ -277,19 +279,18 @@ class DealPipelineService
                 ]);
             }
 
-            // Negative + no approval → cancel immediately
+            // Negative + no approval → decline/cancel immediately (voiding downstream).
+            // WS-V2: a negative on a SUSPENSIVE step is a DECLINE (distinct terminal
+            // state); a negative on an ordinary step keeps its configured trigger.
             if ($isNegative && !$needsApproval && $step->negative_status_trigger) {
-                $this->changeDealStatus($step->deal, $step->negative_status_trigger, $step, $user);
-                $this->cancelDownstreamSteps($step);
+                $this->applyNegativeStageEffect($step, $user);
                 return false;
             }
 
-            // Positive + no approval → change status + activate downstream
+            // Positive + no approval → activate downstream + evaluate the stage gate.
             if (!$isNegative && !$needsApproval) {
-                if ($statusTrigger) {
-                    $this->changeDealStatus($step->deal, $statusTrigger, $step, $user);
-                }
                 $this->activateDownstreamSteps($step);
+                $this->applyPositiveStageEffects($step, $user); // WS-V2 suspensive resolver / status trigger
                 return true; // stage ticked (positive)
             }
 
@@ -342,16 +343,13 @@ class DealPipelineService
                 "BM {$approver->name} approved status change to \"{$statusTrigger}\"" .
                 ($notes ? " — {$notes}" : ''));
 
-            if ($statusTrigger) {
-                $this->changeDealStatus($step->deal, $statusTrigger, $step, $approver);
-            }
-
             if ($isNegative) {
-                $this->cancelDownstreamSteps($step);
+                $this->applyNegativeStageEffect($step, $approver);
                 return false;
             }
 
             $this->activateDownstreamSteps($step);
+            $this->applyPositiveStageEffects($step, $approver); // WS-V2 same gate as an un-gated completion
             return true; // BM-approved positive completion ticks the stage
         });
 
@@ -495,6 +493,193 @@ class DealPipelineService
 
         $this->logActivity($deal, $triggerStep, $actor->id, 'status_changed',
             "Deal status changed from \"{$oldStatus}\" to \"{$newStatus}\" via \"{$triggerStep->name}\"");
+    }
+
+    // ── WS-V2 — suspensive conditions + auto-move stage gate ────────────────
+
+    /** The agency's stage-gate mode: 'auto' (default) or 'prompt'. */
+    private function stageGateMode(DealV2 $deal): string
+    {
+        $mode = optional(\App\Models\Agency::find($deal->agency_id))->deal_v2_stage_gate_mode;
+
+        return $mode === 'prompt' ? 'prompt' : 'auto';
+    }
+
+    /** Are ALL of this deal's suspensive-condition steps complete? False when it has none. */
+    public function allSuspensiveComplete(DealV2 $deal): bool
+    {
+        $suspensive = $deal->stepInstances()->where('is_suspensive', true)->get();
+        if ($suspensive->isEmpty()) {
+            return false; // this deal isn't modelled with suspensive conditions
+        }
+
+        return $suspensive->every(fn ($s) => $s->status === 'completed');
+    }
+
+    /**
+     * Positive completion → decide whether the deal advances a stage.
+     *   • suspensive step  → move to Granted only when EVERY suspensive step is done (AND-gate)
+     *   • ordinary step with a status_trigger (e.g. Registration→completed) → advance
+     * Both go through advanceStage (mode-aware: auto applies, prompt queues).
+     */
+    private function applyPositiveStageEffects(DealStepInstance $step, User $actor): void
+    {
+        if ($step->is_suspensive) {
+            if ($this->allSuspensiveComplete($step->deal)) {
+                $target = $step->status_trigger ?: 'granted';
+                $this->advanceStage($step->deal, $target, $step, $actor, 'suspensive_conditions_met');
+            }
+            return;
+        }
+
+        if ($step->status_trigger) {
+            $reason = match ($step->status_trigger) {
+                'granted'   => 'suspensive_conditions_met', // legacy single-condition granted step
+                'completed' => 'registration',
+                default     => 'manual',
+            };
+            $this->advanceStage($step->deal, $step->status_trigger, $step, $actor, $reason);
+        }
+    }
+
+    /**
+     * Negative completion → decline (suspensive) or the configured negative status,
+     * voiding the remaining pipeline in both cases (audit, never hard-delete).
+     */
+    private function applyNegativeStageEffect(DealStepInstance $step, User $actor): void
+    {
+        if ($step->is_suspensive) {
+            $this->advanceStage($step->deal, 'declined', $step, $actor, 'declined', voidDownstream: true);
+            return;
+        }
+
+        $target = $step->negative_status_trigger ?: 'cancelled';
+        $this->advanceStage($step->deal, $target, $step, $actor, 'manual', voidDownstream: true);
+    }
+
+    /**
+     * The single entry point for a deal stage advance. AUTO mode applies the move
+     * immediately (notify + undoable record); PROMPT mode queues a pending move
+     * for a one-click confirmation (declines/manual moves always apply — you never
+     * "confirm" a decline). Records a DealStageMove either way.
+     */
+    private function advanceStage(
+        DealV2 $deal, string $toStatus, ?DealStepInstance $trigger, User $actor,
+        string $reason, bool $voidDownstream = false
+    ): void {
+        $from = $deal->status;
+        if ($from === $toStatus) {
+            return; // idempotent — no-op if already there
+        }
+
+        $promptable = in_array($reason, ['suspensive_conditions_met', 'registration'], true);
+        if ($promptable && $this->stageGateMode($deal) === 'prompt') {
+            // Do NOT change status; queue a pending prompt (one per deal at a time).
+            $deal->stageMoves()->where('state', 'pending')->update(['state' => 'dismissed']);
+            DealStageMove::create([
+                'agency_id' => $deal->agency_id, 'deal_id' => $deal->id,
+                'from_status' => $from, 'to_status' => $toStatus, 'reason' => $reason,
+                'trigger_step_instance_id' => $trigger?->id, 'mode' => 'prompt', 'state' => 'pending',
+            ]);
+            $this->logActivity($deal, $trigger, $actor->id, 'stage_prompt',
+                "All conditions met — deal ready to move to \"{$toStatus}\" (awaiting confirmation)");
+            app(NotificationService::class)->notifyStagePrompt($deal, $from, $toStatus, $trigger);
+            return;
+        }
+
+        // AUTO — apply now and record the (undoable) move.
+        $this->commitStatusChange($deal, $from, $toStatus, $trigger, $actor, $reason, $voidDownstream);
+        DealStageMove::create([
+            'agency_id' => $deal->agency_id, 'deal_id' => $deal->id,
+            'from_status' => $from, 'to_status' => $toStatus, 'reason' => $reason,
+            'trigger_step_instance_id' => $trigger?->id, 'mode' => 'auto', 'state' => 'applied',
+            'moved_by_id' => $actor->id, 'moved_at' => now(),
+        ]);
+    }
+
+    /**
+     * The status-change effects of a stage move (no DealStageMove record):
+     * change status, optionally void downstream, log it, notify the parties.
+     * Shared by an auto-advance and a confirmed prompt.
+     */
+    private function commitStatusChange(
+        DealV2 $deal, string $from, string $toStatus, ?DealStepInstance $trigger, User $actor,
+        string $reason, bool $voidDownstream
+    ): void {
+        $updates = ['status' => $toStatus];
+        if ($toStatus === 'completed') {
+            $updates['actual_registration'] = now();
+        }
+        $deal->update($updates);
+
+        if ($voidDownstream && $trigger) {
+            $this->cancelDownstreamSteps($trigger);
+        }
+
+        $note = match ($reason) {
+            'suspensive_conditions_met' => ' (all suspensive conditions met)',
+            'registration'             => ' (registered)',
+            'declined'                 => ' (declined — remaining steps voided)',
+            default                    => '',
+        };
+        $this->logActivity($deal, $trigger, $actor->id, 'stage_advanced',
+            "Deal moved from \"{$from}\" to \"{$toStatus}\"{$note}");
+        app(NotificationService::class)->notifyStageAdvanced($deal, $from, $toStatus, $trigger);
+    }
+
+    /** Confirm a pending prompt-mode stage move — applies it (notify + undoable). */
+    public function confirmStageMove(DealStageMove $move, User $actor): void
+    {
+        if (! $move->isPending()) {
+            return; // already confirmed / dismissed / stale — idempotent
+        }
+        DB::transaction(function () use ($move, $actor) {
+            $deal = $move->deal;
+            $this->commitStatusChange(
+                $deal, $deal->status, $move->to_status, $move->triggerStep, $actor, $move->reason, false
+            );
+            $move->update([
+                'state' => 'confirmed', 'moved_by_id' => $actor->id, 'moved_at' => now(),
+            ]);
+        });
+    }
+
+    /** Dismiss a pending prompt without moving the deal. */
+    public function dismissStageMove(DealStageMove $move, User $actor): void
+    {
+        if (! $move->isPending()) {
+            return;
+        }
+        $move->update(['state' => 'dismissed', 'moved_by_id' => $actor->id]);
+        $this->logActivity($move->deal, $move->triggerStep, $actor->id, 'stage_prompt_dismissed',
+            "Stage move to \"{$move->to_status}\" dismissed");
+    }
+
+    /** One-click UNDO of an applied/confirmed stage move — reverts the status, logs why. */
+    public function undoStageMove(DealStageMove $move, User $actor, ?string $reason = null): void
+    {
+        if (! $move->isUndoable()) {
+            return; // pending / already-undone — idempotent
+        }
+        DB::transaction(function () use ($move, $actor, $reason) {
+            $deal = $move->deal;
+            $revertTo = $move->from_status;
+            $updates = ['status' => $revertTo];
+            // Undoing a registration clears the stamped registration date.
+            if ($move->to_status === 'completed') {
+                $updates['actual_registration'] = null;
+            }
+            $deal->update($updates);
+
+            $move->update([
+                'state' => 'undone', 'undone_by_id' => $actor->id, 'undone_at' => now(),
+                'note' => $reason,
+            ]);
+            $this->logActivity($deal, $move->triggerStep, $actor->id, 'stage_undone',
+                "Stage move to \"{$move->to_status}\" undone — deal returned to \"{$revertTo}\""
+                . ($reason ? " ({$reason})" : ''));
+            app(NotificationService::class)->notifyStageAdvanced($deal, $move->to_status, $revertTo, $move->triggerStep);
+        });
     }
 
     /**

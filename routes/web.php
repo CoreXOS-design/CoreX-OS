@@ -699,6 +699,11 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::post('/steps/{step}/upload', [\App\Http\Controllers\DealV2\DealStepController::class, 'uploadDocument'])->name('deals-v2.steps.upload')->middleware('permission:deals_v2.edit');
     Route::post('/steps/{step}/override-date', [\App\Http\Controllers\DealV2\DealStepController::class, 'overrideDueDate'])->name('deals-v2.steps.override-date')->middleware('permission:deals_v2.override_dates');
 
+    // Stage gate (WS-V2) — confirm a prompt-mode move, undo an applied move, dismiss a prompt
+    Route::post('/stage-moves/{move}/confirm', [\App\Http\Controllers\DealV2\DealStageController::class, 'confirm'])->name('deals-v2.stage.confirm')->middleware('permission:deals_v2.edit');
+    Route::post('/stage-moves/{move}/undo', [\App\Http\Controllers\DealV2\DealStageController::class, 'undo'])->name('deals-v2.stage.undo')->middleware('permission:deals_v2.edit');
+    Route::post('/stage-moves/{move}/dismiss', [\App\Http\Controllers\DealV2\DealStageController::class, 'dismiss'])->name('deals-v2.stage.dismiss')->middleware('permission:deals_v2.edit');
+
     // Settlement
     Route::get('/{deal}/settlement', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'settle'])->name('deals-v2.settlement.index')->middleware('permission:deals_v2.edit');
     Route::post('/{deal}/settlement', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'saveSettlement'])->name('deals-v2.settlement.save')->middleware('permission:deals_v2.edit');

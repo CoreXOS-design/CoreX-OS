@@ -226,6 +226,41 @@
             </div>
 
             {{-- PIPELINE TRACKER --}}
+            {{-- WS-V2 — stage gate: a pending prompt (prompt mode) or an undo affordance --}}
+            @php
+                $pendingMove = $deal->stageMoves->firstWhere('state', 'pending');
+                $undoableMove = $deal->stageMoves->first(fn ($m) => in_array($m->state, ['applied', 'confirmed']) && $m->undone_at === null);
+            @endphp
+            @if($canEdit && $pendingMove)
+                <div class="rounded-xl p-4 mb-4 flex items-center justify-between gap-3" style="border: 1px solid #f59e0b; background: rgba(245,158,11,0.10);">
+                    <div class="text-sm" style="color: var(--text-primary);">
+                        <span class="font-semibold">All conditions met.</span>
+                        Move this deal to <span class="font-semibold">{{ ucfirst($pendingMove->to_status) }}</span>?
+                        @if($pendingMove->triggerStep)
+                            <span style="color: var(--text-muted);">(via "{{ $pendingMove->triggerStep->name }}")</span>
+                        @endif
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        <form method="POST" action="{{ route('deals-v2.stage.confirm', $pendingMove) }}">@csrf
+                            <button type="submit" class="px-3 py-1.5 rounded text-xs font-medium" style="background: #10b981; color: #fff;">Move to {{ ucfirst($pendingMove->to_status) }}</button>
+                        </form>
+                        <form method="POST" action="{{ route('deals-v2.stage.dismiss', $pendingMove) }}">@csrf
+                            <button type="submit" class="px-3 py-1.5 rounded text-xs font-medium" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">Dismiss</button>
+                        </form>
+                    </div>
+                </div>
+            @elseif($canEdit && $undoableMove)
+                <div class="rounded-xl p-3 mb-4 flex items-center justify-between gap-3" style="border: 1px solid var(--border); background: var(--surface-2);">
+                    <div class="text-xs" style="color: var(--text-muted);">
+                        Deal moved to <span class="font-semibold" style="color: var(--text-secondary);">{{ ucfirst($undoableMove->to_status) }}</span>
+                        {{ $undoableMove->moved_at ? '· ' . $undoableMove->moved_at->diffForHumans() : '' }}
+                    </div>
+                    <form method="POST" action="{{ route('deals-v2.stage.undo', $undoableMove) }}" class="flex-shrink-0">@csrf
+                        <button type="submit" class="px-2.5 py-1 rounded text-xs font-medium" style="background: var(--surface); color: #f87171; border: 1px solid var(--border);">Undo</button>
+                    </form>
+                </div>
+            @endif
+
             <div data-tour="deals-detail-pipeline">
                 <h2 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Pipeline Tracker</h2>
                 <div class="space-y-2">

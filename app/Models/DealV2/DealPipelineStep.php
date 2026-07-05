@@ -21,6 +21,7 @@ class DealPipelineStep extends Model
         'position',
         'is_locked',
         'is_milestone',
+        'is_suspensive',
         'completion_type',
         'completion_config',
         'trigger_type',
@@ -43,6 +44,7 @@ class DealPipelineStep extends Model
     protected $casts = [
         'is_locked' => 'boolean',
         'is_milestone' => 'boolean',
+        'is_suspensive' => 'boolean',
         'notify_agent' => 'boolean',
         'notify_bm' => 'boolean',
         'notify_admin' => 'boolean',
