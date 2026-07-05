@@ -134,9 +134,9 @@ if ($Full) {
 # -- 6. E-sign pipeline gate --
 #
 # The recipient-signing integration moat (Template → CdsDraft → blade →
-# WebTemplateData → SurfaceNormalizer → LetterheadRefresher →
-# InsertableBlockRenderer → RoleBlockExpansionService → SigningController
-# → sign.blade.php) is what the audit
+# WebTemplateData → SignatureSurfaceNormalizer → LetterheadRefresher →
+# InsertableBlockRenderer → RoleBlockNormalizer → RoleBlockExpansionService →
+# SigningController → sign.blade.php) is what the audit
 # .ai/audits/esign-reset-investigation-2026-05-27.md identified as
 # untested before the reset. The gate enforces that any change to one of
 # the pipeline files lands together with a test diff in
@@ -150,12 +150,12 @@ if ($Full) {
 $pipelineFiles = @(
     'app/Models/Docuperfect/Template.php',
     'app/Models/Docuperfect/CdsDraft.php',
-    'app/Services/Docuperfect/SurfaceNormalizer.php',
     'app/Services/Docuperfect/SignatureSurfaceNormalizer.php',
     'app/Services/Docuperfect/LetterheadRefresher.php',
     'app/Services/Docuperfect/InsertableBlockRenderer.php',
     'app/Services/Docuperfect/RoleBlockDetectionService.php',
     'app/Services/Docuperfect/RoleBlockExpansionService.php',
+    'app/Services/Docuperfect/RoleBlockNormalizer.php',
     'app/Services/Docuperfect/MergedHtmlFreshnessGuard.php',
     'app/Http/Controllers/Docuperfect/SigningController.php'
 )

@@ -242,6 +242,11 @@ return [
         ['key' => 'packs.create',                'label' => 'Create',                      'section' => 'docuperfect',      'type' => 'action',  'module' => 'packs',            'sort_order' => 23],
         ['key' => 'packs.edit',                  'label' => 'Edit',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'packs',            'sort_order' => 24],
         ['key' => 'packs.archive',               'label' => 'Archive',                     'section' => 'docuperfect',      'type' => 'action',  'module' => 'packs',            'sort_order' => 25],
+        // ── E-Sign Compiler (AT-177) — internal Compile Studio; signers need no new perms ──
+        ['key' => 'esign.compiler.view',         'label' => 'View Compile Studio',         'section' => 'docuperfect',      'type' => 'access',  'module' => 'esign-compiler',   'sort_order' => 30],
+        ['key' => 'esign.compiler.compile',      'label' => 'Compile Templates',           'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 31],
+        ['key' => 'esign.compiler.publish',      'label' => 'Publish Compiled Versions',   'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 32],
+        ['key' => 'esign.compiler.dictionary',   'label' => 'Manage Data Dictionary',      'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 33],
 
         // ── Document Library ──
         ['key' => 'access_document_library',     'label' => 'Access Document Library',    'section' => 'document-library', 'type' => 'access',  'module' => 'document_library', 'sort_order' => 1],
