@@ -4,6 +4,7 @@ namespace App\Models\DealV2;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -69,5 +70,20 @@ class DealPipelineStep extends Model
     public function instances(): HasMany
     {
         return $this->hasMany(DealStepInstance::class, 'pipeline_step_id');
+    }
+
+    /**
+     * AT-158 WS-V1 — additional AND-gate predecessors (beyond the single
+     * primary `trigger_step_id`). A step activates only when its primary trigger
+     * AND all of these are complete. Empty for the common linear case.
+     */
+    public function dependencies(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            self::class,
+            'deal_pipeline_step_dependencies',
+            'pipeline_step_id',
+            'depends_on_step_id',
+        )->withTimestamps();
     }
 }

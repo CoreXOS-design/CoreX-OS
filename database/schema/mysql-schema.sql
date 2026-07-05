@@ -226,6 +226,7 @@ CREATE TABLE `agencies` (
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `is_demo` tinyint(1) NOT NULL DEFAULT '0',
   `maintenance_mode` tinyint(1) NOT NULL DEFAULT '0',
+  `deal_v2_bm_approval_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `show_prospected_badge` tinyint(1) NOT NULL DEFAULT '1',
   `maintenance_message` text COLLATE utf8mb4_unicode_ci,
   `maintenance_started_at` timestamp NULL DEFAULT NULL,
@@ -3791,6 +3792,25 @@ CREATE TABLE `deal_money_lines` (
   CONSTRAINT `deal_money_lines_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `deal_pipeline_step_dependencies`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `deal_pipeline_step_dependencies` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `pipeline_step_id` bigint unsigned NOT NULL,
+  `depends_on_step_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dpsd_step_dep_unique` (`pipeline_step_id`,`depends_on_step_id`),
+  KEY `dpsd_dep_fk` (`depends_on_step_id`),
+  KEY `dpsd_agency_idx` (`agency_id`),
+  CONSTRAINT `dpsd_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `dpsd_dep_fk` FOREIGN KEY (`depends_on_step_id`) REFERENCES `deal_pipeline_steps` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `dpsd_step_fk` FOREIGN KEY (`pipeline_step_id`) REFERENCES `deal_pipeline_steps` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `deal_pipeline_steps`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -3955,6 +3975,25 @@ CREATE TABLE `deal_step_escalations` (
   KEY `deal_step_escalations_deal_id_index` (`deal_id`),
   CONSTRAINT `deal_step_escalations_deal_step_instance_id_foreign` FOREIGN KEY (`deal_step_instance_id`) REFERENCES `deal_step_instances` (`id`) ON DELETE CASCADE,
   CONSTRAINT `deal_step_escalations_recipient_user_id_foreign` FOREIGN KEY (`recipient_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `deal_step_instance_dependencies`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `deal_step_instance_dependencies` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `deal_step_instance_id` bigint unsigned NOT NULL,
+  `depends_on_step_instance_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dsid_instance_dep_unique` (`deal_step_instance_id`,`depends_on_step_instance_id`),
+  KEY `dsid_dep_fk` (`depends_on_step_instance_id`),
+  KEY `dsid_agency_idx` (`agency_id`),
+  CONSTRAINT `dsid_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `dsid_dep_fk` FOREIGN KEY (`depends_on_step_instance_id`) REFERENCES `deal_step_instances` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `dsid_inst_fk` FOREIGN KEY (`deal_step_instance_id`) REFERENCES `deal_step_instances` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `deal_step_instances`;
@@ -12813,3 +12852,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (957,'2026_07_03_40
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (958,'2026_07_03_500000_seed_deals_v2_view_overview_permission',216);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (959,'2026_07_07_000001_add_cockpit_layout_to_calendar_user_preferences',216);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (961,'2026_07_04_120000_add_reminder_config_and_occurrence_key',217);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (962,'2026_07_04_100000_add_deal_v2_bm_approval_enabled_to_agencies',218);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (963,'2026_07_05_000001_create_deal_step_dependencies_tables',218);

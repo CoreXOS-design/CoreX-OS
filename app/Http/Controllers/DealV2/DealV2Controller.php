@@ -330,6 +330,8 @@ class DealV2Controller extends Controller
             'stepInstances' => fn ($q) => $q->orderBy('position'),
             'stepInstances.documents',
             'stepInstances.completedBy',
+            'stepInstances.triggerStepInstance', // WS-V1 blocked-state label
+            'stepInstances.dependencies',        // WS-V1 AND-gate blockers
             'activityLog' => fn ($q) => $q->with('user')->latest()->take(50),
             'pipelineTemplate',
             'listingAgent',

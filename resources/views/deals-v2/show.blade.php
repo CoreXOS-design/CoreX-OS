@@ -500,8 +500,12 @@
 
                                     {{-- Not started info --}}
                                     @if($step->status === 'not_started')
+                                        @php($blockedLabel = $step->blockedByLabel())
                                         <div class="text-xs" style="color: var(--text-muted);">
-                                            @if($step->trigger_type === 'after_step' && $step->triggerStepInstance)
+                                            @if($blockedLabel)
+                                                {{-- WS-V1: real blocker(s) — never a false countdown --}}
+                                                {{ $blockedLabel }}{{ $step->trigger_type === 'after_step' ? ', then + ' . $step->days_offset . ' days' : '' }}
+                                            @elseif($step->trigger_type === 'after_step' && $step->triggerStepInstance)
                                                 Activates after "{{ $step->triggerStepInstance->name }}" + {{ $step->days_offset }} days
                                             @elseif($step->trigger_type === 'manual')
                                                 Manual activation required

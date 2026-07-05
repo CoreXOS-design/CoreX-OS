@@ -85,7 +85,7 @@ class DealPipelineService
             }
 
             // Create step instances from template
-            $template = DealPipelineTemplate::with('steps')->find($data['pipeline_template_id']);
+            $template = DealPipelineTemplate::with('steps.dependencies')->find($data['pipeline_template_id']);
             $stepMap = []; // template_step_id => instance_id
 
             foreach ($template->steps as $templateStep) {
@@ -128,6 +128,36 @@ class DealPipelineService
                         'trigger_step_instance_id' => $stepMap[$templateStep->trigger_step_id],
                     ]);
                 }
+            }
+
+            // WS-V1: resolve additional AND-gate dependencies (template → instance).
+            // These are predecessors BEYOND the single primary trigger; a step
+            // activates only when its primary trigger AND all of these complete.
+            $dependencyRows = [];
+            foreach ($template->steps as $templateStep) {
+                if ($templateStep->dependencies->isEmpty()) {
+                    continue;
+                }
+                $dependentInstanceId = $stepMap[$templateStep->id] ?? null;
+                if (! $dependentInstanceId) {
+                    continue;
+                }
+                foreach ($templateStep->dependencies as $depTemplateStep) {
+                    $depInstanceId = $stepMap[$depTemplateStep->id] ?? null;
+                    if (! $depInstanceId || $depInstanceId === $dependentInstanceId) {
+                        continue; // unknown or self — skip (never gate a step on itself)
+                    }
+                    $dependencyRows[] = [
+                        'agency_id' => $deal->agency_id,
+                        'deal_step_instance_id' => $dependentInstanceId,
+                        'depends_on_step_instance_id' => $depInstanceId,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
+            }
+            if ($dependencyRows) {
+                DB::table('deal_step_instance_dependencies')->insert($dependencyRows);
             }
 
             // Apply manual overrides (due_date and/or days_offset)
@@ -358,21 +388,82 @@ class DealPipelineService
     }
 
     /**
-     * Activate all steps that depend on the completed step.
+     * Activate all steps whose FULL set of predecessors is now complete.
+     *
+     * WS-V1 (AND-gate): a candidate is any not-started step that names the
+     * just-completed step as its primary trigger OR as an additional dependency.
+     * A candidate activates ONLY when its primary trigger AND every additional
+     * dependency are complete; its relative clock then starts from the LATEST of
+     * those completions (the last blocker to clear). Steps with no additional
+     * dependencies behave exactly as before (fast linear path).
      */
     public function activateDownstreamSteps(DealStepInstance $completedStep): void
     {
-        $dependents = DealStepInstance::where('trigger_step_instance_id', $completedStep->id)
+        // Steps that name the completed step as their single primary trigger.
+        $primaryDependentIds = DealStepInstance::where('trigger_step_instance_id', $completedStep->id)
             ->where('status', 'not_started')
-            ->get();
+            ->pluck('id');
 
-        foreach ($dependents as $dependent) {
-            $fromDate = $completedStep->completed_at ?? now();
-            $this->activateStep($dependent, $fromDate->format('Y-m-d'));
+        // Steps that name the completed step as an additional AND-gate dependency.
+        $andGateDependentIds = DB::table('deal_step_instance_dependencies')
+            ->where('depends_on_step_instance_id', $completedStep->id)
+            ->pluck('deal_step_instance_id');
+
+        $candidateIds = $primaryDependentIds->merge($andGateDependentIds)->unique()->values();
+
+        if ($candidateIds->isNotEmpty()) {
+            $candidates = DealStepInstance::whereIn('id', $candidateIds)
+                ->where('status', 'not_started')
+                ->get();
+
+            foreach ($candidates as $candidate) {
+                [$met, $fromDate] = $this->dependencyReadiness($candidate);
+                if ($met) {
+                    $this->activateStep($candidate, $fromDate);
+                }
+            }
         }
 
         $this->recalculateExpectedRegistration($completedStep->deal);
         $this->updateDealOverallRag($completedStep->deal); // WS0: keep the deal board RAG fresh on advance
+    }
+
+    /**
+     * WS-V1 — is every predecessor of $step complete?
+     *
+     * @return array{0:bool,1:?string}  [met, fromDate] where fromDate is the
+     *         LATEST predecessor completion (Y-m-d) — the anchor for this step's
+     *         relative clock. [false, null] when a predecessor is still open or
+     *         the step has no predecessors at all.
+     */
+    private function dependencyReadiness(DealStepInstance $step): array
+    {
+        $preds = collect();
+
+        if ($step->trigger_step_instance_id) {
+            $primary = DealStepInstance::find($step->trigger_step_instance_id);
+            if ($primary) {
+                $preds->push($primary);
+            }
+        }
+        foreach ($step->dependencies()->get() as $dep) {
+            $preds->push($dep);
+        }
+
+        $preds = $preds->unique('id');
+
+        if ($preds->isEmpty()) {
+            return [false, null]; // not a triggered/gated step — nothing to advance from here
+        }
+
+        if ($preds->contains(fn ($p) => $p->status !== 'completed')) {
+            return [false, null]; // at least one blocker still open
+        }
+
+        $latest = $preds->map(fn ($p) => $p->completed_at)->filter()->max();
+        $fromDate = $latest ? Carbon::parse($latest)->format('Y-m-d') : now()->format('Y-m-d');
+
+        return [true, $fromDate];
     }
 
     /**

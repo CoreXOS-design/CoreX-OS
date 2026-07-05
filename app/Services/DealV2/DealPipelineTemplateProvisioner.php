@@ -130,7 +130,7 @@ class DealPipelineTemplateProvisioner
         // replace an already-populated / customised template's steps.
         $stepsCreated = 0;
         if ($template->steps()->count() === 0) {
-            $stepsCreated = $this->createSteps($template, $def['steps']);
+            $stepsCreated = $this->createSteps($template, $def['steps'], $def['dependencies'] ?? []);
         }
 
         return [$wasCreated, $stepsCreated, $template];
@@ -140,7 +140,7 @@ class DealPipelineTemplateProvisioner
      * Create the ordered steps for a template with a two-pass trigger-link
      * resolve (a step's after_step trigger references a sibling by name).
      */
-    private function createSteps(DealPipelineTemplate $template, array $steps): int
+    private function createSteps(DealPipelineTemplate $template, array $steps, array $dependencies = []): int
     {
         $stepMap = [];
 
@@ -175,6 +175,34 @@ class DealPipelineTemplateProvisioner
                     'trigger_step_id' => $stepMap[$triggerStepName]->id,
                 ]);
             }
+        }
+
+        // WS-V1 — additional AND-gate dependencies declared as
+        // ['Dependent Step' => ['Predecessor A', 'Predecessor B', ...]].
+        // These are predecessors BEYOND the single primary trigger above; a step
+        // activates only when its primary trigger AND all of these complete.
+        $depRows = [];
+        foreach ($dependencies as $dependentName => $predecessorNames) {
+            $dependent = $stepMap[$dependentName] ?? null;
+            if (! $dependent) {
+                continue;
+            }
+            foreach ((array) $predecessorNames as $predName) {
+                $pred = $stepMap[$predName] ?? null;
+                if (! $pred || $pred->id === $dependent->id) {
+                    continue; // unknown or self
+                }
+                $depRows[] = [
+                    'agency_id' => $template->agency_id,
+                    'pipeline_step_id' => $dependent->id,
+                    'depends_on_step_id' => $pred->id,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+        }
+        if ($depRows) {
+            DB::table('deal_pipeline_step_dependencies')->insert($depRows);
         }
 
         return count($steps);

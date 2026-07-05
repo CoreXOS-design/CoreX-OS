@@ -6,6 +6,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -89,6 +90,21 @@ class DealStepInstance extends Model
         return $this->hasMany(self::class, 'trigger_step_instance_id');
     }
 
+    /**
+     * AT-158 WS-V1 — additional AND-gate predecessors (beyond the single primary
+     * `trigger_step_instance_id`). This step activates only when its primary
+     * trigger AND all of these are complete. Empty for the common linear case.
+     */
+    public function dependencies(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            self::class,
+            'deal_step_instance_dependencies',
+            'deal_step_instance_id',
+            'depends_on_step_instance_id',
+        )->withTimestamps();
+    }
+
     public function documents(): HasMany
     {
         return $this->hasMany(DealStepDocument::class, 'deal_step_instance_id');
@@ -164,5 +180,61 @@ class DealStepInstance extends Model
     public function isActive(): bool
     {
         return $this->status === 'active';
+    }
+
+    // ── AND-gate (WS-V1) ──
+
+    /**
+     * All predecessor instances this step waits on: the single primary trigger
+     * (if any) plus every additional AND-gate dependency. Reads from loaded
+     * relations where present, so the caller controls query cost.
+     */
+    public function predecessorInstances()
+    {
+        $preds = collect();
+
+        if ($this->trigger_step_instance_id) {
+            $primary = $this->relationLoaded('triggerStepInstance')
+                ? $this->triggerStepInstance
+                : $this->triggerStepInstance()->first();
+            if ($primary) {
+                $preds->push($primary);
+            }
+        }
+
+        $deps = $this->relationLoaded('dependencies') ? $this->dependencies : $this->dependencies()->get();
+        foreach ($deps as $d) {
+            $preds->push($d);
+        }
+
+        return $preds->unique('id')->values();
+    }
+
+    /** Predecessors that are NOT yet complete — the reason this step is still blocked. */
+    public function blockingPredecessors()
+    {
+        return $this->predecessorInstances()->reject(fn ($p) => $p->status === 'completed')->values();
+    }
+
+    /** Human "waiting on …" label for a blocked (not_started) step; null when nothing blocks it. */
+    public function blockedByLabel(): ?string
+    {
+        $preds = $this->predecessorInstances();
+        if ($preds->isEmpty()) {
+            return null;
+        }
+        $blocking = $preds->reject(fn ($p) => $p->status === 'completed');
+        if ($blocking->isEmpty()) {
+            return null;
+        }
+        $names = $blocking->pluck('name')->all();
+        $done = $preds->count() - $blocking->count();
+
+        // Single linear dependency keeps the familiar "+ N days" phrasing.
+        if ($preds->count() === 1) {
+            return "Waiting on \"{$names[0]}\"";
+        }
+
+        return 'Waiting on ' . implode(', ', $names) . " ({$done} of {$preds->count()} done)";
     }
 }
