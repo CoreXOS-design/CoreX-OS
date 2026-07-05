@@ -106,6 +106,13 @@ class Property24ListingMapper
         // Rental info
         if ($this->mapListingType($property->listing_type ?? $property->mandate_type) === 'Rental') {
             $rentalInfo = ['leasePeriod' => $property->lease_period ?? '12 Months'];
+            // Rate cadence — CoreX stores rental_price_type ("per week"/"per
+            // day"/…). Without emitting it, every weekly/daily/short-term rental
+            // publishes at P24's default monthly cadence. Enum: Month/Week/Day/
+            // Year/SquareMetre.
+            if ($rentalRate = $this->mapRentalRate($property->rental_price_type ?? null)) {
+                $rentalInfo['rentalRate'] = $rentalRate;
+            }
             if ($property->deposit_amount) {
                 $rentalInfo['depositRequirementsComments'] = 'Deposit: R ' . number_format((float) $property->deposit_amount, 0, '.', ' ');
             }
@@ -174,6 +181,24 @@ class Property24ListingMapper
         return $listing;
     }
 
+    /**
+     * Map CoreX rental_price_type ("per month"/"per week"/…) to P24's RentalRate
+     * enum (Month/Week/Day/Year/SquareMetre). Returns null for an unknown/blank
+     * cadence so P24 applies its own default (Month) rather than us asserting one.
+     */
+    private function mapRentalRate(?string $rentalPriceType): ?string
+    {
+        return match (strtolower(trim((string) $rentalPriceType))) {
+            'per month', 'per_month', 'monthly'                          => 'Month',
+            'per week', 'per_week', 'weekly'                             => 'Week',
+            'per day', 'per_day', 'daily'                                => 'Day',
+            'per year', 'per_year', 'yearly', 'annually'                 => 'Year',
+            'per sqm', 'per_sqm', 'persqm', 'per m2', 'per_m2',
+            'persquaremetre', 'per square metre', 'per square meter'     => 'SquareMetre',
+            default                                                      => null,
+        };
+    }
+
     private function buildPropertyInfo(Property $property, ?int $suburbId, ?int $propertyTypeId): array
     {
         // P24 "hide address" affects ONLY public display, never the data we send.
@@ -188,9 +213,15 @@ class Property24ListingMapper
             'streetNumber'    => $property->street_number ?? '',
             'streetName'      => $property->street_name ?? $this->parseStreetName($property->address),
             'sourceReference' => 'CoreX-' . $property->id,
+            // latitude/longitude are decimal:7 casts → Laravel returns them as
+            // strings ("0.0000000"), which are truthy, so the old `$lat && $lng`
+            // guard emitted showLocation=true for never-geocoded listings (P24
+            // could then surface the street address the agent never published).
+            // Compare numerically — same fix already applied to the
+            // geographicLocation guard above.
             'showLocation'    => $property->p24_hide_address
                 ? false
-                : (bool) ($property->latitude && $property->longitude),
+                : ((float) $property->latitude != 0.0 && (float) $property->longitude != 0.0),
         ];
 
         if ($property->stand_number) $info['standNumber'] = $property->stand_number;
