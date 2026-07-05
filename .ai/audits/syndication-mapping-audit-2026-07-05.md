@@ -64,11 +64,14 @@ All Listing top-level fields, PropertyInfo (correct `Fee`/`Area` object shapes, 
 **PP-B2 — `Laundry` uses the wrong space-type string (✔ verified).** `PrivatePropertyListingMapper.php:488` checks `$hasSpace('Laundry')`, but the space type is `Laundry Room` (`config/property-spaces.php:31`), and `Laundry` is not a feature label either (confirmed: no `'Laundry'` in the vocab). So `has('Laundry')` and `hasSpace('Laundry')` are **both always false** → a laundry entered as a `Laundry Room` space never sends the PP `Laundry` flag.
 - **Fix:** `$hasSpace('Laundry Room')`.
 
-### BROKEN — RISK, needs a live check (potential PP106 whole-listing rejection)
+### BROKEN — RESOLVED 2026-07-05 via live read-back (was: PP106 datatype risk)
 
-**PP-B3 — count attributes that may be booleans in PP's Appendix A.** `buildAttributes()` emits `Family_TV_Room` (:446), `Entrance_hall` (:452), `StaffQuarters` (:450), and `Study` (:447) as **integer** counts. The WSDL types every `Attribute.Value` as `s:string`, so count-vs-flag is defined only in "Appendix A of the API" (referenced by the PP106 fault), which is **not in the repo**. If PP types any of these boolean, an integer Value triggers `PP106 — Please match attribute datatypes` and **rejects the whole listing**.
-- **Empirical anchor:** property 6049 pushed successfully (PP Ref T5538118) **with a `Kitchen` integer count**, so `Kitchen`/`Lounges`/`DiningAreas`/`Parking` counts are proven-accepted. But 6049 had no TV Room / Entrance Hall / Domestic Room / Study, so `Family_TV_Room`/`Entrance_hall`/`StaffQuarters`/`Study` are **unverified**.
-- **Action:** push a test listing carrying those four, then read it back via `GetFullDetailsOfAllListingsByBranch` (ground truth for what PP kept). Any that are boolean → switch to `Value="Yes"`. **Until verified, a property with a TV Room / Entrance Hall / Domestic Room / Study space could be silently rejected.** Highest-priority PP item.
+**PP-B3 — five attributes emitted in the WRONG Appendix A datatype (✔ verified + FIXED).** `buildAttributes()` emitted `Kitchen`, `Family_TV_Room`, `Study`, `StaffQuarters`, and `Entrance_hall` as **integer** counts, but PP's Appendix A types all five as **boolean "Yes"**.
+- **Ground truth:** `GetFullDetailsOfAllListingsByBranch` was called read-only against the live HFC branch (2026-07-05, **327 listings**) and every stored `Attribute.Value` bucketed by datatype:
+  - **INTEGER/COUNT:** `Bedrooms`, `Bathrooms`(+.5), `Garages`, `FloorArea`, `LandArea`, `Rates`, `Levies`, `Storeys`, `Lounges`, `DiningAreas`, `Parking`, `Carports`(1–3), `EnSuite`(1–5).
+  - **BOOLEAN "Yes":** `Kitchen`(191/191), `Entrance_hall`(37), `StaffQuarters`(16), `Study`(13), `Family_TV_Room`(11) — plus every amenity flag.
+- **Why no rejection was ever seen:** PP *coerces* a numeric value to `"Yes"` for boolean attributes — that is the ONLY reason property 6049 survived with `Kitchen="1"`. The audit's "Kitchen is a proven count" anchor was therefore **wrong**: `Kitchen` is a flag; PP silently coerced the integer. Sending the wrong datatype was tolerated, not correct, and is fragile to any PP validation tightening. (The historical PP106 in `private_property-2026-07-02.log` was the *reverse* mismatch — the old `EnSuite="true"` boolean sent to an integer attribute, since fixed to `EnSuite="1"`.)
+- **Fix (shipped):** the five moved out of the `$counts` integer loop into present-only `"Yes"` flags, keyed off the same space types (`Kitchen`, `TV Room`, `Study`/`Office`, `Domestic Room`, `Entrance Hall`). `Lounges`/`DiningAreas`/`Parking`/`Carports` stay integer counts (read-back-confirmed). A read-back verification path is now the standard way to settle any future count-vs-flag question.
 
 ### GAP — PP defines it, CoreX has the data, mapper doesn't reliably send it
 
@@ -97,7 +100,7 @@ All required WSDL Listing `minOccurs=1` fields emitted (`map():59-97`); Category
 5. **P24-G1** `rentalInfo.rentalRate` — weekly/daily rentals mis-publish as monthly.
 
 **Verify live before deciding (potential rejection / vocabulary):**
-6. **PP-B3** datatype of `Family_TV_Room`/`Entrance_hall`/`StaffQuarters`/`Study` counts — test push + read-back; switch to `"Yes"` if boolean. *Could silently reject listings with those spaces.*
+6. **PP-B3 — ✅ DONE 2026-07-05.** Live read-back proved `Kitchen`/`Family_TV_Room`/`Study`/`StaffQuarters`/`Entrance_hall` are boolean `"Yes"` in Appendix A (not counts); all five switched to present-only flags. `Carports`/`Lounges`/`DiningAreas`/`Parking` confirmed integer counts.
 7. **PP-G2** `ScenicView` trigger vocabulary + `show.blade.php` vs `config/property-spaces.php` divergence.
 8. **PP** `HomeType/BusinessType/FarmType/LandType` Values against PP's vocabulary.
 
