@@ -1,7 +1,7 @@
-@extends('layouts.corex-app')
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+@extends('layouts.corex')
 
 @section('corex-content')
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 {{-- SPINE-UI-FIX: the JS URL builders previously used `url('admin/
      activity-mappings')` to build the toggle/update endpoints. That
      drops the outer `corex/` route prefix the admin route group lives
@@ -59,7 +59,7 @@
             <div class="px-4 py-3 flex items-baseline justify-between"
                  style="border-bottom:1px solid var(--border); background:var(--surface-2);">
                 <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $groupName }}</div>
-                <div class="text-xs" style="color:var(--text-muted);">{{ count($rows) }} {{ count($rows) === 1 ? 'action' : 'actions' }}</div>
+                <div class="text-xs" style="color:var(--text-muted);">{{ number_format(count($rows)) }} {{ count($rows) === 1 ? 'action' : 'actions' }}</div>
             </div>
 
             @foreach($rows as $row)

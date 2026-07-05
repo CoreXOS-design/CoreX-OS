@@ -91,7 +91,7 @@
                                             <span class="agent-chip inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs whitespace-nowrap"
                                                   style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-secondary);">
                                                 <span class="font-semibold" style="color: var(--text-primary);">{{ number_format((int) $c) }}</span>
-                                                <span>{{ $k }}</span>
+                                                <span>{{ $k === '(none)' ? 'No mandate' : $k }}</span>
                                             </span>
                                         @endforeach
                                     </div>
@@ -107,7 +107,7 @@
                                             <span class="agent-chip inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs whitespace-nowrap"
                                                   style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-secondary);">
                                                 <span class="font-semibold" style="color: var(--text-primary);">{{ number_format((int) $x['c']) }}</span>
-                                                <span>{{ $x['type'] }}</span>
+                                                <span>{{ $x['type'] === '(none)' ? 'No type' : $x['type'] }}</span>
                                             </span>
                                         @endforeach
                                     </div>

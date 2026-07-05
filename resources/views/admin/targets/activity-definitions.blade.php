@@ -32,6 +32,13 @@
         }
         .acty-defs-table tbody tr { transition: background-color 150ms ease; }
         .acty-defs-table tbody tr:hover td { background: var(--surface-2); }
+
+        /* Column-control widths own their sizing here (higher specificity than
+           .acty-input's width:100%) so the compact table inputs render at a fixed
+           width regardless of stylesheet load order. Tailwind w-* utilities are
+           overridden by .acty-input because the pushed <style> loads after Vite. */
+        .acty-defs-table td .acty-num { width: 6rem; }
+        .acty-defs-table td select.acty-input { width: 8rem; }
     </style>
 @endpush
 
@@ -155,18 +162,18 @@
                                 <td class="px-4 py-3">
                                     <input form="acty-def-{{ $d->id }}" name="weight" type="number" step="0.01" min="0"
                                            value="{{ number_format((float)$d->weight, 2, '.', '') }}"
-                                           class="acty-input acty-input-sm acty-num w-24">
+                                           class="acty-input acty-input-sm acty-num">
                                 </td>
 
                                 <td class="px-4 py-3">
                                     <input form="acty-def-{{ $d->id }}" name="sort_order" type="number" min="0"
                                            value="{{ (int)$d->sort_order }}"
-                                           class="acty-input acty-input-sm acty-num w-24">
+                                           class="acty-input acty-input-sm acty-num">
                                 </td>
 
                                 <td class="px-4 py-3">
                                     @php($sm = (string)($d->scoring_mode ?? 'count'))
-                                    <select form="acty-def-{{ $d->id }}" name="scoring_mode" class="acty-input acty-input-sm w-32">
+                                    <select form="acty-def-{{ $d->id }}" name="scoring_mode" class="acty-input acty-input-sm">
                                         <option value="count" @selected($sm === 'count')>Per action</option>
                                         <option value="once" @selected($sm === 'once')>Once (tick)</option>
                                     </select>

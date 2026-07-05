@@ -79,13 +79,13 @@
 
                     <div class="flex flex-wrap gap-3 items-center pb-1">
                         <label class="text-sm flex items-center gap-1.5" style="color: var(--text-secondary);">
-                            <input type="checkbox" name="st_pending" value="1" class="rounded-sm" style="accent-color: var(--brand-button, #0ea5e9);" {{ !empty($sf['pending'])?'checked':'' }}> Pending
+                            <input type="checkbox" name="st_pending" value="1" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);" {{ !empty($sf['pending'])?'checked':'' }}> Pending
                         </label>
                         <label class="text-sm flex items-center gap-1.5" style="color: var(--text-secondary);">
-                            <input type="checkbox" name="st_granted" value="1" class="rounded-sm" style="accent-color: var(--brand-button, #0ea5e9);" {{ !empty($sf['granted'])?'checked':'' }}> Granted
+                            <input type="checkbox" name="st_granted" value="1" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);" {{ !empty($sf['granted'])?'checked':'' }}> Granted
                         </label>
                         <label class="text-sm flex items-center gap-1.5" style="color: var(--text-secondary);">
-                            <input type="checkbox" name="st_registered" value="1" class="rounded-sm" style="accent-color: var(--brand-button, #0ea5e9);" {{ !empty($sf['registered'])?'checked':'' }}> Registered
+                            <input type="checkbox" name="st_registered" value="1" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);" {{ !empty($sf['registered'])?'checked':'' }}> Registered
                         </label>
                     </div>
 
@@ -204,7 +204,7 @@
 
                                         <td class="px-4 py-3">
                                             <label class="inline-flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
-                                                <input type="checkbox" name="lock[{{ $a->id }}]" value="1"
+                                                <input type="checkbox" name="lock[{{ $a->id }}]" value="1" class="rounded"
                                                        style="accent-color: var(--brand-button, #0ea5e9);"
                                                        data-comm="#comm_{{ $a->id }}" {{ old('lock.'.$a->id, $lockComm ? 1 : 0) ? 'checked' : '' }}>
                                                 Locked

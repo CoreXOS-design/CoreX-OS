@@ -106,7 +106,7 @@
         'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
         'admin.listings.*',
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
-        'admin.tv-messages*',
+        'admin.tv-messages*', 'admin.activity-mappings.*',
         'corex.admin.deal-link-review.*',
         'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
         'tools.commission', 'tools.cma', 'tools.history.*',
@@ -918,7 +918,7 @@
                 <a href="{{ route('bm.worksheet.market') }}" class="corex-nav-subitem {{ request()->routeIs('bm.worksheet.market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission
                 @permission('manage_targets')
-                <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Daily Activity Targets</a>
+                <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
                 <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
                 @endpermission
                 @permission('manage_tv_messages')
@@ -955,8 +955,13 @@
                 <a href="{{ route('admin.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
                 @permission('manage_targets')
+                {{-- De-dupe: the Setup section above already renders these two links for
+                     users with view_branch_stats. Only render them here for company-admins
+                     who do NOT see the Setup section, so each destination appears once. --}}
+                @unless(auth()->user()?->hasPermission('view_branch_stats'))
                 <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
                 <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
+                @endunless
                 @endpermission
                 @permission('manage_activity_mappings')
                 <a href="{{ route('admin.activity-mappings.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.activity-mappings.*') ? 'active' : '' }}">Activity Scoring</a>

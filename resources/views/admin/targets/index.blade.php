@@ -1,7 +1,7 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
-@section('corex-content')
+@push('head')
     <style>
         .targets-input {
             width: 10rem;
@@ -25,8 +25,10 @@
         }
         .targets-period-select option { color: #000; }
     </style>
+@endpush
 
-    <div class="w-full space-y-6">
+@section('corex-content')
+    <div class="w-full space-y-5">
 
         {{-- Page Header (Pattern A: branded) --}}
         <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
