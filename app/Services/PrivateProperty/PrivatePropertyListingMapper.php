@@ -439,21 +439,24 @@ class PrivatePropertyListingMapper
         // the feed. Anything CoreX carries with NO clean PP attribute is skipped,
         // never guessed (mirrors the P24 mapper discipline).
 
-        // Room-count attributes, sourced from the structured spaces list.
+        // COUNT-typed attributes only (PP Appendix A = integer). Datatypes below
+        // were verified against a live GetFullDetailsOfAllListingsByBranch
+        // read-back (2026-07-05, 327 HFC listings): Lounges/DiningAreas/Parking/
+        // Carports/EnSuite store as integers. Kitchen/Family_TV_Room/Study/
+        // StaffQuarters/Entrance_hall store as "Yes" (boolean) — PP coerces a
+        // numeric value to "Yes" for these, so an integer was tolerated but is
+        // the WRONG datatype; they are emitted as present-only flags below, NOT
+        // here. (Corrects the audit's "Kitchen is a count" anchor — 6049 only
+        // survived because PP coerced its Kitchen="1" to "Yes".)
         $counts = [
             'Lounges'        => $this->countSpaces($property, 'Lounge'),
             'DiningAreas'    => $this->countSpaces($property, 'Dining Room'),
-            'Family_TV_Room' => $this->countSpaces($property, 'TV Room'),
-            'Study'          => $this->countSpaces($property, 'Study') + $this->countSpaces($property, 'Office'),
             'Parking'        => $this->countSpaces($property, 'Parking'),
             // A carport is NOT a space type — it is a FEATURE of the `Parking`
             // space (config/property-spaces.php:69). countSpaces($property,
             // 'Carport') therefore always returned 0 and the attribute never
             // syndicated. Count Parking bays/units carrying the Carport feature.
             'Carports'       => $this->countCarports($property),
-            'StaffQuarters'  => $this->countSpaces($property, 'Domestic Room'),
-            'Kitchen'        => $this->countSpaces($property, 'Kitchen'),
-            'Entrance_hall'  => $this->countSpaces($property, 'Entrance Hall'),
         ];
         foreach ($counts as $type => $n) {
             if ($n > 0) {
@@ -475,6 +478,15 @@ class PrivatePropertyListingMapper
         $hasSpace = fn (string $type) => $this->countSpaces($property, $type) > 0;
 
         $flags = [
+            // Room-PRESENCE attributes — PP Appendix A types these as boolean
+            // "Yes", NOT integer counts (verified 2026-07-05 read-back). Present
+            // when the property carries the corresponding space. Trigger strings
+            // mirror the old count sources.
+            'Kitchen'          => $hasSpace('Kitchen'),
+            'Family_TV_Room'   => $hasSpace('TV Room'),
+            'Study'            => $hasSpace('Study') || $hasSpace('Office'),
+            'StaffQuarters'    => $hasSpace('Domestic Room'),
+            'Entrance_hall'    => $hasSpace('Entrance Hall'),
             'Pool'             => $has('Pool', 'Communal Pool', 'Indoor Pool', 'Splash Pool') || $hasSpace('Pool'),
             'Garden'           => $has('Garden', 'Landscaped', 'Garden Services') || $hasSpace('Garden'),
             'Flatlet'          => $has('Flatlet') || $hasSpace('Flatlet'),
