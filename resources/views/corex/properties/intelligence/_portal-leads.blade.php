@@ -52,6 +52,8 @@
                         <td class="px-2 py-1">
                             @if($pl->portal === 'p24')
                                 <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold text-white" style="background:#ef4444;">P24</span>
+                            @elseif($pl->portal === 'website')
+                                <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold text-white" style="background:#0ea5e9;" title="Website enquiry">WEB</span>
                             @else
                                 <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold text-white" style="background:#3b82f6;">PP</span>
                             @endif
