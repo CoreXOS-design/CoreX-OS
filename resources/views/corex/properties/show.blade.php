@@ -5255,6 +5255,14 @@
                     ])
                 </div>
 
+                {{-- Portal Engagement chart (views + P24 lead counts, range filter) --}}
+                <div x-show="!sellerPreview">
+                    @include('corex.properties.intelligence._portal-engagement-chart', [
+                        'property' => $property,
+                        'engagement' => $intel->getPortalEngagementSeries($property->id),
+                    ])
+                </div>
+
                 {{-- Section A: Performance Dashboard --}}
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">

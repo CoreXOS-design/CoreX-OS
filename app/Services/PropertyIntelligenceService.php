@@ -83,6 +83,47 @@ class PropertyIntelligenceService
     }
 
     /**
+     * Daily P24 engagement series for the property, oldest-first, over the last
+     * $days (capped at 180 — P24's stat retention ceiling). Every calendar day in
+     * the span is emitted (zero-filled) so the chart x-axis is continuous. The
+     * frontend slices this by the selected range (30d / 90d / all); "leads" here
+     * is the per-day P24 lead COUNT from the stats API (available historically),
+     * distinct from the Portal Leads table's individual records (last ~30 days).
+     * See .ai/specs/portal-metrics.md.
+     */
+    public function getPortalEngagementSeries(int $propertyId, int $days = 180): array
+    {
+        $days  = max(1, min($days, 180));
+        $start = now()->startOfDay()->subDays($days);
+        $end   = now()->startOfDay();
+
+        $rows = \App\Models\PropertyPortalMetric::withoutGlobalScopes()
+            ->where('property_id', $propertyId)
+            ->where('portal', \App\Models\PropertyPortalMetric::PORTAL_P24)
+            ->where('metric_date', '>=', $start->format('Y-m-d'))
+            ->orderBy('metric_date')
+            ->get(['metric_date', 'view_count', 'total_leads'])
+            ->keyBy(fn ($r) => $r->metric_date->format('Y-m-d'));
+
+        $series = [];
+        for ($d = $start->copy(); $d < $end; $d->addDay()) {
+            $key = $d->format('Y-m-d');
+            $row = $rows->get($key);
+            $series[] = [
+                'date'  => $key,
+                'views' => (int) ($row->view_count ?? 0),
+                'leads' => (int) ($row->total_leads ?? 0),
+            ];
+        }
+
+        return [
+            'series'   => $series,
+            'has_data' => $rows->isNotEmpty(),
+            'max_days' => $days,
+        ];
+    }
+
+    /**
      * Buyers whose wishlist genuinely matches this property, scored by the
      * CANONICAL engine (AT-73).
      *
