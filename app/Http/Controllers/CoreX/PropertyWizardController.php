@@ -38,12 +38,21 @@ class PropertyWizardController extends Controller
         // it no longer silently drops the user back onto their last draft.
         $draft = null;
         if ($request->has('resume')) {
-            $draft = Property::query()
+            $draftsQuery = Property::query()
                 ->where('agent_id', $user->id)
                 ->where('status', 'draft')
-                ->whereNull('published_at')
+                ->whereNull('published_at');
+
+            // ?resume=<id> targets a specific draft the user picked from the
+            // listing popup (still ownership-scoped above). ?resume with no
+            // usable id — or an id that has since been discarded — falls back
+            // to the most recently touched draft.
+            $resumeId = (int) $request->query('resume');
+            $draft = (clone $draftsQuery)
+                ->when($resumeId > 0, fn ($q) => $q->where('id', $resumeId))
                 ->latest('updated_at')
-                ->first();
+                ->first()
+                ?: $draftsQuery->latest('updated_at')->first();
         }
 
         $settingItems = [

@@ -47,6 +47,36 @@ final class PropertyWizardDraftResumeTest extends TestCase
             ->assertSee('unfinished draft', false);
     }
 
+    public function test_resume_with_a_specific_id_rebinds_that_exact_draft(): void
+    {
+        [$agent, $suburbId] = $this->seedAgencyAgent();
+        $older = $this->makeDraft($agent, $suburbId);
+        $newer = $this->makeDraft($agent, $suburbId);
+
+        // Picking the OLDER draft from the popup must resume it, not the newest.
+        $this->actingAs($agent)
+            ->get(route('corex.properties.wizard', ['resume' => $older->id]))
+            ->assertOk()
+            ->assertSee('draftId: ' . $older->id, false)
+            ->assertDontSee('draftId: ' . $newer->id, false);
+    }
+
+    public function test_resume_with_a_foreign_draft_id_falls_back_to_own_latest(): void
+    {
+        [$agent, $suburbId] = $this->seedAgencyAgent();
+        [$other] = $this->seedAgencyAgent();
+        $mine    = $this->makeDraft($agent, $suburbId);
+        $foreign = $this->makeDraft($other, $suburbId);
+
+        // A hand-tampered id belonging to another agent must never resolve to
+        // their draft — it falls back to the caller's own latest draft.
+        $this->actingAs($agent)
+            ->get(route('corex.properties.wizard', ['resume' => $foreign->id]))
+            ->assertOk()
+            ->assertSee('draftId: ' . $mine->id, false)
+            ->assertDontSee('draftId: ' . $foreign->id, false);
+    }
+
     public function test_resume_only_returns_the_users_own_draft(): void
     {
         [$agent, $suburbId] = $this->seedAgencyAgent();

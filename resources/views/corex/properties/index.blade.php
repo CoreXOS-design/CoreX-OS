@@ -27,18 +27,69 @@
                    title="Classic single-page form">
                     Classic form
                 </a>
-                @if(($myDraftCount ?? 0) > 0)
-                <a href="{{ route('corex.properties.wizard', ['resume' => 1]) }}"
+                @php $draftItems = $myDrafts ?? collect(); $draftCount = $draftItems->count(); @endphp
+                @if($draftCount === 1)
+                {{-- Exactly one draft — a single click continues it. --}}
+                <a href="{{ route('corex.properties.wizard', ['resume' => $draftItems->first()->id]) }}"
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
                    style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
-                   title="Continue an unfinished draft">
+                   title="Continue your unfinished draft">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
                     </svg>
                     Drafts
                     <span class="inline-flex items-center justify-center min-w-[1.125rem] h-[1.125rem] px-1 rounded-full text-[10px] font-bold"
-                          style="background:rgba(255,255,255,0.18);color:#fff;">{{ $myDraftCount }}</span>
+                          style="background:rgba(255,255,255,0.18);color:#fff;">1</span>
                 </a>
+                @elseif($draftCount > 1)
+                {{-- Several drafts — a popup lets the user pick the one to continue. --}}
+                <div class="relative" x-data="{ draftsOpen: false }">
+                    <button type="button"
+                            @click="draftsOpen = !draftsOpen" @click.outside="draftsOpen = false"
+                            @keydown.escape.window="draftsOpen = false"
+                            :aria-expanded="draftsOpen ? 'true' : 'false'"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
+                            style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
+                            title="Choose a draft to continue">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
+                        </svg>
+                        Drafts
+                        <span class="inline-flex items-center justify-center min-w-[1.125rem] h-[1.125rem] px-1 rounded-full text-[10px] font-bold"
+                              style="background:rgba(255,255,255,0.18);color:#fff;">{{ $draftCount }}</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" :class="draftsOpen && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    <div x-show="draftsOpen" x-cloak
+                         x-transition:enter="transition ease-out duration-150"
+                         x-transition:enter-start="opacity-0 -translate-y-1"
+                         x-transition:enter-end="opacity-100 translate-y-0"
+                         class="absolute right-0 mt-2 w-72 rounded-md overflow-hidden z-50"
+                         style="background:var(--surface);border:1px solid var(--border);box-shadow:0 12px 32px rgba(0,0,0,0.28);">
+                        <div class="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
+                             style="color:var(--text-muted);border-bottom:1px solid var(--border);">
+                            Continue a draft
+                        </div>
+                        <div class="max-h-80 overflow-y-auto py-1">
+                            @foreach($draftItems as $d)
+                            <a href="{{ route('corex.properties.wizard', ['resume' => $d->id]) }}"
+                               class="flex items-start gap-2.5 px-3 py-2 no-underline transition-colors duration-150"
+                               style="color:var(--text-primary);"
+                               onmouseover="this.style.background='var(--surface-2)'"
+                               onmouseout="this.style.background='transparent'">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
+                                </svg>
+                                <span class="min-w-0 flex-1">
+                                    <span class="block text-xs font-semibold truncate" style="color:var(--text-primary);">{{ $d->title ?: 'Untitled draft' }}</span>
+                                    <span class="block text-[11px] truncate" style="color:var(--text-muted);">{{ $d->suburb ? $d->suburb.' · ' : '' }}{{ $d->updated_at?->diffForHumans() }}</span>
+                                </span>
+                            </a>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
                 @endif
                 <a href="{{ route('corex.properties.wizard') }}" class="corex-btn-primary inline-flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
