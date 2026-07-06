@@ -1,10 +1,11 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
 <div class="-m-4 lg:-m-6">
     <x-page-header title="{{ $employee->user->name ?? 'Employee' }}" :back-route="route('payroll.employees.index')" back-label="Employees" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('payroll.employees.edit', $employee) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Edit Profile</a>
+            <a href="{{ route('payroll.employees.edit', $employee) }}" class="corex-btn-outline text-xs">Edit Profile</a>
             @if($employee->is_active && !$employee->termination_date)
                 <form method="POST" action="{{ route('payroll.employees.deactivate', $employee) }}" class="inline">
                     @csrf
@@ -13,7 +14,7 @@
             @elseif(!$employee->termination_date)
                 <form method="POST" action="{{ route('payroll.employees.reactivate', $employee) }}" class="inline">
                     @csrf
-                    <button type="submit" class="px-3 py-2 text-xs font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px; cursor:pointer;">Reactivate</button>
+                    <button type="submit" class="corex-btn-primary text-xs">Reactivate</button>
                 </form>
             @endif
         </x-slot:actions>
@@ -28,7 +29,7 @@
         @endif
 
         <div class="flex flex-col lg:flex-row gap-6">
-            {{-- â•â•â• LEFT COLUMN (1/3) â•â•â• --}}
+            {{-- === LEFT COLUMN (1/3) === --}}
             <div class="lg:w-1/3 space-y-4">
                 {{-- Card 1: Employee header --}}
                 <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
@@ -47,7 +48,7 @@
                     @elseif($employee->is_active)
                         <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:6px;">Active</span>
                     @else
-                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:6px;">Inactive</span>
+                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:var(--surface-2); color:var(--text-muted); border-radius:6px;">Inactive</span>
                     @endif
                 </div>
 
@@ -91,18 +92,18 @@
                         @csrf
                         @if($banking) @method('PATCH') @endif
                         <input type="text" name="account_holder" value="{{ old('account_holder', $banking->account_holder ?? $employee->user->name) }}" required maxlength="150" placeholder="Account holder"
-                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
-                        <select name="bank_name" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                        <select name="bank_name" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                             <option value="">-- Bank --</option>
                             @foreach(['ABSA', 'African Bank', 'Bidvest Bank', 'Capitec', 'Discovery Bank', 'FNB', 'Investec', 'Nedbank', 'Standard Bank', 'TymeBank', 'Other'] as $bank)
                                 <option value="{{ $bank }}" {{ ($banking->bank_name ?? '') === $bank ? 'selected' : '' }}>{{ $bank }}</option>
                             @endforeach
                         </select>
                         <input type="text" name="branch_code" value="{{ old('branch_code', $banking->branch_code ?? '') }}" required maxlength="10" placeholder="Branch code"
-                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                         <input type="text" name="account_number" value="{{ $banking->account_number ?? '' }}" required maxlength="30" placeholder="Account number"
-                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
-                        <select name="account_type" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                        <select name="account_type" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                             @foreach(['cheque' => 'Cheque', 'savings' => 'Savings', 'transmission' => 'Transmission'] as $val => $lbl)
                                 <option value="{{ $val }}" {{ ($banking->account_type ?? 'cheque') === $val ? 'selected' : '' }}>{{ $lbl }}</option>
                             @endforeach
@@ -125,16 +126,16 @@
                 </div>
             </div>
 
-            {{-- â•â•â• RIGHT COLUMN (2/3) â•â•â• --}}
+            {{-- === RIGHT COLUMN (2/3) === --}}
             <div class="lg:w-2/3" x-data="{ tab: 'setup' }">
                 {{-- Tab bar --}}
                 <div class="flex gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
-                    <button @click="tab = 'setup'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'setup' ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">Current Setup</button>
-                    <button @click="tab = 'history'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'history' ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">History <span class="text-[10px] opacity-60">{{ $payslips->count() }}</span></button>
-                    <button @click="tab = 'audit'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'audit' ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">Audit Log</button>
+                    <button @click="tab = 'setup'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'setup' ? 'border-bottom:2px solid var(--brand-icon, #0ea5e9); color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">Current Setup</button>
+                    <button @click="tab = 'history'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'history' ? 'border-bottom:2px solid var(--brand-icon, #0ea5e9); color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">History <span class="text-[10px] opacity-60">{{ $payslips->count() }}</span></button>
+                    <button @click="tab = 'audit'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'audit' ? 'border-bottom:2px solid var(--brand-icon, #0ea5e9); color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">Audit Log</button>
                 </div>
 
-                {{-- â•â• TAB 1: Current Setup â•â• --}}
+                {{-- == TAB 1: Current Setup == --}}
                 <div x-show="tab === 'setup'">
                     {{-- EARNINGS TABLE --}}
                     <div class="mb-6">
@@ -159,7 +160,7 @@
                                         <td class="px-3 py-2.5 font-semibold text-xs" style="color:var(--text-primary, #0f172a);">
                                             {{ $earning->earningType->label ?? 'Unknown' }}
                                             @if($earning->earningType?->is_system)
-                                                <span class="ml-1 text-[9px] px-1 py-0.5 font-bold uppercase" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:2px;">System</span>
+                                                <span class="ml-1 text-[9px] px-1 py-0.5 font-bold uppercase" style="background:var(--surface-2); color:var(--text-muted); border-radius:6px;">System</span>
                                             @endif
                                         </td>
                                         <td class="px-3 py-2.5 text-right text-xs font-semibold" style="color:var(--text-primary, #0f172a);">
@@ -183,22 +184,22 @@
                                         </td>
                                     </tr>
                                     {{-- Inline edit row --}}
-                                    <tr x-show="editing" x-cloak style="border-bottom:1px solid var(--border, #e5e7eb); background:rgba(0,212,170,0.02);">
+                                    <tr x-show="editing" x-cloak style="border-bottom:1px solid var(--border, #e5e7eb); background:color-mix(in srgb, var(--brand-icon) 4%, transparent);">
                                         <td colspan="5" class="px-3 py-2">
                                             <form method="POST" action="{{ route('payroll.employees.earnings.update', [$employee, $earning]) }}" class="flex flex-wrap items-end gap-3">
                                                 @csrf
                                                 @method('PATCH')
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">New Amount (R)</label>
-                                                    <input type="number" name="amount" value="{{ $earning->amount }}" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                                    <input type="number" name="amount" value="{{ $earning->amount }}" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Effective From</label>
-                                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
-                                                    <input type="text" name="notes" value="{{ $earning->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                                    <input type="text" name="notes" value="{{ $earning->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save</button>
                                                 <button type="button" @click="editing = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
@@ -218,11 +219,11 @@
                         <div x-data="{ adding: false }" class="mt-2">
                             <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">+ Add Earning</button>
                             <form method="POST" action="{{ route('payroll.employees.earnings.store', $employee) }}" x-show="adding" x-cloak
-                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
+                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                                 @csrf
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Earning Type</label>
-                                    <select name="earning_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <select name="earning_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                         <option value="">-- Select --</option>
                                         @foreach($earningTypes as $et)
                                             <option value="{{ $et->id }}">{{ $et->label }}</option>
@@ -231,15 +232,15 @@
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Amount (R)</label>
-                                    <input type="number" name="amount" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <input type="number" name="amount" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Effective From</label>
-                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
-                                    <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save</button>
                                 <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
@@ -271,9 +272,9 @@
                                             {{ $deduction->deductionType->label ?? 'Unknown' }}
                                             @if($deduction->deductionType?->is_statutory)
                                                 @if($deduction->override_statutory)
-                                                    <span class="ml-1 text-[9px] px-1 py-0.5 font-bold" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border-radius:2px;">Override</span>
+                                                    <span class="ml-1 text-[9px] px-1 py-0.5 font-bold" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border-radius:6px;">Override</span>
                                                 @else
-                                                    <span class="ml-1 text-[9px] px-1 py-0.5 font-bold" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:2px;">Auto-calculated</span>
+                                                    <span class="ml-1 text-[9px] px-1 py-0.5 font-bold" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:6px;">Auto-calculated</span>
                                                 @endif
                                             @endif
                                         </td>
@@ -306,18 +307,18 @@
                                         </td>
                                     </tr>
                                     {{-- Inline edit row --}}
-                                    <tr x-show="editing" x-cloak style="border-bottom:1px solid var(--border, #e5e7eb); background:rgba(0,212,170,0.02);">
+                                    <tr x-show="editing" x-cloak style="border-bottom:1px solid var(--border, #e5e7eb); background:color-mix(in srgb, var(--brand-icon) 4%, transparent);">
                                         <td colspan="5" class="px-3 py-2">
                                             <form method="POST" action="{{ route('payroll.employees.deductions.update', [$employee, $deduction]) }}" class="flex flex-wrap items-end gap-3">
                                                 @csrf
                                                 @method('PATCH')
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Amount (R)</label>
-                                                    <input type="number" name="amount" value="{{ $deduction->amount }}" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                                    <input type="number" name="amount" value="{{ $deduction->amount }}" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Effective From</label>
-                                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 @if($deduction->deductionType?->is_statutory)
                                                 <div>
@@ -330,7 +331,7 @@
                                                 @endif
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
-                                                    <input type="text" name="notes" value="{{ $deduction->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                                    <input type="text" name="notes" value="{{ $deduction->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save</button>
                                                 <button type="button" @click="editing = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
@@ -350,11 +351,11 @@
                         <div x-data="{ adding: false }" class="mt-2">
                             <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">+ Add Deduction</button>
                             <form method="POST" action="{{ route('payroll.employees.deductions.store', $employee) }}" x-show="adding" x-cloak
-                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
+                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                                 @csrf
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Deduction Type</label>
-                                    <select name="deduction_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <select name="deduction_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                         <option value="">-- Select --</option>
                                         @foreach($deductionTypes as $dt)
                                             <option value="{{ $dt->id }}">{{ $dt->label }}{{ $dt->is_statutory ? ' (statutory)' : '' }}</option>
@@ -363,15 +364,15 @@
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Amount (R)</label>
-                                    <input type="number" name="amount" step="0.01" min="0" required value="0" class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <input type="number" name="amount" step="0.01" min="0" required value="0" class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Effective From</label>
-                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
-                                    <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save</button>
                                 <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
@@ -380,7 +381,7 @@
                     </div>
                 </div>
 
-                {{-- â•â• TAB 2: History â•â• --}}
+                {{-- == TAB 2: History == --}}
                 <div x-show="tab === 'history'" x-cloak>
                     @if($payslips->isEmpty())
                         <div class="py-8 text-center text-xs" style="color:var(--text-secondary, #94a3b8);">No payslips yet. They will appear here after the first payroll run is finalised.</div>
@@ -416,7 +417,7 @@
                     @endif
                 </div>
 
-                {{-- â•â• TAB 3: Audit Log â•â• --}}
+                {{-- == TAB 3: Audit Log == --}}
                 <div x-show="tab === 'audit'" x-cloak>
                     @php
                         $auditItems = collect();
@@ -451,7 +452,7 @@
                         <div class="space-y-2">
                             @foreach($auditItems as $item)
                                 <div class="flex items-start gap-3 py-2" style="border-bottom:1px solid var(--border, #e5e7eb);">
-                                    <div class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style="background:{{ $item['type'] === 'earning' ? '#00d4aa' : '#94a3b8' }};"></div>
+                                    <div class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style="background:{{ $item['type'] === 'earning' ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-muted, #9ca3af)' }};"></div>
                                     <div>
                                         <p class="text-xs" style="color:var(--text-primary, #0f172a);">{{ $item['desc'] }}</p>
                                         <p class="text-[10px]" style="color:var(--text-secondary, #94a3b8);">{{ $item['user'] }} &middot; {{ $item['date']?->format('d M Y H:i') }}</p>
