@@ -8,15 +8,19 @@
 # JSON (result.language + transcription[].text) on stdout; the PHP
 # TranscriptionService parses it. nice'd so it never starves the app.
 #
-# Usage: transcribe.sh <audio_path> [model] [threads]
-#   model   — medium (default) | large-v3 | small ...  (ggml-<model>.bin)
-#   threads — whisper thread count (default 8 = half the box's 16 cores)
+# Usage: transcribe.sh <audio_path> [model] [threads] [language]
+#   model    — medium (default) | large-v3 | small ...  (ggml-<model>.bin)
+#   threads  — whisper thread count (default 8 = half the box's 16 cores)
+#   language — whisper -l hint: auto (default, per-note detect) | af | en | ...
 #
 set -euo pipefail
 
 AUDIO="${1:-}"
 MODEL="${2:-medium}"
 THREADS="${3:-8}"
+# AT-194 — per-agency whisper language hint (arg 4). Default 'auto' = per-note
+# auto-detect, so an existing 3-arg caller behaves EXACTLY as before (backward-compat).
+LANG_HINT="${4:-auto}"
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WHISPER="$DIR/whisper.cpp/build/bin/whisper-cli"
@@ -38,9 +42,10 @@ OUT="$TMP/out"
 ffmpeg -nostdin -loglevel error -y -i "$AUDIO" -ar 16000 -ac 1 -c:a pcm_s16le "$WAV" 2>/dev/null \
     || fail '"ffmpeg_decode_failed"' 6
 
-# Transcribe. -l auto = per-note language detect (handles code-mixed at segment
-# level); -nt = no inline timestamps in text; --output-json writes OUT.json.
-nice -n 15 "$WHISPER" -m "$MODELBIN" -f "$WAV" -t "$THREADS" -l auto -nt \
+# Transcribe. -l <hint> = language: 'auto' per-note detect (handles code-mixed at
+# segment level) or a pinned language (e.g. 'af') which anchors the model and skips
+# the detection pass; -nt = no inline timestamps in text; --output-json writes OUT.json.
+nice -n 15 "$WHISPER" -m "$MODELBIN" -f "$WAV" -t "$THREADS" -l "$LANG_HINT" -nt \
     --output-json -of "$OUT" >/dev/null 2>&1 \
     || fail '"whisper_failed"' 7
 

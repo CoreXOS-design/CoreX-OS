@@ -26,15 +26,29 @@ class P24StatsService
      */
     private const MAX_WINDOW_DAYS = 14;
 
-    /** Pace between P24 calls to avoid tripping connection throttling (µs). */
+    /** Default pace between P24 calls to avoid tripping connection throttling (µs). */
     private const INTER_CALL_PAUSE_US = 250000;
 
     /** One connection retry per chunk (P24 handshake is intermittently flaky). */
     private const CHUNK_RETRIES = 1;
 
+    /** Live inter-call pause; raise it for a gentler bulk backfill (see setPacing). */
+    private int $interCallPauseUs = self::INTER_CALL_PAUSE_US;
+
     public function __construct(
         private readonly Property24ApiClient $api,
     ) {
+    }
+
+    /**
+     * Override the inter-call pause (milliseconds) for a gentler bulk backfill —
+     * the nightly job keeps the fast default; long historical sweeps space calls
+     * out so P24 is never hammered. Returns $this for fluent use.
+     */
+    public function setPacing(int $milliseconds): self
+    {
+        $this->interCallPauseUs = max(0, $milliseconds) * 1000;
+        return $this;
     }
 
     /**
@@ -208,7 +222,7 @@ class P24StatsService
         $response = ['success' => false];
 
         for ($attempt = 0; $attempt <= self::CHUNK_RETRIES; $attempt++) {
-            usleep(self::INTER_CALL_PAUSE_US);
+            usleep($this->interCallPauseUs);
             $response = $api->getListingStatistics($listingNumber, $startDate, $endDate, $propertyId);
             if ($response['success'] ?? false) {
                 break;

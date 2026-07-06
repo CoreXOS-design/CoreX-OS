@@ -70,6 +70,36 @@
         @endif
     </div>
 
+    {{-- AT-194 — voice-note transcription language. 'Auto-detect' is the default and
+         best when an agency's notes are mixed/unknown; pinning a language (e.g.
+         Afrikaans) anchors the on-box whisper model to that language — noticeably more
+         accurate for a single-language agency and slightly faster (skips detection). --}}
+    <div class="rounded-md p-4 flex items-start justify-between gap-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="min-w-0">
+            <div class="text-sm font-semibold" style="color: var(--text-primary);">Voice-note transcription language</div>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">
+                WhatsApp voice notes are transcribed on-box (audio never leaves the server). Choose the language your agents mostly speak so the transcriber anchors to it — this is markedly more accurate for a single-language agency than auto-detect (which can drift, e.g. Afrikaans mistaken for Dutch). Leave on <strong>Auto-detect</strong> if your notes are genuinely mixed.
+            </p>
+            <p class="text-xs mt-1 font-semibold" style="color: var(--text-secondary);">
+                Currently {{ $transcriptionLanguages[$transcriptionLanguage] ?? $transcriptionLanguage }}.
+            </p>
+        </div>
+        @if($canManageBackfill)
+        <form method="POST" action="{{ route('communications.wa-devices.transcription-language') }}" class="shrink-0 flex items-center gap-2">
+            @csrf
+            <select name="language" class="text-xs rounded px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
+                @foreach($transcriptionLanguages as $code => $label)
+                    <option value="{{ $code }}" @selected($transcriptionLanguage === $code)>{{ $label }}</option>
+                @endforeach
+            </select>
+            <button type="submit" class="text-xs font-semibold rounded px-3 py-2"
+                    style="background: var(--brand-button, #0ea5e9); color:#fff; border:1px solid var(--border);">
+                Save
+            </button>
+        </form>
+        @endif
+    </div>
+
     @if($plainToken)
     <div class="rounded-md p-4" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
         <div class="text-sm font-semibold mb-1">Your device token (shown once)</div>

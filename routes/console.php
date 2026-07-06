@@ -149,6 +149,11 @@ Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
     ->withoutOverlapping()
     ->name('p24-leads-pull');
 
+// Prune the p24_syndication_logs retention window nightly (03:30) — the table
+// grows one row per P24 API call and had ballooned past the InnoDB buffer pool,
+// dragging the whole DB. Batched deletes keep 45 days. See PruneP24SyndicationLogs.
+Schedule::command('p24:prune-logs --days=45')->dailyAt('03:30')->withoutOverlapping()->name('p24-prune-logs');
+
 // Property24 ExDev per-listing statistics (views/alerts/lead breakdown) pull —
 // runs daily at 04:00. P24 aggregates daily and publishes next-day, so a rolling
 // lookback each run corrects late figures; sub-daily cadence would waste API calls.

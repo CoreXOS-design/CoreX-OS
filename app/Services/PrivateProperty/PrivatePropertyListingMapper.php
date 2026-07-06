@@ -46,7 +46,7 @@ class PrivatePropertyListingMapper
     {
         $cfg         = PrivatePropertyConfig::forProperty($property);
         $branchGuid  = $cfg['branch_guid'];
-        $category    = $this->mapCategory($property->category);
+        $category    = self::resolvePpCategory($property);
         $mandateType = $this->mapMandateType($property->mandate_type);
         $listingType = self::resolveListingType($property);
         $status      = $this->mapPropertyStatus($property, $listingType);
@@ -285,6 +285,26 @@ class PrivatePropertyListingMapper
             $errors[] = 'Headline is required and cannot be empty';
         }
 
+        // PP rejects a residential listing whose Bathrooms attribute is 0/absent
+        // ("PP60 - Bathrooms is a mandatory attribute for residential listings").
+        // Catch it pre-flight with an actionable message — and point out the most
+        // common cause: a plot/farm left with a residential-resolving type. See
+        // resolvePpCategory().
+        if (($payload['Category']['Category'] ?? '') === 'Residential') {
+            $bathrooms = 0;
+            foreach ((array) ($payload['Attributes']['Attribute'] ?? []) as $attr) {
+                if (($attr['AttributeType'] ?? '') === 'Bathrooms') {
+                    $bathrooms = (int) ($attr['Value'] ?? 0);
+                    break;
+                }
+            }
+            if ($bathrooms < 1) {
+                $errors[] = 'Private Property requires at least 1 bathroom for a residential listing. '
+                    . 'If this is land or a farm, set the Property Type to "Vacant Land / Plot" or "Farm" '
+                    . 'so it syndicates in the correct category.';
+            }
+        }
+
         // Province must be a valid PP enum
         $validProvinces = ['KwaZuluNatal', 'Gauteng', 'WesternCape', 'EasternCape', 'FreeState', 'Limpopo', 'Mpumalanga', 'NorthWest', 'NorthernCape'];
         if (!empty($payload['Province']) && !in_array($payload['Province'], $validProvinces)) {
@@ -406,7 +426,10 @@ class PrivatePropertyListingMapper
 
         // PP requires category-specific type attribute:
         // Residential → HomeType, Commercial → BusinessType, Farms → FarmType, Land → LandType
-        $category = strtolower($property->category ?? 'residential');
+        // Resolve via the SAME rule map() uses (property_type-aware), never the
+        // raw CoreX category — a 'Vacant Land / Plot' has category 'Residential'
+        // but must send LandType, not HomeType (property 2391).
+        $category = strtolower(self::resolvePpCategory($property));
         if ($property->property_type) {
             if ($category === 'commercial') {
                 $map['BusinessType'] = $this->mapBusinessType($property->property_type);
@@ -425,8 +448,15 @@ class PrivatePropertyListingMapper
             $map['Levies'] = (string) (int) $property->levy;
         }
 
+        // Bedrooms/Bathrooms/Garages are force-sent (even at 0) ONLY for
+        // residential listings, because PP treats them as mandatory there. For
+        // Land/Farms/Commercial they are meaningless — a forced Bathrooms=0 on a
+        // plot is exactly what made PP reject property 2391 with "PP60 - Bathrooms
+        // is a mandatory attribute for residential listings". Those categories
+        // send a count only when it is genuinely > 0.
+        $forceZero = $category === 'residential' ? ['Bedrooms', 'Bathrooms', 'Garages'] : [];
         foreach ($map as $type => $value) {
-            if ($value !== '' && $value !== '0' || in_array($type, ['Bedrooms', 'Bathrooms', 'Garages'])) {
+            if (($value !== '' && $value !== '0') || in_array($type, $forceZero, true)) {
                 $attrs[] = ['AttributeType' => $type, 'Value' => $value];
             }
         }
@@ -620,7 +650,47 @@ class PrivatePropertyListingMapper
         return $count;
     }
 
-    private function mapCategory(?string $category): string
+    /**
+     * Resolve the PP top-level Category for a property — the SINGLE source of
+     * truth used by both map() (the Category field) and buildAttributes() (which
+     * type attribute to send + whether Bedrooms/Bathrooms/Garages are forced).
+     *
+     * PP's four top categories are Residential, Commercial, Land and Farms.
+     * CoreX's own `category` vocabulary is Residential/Commercial/Industrial/
+     * Retirement/Holiday/Project — it has NO Land or Farms value, so the
+     * "this is a plot" / "this is a farm" signal lives ONLY in `property_type`
+     * ('Vacant Land / Plot', 'Farm'). mapCategory() alone therefore sent every
+     * plot and farm to PP as Residential, and PP rejected them with
+     * "PP60 - The attributes are insufficient. Bathrooms is a mandatory attribute
+     * for residential listings" (property 2391, vacant land). Derive from
+     * property_type FIRST, fall back to the CoreX category. If map() and
+     * buildAttributes() ever resolve this differently they diverge — always call
+     * this.
+     */
+    public static function resolvePpCategory(Property $property): string
+    {
+        $type = strtolower(trim((string) $property->property_type));
+
+        if ($type !== '') {
+            if (str_contains($type, 'vacant land') || str_contains($type, 'plot')
+                || str_contains($type, 'stand') || preg_match('/\bland\b/', $type)) {
+                return 'Land';
+            }
+            if (str_contains($type, 'farm') || str_contains($type, 'smallholding')
+                || str_contains($type, 'small holding') || str_contains($type, 'agricultural')) {
+                return 'Farms';
+            }
+            if (str_contains($type, 'commercial') || str_contains($type, 'industrial')
+                || str_contains($type, 'office') || str_contains($type, 'retail')
+                || str_contains($type, 'warehouse') || str_contains($type, 'factory')) {
+                return 'Commercial';
+            }
+        }
+
+        return self::mapCategory($property->category);
+    }
+
+    private static function mapCategory(?string $category): string
     {
         $map = [
             'residential'  => 'Residential',
@@ -699,78 +769,83 @@ class PrivatePropertyListingMapper
         return $listingType === 'Rental' ? 'ToLet' : 'ForSale';
     }
 
+    // The four type-attribute mappers below use substring matching, NOT exact
+    // keys. CoreX's property_type vocabulary is human-facing ("Apartment / Flat",
+    // "Vacant Land / Plot", "Industrial Property") — exact-key maps silently fell
+    // through to the default, so an apartment syndicated to PP as "House". Match
+    // on the meaningful token instead; order matters (specific before generic).
     private function mapPropertyType(?string $type): string
     {
-        $map = [
-            'house'       => 'House',
-            'apartment'   => 'Apartment',
-            'flat'        => 'Apartment',
-            'townhouse'   => 'Townhouse',
-            'simplex'     => 'Simplex',
-            'duplex'      => 'Duplex',
-            'cluster'     => 'Cluster',
-            'garden_flat' => 'GardenFlat',
-            'cottage'     => 'Cottage',
-            'vacant_land' => 'VacantLand',
-            'land'        => 'VacantLand',
-            'farm'        => 'SmallHolding',
-            'commercial'  => 'Commercial',
-            'industrial'  => 'Industrial',
-            'office'      => 'Office',
-        ];
+        $t = strtolower(trim($type ?? ''));
 
-        return $map[strtolower($type ?? '')] ?? 'House';
+        return match (true) {
+            $t === ''                                                 => 'House',
+            str_contains($t, 'apartment') || str_contains($t, 'flat') => 'Apartment',
+            str_contains($t, 'townhouse')                             => 'Townhouse',
+            str_contains($t, 'simplex')                               => 'Simplex',
+            str_contains($t, 'duplex')                                => 'Duplex',
+            str_contains($t, 'cluster')                               => 'Cluster',
+            str_contains($t, 'cottage')                               => 'Cottage',
+            default                                                   => 'House',
+        };
     }
 
+    // BusinessType/FarmType Values use PP's SPACED Title-Case convention — the
+    // same one that made LandType "Residential Land" (not "VacantLand"). Confirmed
+    // spaced multi-word values in the live read-back: "Residential Land",
+    // "Bed And Breakfast". camelCase multi-word values ("MixedUse", "SmallHolding")
+    // are the identical latent PP106 trap and are spelled spaced here. (CoreX's
+    // current property_type vocab only reaches "Commercial"/"Industrial"/"Farm";
+    // the multi-word branches are future-proofing, so they are inferred-not-yet-
+    // live-confirmed — verify against a live push if that vocab ever expands.)
     private function mapBusinessType(?string $type): string
     {
-        $map = [
-            'commercial'     => 'Commercial',
-            'office'         => 'Office',
-            'retail'         => 'Retail',
-            'industrial'     => 'Industrial',
-            'warehouse'      => 'Warehouse',
-            'factory'        => 'Factory',
-            'shop'           => 'Shop',
-            'restaurant'     => 'Restaurant',
-            'hotel'          => 'Hotel',
-            'mixed use'      => 'MixedUse',
-            'other'          => 'Other',
-        ];
+        $t = strtolower(trim($type ?? ''));
 
-        return $map[strtolower($type ?? '')] ?? 'Commercial';
+        return match (true) {
+            str_contains($t, 'office')     => 'Office',
+            str_contains($t, 'retail')     => 'Retail',
+            str_contains($t, 'industrial') => 'Industrial',
+            str_contains($t, 'warehouse')  => 'Warehouse',
+            str_contains($t, 'factory')    => 'Factory',
+            str_contains($t, 'shop')       => 'Shop',
+            str_contains($t, 'restaurant') => 'Restaurant',
+            str_contains($t, 'hotel')      => 'Hotel',
+            str_contains($t, 'mixed')      => 'Mixed Use',
+            default                        => 'Commercial',
+        };
     }
 
     private function mapFarmType(?string $type): string
     {
-        $map = [
-            'farm'            => 'Farm',
-            'smallholding'    => 'SmallHolding',
-            'small holding'   => 'SmallHolding',
-            'agricultural'    => 'Farm',
-            'game farm'       => 'GameFarm',
-            'wine farm'       => 'WineFarm',
-            'equestrian'      => 'Equestrian',
-            'other'           => 'Other',
-        ];
+        $t = strtolower(trim($type ?? ''));
 
-        return $map[strtolower($type ?? '')] ?? 'Farm';
+        return match (true) {
+            str_contains($t, 'game')                                             => 'Game Farm',
+            str_contains($t, 'wine')                                             => 'Wine Farm',
+            str_contains($t, 'equestrian')                                       => 'Equestrian',
+            str_contains($t, 'smallholding') || str_contains($t, 'small holding') => 'Small Holding',
+            default                                                              => 'Farm',
+        };
     }
 
     private function mapLandType(?string $type): string
     {
-        $map = [
-            'vacant_land'     => 'VacantLand',
-            'vacant land'     => 'VacantLand',
-            'land'            => 'VacantLand',
-            'residential'     => 'ResidentialLand',
-            'commercial'      => 'CommercialLand',
-            'industrial'      => 'IndustrialLand',
-            'agricultural'    => 'AgriculturalLand',
-            'other'           => 'Other',
-        ];
+        $t = strtolower(trim($type ?? ''));
 
-        return $map[strtolower($type ?? '')] ?? 'VacantLand';
+        // PP's LandType Value vocabulary uses SPACED names, verified against a
+        // live GetFullDetailsOfAllListingsByBranch read-back (2026-07-06): of the
+        // branch's 329 listings, all 38 land listings store LandType="Residential
+        // Land". PP rejected the camelCase "VacantLand" with "PP106 - Invalid
+        // attribute values supplied: VacantLand". Commercial/Industrial/
+        // Agricultural follow PP's evident "<X> Land" pattern; a generic plot or
+        // stand is residential land — the proven-accepted default.
+        return match (true) {
+            str_contains($t, 'commercial')   => 'Commercial Land',
+            str_contains($t, 'industrial')   => 'Industrial Land',
+            str_contains($t, 'agricultural') => 'Agricultural Land',
+            default                          => 'Residential Land',
+        };
     }
 
     /**

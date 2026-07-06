@@ -1106,6 +1106,56 @@ class Property extends Model
      */
     public function getAvailableGalleryTags(): array
     {
+        $tags = $this->derivedGalleryTags();
+
+        // Append every tag that exists BEYOND the derived room set, case-
+        // insensitively de-duped against what we already have. Two sources:
+        //
+        //   1. gallery_custom_tags — the explicit custom-tag registry (mobile
+        //      add/remove endpoints keep it; the web sorter does NOT write it).
+        //   2. category names already in use in gallery_categories_json — tags
+        //      the agent created in the web gallery sorter and FILED PHOTOS
+        //      under. That save path persists the names ONLY inside
+        //      gallery_categories_json, never into gallery_custom_tags, so
+        //      before this a custom tag with photos silently vanished from the
+        //      tag library on reload (property 6060: "View", "Store room", …
+        //      had photos but were gone from the list). A tag that has images
+        //      filed under it MUST appear in the list — deriving the list from
+        //      in-use categories makes it self-consistent regardless of which
+        //      save path wrote them.
+        $appendIfNew = function (?string $name) use (&$tags): void {
+            if (!is_string($name)) return;
+            $name = trim($name);
+            if ($name === '') return;
+            foreach ($tags as $t) {
+                if (strcasecmp($t, $name) === 0) return;
+            }
+            $tags[] = $name;
+        };
+
+        foreach (($this->gallery_custom_tags ?? []) as $custom) {
+            $appendIfNew($custom);
+        }
+
+        foreach (($this->gallery_categories_json['categories'] ?? []) as $cat) {
+            $appendIfNew($cat['name'] ?? null);
+        }
+
+        return $tags;
+    }
+
+    /**
+     * The gallery tags DERIVED from the property's rooms — `spaces_json`
+     * (preferred) or the legacy beds/baths/garages columns. ONLY spaces the
+     * user has actually added (count >= 1) produce tags. This is the room-based
+     * baseline; custom tags are layered on top by getAvailableGalleryTags().
+     * Kept separate so the reorder-save path can tell custom tags from derived
+     * ones when persisting the registry.
+     *
+     * @return string[]
+     */
+    public function derivedGalleryTags(): array
+    {
         $allowed = ['Bedroom','Bathroom','Kitchen','Lounge','Dining Room','Study','Patio','Garden','Pool','Flatlet','Garage'];
 
         // Prefer spaces_json — it's the canonical source after the
@@ -1135,18 +1185,6 @@ class Property extends Model
             for ($i = 1; $i <= (int) ($this->beds ?? 0); $i++)  $tags[] = 'Bedroom ' . $i;
             for ($i = 1; $i <= (int) ($this->baths ?? 0); $i++) $tags[] = 'Bathroom ' . $i;
             if ((int) ($this->garages ?? 0) > 0) $tags[] = 'Garage';
-        }
-
-        // Merge user-defined custom tags (case-insensitive de-dupe).
-        foreach (($this->gallery_custom_tags ?? []) as $custom) {
-            if (!is_string($custom)) continue;
-            $custom = trim($custom);
-            if ($custom === '') continue;
-            $exists = false;
-            foreach ($tags as $t) {
-                if (strcasecmp($t, $custom) === 0) { $exists = true; break; }
-            }
-            if (!$exists) $tags[] = $custom;
         }
 
         return $tags;
@@ -1261,7 +1299,9 @@ class Property extends Model
             'phone'       => (string) ($agent?->cell ?: $agent?->phone ?: ''),
             'designation' => (string) ($agent?->designation ?: 'Property Practitioner'),
             'initial'     => strtoupper(mb_substr($name !== '' ? $name : 'A', 0, 1)),
-            'avatar'      => $agent?->profilePhotoUrl(),
+            // Host-relative so html2canvas can read it same-origin on any of our
+            // domains (see adSafeImageUrl) — the agent swap re-points this in the ad.
+            'avatar'      => self::adSafeImageUrl($agent?->profilePhotoUrl()),
         ];
     }
 
@@ -1336,6 +1376,39 @@ class Property extends Model
     }
 
     /**
+     * Image URL safe for the Ad Manager's client-side html2canvas capture.
+     *
+     * The exported PNG is rasterised from a canvas, and a canvas can only read
+     * pixels from SAME-ORIGIN images. Our images live under /storage/, but they
+     * are stored (and asset()-generated) as absolute URLs pinned to APP_URL
+     * (corexos.co.za). A user who reaches the app on another live host
+     * (corex.hfcoastal.co.za, www.corexos.co.za) therefore loads those images
+     * cross-origin — they display in the builder but /storage/ sends no CORS
+     * headers, so html2canvas silently drops them from the download (property
+     * photo missing while text/shapes remain).
+     *
+     * Emitting a HOST-RELATIVE path makes the browser load the image from the
+     * current origin whichever of our domains the user is on → same-origin →
+     * html2canvas reads it. Genuinely external images (not under /storage/) are
+     * left absolute (nothing we can re-home).
+     */
+    public static function adSafeImageUrl(?string $u): ?string
+    {
+        $u = self::publicImageUrl($u);
+        if ($u === null) {
+            return null;
+        }
+
+        $path = parse_url($u, PHP_URL_PATH) ?: '';
+        $pos  = strpos($path, '/storage/');
+        if ($pos !== false) {
+            return substr($path, $pos); // host-relative "/storage/…"
+        }
+
+        return $u;
+    }
+
+    /**
      * All property images normalised for browser display (Photos picker, ad
      * previews, publishing). See publicImageUrl().
      *
@@ -1362,7 +1435,9 @@ class Property extends Model
     public function adData(): array
     {
         $imgs = $this->allImages();
-        $img  = fn (int $i) => self::publicImageUrl($imgs[$i] ?? null);
+        // adSafeImageUrl → host-relative so html2canvas can read them same-origin
+        // on any of our live domains (see the method's docblock).
+        $img  = fn (int $i) => self::adSafeImageUrl($imgs[$i] ?? null);
 
         $agent   = $this->agent;
         // Co-listing agent (pp_second_agent_id) — drives the dual-agent ad layouts
@@ -1374,7 +1449,7 @@ class Property extends Model
         $agency  = $this->agency;
 
         $logoPath = $branch?->logo_path ?: $agency?->logo_path;
-        $logoUrl  = $logoPath ? asset('storage/' . $logoPath) : null;
+        $logoUrl  = $logoPath ? self::adSafeImageUrl(asset('storage/' . $logoPath)) : null;
 
         $beds    = $this->beds;
         $baths   = $this->baths;
@@ -1426,7 +1501,7 @@ class Property extends Model
             'agent_designation' => $agent?->designation ?? 'Property Practitioner',
             // User has no `avatar_url` column — the photo URL comes from
             // profilePhotoUrl() (user_documents → legacy agent_photo_path).
-            'agent_avatar'      => $agent?->profilePhotoUrl(),
+            'agent_avatar'      => self::adSafeImageUrl($agent?->profilePhotoUrl()),
 
             // Agent 2 — the co-listing agent (empty when the listing is single-agent).
             // Powers the dual-agent prebuilt layouts + the builder's Agent 2 fields.
@@ -1434,7 +1509,7 @@ class Property extends Model
             'agent_2_email'       => $agent2?->email ?? '',
             'agent_2_phone'       => $agent2 ? ($agent2->cell ?: $agent2->phone ?: '') : '',
             'agent_2_designation' => $agent2 ? ($agent2->designation ?: 'Property Practitioner') : '',
-            'agent_2_avatar'      => $agent2?->profilePhotoUrl(),
+            'agent_2_avatar'      => self::adSafeImageUrl($agent2?->profilePhotoUrl()),
             'agent_2_initial'     => $agent2 ? strtoupper(mb_substr((string) $agent2->name, 0, 1)) : '',
 
             'agency_name'       => $agency?->name ?? '',

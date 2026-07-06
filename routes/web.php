@@ -1847,6 +1847,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'store'])->name('store');
         Route::post('/backfill-toggle', [\App\Http\Controllers\Communications\WaDeviceController::class, 'toggleBackfill'])->name('backfill-toggle'); // AT-135
         Route::post('/embargo-retention', [\App\Http\Controllers\Communications\WaDeviceController::class, 'updateEmbargoRetention'])->name('embargo-retention'); // AT-168
+        Route::post('/transcription-language', [\App\Http\Controllers\Communications\WaDeviceController::class, 'updateTranscriptionLanguage'])->name('transcription-language'); // AT-194
         Route::delete('/{waDevice}', [\App\Http\Controllers\Communications\WaDeviceController::class, 'destroy'])->name('destroy');
     });
 

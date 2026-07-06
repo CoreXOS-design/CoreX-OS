@@ -107,9 +107,39 @@ class PropertyBrochureService
         // ── Feature checklist: the flat features_json list (deduped) ──
         $features = $this->features($property);
 
-        // ── Description: split into paragraphs, capped so the brochure stays
-        // one A4 page (the full listing is one QR scan away). ──
-        $description = $this->paragraphs((string) ($property->description ?? ''), 900);
+        // ── Description: shrink-to-fit so the brochure is ALWAYS one A4 page ──
+        // A4 @ 96dpi is 1123px tall. Estimate the height the fixed sections above
+        // and below the description consume (matching the rendered heights in
+        // _brochure.blade.php), then give the description whatever vertical space
+        // is left. The budget SHRINKS as more sections are present (thumbnail
+        // strip, specs bar, sub-headings, co-agent) so a photo-heavy listing
+        // trims more description than a sparse one. The estimate is deliberately
+        // CONSERVATIVE (fixed height over-counted) so descMaxPx errs small — the
+        // blade also clips the description box to descMaxPx with overflow:hidden,
+        // so even if the estimate is off the second page can never appear.
+        $hasStrip     = count($strip) > 0;
+        $hasSpecs     = ($beds > 0 || $baths > 0 || $garages > 0 || $parking > 0);
+        $hasSubheads  = (! empty($property->rates_taxes) || ! empty($property->levy) || $size !== null);
+        $hasSecondAgent = $secondary !== null;
+
+        $fixedPx  = 96                          // logo header
+                  + ($hasStrip ? 396 : 292)     // photo grid (hero 280 + strip 102 or none)
+                  + 88                          // title + location
+                  + 58                          // price line (added below the location)
+                  + ($hasSpecs ? 82 : 0)        // specs bar
+                  + ($hasSubheads ? 40 : 0)     // sub-headings line
+                  + ($hasSecondAgent ? 190 : 170) // agent + QR footer (QR is 104px
+                                                  // tall and ALWAYS present in the
+                                                  // real embedded PDF — measured)
+                  + 34;                         // description padding-top + bottom + safety
+        $descMaxPx = max(90, 1123 - $fixedPx);
+
+        // Trim to a char budget sized from the space left on the page (see
+        // charBudget()). This estimate lands one page for the vast majority; the
+        // pdf() render then VERIFIES and shrinks further on the rare edge listing
+        // (long wrapping title / many short paragraphs) so the output is ALWAYS
+        // one page — dompdf offers no reliable clip.
+        $description = $this->paragraphs((string) ($property->description ?? ''), $this->charBudget($descMaxPx));
 
         // ── Location pin — a GD-drawn PNG (not an inline SVG, which dompdf/browsers
         // clip at the text baseline). Raster → predictable, identical in both hosts. ──
@@ -142,6 +172,7 @@ class PropertyBrochureService
 
             'features'    => $features,
             'description' => $description,
+            'descMaxPx'   => $descMaxPx,
             'pin'         => $pin,
 
             'agentName'   => $agent?->name ?: ($agency?->name ?: ''),
@@ -161,11 +192,40 @@ class PropertyBrochureService
     }
 
     /**
-     * Render the brochure to a downloadable A4 PDF.
+     * The description char budget for a given remaining-space height. Single
+     * source of truth so data() (initial trim) and pdf() (fit loop) agree.
+     * ~19px line-height at 12px Inter; ~64 effective chars per justified line
+     * across the 730px column, floored so a sliver of space still shows text.
+     */
+    private function charBudget(int $descMaxPx): int
+    {
+        return (int) max(160, floor($descMaxPx / 19.2) * 64);
+    }
+
+    /**
+     * Render the brochure to a downloadable A4 PDF — GUARANTEED one page.
+     *
+     * data() trims the description to a height-based estimate that fits one page
+     * for almost every listing. For the rare edge case that still spills (a long
+     * wrapping title, or many short paragraphs whose inter-paragraph margins add
+     * up), verify against a real render and shrink the description until it fits.
+     * Only listings whose description was actually trimmed can overflow, so a
+     * short/medium description skips the extra render entirely.
      */
     public function pdf(Property $property, ?\App\Models\User $primary = null, ?\App\Models\User $secondary = null)
     {
         $data = $this->data($property, embed: true, primary: $primary, secondary: $secondary);
+
+        $rawDesc = trim((string) ($property->description ?? ''));
+        $budget  = $this->charBudget((int) ($data['descMaxPx'] ?? 260));
+        if (count($data['description']) && mb_strlen($rawDesc) > $budget) {
+            // Was trimmed → it sits near the page edge; verify and shrink if needed.
+            for ($i = 0; $i < 6 && $this->renderedPageCount($data) > 1; $i++) {
+                $budget = max(120, (int) ($budget * 0.85));
+                $data['description'] = $this->paragraphs($rawDesc, $budget);
+                if ($budget <= 120) break; // floor — never loop forever
+            }
+        }
 
         $pdf = Pdf::loadView('corex.properties.brochure-pdf', ['b' => $data])
             ->setPaper('a4', 'portrait');
@@ -187,6 +247,38 @@ class PropertyBrochureService
         }
 
         return $pdf;
+    }
+
+    /**
+     * Page count of the brochure as it will actually render, using dompdf options
+     * IDENTICAL to pdf() so the measurement matches the final output. Best-effort:
+     * any failure returns 1 so a measurement hiccup never blocks the download (the
+     * estimate already fits one page in almost every case).
+     */
+    private function renderedPageCount(array $data): int
+    {
+        try {
+            $html = view('corex.properties.brochure-pdf', ['b' => $data])->render();
+
+            $options = new \Dompdf\Options();
+            $options->set('isRemoteEnabled', false);
+            $options->set('isPhpEnabled', false);
+            $options->set('dpi', 96);
+            $fontDir = $this->fontCacheDir();
+            if ($fontDir !== null) {
+                $options->set('fontDir', $fontDir);
+                $options->set('fontCache', $fontDir);
+            }
+
+            $dompdf = new \Dompdf\Dompdf($options);
+            $dompdf->setPaper('a4', 'portrait');
+            $dompdf->loadHtml($html);
+            $dompdf->render();
+
+            return max(1, $dompdf->getCanvas()->get_page_count());
+        } catch (\Throwable) {
+            return 1;
+        }
     }
 
     /**

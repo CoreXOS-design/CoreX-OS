@@ -5255,6 +5255,14 @@
                     ])
                 </div>
 
+                {{-- Portal Engagement chart (views + P24 lead counts, range filter) --}}
+                <div x-show="!sellerPreview">
+                    @include('corex.properties.intelligence._portal-engagement-chart', [
+                        'property' => $property,
+                        'engagement' => $intel->getPortalEngagementSeries($property->id),
+                    ])
+                </div>
+
                 {{-- Section A: Performance Dashboard --}}
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -5262,8 +5270,10 @@
                         <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Total Viewings</div>
                     </div>
                     <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
-                        <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ number_format($portalPerf['views']) }}</div>
-                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">P24 Views (30d)</div>
+                        <div class="text-2xl font-bold" style="color: var(--text-primary);"
+                             x-text="($store.portalViews ? $store.portalViews.totalViews() : {{ (int) $portalPerf['views'] }}).toLocaleString()">{{ number_format($portalPerf['views']) }}</div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);"
+                             x-text="'P24 Views (' + ($store.portalViews ? $store.portalViews.rangeLabel() : '30d') + ')'">P24 Views (30d)</div>
                         <div class="text-[9px] mt-1" style="color: var(--text-muted);" title="Private Property's agent API does not expose listing view counts.">PP: — not provided by portal</div>
                     </div>
                     <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -7022,6 +7032,11 @@ function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags
                     body: JSON.stringify({
                         gallery_categories_json: this.buildCategories(),
                         gallery_images_json: this.images,
+                        // Send the full tag library (derived + custom, in the
+                        // agent's chosen order) so the server can persist custom
+                        // tags that have no photos filed under them yet — without
+                        // this an empty custom tag is lost on reload.
+                        gallery_available_tags: this.availableTags,
                     }),
                 });
                 this.dirty = !res.ok;

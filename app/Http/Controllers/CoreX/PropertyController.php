@@ -288,6 +288,19 @@ class PropertyController extends Controller
             );
         }
 
+        // AT-188 — the current agent's own unpublished drafts, newest first.
+        // Drives the "Drafts" control next to "New Property": hidden when there
+        // are none, a direct continue-link when there is exactly one, and a
+        // pick-list popup (title + suburb + age) when there are several — so a
+        // fresh "New Property" click never silently reopens an old draft.
+        $myDrafts = Property::query()
+            ->where('agent_id', $user->id)
+            ->where('status', 'draft')
+            ->whereNull('published_at')
+            ->latest('updated_at')
+            ->limit(20)
+            ->get(['id', 'title', 'suburb', 'updated_at']);
+
         // Agent list for the picker (admin/bm only)
         $agentList = $canPickAgent ? $this->agentList()->values() : collect();
 
@@ -318,7 +331,8 @@ class PropertyController extends Controller
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
-            'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode'
+            'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
+            'myDrafts'
         ));
     }
 
@@ -1487,10 +1501,32 @@ class PropertyController extends Controller
 
         // Smart gallery saves both categories and flat list
         if ($request->has('gallery_categories_json')) {
-            $property->update([
+            $updates = [
                 'gallery_categories_json' => $request->input('gallery_categories_json'),
                 'gallery_images_json'     => $request->input('gallery_images_json', []),
-            ]);
+            ];
+
+            // Persist the custom-tag registry so a custom tag survives even when
+            // no photo is filed under it yet (an empty tag has no category in
+            // gallery_categories_json to derive it from). The client sends the
+            // full ordered tag library; we keep only the tags that are NOT
+            // room-derived — storing derived names would strand them if a space
+            // is later removed. Without this the registry stayed NULL and custom
+            // tags leaned entirely on filed photos to survive (property 6060).
+            if ($request->has('gallery_available_tags')) {
+                $available = array_values(array_filter(
+                    (array) $request->input('gallery_available_tags', []),
+                    'is_string'
+                ));
+                $derivedLower = array_map('strtolower', $property->derivedGalleryTags());
+                $custom = array_values(array_filter(
+                    array_map('trim', $available),
+                    fn ($t) => $t !== '' && !in_array(strtolower($t), $derivedLower, true)
+                ));
+                $updates['gallery_custom_tags'] = $custom;
+            }
+
+            $property->update($updates);
 
             return response()->json(['ok' => true]);
         }
