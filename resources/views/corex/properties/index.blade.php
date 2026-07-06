@@ -603,7 +603,7 @@
             {{-- Thumbnail --}}
             <a href="{{ route('corex.properties.show', $property) }}" class="relative block h-44 flex-shrink-0 overflow-hidden" style="background:var(--brand-default,#0b2a4a);">
                 @if($thumb)
-                    <img src="{{ $thumb }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy">
+                    <img src="{{ $property->thumbFor($thumb) }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="600" height="400">
                 @else
                     <div class="absolute inset-0 flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12" style="color:rgba(255,255,255,0.12);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
@@ -796,7 +796,7 @@
                     <td class="px-3 py-2">
                         <a href="{{ route('corex.properties.show', $property) }}" class="block w-16 h-16 rounded-md overflow-hidden flex-shrink-0" style="background:var(--brand-default,#0b2a4a);">
                             @if($rowThumb)
-                                <img src="{{ $rowThumb }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy">
+                                <img src="{{ $property->thumbFor($rowThumb) }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="64" height="64">
                             @else
                                 <span class="flex items-center justify-center w-full h-full">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color:rgba(255,255,255,0.18);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">

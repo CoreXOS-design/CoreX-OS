@@ -270,11 +270,13 @@
         @endif
         @php
             $views = $match->propertyViewCount($property->id);
-            $thumb = $property->gallery_images_json[0]
+            $thumb = $property->thumbFor(
+                $property->gallery_images_json[0]
                 ?? $property->dawn_images_json[0]
                 ?? $property->noon_images_json[0]
                 ?? $property->dusk_images_json[0]
-                ?? null;
+                ?? null
+            );
             $statusVariant = match($property->status) {
                 'active'    => 'ds-badge-success',
                 'sold'      => 'ds-badge-info',

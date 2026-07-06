@@ -776,7 +776,7 @@
                 </h3>
                 @forelse($contact->properties as $prop)
                 @php
-                $propThumb = $prop->gallery_images_json[0] ?? ($prop->dawn_images_json[0] ?? null);
+                $propThumb = $prop->thumbFor($prop->gallery_images_json[0] ?? ($prop->dawn_images_json[0] ?? null));
                 $propSc = [
                     'active' => 'var(--ds-green)',
                     'draft' => 'var(--text-muted)',
