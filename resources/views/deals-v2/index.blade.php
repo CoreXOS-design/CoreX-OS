@@ -132,7 +132,12 @@
                                 <span class="ds-badge {{ $statusBadge }}">{{ str_replace('_', ' ', $deal->status) }}</span>
                             </td>
                             <td class="px-4 py-3 text-center">
-                                <span class="inline-block w-2.5 h-2.5 rounded-full" style="background: {{ $ragColor }};"></span>
+                                @if($deal->isPrePipeline())
+                                    {{-- Backfilled DR1 twin: captured pre-pipeline. Honest, neutral marker — never a false RAG/"no pipeline" warning. (.ai/specs/dr2-twin-backfill.md) --}}
+                                    <span class="ds-badge ds-badge-default" style="font-size:0.62rem;" title="Captured in DR1 before the pipeline system — linked for reference, no pipeline attached.">pre-pipeline</span>
+                                @else
+                                    <span class="inline-block w-2.5 h-2.5 rounded-full" style="background: {{ $ragColor }};"></span>
+                                @endif
                             </td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $deal->expected_registration ? $deal->expected_registration->format('d M Y') : '—' }}</td>
                             <td class="px-4 py-3 text-right font-mono" style="color: var(--text-primary);">R {{ number_format($deal->purchase_price, 0) }}</td>
