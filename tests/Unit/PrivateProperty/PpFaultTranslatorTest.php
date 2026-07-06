@@ -13,12 +13,26 @@ class PpFaultTranslatorTest extends TestCase
 {
     private const PP60 = 'System.Web.Services.Protocols.SoapException: Server was unable to process request. ---> PPLSystems.Web.WebServices.AgentImport.ASAPIException: PP60 - The address details are insufficient, please add a Scheme/Complex name and resubmit. at PPLSystems.Web.WebServices.AgentImport.AgentImport.MapProperty(Property property, Listing listingImport, Branch branch, String reference, String uniqueId)';
 
-    public function test_pp60_maps_to_short_complex_name_message(): void
+    private const PP60_BATHROOMS = 'System.Web.Services.Protocols.SoapException: Server was unable to process request. ---> PPLSystems.Web.WebServices.AgentImport.ASAPIException: PP60 - The attributes are insufficient. Bathrooms is a mandatory attribute for residential listings. at PPLSystems.Web.WebServices.AgentImport.AgentImport.MapProperty(Property property, Listing listingImport, Branch branch)';
+
+    /**
+     * PP60 is a GENERIC "insufficient" code PP reuses for distinct reasons, so it
+     * must NOT be flattened to one hardcoded message. Property 2391 (vacant land
+     * mis-sent as residential) was rejected for bathrooms but the old override
+     * showed the agent "Complex/Scheme name is required" — contradicting PP's own
+     * email. Surface PP's actual text, stripped of the .NET stack trace.
+     */
+    public function test_pp60_surfaces_pp_own_message_not_a_hardcoded_one(): void
     {
-        $out = PpFaultTranslator::friendly(self::PP60);
-        $this->assertSame('Complex/Scheme name is required for this listing.', $out);
-        $this->assertStringNotContainsString('SoapException', $out);
-        $this->assertStringNotContainsString(' at ', $out);
+        $address = PpFaultTranslator::friendly(self::PP60);
+        $this->assertSame('The address details are insufficient, please add a Scheme/Complex name and resubmit.', $address);
+        $this->assertStringNotContainsString('SoapException', $address);
+        $this->assertStringNotContainsString(' at ', $address);
+
+        $bathrooms = PpFaultTranslator::friendly(self::PP60_BATHROOMS);
+        $this->assertSame('The attributes are insufficient. Bathrooms is a mandatory attribute for residential listings.', $bathrooms);
+        $this->assertStringNotContainsString('SoapException', $bathrooms);
+        $this->assertStringNotContainsString(' at ', $bathrooms);
     }
 
     public function test_unmapped_pp_code_falls_back_to_pp_text_without_stack_trace(): void
