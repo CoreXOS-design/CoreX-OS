@@ -3,7 +3,13 @@
      The wrapper carries id/data for in-thread search jump + highlight. --}}
 @php
     $out = $m->direction === 'outbound';
-    $body = $m->body_text ?: $m->body_preview;
+    // AT-182 — the thread shows each message's NEW content: the quote-stripped display body
+    // for email, or body_text as-is for WhatsApp (no quoting concept). The raw full body is
+    // kept for search AND for the per-message "Show full email" affordance; "Open" (detail)
+    // still renders the untouched original.
+    $body = $m->display_body;
+    $fullBody = $m->body_text ?: $m->body_preview;
+    $quoteStripped = $m->wasQuoteStripped();
     $hasBody = filled($m->subject) || filled($body);
     $hasAttachments = $m->has_attachments && $m->attachments->isNotEmpty();
     // AT-163 — voice-note transcript affordance. A transcript is searchable text,
@@ -13,7 +19,8 @@
         : null;
     $hasTranscript = $m->hasTranscript();
     // Searchable text (body-field-first — the voice-note transcript is appended).
-    $searchText = trim((string) $m->subject . ' ' . (string) $body . ' ' . (string) ($hasTranscript ? $m->transcript_text : ''));
+    // Search the FULL body (incl. quoted history) so in-thread search never misses content.
+    $searchText = trim((string) $m->subject . ' ' . (string) $fullBody . ' ' . (string) ($hasTranscript ? $m->transcript_text : ''));
     $bubbleStyle = $out
         ? 'background:#e6f4ec; background:color-mix(in srgb, var(--ds-green,#059669) 14%, var(--surface,#ffffff)); border:1px solid #cfe8da; border-color:color-mix(in srgb, var(--ds-green,#059669) 26%, transparent); border-radius:14px 14px 4px 14px;'
         : 'background:var(--surface,#ffffff); border:1px solid var(--border,#e5e7eb); border-radius:14px 14px 14px 4px;';
@@ -33,6 +40,16 @@
         @endif
         @if(filled($body))
             <div class="text-sm whitespace-pre-wrap break-words cx-msg-text" style="color:var(--text-primary,#1f2937); line-height:1.55;">{{ $body }}</div>
+            @if($quoteStripped)
+                {{-- AT-182 — quoted reply history was hidden for readability; reveal the full email on demand. --}}
+                <div x-data="{ full: false }" class="mt-1.5">
+                    <button type="button" @click="full = !full" class="text-xs font-semibold inline-flex items-center gap-1" style="color:var(--brand-icon,#0ea5e9);">
+                        <span x-text="full ? 'Hide quoted history' : 'Show full email'"></span>
+                    </button>
+                    <div x-show="full" x-cloak class="text-sm whitespace-pre-wrap break-words cx-msg-text mt-1.5 pt-2"
+                         style="color:var(--text-secondary,#4b5563); border-top:1px dashed var(--border,#e5e7eb); line-height:1.55;">{{ $fullBody }}</div>
+                </div>
+            @endif
         @endif
 
         @if($hasAttachments)

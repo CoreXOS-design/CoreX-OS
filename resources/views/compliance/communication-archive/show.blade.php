@@ -58,6 +58,8 @@
             <div class="px-5 py-3 text-xs" style="border-top:1px solid var(--border, #f1f5f9); color:#94a3b8;">
                 Ref: COMM-{{ str_pad($communication->id, 8, '0', STR_PAD_LEFT) }} · captured {{ $communication->captured_at?->format('d M Y H:i') }}
                 @if($communication->thread_key) · <a href="{{ route('compliance.comm-archive.thread', $communication->thread_key) }}" style="color:var(--brand-icon);">view thread</a> @endif
+                @php $cid = optional($communication->links->firstWhere('linkable_type', \App\Models\Contact::class))->linkable_id; @endphp
+                @if($cid) · <a href="{{ route('corex.contacts.show', $cid) }}?tab=communications" target="_blank" rel="noopener" style="color:var(--brand-icon);">view contact</a> @endif
             </div>
         </div>
     </div>

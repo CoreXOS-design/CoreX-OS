@@ -26,7 +26,7 @@ class Communication extends Model
     protected $fillable = [
         'agency_id', 'channel', 'direction', 'external_id', 'thread_key', 'wa_chat_id', 'counterpart_lid',
         'from_identifier', 'participant_identifiers', 'occurred_at', 'captured_at',
-        'provisional_at', 'subject', 'body_text', 'body_preview', 'body_status', 'raw_path',
+        'provisional_at', 'subject', 'body_text', 'body_preview', 'body_display', 'body_status', 'raw_path',
         'has_attachments', 'content_hash', 'text_hash', 'source_ref',
         'owner_user_id', 'purged_at', 'purged_reason',
         // AT-163 — voice-note transcript (rides the message row, 1:1).
@@ -113,6 +113,27 @@ class Communication extends Model
         }
 
         return $this->from_identifier ?: '—';
+    }
+
+    /**
+     * AT-182 — the body to render in the THREAD conversation view. For email this is the
+     * derived, reply-quote-stripped display body when one was produced; otherwise (WhatsApp,
+     * or an email with no strippable quote) it falls back to the raw body_text. The raw
+     * body_text is NEVER modified — "Open" always shows the full original artifact.
+     */
+    public function getDisplayBodyAttribute(): ?string
+    {
+        return $this->body_display ?? $this->body_text ?? $this->body_preview;
+    }
+
+    /**
+     * AT-182 — true when quoted history was stripped for display, i.e. the thread should
+     * offer a "Show full email" affordance revealing the untouched body_text.
+     */
+    public function wasQuoteStripped(): bool
+    {
+        return filled($this->body_display)
+            && trim((string) $this->body_display) !== trim((string) $this->body_text);
     }
 
     // ── Scopes ──
