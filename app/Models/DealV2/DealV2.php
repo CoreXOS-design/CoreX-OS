@@ -52,6 +52,7 @@ class DealV2 extends Model
         'expected_registration',
         'actual_registration',
         'overall_rag',
+        'backfilled_at',
         'notes',
         'branch_id',
         'created_by_id',
@@ -66,7 +67,19 @@ class DealV2 extends Model
         'commission_vat' => 'decimal:2',
         'listing_external' => 'boolean',
         'selling_external' => 'boolean',
+        'backfilled_at' => 'datetime',
     ];
+
+    /**
+     * A "pre-pipeline" twin: a DR1 deal backfilled into DR2 for register
+     * completeness (Johan-ruled, .ai/specs/dr2-twin-backfill.md). It carries NO
+     * pipeline — no step instances, no clocks, no RAG countdown — and the UI
+     * must present it as captured pre-pipeline, never as a mis-configured deal.
+     */
+    public function isPrePipeline(): bool
+    {
+        return $this->backfilled_at !== null;
+    }
 
     // ── Relationships ──
 
