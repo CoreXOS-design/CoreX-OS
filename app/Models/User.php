@@ -22,6 +22,9 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes, BelongsToAgency, BelongsToBranch;
 
+    /** Per-instance memo of branch_id → agency_id (see effectiveAgencyId — AgencyScope N+1). */
+    private array $branchAgencyMemo = [];
+
     protected $fillable = [
         'name',
         'email',
@@ -449,12 +452,17 @@ class User extends Authenticatable
             return (int) $override;
         }
 
-        // Derive from branch
+        // Derive from branch. Branch::find is memoized per-instance by branch id:
+        // AgencyScope calls effectiveAgencyId()/isOwnerRole() on EVERY scoped query,
+        // so an uncached lookup fired ~1,300 identical branch queries on a busy
+        // page (calendar). Override logic above still runs fresh every call.
         $branchId = $this->effectiveBranchId();
         if ($branchId) {
-            $branch = Branch::find($branchId);
-            if ($branch?->agency_id) {
-                return (int) $branch->agency_id;
+            if (! array_key_exists($branchId, $this->branchAgencyMemo)) {
+                $this->branchAgencyMemo[$branchId] = optional(Branch::find($branchId))->agency_id;
+            }
+            if ($this->branchAgencyMemo[$branchId]) {
+                return (int) $this->branchAgencyMemo[$branchId];
             }
         }
 

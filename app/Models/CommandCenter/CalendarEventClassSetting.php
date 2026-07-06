@@ -92,17 +92,43 @@ class CalendarEventClassSetting extends Model
      * Bypasses the BelongsToAgency global scope to allow fallback to
      * global defaults (NULL agency_id rows).
      */
+    /**
+     * Request-scoped memo — this resolves per calendar EVENT (×3 model methods,
+     * each doing an agency + null-fallback query), so a month of events fired
+     * ~1,300 identical queries per page load. Class settings are a tiny, static
+     * reference set; cache them for the life of the request. Cleared on save so a
+     * long-lived worker never serves stale config.
+     */
+    private static array $resolveCache = [];
+
     public static function forAgencyAndClass(?int $agencyId, string $eventClass): ?self
     {
+        $key = ($agencyId ?? 'null') . '|' . $eventClass;
+        if (array_key_exists($key, self::$resolveCache)) {
+            return self::$resolveCache[$key];
+        }
+
         $query = self::withoutGlobalScopes()
             ->where('event_class', $eventClass);
 
         if ($agencyId !== null) {
             $agencyRow = (clone $query)->where('agency_id', $agencyId)->first();
-            if ($agencyRow) return $agencyRow;
+            if ($agencyRow) return self::$resolveCache[$key] = $agencyRow;
         }
 
-        return $query->whereNull('agency_id')->first();
+        return self::$resolveCache[$key] = $query->whereNull('agency_id')->first();
+    }
+
+    /** Drop the request-scoped resolver memo (called on write so workers stay fresh). */
+    public static function flushResolveCache(): void
+    {
+        self::$resolveCache = [];
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(fn () => self::flushResolveCache());
+        static::deleted(fn () => self::flushResolveCache());
     }
 
     public function scopeActive(Builder $query): Builder
