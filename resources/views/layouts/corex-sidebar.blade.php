@@ -1126,7 +1126,7 @@
                 <a href="{{ route('compliance.whistleblow.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.whistleblow.*') ? 'active' : '' }}">
                     Compliance Reporting
                     @if($wbPendingCount > 0)
-                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber) 15%, transparent); color:var(--ds-amber);">{{ $wbPendingCount }}</span>
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($wbPendingCount) }}</span>
                     @endif
                 </a>
                 @endpermission

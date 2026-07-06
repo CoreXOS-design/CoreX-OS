@@ -1,16 +1,17 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="comp-policy-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Agency Policies</h1>
                 <p class="text-sm text-white/60">Versioned staff-acknowledged policies (POPIA / CPA / NCC and more).</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('compliance.policy.dashboard.index') }}" data-tour="comp-policy-register" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Register</a>
+                <a href="{{ route('compliance.policy.dashboard.index') }}" data-tour="comp-policy-register" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">Register</a>
                 @permission('edit_policy')
                 <a href="{{ route('compliance.policy.create') }}" data-tour="comp-policy-new" class="corex-btn-primary">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -80,16 +81,20 @@
                         </td>
                     </tr>
                     @empty
-                    <tr><td colspan="6" class="px-4 py-6 text-center text-sm" style="color: var(--text-muted);">No versions yet.</td></tr>
+                    <tr><td colspan="6" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">No versions yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
     </div>
     @empty
-    <div class="rounded-md px-4 py-12 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+             style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        </div>
         <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No policies yet</h3>
-        <p class="text-sm mb-3" style="color: var(--text-muted);">Create your first agency policy to start collecting staff sign-off.</p>
+        <p class="text-sm mb-4" style="color: var(--text-muted);">Create your first agency policy to start collecting staff sign-off.</p>
         @permission('edit_policy')
         <a href="{{ route('compliance.policy.create') }}" class="corex-btn-primary">New Policy</a>
         @endpermission
