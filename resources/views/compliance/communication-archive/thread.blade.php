@@ -55,6 +55,11 @@
                    class="text-xs rounded px-2 py-1" style="background:var(--surface-2,#f0f2f8); color:var(--text-primary,#111827); border:1px solid var(--border,#e5e7eb);">
             <button @click="jumpOldest()" class="px-2 py-1 rounded font-semibold" style="border:1px solid var(--border,#e5e7eb); color:var(--text-secondary,#4b5563);" x-bind:disabled="loading">Oldest</button>
             <button @click="jumpNewest()" class="px-2 py-1 rounded font-semibold" style="border:1px solid var(--border,#e5e7eb); color:var(--text-secondary,#4b5563);">Newest</button>
+            {{-- AT-182 — open the matched contact's communications tab (new tab). --}}
+            @if(!empty($contactId))
+            <a href="{{ route('corex.contacts.show', $contactId) }}?tab=communications" target="_blank" rel="noopener"
+               class="px-2 py-1 rounded font-semibold" style="border:1px solid var(--border,#e5e7eb); color:var(--brand-icon,#0ea5e9);">Contact</a>
+            @endif
         </div>
     </div>
 

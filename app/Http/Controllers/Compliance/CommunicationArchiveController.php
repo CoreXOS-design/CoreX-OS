@@ -100,6 +100,14 @@ class CommunicationArchiveController extends Controller
         $messages = $newest->sortBy([['occurred_at', 'asc'], ['id', 'asc']])->values();
         $oldest   = $messages->first();
 
+        // AT-182 — the matched contact for this conversation (same across the thread; resolved
+        // deterministically at ingest, lowest-id). Drives the "Contact" action → the contact's
+        // communications tab.
+        $contactId = CommunicationLink::query()
+            ->whereIn('communication_id', $messages->pluck('id'))
+            ->where('linkable_type', Contact::class)
+            ->value('linkable_id');
+
         return view('compliance.communication-archive.thread', [
             'threadKey'    => $threadKey,
             'messages'     => $messages,
@@ -107,6 +115,7 @@ class CommunicationArchiveController extends Controller
             'hasMore'      => $total > $messages->count(),
             'olderCursor'  => $oldest ? $this->cursorFor($oldest) : null,
             'backContact'  => $this->backContext($request), // AT-137 context-aware back
+            'contactId'    => $contactId,
         ]);
     }
 

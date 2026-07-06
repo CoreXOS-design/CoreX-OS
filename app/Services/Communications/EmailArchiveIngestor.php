@@ -34,6 +34,7 @@ class EmailArchiveIngestor
         private ContactIdentifierResolver $resolver,
         private CommunicationIngestFilter $ingestFilter,
         private ProvisionalReconciler $reconciler,
+        private EmailQuoteStripper $quoteStripper,
     ) {
     }
 
@@ -105,6 +106,10 @@ class EmailArchiveIngestor
             'subject'                => isset($msg['subject']) ? Str::limit((string) $msg['subject'], 1000, '') : null,
             'body_text'              => $msg['body_text'] ?? null,
             'body_preview'           => isset($msg['body_text']) ? Str::limit((string) $msg['body_text'], 160) : null,
+            // AT-182 — derived display body (reply-quote stripped) for the thread view; set
+            // only when quoting was confidently removed, else null → falls back to body_text.
+            // The raw body_text above is NEVER modified (immutable compliance record).
+            'body_display'           => ($ds = $this->quoteStripper->strip($msg['body_text'] ?? null))['stripped'] ? $ds['display'] : null,
             'raw_path'               => $stored['path'],
             'content_hash'           => $stored['content_hash'],
             'text_hash'              => MessageTextHasher::hash(

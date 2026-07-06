@@ -86,6 +86,13 @@
                             <a href="{{ route('compliance.comm-archive.thread', $c->thread_key) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Thread</a>
                             @endif
                             <a href="{{ route('compliance.comm-archive.show', $c) }}" class="text-xs font-semibold ml-2" style="color: var(--brand-icon);">Open</a>
+                            {{-- AT-182 — jump straight to the matched contact's communications tab (new tab). --}}
+                            @php $cid = optional($c->links->firstWhere('linkable_type', \App\Models\Contact::class))->linkable_id; @endphp
+                            @if($cid)
+                            <a href="{{ route('corex.contacts.show', $cid) }}?tab=communications" target="_blank" rel="noopener" class="text-xs font-semibold ml-2" style="color: var(--brand-icon);">Contact</a>
+                            @else
+                            <span class="text-xs ml-2" style="color: var(--text-muted);" title="No matched contact">Contact</span>
+                            @endif
                         </td>
                     </tr>
                     @empty
