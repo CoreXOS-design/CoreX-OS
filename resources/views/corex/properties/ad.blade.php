@@ -669,12 +669,12 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
                 region.innerHTML =
                     '<div class="ad-img-region-veil">' +
                         '<span class="ad-img-cta">' +
-                            '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7h3l1.5-2h7L17 7h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V8a1 1 0 011-1z"/><circle cx="12" cy="13" r="3.2"/></svg>' +
+                            '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="14" height="14" rx="2"/><circle cx="11" cy="7.5" r="1.3"/><path d="M21 13l-4-4-6 6"/><path d="M17 21H5a2 2 0 01-2-2V7"/></svg>' +
                             'Change photo' +
                         '</span>' +
                     '</div>' +
                     '<span class="ad-img-badge">' +
-                        '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7h3l1.5-2h7L17 7h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V8a1 1 0 011-1z"/><circle cx="12" cy="13" r="3.2"/></svg>' +
+                        '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="14" height="14" rx="2"/><circle cx="11" cy="7.5" r="1.3"/><path d="M21 13l-4-4-6 6"/><path d="M17 21H5a2 2 0 01-2-2V7"/></svg>' +
                     '</span>';
                 region.addEventListener('click', (e) => { e.stopPropagation(); this.openImagePicker(img); });
                 tools.appendChild(region);
