@@ -5262,8 +5262,9 @@
                         <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Total Viewings</div>
                     </div>
                     <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
-                        <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ $portalPerf['views'] }}</div>
-                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Portal Views (30d)</div>
+                        <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ number_format($portalPerf['views']) }}</div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">P24 Views (30d)</div>
+                        <div class="text-[9px] mt-1" style="color: var(--text-muted);" title="Private Property's agent API does not expose listing view counts.">PP: — not provided by portal</div>
                     </div>
                     <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ $buyerSignals->count() }}</div>
