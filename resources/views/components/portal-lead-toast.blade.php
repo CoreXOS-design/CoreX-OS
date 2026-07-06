@@ -31,8 +31,10 @@
                             class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
                             :style="lead.portal === 'p24'
                                 ? 'background: var(--brand-default, #0b2a4a);'
-                                : 'background: var(--brand-button, #0ea5e9);'"
-                            x-text="lead.portal === 'p24' ? 'P24' : 'PP'"
+                                : (lead.portal === 'website'
+                                    ? 'background: var(--brand-icon, #0ea5e9);'
+                                    : 'background: var(--brand-button, #0ea5e9);')"
+                            x-text="lead.portal === 'p24' ? 'P24' : (lead.portal === 'website' ? 'WEB' : 'PP')"
                         ></span>
                         <span class="text-[10px] uppercase tracking-wider"
                               style="color: var(--text-muted);"

@@ -211,6 +211,12 @@ Route::prefix('v1/website')
             Route::get('/articles',      [\App\Http\Controllers\Api\V1\Website\ArticlesController::class, 'index'])->name('v1.website.articles.index');
             Route::get('/articles/{id}', [\App\Http\Controllers\Api\V1\Website\ArticlesController::class, 'show'])->name('v1.website.articles.show');
         });
+
+        // Inbound lead capture (write). The website POSTs property enquiries here;
+        // they land in the shared portal_leads pipeline. Gated by leads:write.
+        Route::middleware('website.scope:leads:write')->group(function () {
+            Route::post('/leads', [\App\Http\Controllers\Api\V1\Website\LeadsController::class, 'store'])->name('v1.website.leads.store');
+        });
     });
 
 // ════════════════════════════════════════════════════════════════
